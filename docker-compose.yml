@@ -60,6 +60,26 @@ services:
       interval: 10s
       retries: 5
 
+  # 添加初始化服务
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow_init
+    command: bash -c "
+      airflow db init &&
+      airflow users create
+        --username ${AIRFLOW_USERNAME}
+        --firstname admin
+        --lastname admin
+        --role Admin
+        --email ${AIRFLOW_EMAIL}
+        --password ${AIRFLOW_PASSWORD}
+      "
+    environment:
+      <<: *airflow-env
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
   redis:
     <<: *common
     image: bitnami/redis:latest
@@ -79,6 +99,13 @@ services:
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
 
   airflow-worker:
     <<: *airflow-common
@@ -87,6 +114,13 @@ services:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: worker
       AIRFLOW__CELERY__WORKER_CONCURRENCY: 4
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
 
   airflow:
     <<: *airflow-common
@@ -104,6 +138,13 @@ services:
       AIRFLOW__API__ACCESS_CONTROL_ALLOW_HEADERS: "*"
       AIRFLOW__API__ACCESS_CONTROL_ALLOW_METHODS: "*"
       AIRFLOW__API__ACCESS_CONTROL_ALLOW_ORIGINS: "*"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
 
   airflow-dag-processor:
     <<: *airflow-common
@@ -113,6 +154,13 @@ services:
       AIRFLOW_COMPONENT_TYPE: dag-processor
       AIRFLOW__SCHEDULER__DAG_FILE_PROCESSOR_TIMEOUT: 600
       AIRFLOW__SCHEDULER__PARSING_PROCESSES: 2
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
 
   airflow-triggerer:
     <<: *airflow-common
@@ -121,6 +169,13 @@ services:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: triggerer
       AIRFLOW__TRIGGERER__DEFAULT_CAPACITY: 1000
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
 
 volumes:
   postgres-data:
