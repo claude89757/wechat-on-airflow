@@ -1,5 +1,9 @@
 # AI-Chatbot-Airflow-DAGs
 
+## 项目说明
+
+这是一个基于Airflow的AI聊天机器人数据处理系统，用于管理和调度AI模型的训练、数据处理等相关任务。系统采用Docker容器化部署，使用Redis作为缓存，PostgreSQL作为持久化存储。
+
 ## 目录结构
 
 - [dags](./dags/readme.md) - 存放Airflow DAG任务文件
@@ -19,7 +23,3 @@
   - 存储项目所需的环境变量和密钥
 - [.gitignore](./.gitignore) - Git忽略文件配置
   - 指定不需要纳入版本控制的文件和目录
-
-## 项目说明
-
-这是一个基于Airflow的AI聊天机器人数据处理系统，用于管理和调度AI模型的训练、数据处理等相关任务。系统采用Docker容器化部署，使用Redis作为缓存，PostgreSQL作为持久化存储。
