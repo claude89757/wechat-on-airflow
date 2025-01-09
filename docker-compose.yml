@@ -62,18 +62,18 @@ services:
   airflow-init:
     <<: *airflow-common
     container_name: airflow_init
-    entrypoint: /bin/bash
-    command: |
-      -c '
+    entrypoint: []
+    command: >
+      bash -c "
       airflow db init &&
       airflow users create \
-        --username $${AIRFLOW_USERNAME} \
+        --username $$AIRFLOW_USERNAME \
         --firstname admin \
         --lastname admin \
         --role Admin \
-        --email $${AIRFLOW_EMAIL} \
-        --password $${AIRFLOW_PASSWORD}
-      '
+        --email $$AIRFLOW_EMAIL \
+        --password $$AIRFLOW_PASSWORD
+      "
     environment:
       <<: *airflow-env
     restart: "no"
