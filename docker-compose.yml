@@ -1,0 +1,237 @@
+version: '2'
+
+services:
+  # -------------------------
+  # 1) PostgreSQL 数据库
+  # -------------------------
+  postgresql:
+    image: 'bitnami/postgresql:latest'
+    container_name: airflow_postgres
+    user: root
+    environment:
+      - POSTGRESQL_DATABASE=${AIRFLOW_DATABASE_NAME}
+      - POSTGRESQL_USERNAME=${AIRFLOW_DATABASE_USERNAME}
+      - POSTGRESQL_PASSWORD=${AIRFLOW_DATABASE_PASSWORD}
+    volumes:
+      - /root/airflow_postgresql:/bitnami/postgresql
+
+  # -------------------------
+  # 2) Redis 缓存/消息队列
+  # -------------------------
+  redis:
+    image: 'bitnami/redis:latest'
+    container_name: airflow_redis
+    user: root
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - /root/airflow_redis:/bitnami
+
+  # -------------------------
+  # 3) Airflow Scheduler
+  # -------------------------
+  airflow-scheduler:
+    image: bitnami/airflow:latest
+    container_name: airflow_scheduler
+    environment:
+      # 基础配置
+      - AIRFLOW_COMPONENT_TYPE=scheduler
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_LOAD_EXAMPLES=no
+
+      # 数据库配置
+      - AIRFLOW_DATABASE_NAME=${AIRFLOW_DATABASE_NAME}
+      - AIRFLOW_DATABASE_USERNAME=${AIRFLOW_DATABASE_USERNAME}
+      - AIRFLOW_DATABASE_PASSWORD=${AIRFLOW_DATABASE_PASSWORD}
+
+      # 并发限制配置
+      - AIRFLOW__CORE__PARALLELISM=8
+      - AIRFLOW__CORE__DAG_CONCURRENCY=4
+      - AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG=3
+
+      # 时区配置
+      - TZ=Asia/Shanghai
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Shanghai
+
+      # Web UI配置
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True  # 在Web UI中显示配置
+
+      # Celery配置
+      - AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP=True
+
+    volumes:
+      - /root/airflow_dags:/opt/bitnami/airflow/dags
+      - /root/airflow_logs:/opt/bitnami/airflow/logs
+      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+
+  # -------------------------
+  # 4) Airflow Celery Worker
+  # -------------------------
+  airflow-worker:
+    image: bitnami/airflow:latest
+    container_name: airflow_worker
+    environment:
+      # 基础配置
+      - AIRFLOW_COMPONENT_TYPE=worker
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_LOAD_EXAMPLES=no
+
+      # 数据库配置
+      - AIRFLOW_DATABASE_NAME=${AIRFLOW_DATABASE_NAME}
+      - AIRFLOW_DATABASE_USERNAME=${AIRFLOW_DATABASE_USERNAME}
+      - AIRFLOW_DATABASE_PASSWORD=${AIRFLOW_DATABASE_PASSWORD}
+
+      # 并发限制配置
+      - AIRFLOW__CORE__PARALLELISM=8
+      - AIRFLOW__CORE__DAG_CONCURRENCY=4
+      - AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG=3
+      - AIRFLOW__CELERY__WORKER_CONCURRENCY=4
+
+      # 时区配置
+      - TZ=Asia/Shanghai
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Shanghai
+
+      # Celery配置
+      - AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP=True
+
+    volumes:
+      - /root/airflow_dags:/opt/bitnami/airflow/dags
+      - /root/airflow_logs:/opt/bitnami/airflow/logs
+      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+
+  # -------------------------
+  # 5) Airflow Webserver
+  # -------------------------
+  airflow:
+    image: bitnami/airflow:latest
+    container_name: airflow_web
+    environment:
+      # 基础配置
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_LOAD_EXAMPLES=no
+
+      # 数据库配置
+      - AIRFLOW_DATABASE_NAME=${AIRFLOW_DATABASE_NAME}
+      - AIRFLOW_DATABASE_USERNAME=${AIRFLOW_DATABASE_USERNAME}
+      - AIRFLOW_DATABASE_PASSWORD=${AIRFLOW_DATABASE_PASSWORD}
+
+      # 用户认证配置
+      - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
+      - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
+      - AIRFLOW_EMAIL=${AIRFLOW_EMAIL}
+
+      # Webserver配置
+      - AIRFLOW__WEBSERVER__WORKERS=2
+      - AIRFLOW__WEBSERVER__WEB_SERVER_WORKER_TIMEOUT=120
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True  # 在Web UI中显示配置
+
+      # 全局并发控制
+      - AIRFLOW__CORE__PARALLELISM=8
+      - AIRFLOW__CORE__DAG_CONCURRENCY=4
+      - AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG=3
+
+      # 时区配置
+      - TZ=Asia/Shanghai
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Shanghai
+
+      # Celery配置
+      - AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP=True
+
+      # API认证配置 - 使用basic auth
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      
+      # 跨域访问配置
+      - AIRFLOW__API__ACCESS_CONTROL_ALLOW_HEADERS=*
+      - AIRFLOW__API__ACCESS_CONTROL_ALLOW_METHODS=*
+      - AIRFLOW__API__ACCESS_CONTROL_ALLOW_ORIGINS=*
+
+      # REST API 速率限制配置
+      - AIRFLOW__API__RATE_LIMIT=True
+      - AIRFLOW__API__RATE_LIMIT_RETRIES=300
+      - AIRFLOW__API__RATE_LIMIT_RETRY_TIMEOUT=300
+      
+      # API性能配置
+      - AIRFLOW__API__RESPONSE_CACHE_ENABLED=True  # 启用响应缓存
+      - AIRFLOW__API__RESPONSE_CACHE_TIMEOUT=300  # 缓存超时时间(秒)
+      - AIRFLOW__API__RESPONSE_CACHE_MAX_ENTRIES=5000  # 最大缓存条目数
+
+    # Airflow Web UI 端口
+    ports:
+      - '80:8080'
+
+    volumes:
+      - /root/airflow_dags:/opt/bitnami/airflow/dags
+      - /root/airflow_logs:/opt/bitnami/airflow/logs
+      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+
+  # -------------------------
+  # 6) Airflow DAG Processor
+  # -------------------------
+  airflow-dag-processor:
+    image: bitnami/airflow:latest
+    container_name: airflow_dag_processor
+    environment:
+      # 基础配置
+      - AIRFLOW_COMPONENT_TYPE=dag-processor
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_LOAD_EXAMPLES=no
+
+      # 数据库配置
+      - AIRFLOW_DATABASE_NAME=${AIRFLOW_DATABASE_NAME}
+      - AIRFLOW_DATABASE_USERNAME=${AIRFLOW_DATABASE_USERNAME}
+      - AIRFLOW_DATABASE_PASSWORD=${AIRFLOW_DATABASE_PASSWORD}
+
+      # DAG处理器配置
+      - AIRFLOW__SCHEDULER__DAG_FILE_PROCESSOR_TIMEOUT=600
+      - AIRFLOW__SCHEDULER__PARSING_PROCESSES=2
+      - AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL=30
+
+      # 时区配置
+      - TZ=Asia/Shanghai
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Shanghai
+
+    volumes:
+      - /root/airflow_dags:/opt/bitnami/airflow/dags
+      - /root/airflow_logs:/opt/bitnami/airflow/logs
+      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+
+  # -------------------------
+  # 7) Airflow Triggerer
+  # -------------------------
+  airflow-triggerer:
+    image: bitnami/airflow:latest
+    container_name: airflow_triggerer
+    environment:
+      # 基础配置
+      - AIRFLOW_COMPONENT_TYPE=triggerer
+      - AIRFLOW_FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW_SECRET_KEY=a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW_LOAD_EXAMPLES=no
+
+      # 数据库配置
+      - AIRFLOW_DATABASE_NAME=${AIRFLOW_DATABASE_NAME}
+      - AIRFLOW_DATABASE_USERNAME=${AIRFLOW_DATABASE_USERNAME}
+      - AIRFLOW_DATABASE_PASSWORD=${AIRFLOW_DATABASE_PASSWORD}
+
+      # Triggerer配置
+      - AIRFLOW__TRIGGERER__DEFAULT_CAPACITY=1000
+      - AIRFLOW__TRIGGERER__JOB_HEARTBEAT_SEC=5
+      - AIRFLOW__TRIGGERER__CAPACITY_PER_TRIGGER=100
+
+      # 时区配置
+      - TZ=Asia/Shanghai
+      - AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Shanghai
+
+    volumes:
+      - /root/airflow_dags:/opt/bitnami/airflow/dags
+      - /root/airflow_logs:/opt/bitnami/airflow/logs
+      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
