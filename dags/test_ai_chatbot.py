@@ -15,12 +15,15 @@ Author: claude89757
 Date: 2025-01-09
 """
 
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.models import Param
-from datetime import datetime, timedelta
+# Python标准库
 import logging
+from datetime import datetime, timedelta
 from typing import Dict, Any
+
+# 第三方库
+from airflow import DAG
+from airflow.models import Param
+from airflow.operators.python import PythonOperator
 
 # 添加配置参数
 CHATBOT_CONFIG = {
