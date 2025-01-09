@@ -111,6 +111,10 @@ services:
       AIRFLOW__API__ACCESS_CONTROL_ALLOW_HEADERS: "*"
       AIRFLOW__API__ACCESS_CONTROL_ALLOW_METHODS: "*"
       AIRFLOW__API__ACCESS_CONTROL_ALLOW_ORIGINS: "*"
+      # 允许在UI界面查看和导出Airflow的配置信息
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      # 允许通过Web UI手动触发DAG并传递配置参数
+      AIRFLOW__WEBSERVER__ALLOW_CONFIG_TRIGGER: "True"
     depends_on:
       redis:
         condition: service_healthy

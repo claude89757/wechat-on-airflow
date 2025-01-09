@@ -17,8 +17,31 @@ Date: 2025-01-09
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.models import Param
 from datetime import datetime, timedelta
 import logging
+from typing import Dict, Any
+
+# 添加配置参数
+CHATBOT_CONFIG = {
+    'model': {
+        'intent_recognition': 'gpt-4',
+        'response_generation': 'gpt-4',
+        'style_adaptation': 'gpt-3.5-turbo'
+    },
+    'temperature': 0.7,
+    'max_tokens': 1000,
+    'language': 'zh-CN'
+}
+
+# 定义可用的模型选项
+AVAILABLE_MODELS = [
+    'gpt-4',
+    'gpt-3.5-turbo',
+    'gpt-4-turbo',
+    'claude-2',
+    'claude-3'
+]
 
 # 设置默认参数
 default_args = {
@@ -29,16 +52,28 @@ default_args = {
     'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
+    'params': {
+        'user_input': None,  # 用户输入的问题
+        'model_config': CHATBOT_CONFIG,  # 模型配置
+        'debug_mode': False  # 调试模式
+    }
 }
 
 # 模拟任务函数
 def intent_recognition(**context):
     """意图识别任务"""
-    logging.info("执行意图识别...")
-    # 示例返回结果
+    params = context['params']
+    user_input = params['user_input']
+    intent_model = params['intent_recognition_model']
+    
+    logging.info(f"执行意图识别... 使用模型: {intent_model}")
+    logging.info(f"处理用户输入: {user_input}")
+    
     return {
         'intent': 'product_inquiry',
-        'confidence': 0.95
+        'confidence': 0.95,
+        'user_input': user_input,
+        'model_used': intent_model
     }
 
 def multimodal_processing(**context):
@@ -62,7 +97,15 @@ def rag_knowledge_retrieval(**context):
 
 def response_generation(**context):
     """响应生成任务"""
-    logging.info("生成回复...")
+    params = context['params']
+    response_model = params['response_generation_model']
+    temperature = params['temperature']
+    max_tokens = params['max_tokens']
+    language = params['language']
+    
+    logging.info(f"生成回复... 使用模型: {response_model}")
+    logging.info(f"参数设置: temperature={temperature}, max_tokens={max_tokens}, language={language}")
+    
     # 获取上游任务结果
     ti = context['task_instance']
     intent = ti.xcom_pull(task_ids='intent_recognition')
@@ -70,7 +113,10 @@ def response_generation(**context):
     
     return {
         'response': '根据意图和知识生成的回复',
-        'confidence': 0.92
+        'confidence': 0.92,
+        'model_used': response_model,
+        'temperature': temperature,
+        'language': language
     }
 
 def style_adaptation(**context):
@@ -96,9 +142,60 @@ with DAG(
     'ai_chatbot_pipeline',
     default_args=default_args,
     description='AI智能客服处理流程',
-    schedule_interval=timedelta(days=1),
+    schedule_interval=None,  # 改为 None 使其成为手动触发
     catchup=False,
-    tags=['ai', 'chatbot']
+    tags=['ai', 'chatbot'],
+    params={
+        'user_input': Param(
+            default="",
+            type="string",
+            title="用户输入",
+            description="请输入需要处理的用户问题或对话内容"
+        ),
+        'intent_recognition_model': Param(
+            default="gpt-4",
+            enum=AVAILABLE_MODELS,
+            type="string",
+            title="意图识别模型",
+            description="选择用于意图识别的模型"
+        ),
+        'response_generation_model': Param(
+            default="gpt-4",
+            enum=AVAILABLE_MODELS,
+            type="string",
+            title="响应生成模型",
+            description="选择用于生成回复的模型"
+        ),
+        'temperature': Param(
+            default=0.7,
+            type="number",
+            minimum=0.0,
+            maximum=2.0,
+            title="温度参数",
+            description="控制响应的随机性(0.0-2.0)"
+        ),
+        'max_tokens': Param(
+            default=1000,
+            type="integer",
+            minimum=1,
+            maximum=4000,
+            title="最大令牌数",
+            description="生成回复的最大长度"
+        ),
+        'language': Param(
+            default="zh-CN",
+            enum=["zh-CN", "en-US", "ja-JP"],
+            type="string",
+            title="语言",
+            description="选择对话语言"
+        ),
+        'debug_mode': Param(
+            default=False,
+            type="boolean",
+            title="调试模式",
+            description="是否启用调试模式"
+        )
+    }
 ) as dag:
 
     # 意图识别
