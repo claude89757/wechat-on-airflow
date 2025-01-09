@@ -13,7 +13,7 @@ services:
       - POSTGRESQL_USERNAME=${AIRFLOW_DATABASE_USERNAME}
       - POSTGRESQL_PASSWORD=${AIRFLOW_DATABASE_PASSWORD}
     volumes:
-      - /root/airflow_postgresql:/bitnami/postgresql
+      - ./database/postgresql:/bitnami/postgresql
 
   # -------------------------
   # 2) Redis 缓存/消息队列
@@ -25,7 +25,7 @@ services:
     environment:
       - ALLOW_EMPTY_PASSWORD=yes
     volumes:
-      - /root/airflow_redis:/bitnami
+      - ./database/redis:/bitnami
 
   # -------------------------
   # 3) Airflow Scheduler
@@ -62,9 +62,9 @@ services:
       - AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP=True
 
     volumes:
-      - /root/airflow_dags:/opt/bitnami/airflow/dags
-      - /root/airflow_logs:/opt/bitnami/airflow/logs
-      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - .requirements.txt:/bitnami/python/requirements.txt
 
   # -------------------------
   # 4) Airflow Celery Worker
@@ -99,9 +99,9 @@ services:
       - AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP=True
 
     volumes:
-      - /root/airflow_dags:/opt/bitnami/airflow/dags
-      - /root/airflow_logs:/opt/bitnami/airflow/logs
-      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - .requirements.txt:/bitnami/python/requirements.txt
 
   # -------------------------
   # 5) Airflow Webserver
@@ -166,9 +166,9 @@ services:
       - '80:8080'
 
     volumes:
-      - /root/airflow_dags:/opt/bitnami/airflow/dags
-      - /root/airflow_logs:/opt/bitnami/airflow/logs
-      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - .requirements.txt:/bitnami/python/requirements.txt
 
   # -------------------------
   # 6) Airflow DAG Processor
@@ -199,9 +199,9 @@ services:
       - AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Shanghai
 
     volumes:
-      - /root/airflow_dags:/opt/bitnami/airflow/dags
-      - /root/airflow_logs:/opt/bitnami/airflow/logs
-      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - .requirements.txt:/bitnami/python/requirements.txt
 
   # -------------------------
   # 7) Airflow Triggerer
@@ -232,6 +232,6 @@ services:
       - AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Shanghai
 
     volumes:
-      - /root/airflow_dags:/opt/bitnami/airflow/dags
-      - /root/airflow_logs:/opt/bitnami/airflow/logs
-      - /root/airflow_dags/requirements.txt:/bitnami/python/requirements.txt
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - .requirements.txt:/bitnami/python/requirements.txt
