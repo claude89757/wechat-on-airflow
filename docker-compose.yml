@@ -32,9 +32,9 @@ x-airflow-env: &airflow-env
   AIRFLOW_DATABASE_PASSWORD: &db_pass ${AIRFLOW_DATABASE_PASSWORD}
   
   # 核心配置
-  AIRFLOW__CORE__PARALLELISM: 8
-  AIRFLOW__CORE__DAG_CONCURRENCY: 4
-  AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 3
+  AIRFLOW__CORE__PARALLELISM: 32
+  AIRFLOW__CORE__DAG_CONCURRENCY: 16
+  AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 8
   AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Shanghai
   
   # 其他配置
@@ -89,7 +89,7 @@ services:
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: worker
-      AIRFLOW__CELERY__WORKER_CONCURRENCY: 4
+      AIRFLOW__CELERY__WORKER_CONCURRENCY: 16
     depends_on:
       redis:
         condition: service_healthy
@@ -128,7 +128,7 @@ services:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: dag-processor
       AIRFLOW__SCHEDULER__DAG_FILE_PROCESSOR_TIMEOUT: 600
-      AIRFLOW__SCHEDULER__PARSING_PROCESSES: 2
+      AIRFLOW__SCHEDULER__PARSING_PROCESSES: 4
     depends_on:
       redis:
         condition: service_healthy
