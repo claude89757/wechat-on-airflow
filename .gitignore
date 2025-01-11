@@ -1,3 +1,8 @@
 .env
 *.log
 /database
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz

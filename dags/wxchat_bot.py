@@ -105,7 +105,7 @@ with DAG(
         'retry_delay': timedelta(minutes=1),
     },
     description='WeChat automation tasks using wxchat_sdk',
-    schedule_interval=None,
+    schedule=None,
     start_date=datetime(2025, 1, 10),
     catchup=False,
 ) as dag:
@@ -113,25 +113,21 @@ with DAG(
     init_sdk_task = PythonOperator(
         task_id='init_sdk',
         python_callable=init_sdk,
-        provide_context=True
     )
 
     monitor_chats_task = PythonOperator(
         task_id='monitor_chats',
         python_callable=monitor_chats,
-        provide_context=True
     )
 
     send_messages_task = PythonOperator(
         task_id='send_messages',
         python_callable=send_messages,
-        provide_context=True
     )
 
     ai_auto_reply_task = PythonOperator(
         task_id='ai_auto_reply',
         python_callable=ai_auto_reply,
-        provide_context=True
     )
 
     init_sdk_task >> [monitor_chats_task, send_messages_task, ai_auto_reply_task]
