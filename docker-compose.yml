@@ -11,7 +11,7 @@ x-airflow-common: &airflow-common
   volumes: &airflow-volumes
     - ./dags:/opt/bitnami/airflow/dags
     - ./logs:/opt/bitnami/airflow/logs
-    - .requirements.txt:/bitnami/python/requirements.txt
+    - ./requirements.txt:/bitnami/python/requirements.txt
   depends_on:
     redis:
       condition: service_healthy
