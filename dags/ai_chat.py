@@ -177,7 +177,7 @@ def call_ai_api(question: str) -> str:
         
         # 调用ChatGPT API，使用轻量级模型
         response = client.chat.completions.create(
-            model="gpt-4-mini",  # 使用最新的轻量级模型
+            model="gpt-4",  # 注意：gpt-4-mini 不是有效的模型名称，这里改用 gpt-4
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}
