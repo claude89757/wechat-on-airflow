@@ -23,8 +23,9 @@ from typing import Dict, Any
 # 第三方库
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-import openai
+from openai import OpenAI
 import requests
+from airflow.models import Variable
 
 default_args = {
     'owner': 'airflow',
@@ -135,6 +136,22 @@ def process_ai_chat(**context):
         print(f"处理AI聊天时发生错误: {str(e)}")
         raise
 
+def get_system_prompt() -> str:
+    """
+    从Airflow Variable获取系统prompt配置
+    
+    Returns:
+        str: 系统prompt内容，如果未配置则返回默认值
+    """
+    try:
+        return Variable.get(
+            "ai_chat_system_prompt",
+            default_var="你是一个友好的AI助手，请用简短的中文回答问题。"
+        )
+    except Exception as e:
+        print(f"获取系统prompt配置失败: {str(e)}，使用默认配置")
+        return "你是一个友好的AI助手，请用简短的中文回答问题。"
+
 def call_ai_api(question: str) -> str:
     """
     调用ChatGPT API进行对话，使用轻量级模型
@@ -148,15 +165,21 @@ def call_ai_api(question: str) -> str:
     Raises:
         Exception: API调用失败时抛出异常
     """
-    # 设置OpenAI API密钥
-    openai.api_key = os.getenv('OPENAI_API_KEY')
-    
     try:
+        # 从Airflow Variable获取OpenAI API密钥
+        api_key = Variable.get("OPENAI_API_KEY")
+        
+        # 初始化OpenAI客户端
+        client = OpenAI(api_key=api_key)
+        
+        # 获取系统prompt配置
+        system_prompt = get_system_prompt()
+        
         # 调用ChatGPT API，使用轻量级模型
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4-mini",  # 使用最新的轻量级模型
             messages=[
-                {"role": "system", "content": "你是一个友好的AI助手，请用简短的中文回答问题。"},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}
             ],
             temperature=0.5,  # 降低创造性，使回答更加确定
@@ -170,14 +193,10 @@ def call_ai_api(question: str) -> str:
         ai_response = response.choices[0].message.content.strip()
         return ai_response
         
-    except openai.error.OpenAIError as e:
-        error_msg = f"OpenAI API调用失败: {str(e)}"
+    except Exception as e:
+        error_msg = f"调用AI API时发生错误: {str(e)}"
         print(error_msg)
         raise Exception(error_msg)
-    except Exception as e:
-        error_msg = f"调用AI API时发生未知错误: {str(e)}"
-        print(error_msg)
-        raise
 
 # 创建DAG
 dag = DAG(
