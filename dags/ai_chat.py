@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+AI聊天处理DAG
+
+功能：
+1. 处理用户与AI助手的对话
+2. 支持gpt-4-mini模型对话
+3. 接收来自wx_msg_watcher的消息触发
+
+特点：
+1. 由wx_msg_watcher触发，不进行定时调度
+2. 最大并发运行数为5
+3. 支持异常重试
+"""
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+import json
+import os
+import requests
+from typing import Dict, Any
+import openai
+
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'start_date': datetime(2024, 1, 1),
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
+
+def process_ai_chat(**context):
+    """
+    处理AI聊天的任务函数
+    
+    Args:
+        **context: Airflow上下文参数，包含dag_run等信息
+        
+    处理流程：
+    1. 从dag_run.conf获取微信消息数据
+    2. 提取@Zacks后的实际问题内容
+    3. 调用AI接口获取回复
+    4. 将回复发送回微信群（待实现）
+    
+    异常处理：
+    - 记录错误日志并向上抛出异常，触发重试机制
+    """
+    # 获取消息数据
+    dag_run = context.get('dag_run')
+    if not (dag_run and dag_run.conf):
+        print("没有收到消息数据")
+        return
+        
+    message_data = dag_run.conf
+    content = message_data.get('content', '')
+    
+    # 提取@Zacks后的实际问题内容
+    question = content.replace('@Zacks', '').strip()
+    if not question:
+        print("没有检测到实际问题内容")
+        return
+        
+    try:
+        # 调用AI接口（这里需要根据实际的API实现）
+        response = call_ai_api(question)
+        print(f"AI回复: {response}")
+        
+        # TODO: 将回复发送回微信群
+        # 这部分需要实现发送消息回微信群的逻辑
+        
+    except Exception as e:
+        print(f"处理AI聊天时发生错误: {str(e)}")
+        raise
+
+def call_ai_api(question: str) -> str:
+    """
+    调用ChatGPT API进行对话，使用轻量级模型
+    
+    Args:
+        question: 用户问题
+        
+    Returns:
+        str: AI的回复
+        
+    Raises:
+        Exception: API调用失败时抛出异常
+    """
+    # 设置OpenAI API密钥
+    openai.api_key = os.getenv('OPENAI_API_KEY')
+    
+    try:
+        # 调用ChatGPT API，使用轻量级模型
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo-0125",  # 使用最新的轻量级模型
+            messages=[
+                {"role": "system", "content": "你是一个友好的AI助手，请用简短的中文回答问题。"},
+                {"role": "user", "content": question}
+            ],
+            temperature=0.5,  # 降低创造性，使回答更加确定
+            max_tokens=500,   # 限制回答长度，减少token消耗
+            top_p=0.8,
+            frequency_penalty=0.3,  # 增加词语多样性
+            presence_penalty=0.3    # 增加主题多样性
+        )
+        
+        # 提取AI回复
+        ai_response = response.choices[0].message.content.strip()
+        return ai_response
+        
+    except openai.error.OpenAIError as e:
+        error_msg = f"OpenAI API调用失败: {str(e)}"
+        print(error_msg)
+        raise Exception(error_msg)
+    except Exception as e:
+        error_msg = f"调用AI API时发生未知错误: {str(e)}"
+        print(error_msg)
+        raise
+
+# 创建DAG
+dag = DAG(
+    'ai_chat',
+    default_args=default_args,
+    description='处理AI聊天的DAG',
+    schedule_interval=None,  # 仅由wx_msg_watcher触发
+    max_active_runs=5,
+    catchup=False
+)
+
+# 创建处理AI聊天的任务
+process_chat = PythonOperator(
+    task_id='process_ai_chat',
+    python_callable=process_ai_chat,
+    provide_context=True,
+    dag=dag
+)
+
+# 设置任务依赖关系
+process_chat 

@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-微信消息处理DAG
-功能：接收并处理来自webhook的微信消息
+微信消息监听处理DAG
+
+功能：
+1. 监听并处理来自webhook的微信消息
+2. 当收到@Zacks的消息时，触发AI聊天DAG
+
 特点：
 1. 由webhook触发，不进行定时调度
 2. 最大并发运行数为10
-3. 当前功能为接收消息并打印
+3. 支持消息分发到其他DAG处理
 """
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import json
+from airflow.api.common.trigger_dag import trigger_dag
 
 # DAG默认参数
 default_args = {
@@ -31,22 +36,29 @@ def process_wx_message(**context):
     
     Args:
         **context: Airflow上下文参数，包含dag_run等信息
-        
-    Returns:
-        None
-        
-    说明：
-        - 从dag_run.conf中获取webhook传入的消息数据
-        - 将消息内容格式化打印
     """
     # 获取传入的消息数据
     dag_run = context.get('dag_run')
-    if dag_run and dag_run.conf:
-        message_data = dag_run.conf
-        print("收到微信消息:")
-        print(json.dumps(message_data, ensure_ascii=False, indent=2))
-    else:
+    if not (dag_run and dag_run.conf):
         print("没有收到消息数据")
+        return
+        
+    message_data = dag_run.conf
+    print("收到微信消息:")
+    print(json.dumps(message_data, ensure_ascii=False, indent=2))
+    
+    # 检查是否需要触发AI聊天
+    msg_type = message_data.get('type')
+    content = message_data.get('content', '')
+    
+    if msg_type == 1 and content.startswith('@Zacks'):
+        print("触发AI聊天流程")
+        # 触发ai_chat DAG，并传递完整的消息数据
+        trigger_dag(
+            dag_id='ai_chat',
+            conf=message_data,
+            run_id=f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        )
 
 # 创建DAG
 dag = DAG(
