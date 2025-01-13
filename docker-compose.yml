@@ -33,7 +33,7 @@ x-airflow-env: &airflow-env
   
   # 核心配置
   AIRFLOW__CORE__PARALLELISM: 32
-  AIRFLOW__CORE__DAG_CONCURRENCY: 16
+  AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: 16
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 8
   AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Shanghai
   
@@ -41,6 +41,10 @@ x-airflow-env: &airflow-env
   TZ: Asia/Shanghai
   AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP: True
   AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: True
+  
+  # API 认证配置
+  # 添加 session 认证后端
+  AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
 
 services:
   postgresql:
