@@ -20,13 +20,21 @@ Webhook服务器
    - Content type: application/json
 """
 
-from flask import Flask, request
-import subprocess
-import os
-import logging
-import requests
-from datetime import datetime
 import json
+import logging
+import os
+import subprocess
+from datetime import datetime
+
+import requests
+from dotenv import load_dotenv
+from flask import Flask, request
+
+# 项目目录路径
+REPO_PATH = os.path.dirname(os.path.abspath(__file__))
+
+# 简化环境变量加载
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -36,9 +44,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     filename='webhook.log'
 )
-
-# 项目目录路径
-REPO_PATH = os.path.dirname(os.path.abspath(__file__))
 
 # 添加Airflow API配置
 AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL")

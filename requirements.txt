@@ -1,2 +1,5 @@
 Appium-Python-Client>=3.1.0
 selenium>=4.0.0
+flask
+requests
+python-dotenv
