@@ -33,7 +33,7 @@ default_args = {
     'start_date': datetime(2024, 1, 1),
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 1,
+    'retries': 0,
     'retry_delay': timedelta(minutes=5),
 }
 
@@ -177,7 +177,7 @@ def call_ai_api(question: str) -> str:
         
         # 调用ChatGPT API，使用轻量级模型
         response = client.chat.completions.create(
-            model="gpt-4",  # 注意：gpt-4-mini 不是有效的模型名称，这里改用 gpt-4
+            model="gpt-4o-mini",  
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}
@@ -204,7 +204,7 @@ dag = DAG(
     default_args=default_args,
     description='处理AI聊天的DAG',
     schedule_interval=None,  # 仅由wx_msg_watcher触发
-    max_active_runs=5,
+    max_active_runs=3,
     catchup=False
 )
 
