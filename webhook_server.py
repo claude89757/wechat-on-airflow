@@ -41,8 +41,9 @@ logging.basicConfig(
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
 
 # 添加Airflow API配置
-AIRFLOW_API_URL = "http://129.204.143.82/api/v1/dags"
-DAG_NAME = "wx_msg_watcher"  # 要触发的DAG名称
+AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL")
+AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME")
+AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD")
 
 @app.route('/update', methods=['POST'])
 def update_code():
@@ -88,13 +89,14 @@ def handle_wcf_callback():
         
         # 调用Airflow API触发DAG
         response = requests.post(
-            f"{AIRFLOW_API_URL}/{DAG_NAME}/dagRuns",
+            f"{AIRFLOW_BASE_URL}/api/v1/dags/wx_msg_watcher/dagRuns",
             json=airflow_payload,
-            headers={'Content-Type': 'application/json'}
+            headers={'Content-Type': 'application/json'},
+            auth=(AIRFLOW_USERNAME, AIRFLOW_PASSWORD)  # 添加认证信息
         )
         
         if response.status_code == 200:
-            logging.info(f'成功触发Airflow DAG: {DAG_NAME}')
+            logging.info(f'成功触发Airflow DAG: wx_msg_watcher')
             return {'message': 'DAG触发成功', 'dag_run_id': dag_run_id}, 200
         else:
             logging.error(f'触发Airflow DAG失败: {response.text}')
