@@ -20,6 +20,7 @@ Date: 2024-01
 import signal
 import threading
 from datetime import datetime, timedelta
+import time
 
 # 第三方库导入
 from flask import Flask, request
@@ -85,17 +86,33 @@ def start_flask_server():
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     
-    server_thread = threading.Thread(target=flask_server.run_server)
-    server_thread.daemon = True
-    server_thread.start()
-    
     try:
+        print("正在启动WCF回调监听服务...")
+        server_thread = threading.Thread(target=flask_server.run_server)
+        server_thread.daemon = True
+        server_thread.start()
+        
+        # 等待服务器启动
+        time.sleep(10)  # 给服务器一点启动时间
+        
+        # 检查服务器是否成功启动
+        if server_thread.is_alive():
+            print("✓ WCF回调监听服务启动成功！")
+            print("- 监听地址: http://0.0.0.0:8081/callback")
+            print("- 接口方法: POST")
+            print("- 数据格式: JSON")
+        else:
+            print("✗ WCF回调监听服务启动失败！")
+            return
+        
         # 保持任务运行直到DAG被重新调度
         while True:
-            import time
             time.sleep(60)
     except (KeyboardInterrupt, SystemExit):
         print("收到退出信号，正在关闭服务器...")
+        flask_server.shutdown_server()
+    except Exception as e:
+        print(f"✗ 服务发生错误: {str(e)}")
         flask_server.shutdown_server()
 
 # 定义DAG的默认参数
