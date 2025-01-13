@@ -109,8 +109,9 @@ def process_ai_chat(**context):
     print(f"[CHAT] 收到消息数据: {json.dumps(message_data, ensure_ascii=False)}")
     
     content = message_data.get('content', '')
-    room_id = message_data.get('room_id', '')  # 群聊ID，单聊时为空
+    room_id = message_data.get('room_id', '')  # 群聊ID
     from_id = message_data.get('from_id', '')  # 发送者ID
+    is_group = message_data.get('is_group', False)  # 是否群聊
     
     # 提取@Zacks后的实际问题内容
     question = content.replace('@Zacks', '').strip()
@@ -124,14 +125,14 @@ def process_ai_chat(**context):
         print(f"[CHAT] AI回复: {response}")
         
         # 确定消息接收者
-        if not (room_id or from_id):
-            raise Exception("无法确定消息接收者：群ID和发送者ID都为空")
+        if not room_id:
+            raise Exception("无法确定消息接收者：roomid为空")
             
-        # 确定消息接收者和是否需要@
-        receiver = room_id if room_id else from_id  # 群聊发给群，单聊发给个人
+        # 统一使用room_id作为接收者
+        receiver = room_id
         
         # 构造回复消息
-        if room_id:
+        if is_group:
             # 群聊中需要@发送者
             reply_message = f"@{from_id}\n{response}"
             aters = from_id
@@ -140,7 +141,7 @@ def process_ai_chat(**context):
             reply_message = response
             aters = ""
         
-        print(f"[CHAT] 发送回复到: {receiver} (群聊: {bool(room_id)})")
+        print(f"[CHAT] 发送回复到: {receiver} (群聊: {is_group})")
         
         # 发送消息
         success = send_message_to_wx(
@@ -150,7 +151,7 @@ def process_ai_chat(**context):
         )
         
         if success:
-            print(f"[CHAT] 成功发送回复到{'群聊' if room_id else '私聊'}")
+            print(f"[CHAT] 成功发送回复到{'群聊' if is_group else '私聊'}")
         
     except Exception as e:
         print(f"[CHAT] 处理AI聊天时发生错误: {str(e)}")
