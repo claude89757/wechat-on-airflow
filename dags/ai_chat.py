@@ -172,18 +172,13 @@ def call_ai_api(question: str) -> str:
         proxy_user = Variable.get("OPENAI_PROXY_USER")  # 代理用户名
         proxy_pass = Variable.get("OPENAI_PROXY_PASS")  # 代理密码
         
-        # 构造代理URL
-        proxy = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
+        # 设置环境变量
+        os.environ['OPENAI_API_KEY'] = api_key
+        os.environ['HTTPS_PROXY'] = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
+        os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY']
         
-        # 初始化OpenAI客户端，配置代理
-        client = OpenAI(
-            api_key=api_key,
-            http_client=requests.Session(),
-            proxies={
-                "https": proxy,
-                "http": proxy
-            }
-        )
+        # 初始化OpenAI客户端
+        client = OpenAI()
         
         # 获取系统prompt配置
         system_prompt = get_system_prompt()
