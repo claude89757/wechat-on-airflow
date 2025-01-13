@@ -40,24 +40,39 @@ def process_wx_message(**context):
     # 获取传入的消息数据
     dag_run = context.get('dag_run')
     if not (dag_run and dag_run.conf):
-        print("没有收到消息数据")
+        print("[WATCHER] 没有收到消息数据")
         return
         
     message_data = dag_run.conf
-    print("收到微信消息:")
-    print(json.dumps(message_data, ensure_ascii=False, indent=2))
+    print("[WATCHER] 收到微信消息:")
+    print("[WATCHER] 消息类型:", message_data.get('type'))
+    print("[WATCHER] 消息内容:", message_data.get('content'))
+    print("[WATCHER] 发送者ID:", message_data.get('from_id'))
+    print("[WATCHER] 群聊ID:", message_data.get('room_id'))
+    print("[WATCHER] 完整消息数据:", json.dumps(message_data, ensure_ascii=False, indent=2))
     
     # 检查是否需要触发AI聊天
     msg_type = message_data.get('type')
     content = message_data.get('content', '')
     
     if msg_type == 1 and content.startswith('@Zacks'):
-        print("触发AI聊天流程")
+        print("[WATCHER] 触发AI聊天流程")
+        # 确保关键字段存在
+        if not message_data.get('from_id'):
+            print("[WATCHER] 警告：消息中缺少发送者ID")
+        if not (message_data.get('room_id') or message_data.get('from_id')):
+            print("[WATCHER] 错误：无法确定消息接收者（群ID和发送者ID都为空）")
+            return
+            
         # 触发ai_chat DAG，并传递完整的消息数据
+        run_id = f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
+        print(f"[WATCHER] 传递的消息数据: {json.dumps(message_data, ensure_ascii=False)}")
+        
         trigger_dag(
             dag_id='ai_chat',
             conf=message_data,
-            run_id=f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+            run_id=run_id
         )
 
 # 创建DAG
