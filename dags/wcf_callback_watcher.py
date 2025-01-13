@@ -58,8 +58,8 @@ class FlaskServer:
 
     def run_server(self):
         """启动服务器"""
-        self.server = make_server('0.0.0.0', 5000, app)
-        print("API服务器启动在端口5000...")
+        self.server = make_server('0.0.0.0', 8081, app)
+        print("API服务器启动在端口8081...")
         self.server.serve_forever()
 
     def shutdown_server(self):
