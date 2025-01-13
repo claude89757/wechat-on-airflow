@@ -58,13 +58,7 @@ def process_wx_message(**context):
     
     if msg_type == 1 and content.startswith('@Zacks'):
         print("[WATCHER] 触发AI聊天流程")
-        # 确保关键字段存在
-        if not message_data.get('sender'):
-            print("[WATCHER] 警告：消息中缺少发送者ID")
-        if not (message_data.get('roomid') or message_data.get('sender')):
-            print("[WATCHER] 错误：无法确定消息接收者（群ID和发送者ID都为空）")
-            return
-            
+        
         # 构造传递给AI聊天的消息数据
         chat_data = {
             'content': content,

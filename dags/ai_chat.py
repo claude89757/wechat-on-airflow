@@ -109,8 +109,7 @@ def process_ai_chat(**context):
     print(f"[CHAT] 收到消息数据: {json.dumps(message_data, ensure_ascii=False)}")
     
     content = message_data.get('content', '')
-    room_id = message_data.get('room_id', '')  # 群聊ID
-    from_id = message_data.get('from_id', '')  # 发送者ID
+    room_id = message_data.get('roomid', '')  # 群聊ID
     is_group = message_data.get('is_group', False)  # 是否群聊
     
     # 提取@Zacks后的实际问题内容
