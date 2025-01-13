@@ -52,7 +52,7 @@ def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
     Raises:
         Exception: 发送消息失败时抛出异常
     """
-    wx_api_url = os.getenv('WX_API_URL', 'http://127.0.0.1:9999')
+    wx_api_url = Variable.get("WX_API_URL")
     endpoint = f"{wx_api_url}/text"
     
     try:
