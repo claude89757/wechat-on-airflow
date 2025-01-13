@@ -14,14 +14,17 @@ AI聊天处理DAG
 3. 支持异常重试
 """
 
-from airflow import DAG
-from airflow.operators.python import PythonOperator
+# Python标准库
 from datetime import datetime, timedelta
 import json
 import os
-import requests
 from typing import Dict, Any
+
+# 第三方库
+from airflow import DAG
+from airflow.operators.python import PythonOperator
 import openai
+import requests
 
 default_args = {
     'owner': 'airflow',
@@ -33,21 +36,55 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
+def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
+    """
+    发送消息到微信
+    
+    Args:
+        message: 要发送的消息内容
+        receiver: 接收者的wxid或群id
+        aters: 要@的用户wxid，多个用逗号分隔，@所有人使用notify@all
+        
+    Returns:
+        bool: 发送是否成功
+        
+    Raises:
+        Exception: 发送消息失败时抛出异常
+    """
+    wx_api_url = os.getenv('WX_API_URL', 'http://127.0.0.1:9999')
+    endpoint = f"{wx_api_url}/text"
+    
+    try:
+        payload = {
+            "msg": message,
+            "receiver": receiver,
+            "aters": aters
+        }
+        
+        response = requests.post(
+            endpoint,
+            json=payload,
+            headers={'Content-Type': 'application/json'}
+        )
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get('status') != 'success':
+            raise Exception(f"发送消息失败: {result.get('message', '未知错误')}")
+            
+        return True
+        
+    except requests.exceptions.RequestException as e:
+        error_msg = f"发送消息到微信接口失败: {str(e)}"
+        print(error_msg)
+        raise Exception(error_msg)
+
 def process_ai_chat(**context):
     """
     处理AI聊天的任务函数
     
     Args:
         **context: Airflow上下文参数，包含dag_run等信息
-        
-    处理流程：
-    1. 从dag_run.conf获取微信消息数据
-    2. 提取@Zacks后的实际问题内容
-    3. 调用AI接口获取回复
-    4. 将回复发送回微信群（待实现）
-    
-    异常处理：
-    - 记录错误日志并向上抛出异常，触发重试机制
     """
     # 获取消息数据
     dag_run = context.get('dag_run')
@@ -57,6 +94,8 @@ def process_ai_chat(**context):
         
     message_data = dag_run.conf
     content = message_data.get('content', '')
+    room_id = message_data.get('room_id', '')  # 群聊ID，单聊时为空
+    from_id = message_data.get('from_id', '')  # 发送者ID
     
     # 提取@Zacks后的实际问题内容
     question = content.replace('@Zacks', '').strip()
@@ -65,12 +104,32 @@ def process_ai_chat(**context):
         return
         
     try:
-        # 调用AI接口（这里需要根据实际的API实现）
+        # 调用AI接口获取回复
         response = call_ai_api(question)
         print(f"AI回复: {response}")
         
-        # TODO: 将回复发送回微信群
-        # 这部分需要实现发送消息回微信群的逻辑
+        # 确定消息接收者和是否需要@
+        receiver = room_id if room_id else from_id  # 群聊发给群，单聊发给个人
+        
+        # 构造回复消息
+        if room_id:
+            # 群聊中需要@发送者
+            reply_message = f"@{from_id}\n{response}"
+            aters = from_id
+        else:
+            # 单聊直接发送回复
+            reply_message = response
+            aters = ""
+        
+        # 发送消息
+        success = send_message_to_wx(
+            message=reply_message,
+            receiver=receiver,
+            aters=aters
+        )
+        
+        if success:
+            print(f"成功发送回复到{'群聊' if room_id else '私聊'}")
         
     except Exception as e:
         print(f"处理AI聊天时发生错误: {str(e)}")
@@ -95,7 +154,7 @@ def call_ai_api(question: str) -> str:
     try:
         # 调用ChatGPT API，使用轻量级模型
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo-0125",  # 使用最新的轻量级模型
+            model="gpt-4-mini",  # 使用最新的轻量级模型
             messages=[
                 {"role": "system", "content": "你是一个友好的AI助手，请用简短的中文回答问题。"},
                 {"role": "user", "content": question}
