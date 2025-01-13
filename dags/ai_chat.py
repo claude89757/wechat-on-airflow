@@ -109,6 +109,7 @@ def process_ai_chat(**context):
     print(f"[CHAT] 收到消息数据: {json.dumps(message_data, ensure_ascii=False)}")
     
     content = message_data.get('content', '')
+    sender = message_data.get('sender', '')  # 发送者ID
     room_id = message_data.get('roomid', '')  # 群聊ID
     is_group = message_data.get('is_group', False)  # 是否群聊
     
@@ -133,8 +134,8 @@ def process_ai_chat(**context):
         # 构造回复消息
         if is_group:
             # 群聊中需要@发送者
-            reply_message = f"@{from_id}\n{response}"
-            aters = from_id
+            reply_message = f"@{sender}\n{response}"
+            aters = sender
         else:
             # 单聊直接发送回复
             reply_message = response

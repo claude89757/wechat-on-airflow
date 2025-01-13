@@ -50,7 +50,10 @@ def process_wx_message(**context):
     print("[WATCHER] 发送者:", message_data.get('sender'))
     print("[WATCHER] 群聊ID:", message_data.get('roomid'))
     print("[WATCHER] 是否群聊:", message_data.get('is_group'))
-    print("[WATCHER] 完整消息数据:", json.dumps(message_data, ensure_ascii=False, indent=2))
+    print("[WATCHER] 完整消息数据:")
+    print("--------------------------------")
+    print(json.dumps(message_data, ensure_ascii=False, indent=2))
+    print("--------------------------------")
     
     # 检查是否需要触发AI聊天
     msg_type = message_data.get('type')
@@ -59,22 +62,13 @@ def process_wx_message(**context):
     if msg_type == 1 and content.startswith('@Zacks'):
         print("[WATCHER] 触发AI聊天流程")
         
-        # 构造传递给AI聊天的消息数据
-        chat_data = {
-            'content': content,
-            'room_id': message_data.get('roomid', ''),
-            'from_id': message_data.get('sender', ''),
-            'is_group': message_data.get('is_group', False)
-        }
-        
         # 触发ai_chat DAG，并传递完整的消息数据
         run_id = f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
         print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-        print(f"[WATCHER] 传递的消息数据: {json.dumps(chat_data, ensure_ascii=False)}")
-        
+            
         trigger_dag(
             dag_id='ai_chat',
-            conf=chat_data,
+            conf=message_data,
             run_id=run_id
         )
 
