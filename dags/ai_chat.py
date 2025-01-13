@@ -165,6 +165,10 @@ def call_ai_api(question: str) -> str:
     Raises:
         Exception: API调用失败时抛出异常
     """
+    # 保存原始环境变量
+    original_http_proxy = os.environ.get('HTTP_PROXY')
+    original_https_proxy = os.environ.get('HTTPS_PROXY')
+    
     try:
         # 从Airflow Variable获取配置
         api_key = Variable.get("OPENAI_API_KEY")
@@ -172,7 +176,7 @@ def call_ai_api(question: str) -> str:
         proxy_user = Variable.get("OPENAI_PROXY_USER")  # 代理用户名
         proxy_pass = Variable.get("OPENAI_PROXY_PASS")  # 代理密码
         
-        # 设置环境变量
+        # 临时设置环境变量
         os.environ['OPENAI_API_KEY'] = api_key
         os.environ['HTTPS_PROXY'] = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
         os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY']
@@ -205,6 +209,17 @@ def call_ai_api(question: str) -> str:
         error_msg = f"调用AI API时发生错误: {str(e)}"
         print(error_msg)
         raise Exception(error_msg)
+    finally:
+        # 恢复原始环境变量
+        if original_http_proxy:
+            os.environ['HTTP_PROXY'] = original_http_proxy
+        else:
+            os.environ.pop('HTTP_PROXY', None)
+            
+        if original_https_proxy:
+            os.environ['HTTPS_PROXY'] = original_https_proxy
+        else:
+            os.environ.pop('HTTPS_PROXY', None)
 
 # 创建DAG
 dag = DAG(
