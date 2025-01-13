@@ -33,7 +33,7 @@ from flask import Flask, request
 # 项目目录路径
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
 
-# 简化环境变量加载
+# 环境变量加载
 load_dotenv()
 
 app = Flask(__name__)
@@ -86,9 +86,8 @@ def handle_wcf_callback():
         
         # 准备Airflow API请求数据
         airflow_payload = {
-            "conf": callback_data,  # 将回调数据作为conf参数传入
+            "conf": callback_data,
             "dag_run_id": dag_run_id,
-            "logical_date": datetime.now().isoformat(),
             "note": "Triggered by WCF callback"
         }
         
