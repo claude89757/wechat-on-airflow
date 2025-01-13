@@ -102,10 +102,12 @@ def process_ai_chat(**context):
     # 获取消息数据
     dag_run = context.get('dag_run')
     if not (dag_run and dag_run.conf):
-        print("没有收到消息数据")
+        print("[CHAT] 没有收到消息数据")
         return
         
     message_data = dag_run.conf
+    print(f"[CHAT] 收到消息数据: {json.dumps(message_data, ensure_ascii=False)}")
+    
     content = message_data.get('content', '')
     room_id = message_data.get('room_id', '')  # 群聊ID，单聊时为空
     from_id = message_data.get('from_id', '')  # 发送者ID
@@ -113,14 +115,18 @@ def process_ai_chat(**context):
     # 提取@Zacks后的实际问题内容
     question = content.replace('@Zacks', '').strip()
     if not question:
-        print("没有检测到实际问题内容")
+        print("[CHAT] 没有检测到实际问题内容")
         return
         
     try:
         # 调用AI接口获取回复
         response = call_ai_api(question)
-        print(f"AI回复: {response}")
+        print(f"[CHAT] AI回复: {response}")
         
+        # 确定消息接收者
+        if not (room_id or from_id):
+            raise Exception("无法确定消息接收者：群ID和发送者ID都为空")
+            
         # 确定消息接收者和是否需要@
         receiver = room_id if room_id else from_id  # 群聊发给群，单聊发给个人
         
@@ -134,6 +140,8 @@ def process_ai_chat(**context):
             reply_message = response
             aters = ""
         
+        print(f"[CHAT] 发送回复到: {receiver} (群聊: {bool(room_id)})")
+        
         # 发送消息
         success = send_message_to_wx(
             message=reply_message,
@@ -142,10 +150,10 @@ def process_ai_chat(**context):
         )
         
         if success:
-            print(f"成功发送回复到{'群聊' if room_id else '私聊'}")
+            print(f"[CHAT] 成功发送回复到{'群聊' if room_id else '私聊'}")
         
     except Exception as e:
-        print(f"处理AI聊天时发生错误: {str(e)}")
+        print(f"[CHAT] 处理AI聊天时发生错误: {str(e)}")
         raise
 
 def get_system_prompt() -> str:
