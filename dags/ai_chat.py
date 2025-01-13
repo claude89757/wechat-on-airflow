@@ -166,27 +166,40 @@ def call_ai_api(question: str) -> str:
         Exception: API调用失败时抛出异常
     """
     try:
-        # 从Airflow Variable获取OpenAI API密钥
+        # 从Airflow Variable获取配置
         api_key = Variable.get("OPENAI_API_KEY")
+        proxy_url = Variable.get("OPENAI_PROXY_URL")  # 代理地址
+        proxy_user = Variable.get("OPENAI_PROXY_USER")  # 代理用户名
+        proxy_pass = Variable.get("OPENAI_PROXY_PASS")  # 代理密码
         
-        # 初始化OpenAI客户端
-        client = OpenAI(api_key=api_key)
+        # 构造代理URL
+        proxy = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
+        
+        # 初始化OpenAI客户端，配置代理
+        client = OpenAI(
+            api_key=api_key,
+            http_client=requests.Session(),
+            proxies={
+                "https": proxy,
+                "http": proxy
+            }
+        )
         
         # 获取系统prompt配置
         system_prompt = get_system_prompt()
         
         # 调用ChatGPT API，使用轻量级模型
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": question}
             ],
-            temperature=0.5,  # 降低创造性，使回答更加确定
-            max_tokens=500,   # 限制回答长度，减少token消耗
+            temperature=0.5,
+            max_tokens=500,
             top_p=0.8,
-            frequency_penalty=0.3,  # 增加词语多样性
-            presence_penalty=0.3    # 增加主题多样性
+            frequency_penalty=0.3,
+            presence_penalty=0.3
         )
         
         # 提取AI回复
