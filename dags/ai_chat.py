@@ -81,7 +81,7 @@ def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
         response.raise_for_status()
         
         result = response.json()
-        if result.get('status') != 'success':
+        if result.get('status') != 0:
             raise Exception(f"发送消息失败: {result.get('message', '未知错误')}")
         
         print("[WX] 消息发送成功")    
