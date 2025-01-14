@@ -58,9 +58,10 @@ def process_wx_message(**context):
     # 检查是否需要触发AI聊天
     msg_type = message_data.get('type')
     content = message_data.get('content', '')
+    is_group = message_data.get('is_group', False)  # 是否群聊
     
-    if msg_type == 1 and content.startswith('@Zacks'):
-        print("[WATCHER] 触发AI聊天流程")
+    if msg_type == 1 and content.startswith('@Zacks') and is_group:
+        print("[WATCHER] 群聊消息触发AI聊天流程")
         
         # 触发ai_chat DAG，并传递完整的消息数据
         run_id = f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
@@ -71,6 +72,20 @@ def process_wx_message(**context):
             conf=message_data,
             run_id=run_id
         )
+    elif msg_type == 1 and not is_group:
+        print("[WATCHER] 私聊消息触发AI聊天流程")   
+
+        # 触发ai_chat DAG，并传递完整的消息数据
+        run_id = f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
+            
+        trigger_dag(
+            dag_id='ai_chat',
+            conf=message_data,
+            run_id=run_id
+        )
+    else:
+        print("[WATCHER] 不触发AI聊天流程")
 
 # 创建DAG
 dag = DAG(

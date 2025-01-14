@@ -38,28 +38,12 @@ default_args = {
 }
 
 def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
-    """
-    发送消息到微信
-    
-    Args:
-        message: 要发送的消息内容
-        receiver: 接收者的wxid或群id
-        aters: 要@的用户wxid，多个用逗号分隔，@所有人使用notify@all
-        
-    Returns:
-        bool: 发送是否成功
-        
-    Raises:
-        Exception: 发送消息失败时抛出异常
-    """
+    """发送消息到微信"""
     wx_api_url = Variable.get("WX_API_URL")
     endpoint = f"{wx_api_url}/text"
     
-    print(f"[WX] 准备发送消息到微信")
-    print(f"[WX] API地址: {endpoint}")
-    print(f"[WX] 接收者: {receiver}")
-    print(f"[WX] @用户: {aters if aters else '无'}")
-    print(f"[WX] 消息内容: {message}")
+    print(f"[WX] 发送消息 -> {receiver} {'@'+aters if aters else ''}")
+    print(f"[WX] 内容: {message}")
     
     try:
         payload = {
@@ -68,27 +52,24 @@ def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
             "aters": aters
         }
         
-        print(f"[WX] 发送请求: {json.dumps(payload, ensure_ascii=False)}")
-        
         response = requests.post(
             endpoint,
             json=payload,
             headers={'Content-Type': 'application/json'}
         )
-        print(f"[WX] 响应状态码: {response.status_code}")
-        print(f"[WX] 响应内容: {response.text}")
+        print(f"[WX] 响应: {response.status_code} - {response.text}")
         
         response.raise_for_status()
         
         result = response.json()
         if result.get('status') != 0:
-            raise Exception(f"发送消息失败: {result.get('message', '未知错误')}")
+            raise Exception(f"发送失败: {result.get('message', '未知错误')}")
         
-        print("[WX] 消息发送成功")    
+        print("[WX] 发送成功")    
         return True
         
     except requests.exceptions.RequestException as e:
-        error_msg = f"发送消息到微信接口失败: {str(e)}"
+        error_msg = f"发送失败: {str(e)}"
         print(error_msg)
         raise Exception(error_msg)
 
@@ -174,52 +155,27 @@ def get_system_prompt() -> str:
         return "你是一个友好的AI助手，请用简短的中文回答问题。"
 
 def call_ai_api(question: str) -> str:
-    """
-    调用ChatGPT API进行对话，使用轻量级模型
+    """调用ChatGPT API进行对话"""
+    print(f"[AI] 问题: {question}")
     
-    Args:
-        question: 用户问题
-        
-    Returns:
-        str: AI的回复
-        
-    Raises:
-        Exception: API调用失败时抛出异常
-    """
-    print(f"[AI] 准备调用AI接口")
-    print(f"[AI] 问题内容: {question}")
-    
-    # 保存原始环境变量
     original_http_proxy = os.environ.get('HTTP_PROXY')
     original_https_proxy = os.environ.get('HTTPS_PROXY')
     
     try:
-        # 从Airflow Variable获取配置
         api_key = Variable.get("OPENAI_API_KEY")
-        proxy_url = Variable.get("OPENAI_PROXY_URL")  # 代理地址
-        proxy_user = Variable.get("OPENAI_PROXY_USER")  # 代理用户名
-        proxy_pass = Variable.get("OPENAI_PROXY_PASS")  # 代理密码
+        proxy_url = Variable.get("OPENAI_PROXY_URL")
+        proxy_user = Variable.get("OPENAI_PROXY_USER")
+        proxy_pass = Variable.get("OPENAI_PROXY_PASS")
         
-        print(f"[AI] 代理地址: {proxy_url}")
-        print(f"[AI] 代理用户: {proxy_user}")
-        
-        # 临时设置环境变量
         os.environ['OPENAI_API_KEY'] = api_key
         proxy = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
         os.environ['HTTPS_PROXY'] = proxy
         os.environ['HTTP_PROXY'] = proxy
         
-        print("[AI] 环境变量设置完成")
-        
-        # 初始化OpenAI客户端
         client = OpenAI()
-        
-        # 获取系统prompt配置
         system_prompt = get_system_prompt()
-        print(f"[AI] 系统Prompt: {system_prompt}")
+        print(f"[AI] 系统提示: {system_prompt}")
         
-        # 调用ChatGPT API，使用轻量级模型
-        print("[AI] 开始调用API...")
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -233,32 +189,24 @@ def call_ai_api(question: str) -> str:
             presence_penalty=0.3
         )
         
-        # 提取AI回复
         ai_response = response.choices[0].message.content.strip()
-        print(f"[AI] 获得回复: {ai_response}")
+        print(f"[AI] 回复: {ai_response}")
         return ai_response
         
     except Exception as e:
-        error_msg = f"调用AI API时发生错误: {str(e)}"
+        error_msg = f"API调用失败: {str(e)}"
         print(f"[AI] {error_msg}")
         raise Exception(error_msg)
     finally:
-        print("[AI] 开始恢复环境变量")
-        # 恢复原始环境变量
         if original_http_proxy:
             os.environ['HTTP_PROXY'] = original_http_proxy
-            print(f"[AI] 已恢复HTTP_PROXY: {original_http_proxy}")
         else:
             os.environ.pop('HTTP_PROXY', None)
-            print("[AI] 已移除HTTP_PROXY")
             
         if original_https_proxy:
             os.environ['HTTPS_PROXY'] = original_https_proxy
-            print(f"[AI] 已恢复HTTPS_PROXY: {original_https_proxy}")
         else:
             os.environ.pop('HTTPS_PROXY', None)
-            print("[AI] 已移除HTTPS_PROXY")
-        print("[AI] 环境变量恢复完成")
 
 # 创建DAG
 dag = DAG(
