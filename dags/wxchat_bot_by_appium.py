@@ -53,8 +53,8 @@ def monitor_chats(**kwargs):
                 'chat_name': chat_name,
                 'messages': messages
             })
+            print(chat_data)
             wx_operator.return_to_home_page()
-
         Variable.set("chat_data", chat_data)
     finally:
         wx_operator.close()  # 使用 close 方法替代 quit
