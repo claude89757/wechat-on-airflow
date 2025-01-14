@@ -95,7 +95,7 @@ def ai_auto_reply(**kwargs):
 
 # 定义 DAG
 with DAG(
-    dag_id='wxchat_bot',
+    dag_id='APPIUM_WX_BOT',
     default_args={
         'owner': 'airflow',
         'depends_on_past': False,
@@ -104,7 +104,7 @@ with DAG(
         'retries': 1,
         'retry_delay': timedelta(minutes=1),
     },
-    description='WeChat automation tasks using wxchat_sdk',
+    description='使用Appium SDK自动化微信操作',
     schedule=None,
     start_date=datetime(2025, 1, 10),
     catchup=False,
