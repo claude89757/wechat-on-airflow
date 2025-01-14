@@ -108,6 +108,7 @@ with DAG(
     schedule=None,
     start_date=datetime(2025, 1, 10),
     catchup=False,
+    tags=['RPA方案示例'],
 ) as dag:
 
     init_sdk_task = PythonOperator(
