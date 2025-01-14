@@ -28,77 +28,78 @@ except ImportError:
         raise ImportError("无法导入 WXAppOperator, 请确保 sdk/wxchat_sdk.py 文件存在且路径正确")
 
 
-# 初始化 SDK 实例的函数
-def init_sdk(**kwargs):
-    """Initialize the WeChat SDK instance and push it to XCom."""
+# 获取 WXAppOperator 实例的辅助函数
+def get_wx_operator():
+    """获取 WXAppOperator 实例的辅助函数"""
     appium_server_url = Variable.get("appium_server_url", default_var="http://localhost:4723")
-    wx_operator = WXAppOperator(appium_server_url=appium_server_url)
-    kwargs['ti'].xcom_push(key='wx_operator', value=wx_operator)
+    return WXAppOperator(appium_server_url=appium_server_url)
 
 # 获取聊天列表并保存到 Airflow Variables
 def monitor_chats(**kwargs):
-    """Monitor WeChat chat lists and messages, saving them to Airflow Variables."""
-    ti = kwargs['ti']
-    wx_operator = ti.xcom_pull(task_ids='init_sdk', key='wx_operator')
+    """监控微信聊天列表和消息，保存到 Airflow Variables"""
+    wx_operator = get_wx_operator()
+    
+    try:
+        chat_list = wx_operator.get_current_chat_list()
+        chat_data = []
 
-    if not wx_operator:
-        raise ValueError("SDK instance was not initialized correctly.")
+        for chat in chat_list:
+            chat_name = chat['name']
+            wx_operator.enter_chat_page(chat_name)
+            time.sleep(2)  # 确保页面完全加载
+            messages = wx_operator.get_chat_msg_list()
+            chat_data.append({
+                'chat_name': chat_name,
+                'messages': messages
+            })
+            wx_operator.return_to_home_page()
 
-    chat_list = wx_operator.get_current_chat_list()
-    chat_data = []
-
-    for chat in chat_list:
-        chat_name = chat['name']
-        wx_operator.enter_chat_page(chat_name)
-        time.sleep(2)  # Ensure the page is fully loaded
-        messages = wx_operator.get_chat_msg_list()
-        chat_data.append({
-            'chat_name': chat_name,
-            'messages': messages
-        })
-        wx_operator.return_to_home_page()
-
-    Variable.set("chat_data", chat_data)
+        Variable.set("chat_data", chat_data)
+    finally:
+        wx_operator.quit()  # 确保资源被正确释放
 
 # 发送消息任务
 def send_messages(**kwargs):
-    """Send messages based on the web input stored in Airflow Variables."""
+    """根据网页输入发送消息"""
     web_input_infos = Variable.get("web_input_infos", default_var=None)
-
+    
     if web_input_infos:
-        wx_operator = kwargs['ti'].xcom_pull(task_ids='init_sdk', key='wx_operator')
+        wx_operator = get_wx_operator()
+        try:
+            for info in web_input_infos:
+                chat_name = info['chat_name']
+                message = info['message']
 
-        for info in web_input_infos:
-            chat_name = info['chat_name']
-            message = info['message']
+                wx_operator.enter_chat_page(chat_name)
+                wx_operator.send_text_msg(message)
+                wx_operator.return_to_home_page()
 
-            wx_operator.enter_chat_page(chat_name)
-            wx_operator.send_text_msg(message)
-            wx_operator.return_to_home_page()
-
-        Variable.delete("web_input_infos")  # Clear processed variable
+            Variable.delete("web_input_infos")  # 清除已处理的变量
+        finally:
+            wx_operator.quit()
 
 # AI 自动聊天任务
 def ai_auto_reply(**kwargs):
-    """Automatically reply to messages in AI-enabled chats."""
+    """自动回复启用 AI 的聊天"""
     enable_ai_chat_list = Variable.get("enable_ai_chat_list", default_var=None)
-
+    
     if enable_ai_chat_list:
-        wx_operator = kwargs['ti'].xcom_pull(task_ids='init_sdk', key='wx_operator')
+        wx_operator = get_wx_operator()
+        try:
+            for chat_name in enable_ai_chat_list:
+                wx_operator.enter_chat_page(chat_name)
+                time.sleep(2)  # 确保页面完全加载
+                messages = wx_operator.get_chat_msg_list()
 
-        for chat_name in enable_ai_chat_list:
-            wx_operator.enter_chat_page(chat_name)
-            time.sleep(2)  # Ensure the page is fully loaded
-            messages = wx_operator.get_chat_msg_list()
+                if messages:
+                    last_message = messages[-1]
+                    if last_message['sender'] != 'Zacks':
+                        # 触发另一个 DAG 生成回复
+                        print(f"触发 AI 回复进程: {last_message}")
 
-            if messages:
-                last_message = messages[-1]
-                if last_message['sender'] != 'Zacks':
-                    # Trigger another DAG to generate a reply
-                    # Use TriggerDagRunOperator or custom triggering logic here
-                    print(f"Triggering AI reply process: {last_message}")
-
-            wx_operator.return_to_home_page()
+                wx_operator.return_to_home_page()
+        finally:
+            wx_operator.quit()
 
 # 定义 DAG
 with DAG(
@@ -118,11 +119,6 @@ with DAG(
     tags=['RPA方案示例'],
 ) as dag:
 
-    init_sdk_task = PythonOperator(
-        task_id='init_sdk',
-        python_callable=init_sdk,
-    )
-
     monitor_chats_task = PythonOperator(
         task_id='monitor_chats',
         python_callable=monitor_chats,
@@ -138,4 +134,4 @@ with DAG(
         python_callable=ai_auto_reply,
     )
 
-    init_sdk_task >> [monitor_chats_task, send_messages_task, ai_auto_reply_task]
+    [monitor_chats_task, send_messages_task, ai_auto_reply_task]
