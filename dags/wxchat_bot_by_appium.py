@@ -41,6 +41,7 @@ def monitor_chats(**kwargs):
     
     try:
         chat_list = wx_operator.get_current_chat_list()
+        print(f"获取到的聊天列表: {chat_list}")
         chat_data = []
 
         for chat in chat_list:
@@ -56,7 +57,7 @@ def monitor_chats(**kwargs):
 
         Variable.set("chat_data", chat_data)
     finally:
-        wx_operator.quit()  # 确保资源被正确释放
+        wx_operator.close()  # 使用 close 方法替代 quit
 
 # 发送消息任务
 def send_messages(**kwargs):
@@ -76,7 +77,7 @@ def send_messages(**kwargs):
 
             Variable.delete("web_input_infos")  # 清除已处理的变量
         finally:
-            wx_operator.quit()
+            wx_operator.close()
 
 # AI 自动聊天任务
 def ai_auto_reply(**kwargs):
@@ -99,7 +100,7 @@ def ai_auto_reply(**kwargs):
 
                 wx_operator.return_to_home_page()
         finally:
-            wx_operator.quit()
+            wx_operator.close()
 
 # 定义 DAG
 with DAG(
