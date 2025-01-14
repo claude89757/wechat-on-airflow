@@ -49,11 +49,11 @@ def monitor_chats(**kwargs):
             wx_operator.enter_chat_page(chat_name)
             time.sleep(2)  # 确保页面完全加载
             messages = wx_operator.get_chat_msg_list()
+            print(f"chat_name: {chat_name}, messages: {messages}")
             chat_data.append({
                 'chat_name': chat_name,
                 'messages': messages
             })
-            print(chat_data)
             wx_operator.return_to_home_page()
         Variable.set("chat_data", chat_data)
     finally:
