@@ -89,7 +89,7 @@ def process_wx_message(**context):
 
 # 创建DAG
 dag = DAG(
-    'wx_msg_watcher',
+    'wx_msg_watcher_002',
     default_args=default_args,
     description='监控并处理微信消息的DAG',
     schedule_interval=None,  # 不设置调度，仅由webhook触发
