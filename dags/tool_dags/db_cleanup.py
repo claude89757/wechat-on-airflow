@@ -20,8 +20,8 @@ def cleanup_airflow_db():
     会删除 clean_before_date 之前的数据。
     """
     try:
-        # 这里修改为 30 天，让脚本真正删除 30 天之前的数据。
-        clean_before_date = pendulum.now("UTC") - timedelta(days=30)
+        # 这里修改为 180 天，让脚本真正删除 180 天之前的数据。
+        clean_before_date = pendulum.now("UTC") - timedelta(days=180)
 
         # 调用 run_cleanup
         run_cleanup(
@@ -53,6 +53,7 @@ dag = DAG(
     schedule_interval=timedelta(days=1),
     catchup=False,
     max_active_runs=1,
+    tags=['通用工具'],
 )
 
 db_cleanup_task = PythonOperator(

@@ -267,7 +267,8 @@ dag = DAG(
     description='处理AI聊天的DAG',
     schedule_interval=None,  # 仅由wx_msg_watcher触发
     max_active_runs=3,
-    catchup=False
+    catchup=False,
+    tags=['AI助手']
 )
 
 # 创建处理AI聊天的任务

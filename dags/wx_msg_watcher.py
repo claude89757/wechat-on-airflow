@@ -79,7 +79,8 @@ dag = DAG(
     description='监控并处理微信消息的DAG',
     schedule_interval=None,  # 不设置调度，仅由webhook触发
     max_active_runs=10,  # 最多同时运行10个实例
-    catchup=False
+    catchup=False,
+    tags=['微信消息监控']
 )
 
 # 创建处理消息的任务
