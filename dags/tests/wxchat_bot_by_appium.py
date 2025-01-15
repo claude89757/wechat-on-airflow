@@ -18,15 +18,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
-try:
-    from dags.sdk.wxchat_sdk import WXAppOperator
-except ImportError:
-    # 尝试相对路径导入
-    try:
-        from sdk.wxchat_sdk import WXAppOperator
-    except ImportError:
-        raise ImportError("无法导入 WXAppOperator, 请确保 sdk/wxchat_sdk.py 文件存在且路径正确")
-
+from common.wxchat_sdk import WXAppOperator
 
 # 获取 WXAppOperator 实例的辅助函数
 def get_wx_operator():
