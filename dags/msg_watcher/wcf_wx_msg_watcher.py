@@ -22,7 +22,7 @@ from airflow.api.common.trigger_dag import trigger_dag
 
 # DAG默认参数
 default_args = {
-    'owner': 'airflow',
+    'owner': 'claude89757',
     'depends_on_past': False,
     'start_date': datetime(2024, 1, 1),
     'email_on_failure': False,
@@ -95,11 +95,11 @@ def process_wx_message(**context):
 dag = DAG(
     'wx_msg_watcher',
     default_args=default_args,
-    description='监控并处理微信消息的DAG',
+    description='WCF-微信消息监控',
     schedule_interval=None,  # 不设置调度，仅由webhook触发
     max_active_runs=10,  # 最多同时运行10个实例
     catchup=False,
-    tags=['微信消息监控']
+    tags=['WCF-微信消息监控']
 )
 
 # 创建处理消息的任务
