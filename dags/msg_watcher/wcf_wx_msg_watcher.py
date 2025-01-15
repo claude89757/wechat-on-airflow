@@ -17,6 +17,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import json
+import os
 from airflow.api.common.trigger_dag import trigger_dag
 
 # DAG默认参数
@@ -37,6 +38,9 @@ def process_wx_message(**context):
     Args:
         **context: Airflow上下文参数，包含dag_run等信息
     """
+    # 打印当前python运行的path
+    print(f"当前python运行的path: {os.path.abspath(__file__)}")
+
     # 获取传入的消息数据
     dag_run = context.get('dag_run')
     if not (dag_run and dag_run.conf):
