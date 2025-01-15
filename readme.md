@@ -1,7 +1,7 @@
-# AI-Chatbot-Airflow-DAGs
+# wechat-on-airflow
 
 ## 项目简介
-基于Airflow的AI聊天机器人数据处理系统，用于管理和调度AI模型训练、数据处理等任务。系统采用Docker容器化部署，使用Redis作为缓存，PostgreSQL作为持久化存储。
+wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编排 AI 驱动的微信聊天机器人工作流，实现自动回复消息、定时发送通知、自动更新菜单以及与微信 API 集成等自动化任务，提升微信机器人的响应效率和运营优化。
 
 ## 技术栈
 - Apache Airflow
