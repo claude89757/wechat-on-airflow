@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
-from common.wxchat_sdk import WXAppOperator
+from dags.common.wxchat_sdk import WXAppOperator
 
 # 获取 WXAppOperator 实例的辅助函数
 def get_wx_operator():
