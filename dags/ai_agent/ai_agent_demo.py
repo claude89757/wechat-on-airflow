@@ -3,39 +3,49 @@
 """
 AI聊天处理DAG
 
-功能：
-1. 处理用户与AI助手的对话
-2. 支持gpt-4-mini模型对话
-3. 接收来自wx_msg_watcher的消息触发
+功能描述:
+    - 处理来自微信的AI助手对话请求
+    - 使用OpenAI的GPT模型生成回复
+    - 将回复发送回微信对话
 
-特点：
-1. 由wx_msg_watcher触发，不进行定时调度
-2. 最大并发运行数为5
-3. 支持异常重试
+主要组件:
+    1. 微信消息处理
+    2. OpenAI API调用
+    3. 系统配置管理
+
+触发方式:
+    - 由wx_msg_watcher触发，不进行定时调度
+    - 最大并发运行数为3
+    - 支持失败重试
 """
 
-# Python标准库
+# 标准库导入
 from datetime import datetime, timedelta
 import json
 import os
 from typing import Dict, Any
 
-# 第三方库
+# 第三方库导入
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.models import Variable
 from openai import OpenAI
 import requests
-from airflow.models import Variable
 
-default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'start_date': datetime(2024, 1, 1),
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(seconds=10),
-}
+# --- 配置管理函数 ---
+
+def get_system_prompt() -> str:
+    """从Airflow Variable获取系统prompt配置"""
+    try:
+        return Variable.get(
+            "ai_chat_system_prompt",
+            default_var="你是一个友好的AI助手，请用简短的中文回答问题。"
+        )
+    except Exception as e:
+        print(f"获取系统prompt配置失败: {str(e)}，使用默认配置")
+        return "你是一个友好的AI助手，请用简短的中文回答问题。"
+
+# --- 微信消息处理函数 ---
 
 def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
     """发送消息到微信"""
@@ -73,13 +83,64 @@ def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
         print(error_msg)
         raise Exception(error_msg)
 
-def process_ai_chat(**context):
-    """
-    处理AI聊天的任务函数
+# --- AI对话处理函数 ---
+
+def call_ai_api(question: str) -> str:
+    """调用ChatGPT API进行对话"""
+    print(f"[AI] 问题: {question}")
     
-    Args:
-        **context: Airflow上下文参数，包含dag_run等信息
-    """
+    original_http_proxy = os.environ.get('HTTP_PROXY')
+    original_https_proxy = os.environ.get('HTTPS_PROXY')
+    
+    try:
+        api_key = Variable.get("OPENAI_API_KEY")
+        proxy_url = Variable.get("OPENAI_PROXY_URL")
+        proxy_user = Variable.get("OPENAI_PROXY_USER")
+        proxy_pass = Variable.get("OPENAI_PROXY_PASS")
+        
+        os.environ['OPENAI_API_KEY'] = api_key
+        proxy = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
+        os.environ['HTTPS_PROXY'] = proxy
+        os.environ['HTTP_PROXY'] = proxy
+        
+        client = OpenAI()
+        system_prompt = get_system_prompt()
+        print(f"[AI] 系统提示: {system_prompt}")
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question}
+            ],
+            temperature=0.5,
+            max_tokens=500,
+            top_p=0.8,
+            frequency_penalty=0.3,
+            presence_penalty=0.3
+        )
+        
+        ai_response = response.choices[0].message.content.strip()
+        print(f"[AI] 回复: {ai_response}")
+        return ai_response
+        
+    except Exception as e:
+        error_msg = f"API调用失败: {str(e)}"
+        print(f"[AI] {error_msg}")
+        raise Exception(error_msg)
+    finally:
+        if original_http_proxy:
+            os.environ['HTTP_PROXY'] = original_http_proxy
+        else:
+            os.environ.pop('HTTP_PROXY', None)
+            
+        if original_https_proxy:
+            os.environ['HTTPS_PROXY'] = original_https_proxy
+        else:
+            os.environ.pop('HTTPS_PROXY', None)
+
+def process_ai_chat(**context):
+    """处理AI聊天的主任务函数"""
     # 获取消息数据
     dag_run = context.get('dag_run')
     if not (dag_run and dag_run.conf):
@@ -138,75 +199,17 @@ def process_ai_chat(**context):
         print(f"[CHAT] 处理AI聊天时发生错误: {str(e)}")
         raise
 
-def get_system_prompt() -> str:
-    """
-    从Airflow Variable获取系统prompt配置
-    
-    Returns:
-        str: 系统prompt内容，如果未配置则返回默认值
-    """
-    try:
-        return Variable.get(
-            "ai_chat_system_prompt",
-            default_var="你是一个友好的AI助手，请用简短的中文回答问题。"
-        )
-    except Exception as e:
-        print(f"获取系统prompt配置失败: {str(e)}，使用默认配置")
-        return "你是一个友好的AI助手，请用简短的中文回答问题。"
+# --- DAG配置 ---
 
-def call_ai_api(question: str) -> str:
-    """调用ChatGPT API进行对话"""
-    print(f"[AI] 问题: {question}")
-    
-    original_http_proxy = os.environ.get('HTTP_PROXY')
-    original_https_proxy = os.environ.get('HTTPS_PROXY')
-    
-    try:
-        api_key = Variable.get("OPENAI_API_KEY")
-        proxy_url = Variable.get("OPENAI_PROXY_URL")
-        proxy_user = Variable.get("OPENAI_PROXY_USER")
-        proxy_pass = Variable.get("OPENAI_PROXY_PASS")
-        
-        os.environ['OPENAI_API_KEY'] = api_key
-        proxy = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
-        os.environ['HTTPS_PROXY'] = proxy
-        os.environ['HTTP_PROXY'] = proxy
-        
-        client = OpenAI()
-        system_prompt = get_system_prompt()
-        print(f"[AI] 系统提示: {system_prompt}")
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.5,
-            max_tokens=500,
-            top_p=0.8,
-            frequency_penalty=0.3,
-            presence_penalty=0.3
-        )
-        
-        ai_response = response.choices[0].message.content.strip()
-        print(f"[AI] 回复: {ai_response}")
-        return ai_response
-        
-    except Exception as e:
-        error_msg = f"API调用失败: {str(e)}"
-        print(f"[AI] {error_msg}")
-        raise Exception(error_msg)
-    finally:
-        if original_http_proxy:
-            os.environ['HTTP_PROXY'] = original_http_proxy
-        else:
-            os.environ.pop('HTTP_PROXY', None)
-            
-        if original_https_proxy:
-            os.environ['HTTPS_PROXY'] = original_https_proxy
-        else:
-            os.environ.pop('HTTPS_PROXY', None)
+default_args = {
+    'owner': 'claude89757',
+    'depends_on_past': False,
+    'start_date': datetime(2024, 1, 1),
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(seconds=10),
+}
 
 # 创建DAG
 dag = DAG(
