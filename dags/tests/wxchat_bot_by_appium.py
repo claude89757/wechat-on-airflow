@@ -13,12 +13,51 @@ Date: 2025-01-10
 """
 
 import time
+import requests
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from common.wxchat_sdk import WXAppOperator
+
+
+def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
+    """发送消息到微信"""
+    wx_api_url = Variable.get("WX_API_URL")
+    endpoint = f"{wx_api_url}/text"
+    
+    print(f"[WX] 发送消息 -> {receiver} {'@'+aters if aters else ''}")
+    print(f"[WX] 内容: {message}")
+    
+    try:
+        payload = {
+            "msg": message,
+            "receiver": receiver,
+            "aters": aters
+        }
+        
+        response = requests.post(
+            endpoint,
+            json=payload,
+            headers={'Content-Type': 'application/json'}
+        )
+        print(f"[WX] 响应: {response.status_code} - {response.text}")
+        
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get('status') != 0:
+            raise Exception(f"发送失败: {result.get('message', '未知错误')}")
+        
+        print("[WX] 发送成功")    
+        return True
+        
+    except requests.exceptions.RequestException as e:
+        error_msg = f"发送失败: {str(e)}"
+        print(error_msg)
+        raise Exception(error_msg)
+
 
 # 获取 WXAppOperator 实例的辅助函数
 def get_wx_operator():
@@ -34,20 +73,29 @@ def monitor_chats(**kwargs):
     try:
         chat_list = wx_operator.get_current_chat_list()
         print(f"获取到的聊天列表: {chat_list}")
-        chat_data = []
-
+        chat_room_name_list = []    
         for chat in chat_list:
             chat_name = chat['name']
-            wx_operator.enter_chat_page(chat_name)
-            time.sleep(2)  # 确保页面完全加载
-            messages = wx_operator.get_chat_msg_list()
-            print(f"chat_name: {chat_name}, messages: {messages}")
-            chat_data.append({
-                'chat_name': chat_name,
-                'messages': messages
-            })
-            wx_operator.return_to_home_page()
-        Variable.set("chat_data", chat_data)
+            chat_room_name_list.append(chat_name)
+
+        if chat_list:
+            chat_room_name_str = "\n".join(chat_room_name_list)
+            send_message_to_wx(f"当前聊天列表: \n{chat_room_name_str}", "thanks0")
+
+        # chat_data = []
+
+        # for chat in chat_list:
+        #     chat_name = chat['name']
+        #     wx_operator.enter_chat_page(chat_name)
+        #     time.sleep(2)  # 确保页面完全加载
+        #     messages = wx_operator.get_chat_msg_list()
+        #     print(f"chat_name: {chat_name}, messages: {messages}")
+        #     chat_data.append({
+        #         'chat_name': chat_name,
+        #         'messages': messages
+        #     })
+        #     wx_operator.return_to_home_page()
+        # Variable.set("chat_data", chat_data)
     finally:
         wx_operator.close()  # 使用 close 方法替代 quit
 
