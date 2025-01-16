@@ -158,7 +158,7 @@ services:
       postgresql:
         condition: service_healthy
 
-  webhook_server:
+  airflow_webhook:
     <<: *common
     image: python:3.10
     container_name: airflow_webhook
