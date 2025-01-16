@@ -160,7 +160,6 @@ services:
     container_name: airflow_webhook
     command: >
       bash -c "
-        apt-get update && 
         apt-get install -y git curl &&
         rm -rf /var/lib/apt/lists/* &&
         pip install --no-cache-dir fastapi uvicorn gunicorn python-dotenv httpx slowapi &&
