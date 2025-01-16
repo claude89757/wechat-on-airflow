@@ -182,6 +182,7 @@ async def trigger_airflow_dag(callback_data):
     异步触发Airflow DAG
     """
     try:
+        # todo(@claude89757): 这里可以考虑增加消息聚合的逻辑，等待一段时间，多个消息合并为一个, 触发一次dag
         msg_id = callback_data.get("id", "")
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         dag_run_id = f"wcf_{msg_id}_{current_time}"
