@@ -154,7 +154,7 @@ with DAG(
         'retry_delay': timedelta(minutes=1),
     },
     description='使用Appium SDK自动化微信操作',
-    schedule=None,
+    schedule=timedelta(hours=1),
     start_date=datetime(2025, 1, 10),
     catchup=False,
     tags=['RPA方案示例'],
