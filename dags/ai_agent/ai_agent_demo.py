@@ -95,13 +95,12 @@ def call_ai_api(question: str) -> str:
     try:
         api_key = Variable.get("OPENAI_API_KEY")
         proxy_url = Variable.get("OPENAI_PROXY_URL", default_var="")
-        proxy_user = Variable.get("OPENAI_PROXY_USER", default_var="")
-        proxy_pass = Variable.get("OPENAI_PROXY_PASS", default_var="")
+        proxy_auth = Variable.get("OPENAI_PROXY_AUTH", default_var="")
         
         os.environ['OPENAI_API_KEY'] = api_key
 
         if proxy_url:
-            proxy = f"https://{proxy_user}:{proxy_pass}@{proxy_url}"
+            proxy = f"https://{proxy_auth}@{proxy_url}"
             os.environ['HTTPS_PROXY'] = proxy
             os.environ['HTTP_PROXY'] = proxy
         else:
