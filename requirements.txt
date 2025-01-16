@@ -8,3 +8,4 @@ fastapi
 uvicorn
 slowapi
 httpx
+anthropic>=0.18.1

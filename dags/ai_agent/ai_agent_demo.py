@@ -20,30 +20,18 @@ AI聊天处理DAG
 """
 
 # 标准库导入
-from datetime import datetime, timedelta
 import json
 import os
+from datetime import datetime, timedelta
 from typing import Dict, Any
 
 # 第三方库导入
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.models import Variable
-from openai import OpenAI
 import requests
-
-# --- 配置管理函数 ---
-
-def get_system_prompt() -> str:
-    """从Airflow Variable获取系统prompt配置"""
-    try:
-        return Variable.get(
-            "ai_chat_system_prompt",
-            default_var="你是一个友好的AI助手，请用简短的中文回答问题。"
-        )
-    except Exception as e:
-        print(f"获取系统prompt配置失败: {str(e)}，使用默认配置")
-        return "你是一个友好的AI助手，请用简短的中文回答问题。"
+from airflow import DAG
+from airflow.models import Variable
+from airflow.operators.python import PythonOperator
+from anthropic import Anthropic
+from openai import OpenAI
 
 # --- 微信消息处理函数 ---
 
@@ -86,45 +74,64 @@ def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
 # --- AI对话处理函数 ---
 
 def call_ai_api(question: str) -> str:
-    """调用ChatGPT API进行对话"""
+    """调用AI API进行对话"""
     print(f"[AI] 问题: {question}")
     
     original_http_proxy = os.environ.get('HTTP_PROXY')
     original_https_proxy = os.environ.get('HTTPS_PROXY')
     
     try:
-        api_key = Variable.get("OPENAI_API_KEY")
-        proxy_url = Variable.get("OPENAI_PROXY_URL", default_var="")
-        proxy_auth = Variable.get("OPENAI_PROXY_AUTH", default_var="")
-        
-        os.environ['OPENAI_API_KEY'] = api_key
+        model_name = Variable.get("model_name", default_var="gpt-4o-mini")
+        system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答问题。")
+        print(f"[AI] 使用模型: {model_name}")
+        print(f"[AI] 系统提示: {system_prompt}")
 
+        # 设置代理
+        proxy_url = Variable.get("PROXY_URL", default_var="")
         if proxy_url:
-            proxy = f"https://{proxy_auth}@{proxy_url}"
-            os.environ['HTTPS_PROXY'] = proxy
-            os.environ['HTTP_PROXY'] = proxy
+            os.environ['HTTPS_PROXY'] = proxy_url
+            os.environ['HTTP_PROXY'] = proxy_url
         else:
             os.environ.pop('HTTP_PROXY', None)
             os.environ.pop('HTTPS_PROXY', None)
+
+        if model_name.startswith("gpt-"):
+            api_key = Variable.get("OPENAI_API_KEY")
+            os.environ['OPENAI_API_KEY'] = api_key
+            
+            client = OpenAI()
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": question}
+                ],
+                temperature=0.5,
+                max_tokens=500,
+                top_p=0.8,
+                frequency_penalty=0.3,
+                presence_penalty=0.3
+            )
+            ai_response = response.choices[0].message.content.strip()
+            
+        elif model_name.startswith("claude-"):            
+            api_key = Variable.get("CLAUDE_API_KEY")
+            client = Anthropic(api_key=api_key)
+            
+            response = client.messages.create(
+                model=model_name,
+                max_tokens=500,
+                temperature=0.5,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": question}
+                ]
+            )
+            ai_response = response.content[0].text
+            
+        else:
+            raise ValueError(f"不支持的模型: {model_name}")
         
-        client = OpenAI()
-        system_prompt = get_system_prompt()
-        print(f"[AI] 系统提示: {system_prompt}")
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question}
-            ],
-            temperature=0.5,
-            max_tokens=500,
-            top_p=0.8,
-            frequency_penalty=0.3,
-            presence_penalty=0.3
-        )
-        
-        ai_response = response.choices[0].message.content.strip()
         print(f"[AI] 回复: {ai_response}")
         return ai_response
         
