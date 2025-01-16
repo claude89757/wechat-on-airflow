@@ -96,7 +96,7 @@ def ai_auto_reply(**kwargs):
 
 # 定义 DAG
 with DAG(
-    dag_id='APPIUM_WX_BOT',
+    dag_id='wx_chat_bot_by_appium',
     default_args={
         'owner': 'airflow',
         'depends_on_past': False,
