@@ -156,12 +156,10 @@ services:
 
   webhook_server:
     <<: *common
-    image: python:3.9-slim
+    image: python:3.10
     container_name: airflow_webhook
     command: >
       bash -c "
-        apt-get install -y git curl &&
-        rm -rf /var/lib/apt/lists/* &&
         pip install --no-cache-dir fastapi uvicorn gunicorn python-dotenv httpx slowapi &&
         gunicorn webhook_server:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:5000
       "
