@@ -43,6 +43,7 @@ import subprocess
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+import time
 
 import asyncio
 import httpx
@@ -71,6 +72,14 @@ RATE_LIMIT_WCF = os.getenv("RATE_LIMIT_WCF", "100/minute")
 
 # Repository Path
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
+
+# 设置时区为中国时区
+os.environ['TZ'] = 'Asia/Shanghai'
+try:
+    time.tzset()
+except AttributeError:
+    # Windows 不支持 time.tzset()
+    pass
 
 # =====================
 # Logging Configuration
