@@ -4,3 +4,7 @@ flask
 requests
 python-dotenv
 openai
+fastapi
+uvicorn
+slowapi
+httpx
