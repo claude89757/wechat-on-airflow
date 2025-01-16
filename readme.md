@@ -12,3 +12,7 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 
 - [airflow](https://github.com/apache/airflow)
 - [wcf-client-rust](https://github.com/lich0821/wcf-client-rust)
+
+## 开发人员
+
+<a href="https://github.com/claude89757/wechat-on-airflow/graphs/contributors">![](https://contrib.rocks/image?repo=claude89757/wechat-on-airflow)</a>
