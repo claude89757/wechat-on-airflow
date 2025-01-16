@@ -117,8 +117,9 @@ async def update_code(request: Request):
     try:
         logger.info('接收到GitHub webhook请求')
         
-        # Execute git commands asynchronously
-        await asyncio.to_thread(execute_git_commands)
+        # 使用loop.run_in_executor替代asyncio.to_thread
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, execute_git_commands)
 
         logger.info('代码更新成功')
         return PlainTextResponse(content="更新成功", status_code=status.HTTP_200_OK)
