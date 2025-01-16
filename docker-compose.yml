@@ -164,6 +164,8 @@ services:
     container_name: airflow_webhook
     command: >
       bash -c "
+        git config --global http.proxy ${PROXY_URL} &&
+        git config --global https.proxy ${PROXY_URL} &&
         pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple/ &&
         pip config set global.trusted-host mirrors.cloud.tencent.com &&
         pip install --no-cache-dir fastapi uvicorn gunicorn python-dotenv httpx slowapi &&
