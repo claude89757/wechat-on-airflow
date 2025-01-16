@@ -154,6 +154,37 @@ services:
       postgresql:
         condition: service_healthy
 
+  webhook_server:
+    <<: *common
+    image: python:3.9-slim
+    container_name: airflow_webhook
+    command: >
+      bash -c "
+        apt-get update && 
+        apt-get install -y git curl &&
+        rm -rf /var/lib/apt/lists/* &&
+        pip install --no-cache-dir fastapi uvicorn gunicorn python-dotenv httpx slowapi &&
+        gunicorn webhook_server:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:5000
+      "
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+      - ./.env:/app/.env
+    working_dir: /app
+    environment:
+      - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL}
+      - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
+      - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
+      - RATE_LIMIT_UPDATE=50/minute
+      - RATE_LIMIT_WCF=100/minute
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 volumes:
   postgres-data:
   redis-data:

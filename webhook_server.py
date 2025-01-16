@@ -79,11 +79,8 @@ def setup_logging():
     logger = logging.getLogger("webhook_server")
     logger.setLevel(logging.INFO)
 
-    handler = RotatingFileHandler(
-        'webhook.log',
-        maxBytes=5*1024*1024,  # 5 MB
-        backupCount=5
-    )
+    # 将日志输出到标准输出，这样可以通过docker logs查看
+    handler = logging.StreamHandler()
     formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
     )
@@ -156,6 +153,16 @@ async def handle_wcf_callback(request: Request):
     except Exception as e:
         logger.error(f'处理WCF回调失败: {e}')
         return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"message": "处理失败", "error": str(e)})
+
+@app.get("/health")
+async def health_check():
+    """
+    健康检查端点
+    """
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"status": "healthy", "timestamp": datetime.now().isoformat()}
+    )
 
 # =====================
 # Helper Functions
