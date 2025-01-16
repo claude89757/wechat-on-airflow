@@ -190,9 +190,9 @@ async def trigger_airflow_dag(callback_data):
     """
     try:
         # todo(@claude89757): 这里可以考虑增加消息聚合的逻辑，等待一段时间，多个消息合并为一个, 触发一次dag
+        roomid = callback_data.get("roomid", "")
         msg_id = callback_data.get("id", "")
-        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dag_run_id = f"wcf_{msg_id}_{current_time}"
+        dag_run_id = f"wcf_{roomid}_{msg_id}"
         airflow_payload = {
             "conf": callback_data,
             "dag_run_id": dag_run_id,
