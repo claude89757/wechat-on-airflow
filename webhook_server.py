@@ -181,8 +181,9 @@ async def trigger_airflow_dag(callback_data):
     异步触发Airflow DAG
     """
     try:
+        msg_id = callback_data.get("id", "")
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dag_run_id = f"wcf_callback_{current_time}"
+        dag_run_id = f"wcf_{msg_id}_{current_time}"
         airflow_payload = {
             "conf": callback_data,
             "dag_run_id": dag_run_id,
