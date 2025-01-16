@@ -26,6 +26,10 @@ x-airflow-env: &airflow-env
   AIRFLOW_EXECUTOR: CeleryExecutor
   AIRFLOW_LOAD_EXAMPLES: no
   
+  # pip 镜像源配置 - 使用腾讯云镜像
+  PIP_INDEX_URL: https://mirrors.cloud.tencent.com/pypi/simple/
+  PIP_TRUSTED_HOST: mirrors.cloud.tencent.com
+  
   # 数据库配置
   AIRFLOW_DATABASE_NAME: &db_name ${AIRFLOW_DATABASE_NAME}
   AIRFLOW_DATABASE_USERNAME: &db_user ${AIRFLOW_DATABASE_USERNAME}
@@ -160,6 +164,8 @@ services:
     container_name: airflow_webhook
     command: >
       bash -c "
+        pip config set global.index-url https://mirrors.cloud.tencent.com/pypi/simple/ &&
+        pip config set global.trusted-host mirrors.cloud.tencent.com &&
         pip install --no-cache-dir fastapi uvicorn gunicorn python-dotenv httpx slowapi &&
         gunicorn webhook_server:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:5000
       "
