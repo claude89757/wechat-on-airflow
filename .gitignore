@@ -1,4 +1,5 @@
 .env
+/logs
 *.log
 /database
 *.pyc
