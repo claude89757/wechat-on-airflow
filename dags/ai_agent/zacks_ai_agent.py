@@ -322,15 +322,22 @@ def humanize_reply(**context):
 
         # 提前将回复内容转换为JSON格式
         try:
-            # 使用正则提取json格式内容
-            json_pattern = r'\{[^{}]*\}'
-            json_match = re.search(json_pattern, humanized_response)
+            # 使用正则提取json格式内容,支持嵌套的json结构
+            json_pattern = r'\{(?:[^{}]|(?R))*\}'
+            json_match = re.search(json_pattern, humanized_response, re.VERBOSE)
             if json_match:
                 data = json.loads(json_match.group())
+                # 验证数据结构
+                if not isinstance(data, dict) or 'messages' not in data:
+                    raise ValueError("Invalid JSON structure")
+                for msg in data['messages']:
+                    if not isinstance(msg, dict) or 'content' not in msg or 'delay' not in msg:
+                        raise ValueError("Invalid message format")
             else:
                 # 如果没有找到json格式,使用默认结构
                 data = {"messages": [{"content": humanized_response, "delay": 1.5}]}
-        except (json.JSONDecodeError, re.error):
+        except (json.JSONDecodeError, re.error, ValueError) as e:
+            print(f"[CHAT] JSON解析失败: {str(e)}")
             # 解析失败时使用默认结构
             data = {"messages": [{"content": humanized_response, "delay": 1.5}]}
     else:
