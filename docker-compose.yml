@@ -195,6 +195,7 @@ services:
     <<: *common
     image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
     container_name: gewe
+    network_mode: "host"
     cap_add:
       - NET_ADMIN
       - SYS_PTRACE
@@ -202,13 +203,11 @@ services:
       - IPC_LOCK
     security_opt:
       - apparmor:unconfined
-    volumes:
-      - type: bind
-        source: ./gewe_data
-        target: /root/temp
     ports:
       - "2531:2531"
       - "2532:2532"
+    volumes:
+      - ./gewe_data:/root/temp
 
 volumes:
   postgres-data:
