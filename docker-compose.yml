@@ -192,22 +192,16 @@ services:
       start_period: 40s
 
   gewe:
-    image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
+    <<: *common
+    image: gewe
     container_name: gewe
-    network_mode: "host"  # 设置为host网络模式
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-      - SYS_PTRACE
-      - SYS_ADMIN
-      - IPC_LOCK
-    security_opt:
-      - apparmor:unconfined
+    privileged: true
+    command: /usr/sbin/init
     ports:
       - "2531:2531"
       - "2532:2532"
     volumes:
-      - /tmp:/root/temp  # 正确的挂载路径
+      - ./gewe_data:/root/temp
 
 volumes:
   postgres-data:
