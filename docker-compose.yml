@@ -191,31 +191,31 @@ services:
       retries: 3
       start_period: 40s
 
-  gewe:
-    <<: *common
-    image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
-    container_name: gewe
-    privileged: true
-    command: >
-      bash -c "
-        yum clean all &&
-        yum makecache fast &&
-        yum install -y epel-release &&
-        yum install -y curl jq &&
-        cd /root/temp &&
-        chmod +x init_gewe.sh &&
-        /usr/sbin/init &
-        sleep 10 &&
-        ./init_gewe.sh
-      "
-    ports:
-      - "2531:2531"
-      - "2532:2532"
-    volumes:
-      - ./gewe_data:/root/temp
-    environment:
-      - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
-      - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
+  # gewe:
+  #   <<: *common
+  #   image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
+  #   container_name: gewe
+  #   privileged: true
+  #   command: >
+  #     bash -c "
+  #       yum clean all &&
+  #       yum makecache fast &&
+  #       yum install -y epel-release &&
+  #       yum install -y curl jq &&
+  #       cd /root/temp &&
+  #       chmod +x init_gewe.sh &&
+  #       /usr/sbin/init &
+  #       sleep 10 &&
+  #       ./init_gewe.sh
+  #     "
+  #   ports:
+  #     - "2531:2531"
+  #     - "2532:2532"
+  #   volumes:
+  #     - ./gewe_data:/root/temp
+  #   environment:
+  #     - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
+  #     - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
 
 volumes:
   postgres-data:
