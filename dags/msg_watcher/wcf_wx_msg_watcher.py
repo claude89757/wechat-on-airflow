@@ -13,27 +13,24 @@
 3. 支持消息分发到其他DAG处理
 """
 
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from datetime import datetime, timedelta
+# 标准库导入
 import json
 import os
-from airflow.api.common.trigger_dag import trigger_dag
+import re
+from datetime import datetime, timedelta
 
-# DAG默认参数
-default_args = {
-    'owner': 'claude89757',
-    'depends_on_past': False,
-    'start_date': datetime(2024, 1, 1),
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
-}
+# Airflow相关导入
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.api.common.trigger_dag import trigger_dag
+from airflow.models.dagrun import DagRun
+from airflow.utils.state import DagRunState
+from airflow.models.variable import Variable
+
 
 def process_wx_message(**context):
     """
-    处理微信消息的任务函数
+    处理微信消息的任务函数, 消息分发到其他DAG处理
     
     Args:
         **context: Airflow上下文参数，包含dag_run等信息
@@ -60,46 +57,67 @@ def process_wx_message(**context):
     print("--------------------------------")
     
     # 检查是否需要触发AI聊天
+    room_id = message_data.get('roomid')
+    sender = message_data.get('sender')
+    msg_id = message_data.get('id')
     msg_type = message_data.get('type')
     content = message_data.get('content', '')
     is_group = message_data.get('is_group', False)  # 是否群聊
-    
-    if msg_type == 1 and content.startswith('@Zacks') and is_group:
-        print("[WATCHER] 群聊消息触发AI聊天流程")
-        
-        # 触发ai_chat DAG，并传递完整的消息数据
-        run_id = f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-        print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-            
-        trigger_dag(
-            dag_id='ai_chat',
-            conf=message_data,
-            run_id=run_id
-        )
-    elif msg_type == 1 and not is_group:
-        print("[WATCHER] 私聊消息触发AI聊天流程")   
+    current_msg_timestamp = message_data.get('ts')
 
-        # 触发ai_chat DAG，并传递完整的消息数据
-        run_id = f'ai_chat_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-        print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-            
-        trigger_dag(
-            dag_id='ai_chat',
-            conf=message_data,
-            run_id=run_id
+    # 分类处理
+    if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
+
+        # 缓存聊天的历史消息
+        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+        simple_message_data = {
+            'roomid': room_id,
+            'sender': sender,
+            'id': msg_id,
+            'content': content,
+            'is_group': is_group,
+            'ts': current_msg_timestamp,
+            'is_response_by_ai': False
+        }
+        room_msg_data[sender] = room_msg_data.get(sender, []) + [simple_message_data]
+        Variable.set(f'{room_id}_msg_data', room_msg_data)
+
+        # 检查是否有来自相同roomid和sender的DAG正在运行
+        active_runs = DagRun.find(
+            dag_id='zacks_ai_agent',
+            state=DagRunState.RUNNING,
         )
+        same_room_sender_runs = [run for run in active_runs if run.run_id.startswith(f'{room_id}_{sender}_')]   
+        if same_room_sender_runs:
+            # 如果存在相同roomid和sender的DAG正在运行，最快的方式停止正在运行的DAG
+            for run in same_room_sender_runs:
+                print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {run.run_id}, 提前结束")
+                run.state = DagRunState.SKIPPED
+                run.end_date = datetime.now()
+                run.save()
+        else:
+            pass
+
+        # 触发新的DAG运行
+        run_id = f'{room_id}_{sender}_{msg_id}'
+        print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
+        trigger_dag(dag_id='zacks_ai_agent', conf=message_data, run_id=run_id)
+
     else:
+        # 非文字消息，暂不触发AI聊天流程
         print("[WATCHER] 不触发AI聊天流程")
+
 
 # 创建DAG
 dag = DAG(
-    'wx_msg_watcher',
-    default_args=default_args,
-    description='WCF-微信消息监控',
-    schedule_interval=None,  # 不设置调度，仅由webhook触发
-    max_active_runs=10,  # 最多同时运行10个实例
+    dag_id='wx_msg_watcher',
+    owner='claude89757',
+    start_date=datetime(2024, 1, 1),
+    schedule_interval=None,
+    max_active_runs=30,
     catchup=False,
-    tags=['WCF-微信消息监控']
+    tags=['WCF-微信消息监控'],
+    description='WCF-微信消息监控',
 )
 
 # 创建处理消息的任务

@@ -149,7 +149,12 @@ async def handle_wcf_callback(request: Request):
             logger.warning('没有收到有效的回调数据')
             return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": "无效的数据"})
 
-        logger.info(f'接收到WCF回调数据: {callback_data}')
+        # 获取请求的源IP地址
+        client_ip = request.client.host
+        logger.info(f'接收到来自 {client_ip} 的WCF回调数据: {callback_data}')
+        
+        # 将源IP添加到callback_data中
+        callback_data['source_ip'] = client_ip
 
         # Trigger Airflow DAG asynchronously
         dag_run_id = await trigger_airflow_dag(callback_data)
@@ -202,7 +207,8 @@ async def trigger_airflow_dag(callback_data):
         # todo(@claude89757): 这里可以考虑增加消息聚合的逻辑，等待一段时间，多个消息合并为一个, 触发一次dag
         # 根据Airflow的DAG run ID命名规范, 删除所有非字母数字字符
         roomid = re.sub(r'[^a-zA-Z0-9]', '', str(callback_data.get("roomid", "")))
-        msg_id = re.sub(r'[^a-zA-Z0-9]', '', str(callback_data.get("id", "")))
+        msg_id = callback_data.get("id", "")
+        callback_data['roomid'] = roomid
         dag_run_id = f"{roomid}_{msg_id}"
         airflow_payload = {
             "conf": callback_data,
@@ -210,7 +216,7 @@ async def trigger_airflow_dag(callback_data):
             "note": "Triggered by WCF callback"
         }
 
-        logger.info(f'准备触发Airflow DAG: wx_msg_watcher, dag_run_id: {dag_run_id}')
+        logger.info(f'准备触发Airflow DAG, dag_run_id: {dag_run_id}')
 
         async with httpx.AsyncClient(auth=(AIRFLOW_USERNAME, AIRFLOW_PASSWORD), timeout=10) as client:
             response = await client.post(
