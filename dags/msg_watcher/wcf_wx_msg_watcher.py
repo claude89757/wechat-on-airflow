@@ -80,7 +80,7 @@ def process_wx_message(**context):
             'is_response_by_ai': False
         }
         room_msg_data[sender] = room_msg_data.get(sender, []) + [simple_message_data]
-        Variable.set(f'{room_id}_msg_data', room_msg_data)
+        Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
 
         # 检查是否有来自相同roomid和sender的DAG正在运行
         active_runs = DagRun.find(

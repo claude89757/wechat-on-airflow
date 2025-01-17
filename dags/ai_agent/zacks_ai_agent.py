@@ -357,7 +357,7 @@ def humanize_reply(**context):
                 'is_response_by_ai': True
             }
             room_msg_data[sender] = room_msg_data.get(sender, []) + [simple_message_data]
-            Variable.set(f'{room_id}_msg_data', room_msg_data)
+            Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
 
             # 延迟发送消息
             time.sleep(int(message['delay']))
