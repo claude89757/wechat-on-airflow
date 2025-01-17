@@ -40,7 +40,7 @@ from utils.llm_channl import get_llm_response
 def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
     """
     获取发送者的历史对话消息
-    todo: 使用redis缓存，提高效率
+    todo: 使用redis缓存，提高效率使用redis缓存，提高效率
     """
     five_minutes_ago_timestamp = datetime.now().timestamp() - 600  # 10分钟前的时间戳
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
@@ -256,7 +256,9 @@ def humanize_reply(**context):
 2. 消息长度和分段：
    - 单条消息控制在合适长度，不要太长
    - 根据内容自然分段，不要机械分割
+   - 不一定每句话都要分段，根据实际情况灵活处理
    - 重要信息要突出，可以用符号标记
+   - 表情符号要适当使用，不要过度
 
 3. 回复节奏：
    - 短消息间隔1-2秒
@@ -281,7 +283,7 @@ def humanize_reply(**context):
 {
     "messages": [
         {
-            "content": "让我来告诉你查看CPU使用率的小技巧~ 💻",
+            "content": "让我来告诉你查看CPU使用率的小技巧~ ",
             "delay": 1.5
         },
         {
@@ -306,7 +308,7 @@ def humanize_reply(**context):
             "delay": 1.8
         },
         {
-            "content": "出去溜达溜达，晒晒太阳，心情都会变好呢！🚶‍♂️✨",
+            "content": "出去溜达溜达，晒晒太阳，心情都会变好呢！🚶✨",
             "delay": 2
         }
     ]
@@ -334,6 +336,10 @@ def humanize_reply(**context):
     else:
         print(f"[CHAT] 当前任务状态: {dagrun_state}, 直接返回")
         return
+
+    print(f"[CHAT] 拟人化回复: {data}")
+    print(f"[CHAT] 拟人化回复: {type(data)}")
+    print(f"[CHAT] 拟人化回复: {data['messages']}")
 
     # 消息发送前，确认当前任务还是运行中，才发送消息
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
