@@ -63,12 +63,16 @@ def analyze_intent(**context) -> str:
     print(f"[INTENT] 发送者 {sender} 在最近1分钟内发送了 {recent_msg_count} 条消息")
     
     # 结合最近1分钟内的消息，生成完整的对话内容
+    content_list = []
     if recent_messages:
         for msg in recent_messages[:5]:
-            content += f"{msg['content']}\n"
-        content = content.replace('@Zacks', '').strip()
+            content = msg['content'].replace('@Zacks', '').strip()
+            content_list.append(content)
     else:
         content = content.replace('@Zacks', '').strip()
+        content_list.append(content)
+    content = "\n".join(list(set(content_list)))
+    print(f"[INTENT] 完整对话内容: {content}")
 
     # 调用AI接口进行意图分析
     dagrun_state = context.get('dag_run').get_state()
