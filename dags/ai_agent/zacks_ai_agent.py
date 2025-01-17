@@ -24,6 +24,7 @@ import json
 import time
 import re
 import os
+import random
 from datetime import datetime, timedelta
 
 # 第三方库导入
@@ -262,6 +263,32 @@ def humanize_reply(**context):
     # 获取AI回复内容
     raw_llm_response = context['ti'].xcom_pull(key='raw_llm_response')
 
+    # 根据原始的AI回复内容，计算分段的数量
+    segments = 1
+    if raw_llm_response:
+        # 计算内容特征
+        content_length = len(raw_llm_response)
+        newline_count = raw_llm_response.count('\n')
+        sentence_count = len(re.split('[。！？\n]', raw_llm_response))
+        
+        # 根据多个维度动态计算分段
+        if content_length > 300 or newline_count > 3 or sentence_count > 5:
+            # 较长的内容分3段,更自然
+            segments = 3
+        elif content_length > 150 or newline_count > 1 or sentence_count > 3:
+            # 中等长度分2段
+            segments = 2
+        else:
+            # 短内容保持1段
+            segments = 1
+            
+        # 添加随机性,使分段更自然
+        if random.random() < 0.3 and segments > 1:
+            segments -= 1
+            
+        print(f"[CHAT] 计算得到分段数量: {segments} (长度:{content_length}, 换行:{newline_count}, 句子:{sentence_count})")
+    
+
     # 拟人化回复的系统提示词
     system_prompt = """你是一个聊天助手，需要将AI的回复转换成更自然的聊天风格。
 
@@ -272,12 +299,7 @@ def humanize_reply(**context):
    - 可以用一些网络用语(比如"稍等哈"、"木问题"等)，但要得体
    - 表达要生动活泼，避免刻板
 
-2. 消息长度和分段：
-   - 单条消息控制在合适长度，不要太长
-   - 分段的数量控制在1-3段， 随机分段
-   - 根据内容自然分段，不要机械分割
-   - 重要信息要突出，可以用符号标记
-   - 表情符号要适当使用，不要过度
+2. 消息分成：{segments}段
 
 3. 回复节奏：
    - 短消息间隔1-2秒
