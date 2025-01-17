@@ -15,7 +15,7 @@ def send_wx_msg_by_wcf_api(wcf_ip: str, message: str, receiver: str, aters: str 
         aters: 要@的用户，可选
     """
     wcf_port = os.getenv("WCF_API_PORT", "9999")
-    wcf_api_url = f"http://{wcf_ip}:{wcf_port}"
+    wcf_api_url = f"http://{wcf_ip}:{wcf_port}/text"
     
     print(f"[WX] 发送消息 -> {receiver} {'@'+aters if aters else ''}")
     print(f"[WX] 内容: {message}")
