@@ -196,17 +196,19 @@ services:
     image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
     container_name: gewe
     cap_add:
-      - NET_ADMIN        # 网络管理权限
-      - SYS_PTRACE      # 进程跟踪权限
-      - SYS_ADMIN       # 系统管理权限
-      - IPC_LOCK        # 内存锁定权限
+      - NET_ADMIN
+      - SYS_PTRACE
+      - SYS_ADMIN
+      - IPC_LOCK
     security_opt:
-      - apparmor:unconfined  # 放宽 AppArmor 限制
+      - apparmor:unconfined
+    volumes:
+      - type: bind
+        source: ./gewe_data
+        target: /root/temp
     ports:
       - "2531:2531"
       - "2532:2532"
-    volumes:
-      - ./gewe_data:/root/temp
 
 volumes:
   postgres-data:
