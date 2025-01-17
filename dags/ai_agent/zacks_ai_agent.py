@@ -42,6 +42,7 @@ def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
     获取发送者的历史对话消息
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
     """
+    print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
     five_minutes_ago_timestamp = datetime.now().timestamp() - 600  # 10分钟前的时间戳
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
     history_chat_msg_list = []
@@ -149,6 +150,7 @@ def analyze_intent(**context) -> str:
     # 缓存聊天内容到xcom, 后续任务使用
     context['ti'].xcom_push(key='content', value=content)
     context['ti'].xcom_push(key='room_id', value=room_id)
+    context['ti'].xcom_push(key='sender', value=sender)
 
     # 根据意图类型选择下一个任务
     next_dag_task_id = "process_ai_chat" if intent['type'] == "chat" else "process_ai_product"
