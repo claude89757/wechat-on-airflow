@@ -193,15 +193,25 @@ services:
 
   gewe:
     <<: *common
-    image: gewe
+    image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
     container_name: gewe
     privileged: true
-    command: /usr/sbin/init
+    command: >
+      bash -c "
+        /usr/sbin/init &
+        sleep 10 &&
+        cd /root/temp &&
+        chmod +x init_gewe.sh &&
+        ./init_gewe.sh
+      "
     ports:
       - "2531:2531"
       - "2532:2532"
     volumes:
       - ./gewe_data:/root/temp
+    environment:
+      - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
+      - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
 
 volumes:
   postgres-data:
