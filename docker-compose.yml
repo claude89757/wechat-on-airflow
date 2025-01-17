@@ -207,7 +207,7 @@ services:
       - "2531:2531"
       - "2532:2532"
     volumes:
-      - ${PWD}/gewe_data:/root/temp
+      - /tmp:/root/temp
 
 volumes:
   postgres-data:
