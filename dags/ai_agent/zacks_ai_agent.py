@@ -33,8 +33,8 @@ from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.utils.state import DagRunState
 
 # 自定义库导入
-from dags.utils.wechat_channl import send_wx_msg_by_wcf_api
-from dags.utils.llm_channl import get_llm_response
+from utils.wechat_channl import send_wx_msg_by_wcf_api
+from utils.llm_channl import get_llm_response
 
 
 # --- 意图分析函数 --- 

@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
-from dags.common.wxchat_bot_by_appium import WXAppOperator
+from common.wxchat_bot_by_appium import WXAppOperator
 
 
 def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
