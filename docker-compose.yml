@@ -195,8 +195,13 @@ services:
     <<: *common
     image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
     container_name: gewe
-    privileged: true
-    command: /usr/sbin/init
+    cap_add:
+      - NET_ADMIN        # 网络管理权限
+      - SYS_PTRACE      # 进程跟踪权限
+      - SYS_ADMIN       # 系统管理权限
+      - IPC_LOCK        # 内存锁定权限
+    security_opt:
+      - apparmor:unconfined  # 放宽 AppArmor 限制
     ports:
       - "2531:2531"
       - "2532:2532"
