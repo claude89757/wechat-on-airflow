@@ -17,7 +17,7 @@
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Airflow相关导入
 from airflow import DAG
@@ -95,7 +95,7 @@ def process_wx_message(**context):
                 for run in same_room_sender_runs:
                     print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {run.run_id}, 提前结束")
                     run.state = DagRunState.FAILED
-                    run.end_date = datetime.now()
+                    run.end_date = datetime.now(timezone.utc)
                     session.merge(run)
                 session.commit()
         else:
