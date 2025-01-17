@@ -79,12 +79,12 @@ def analyze_intent(**context) -> str:
     # 关联该消息发送者的最近1分钟内的消息
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
     one_minute_before_timestamp = msg_ts - 60  # 60秒前的时间戳
-    recent_messages = [
-        msg for msg in room_msg_data.get(sender, [])
-        if msg.get('timestamp') and 
-        msg['timestamp'] > one_minute_before_timestamp
-    ]
+    recent_messages = []
+    for msg in room_msg_data:
+        if msg['sender'] == sender and msg['ts'] > one_minute_before_timestamp:
+            recent_messages.append(msg)
     recent_msg_count = len(recent_messages)
+    
     print(f"[INTENT] 发送者 {sender} 在最近1分钟内发送了 {recent_msg_count} 条消息")
     
     # 结合最近1分钟内的消息，生成完整的对话内容
