@@ -130,9 +130,25 @@ def process_ai_chat(**context):
     # 获取聊天内容(聚合后的)
     content = context['ti'].xcom_pull(key='content')
     room_id = context['ti'].xcom_pull(key='room_id')
+    sender = context['ti'].xcom_pull(key='sender')
 
-    # 获取历史回复
-    history_reply = Variable.get(f'{room_id}_history_reply', default_var={})
+    # 最近5分钟内的10条对话
+    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+    five_minutes_ago_timestamp = datetime.now().timestamp() - 300  # 5分钟前的时间戳
+    recent_messages = [
+        msg for msg in room_msg_data.get(sender, [])
+        if msg.get('timestamp') and 
+        msg['timestamp'] > five_minutes_ago_timestamp
+    ]
+    history_reply = ""
+    for msg in recent_messages[:10]:
+        if msg['sender'] == sender:
+            history_reply += f"用户: {msg['content']}\n"
+        elif msg['sender'] == f"TO_{sender}_BY_AI":
+            history_reply += f"AI: {msg['content']}\n"
+        else:
+            history_reply += f"其他人: {msg['content']}\n"
+    print(f"[PRODUCT] 历史对话: {history_reply}")
 
     if history_reply:
         system_prompt = f"""你是一个聊天助手，请根据对话内容生成回复。
@@ -168,7 +184,7 @@ def process_ai_product(**context):
         print("[CHAT] 没有检测到实际问题内容")
         return
     
-    # 最近5分钟内的对话
+    # 最近5分钟内的10条对话
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
     five_minutes_ago_timestamp = datetime.now().timestamp() - 300  # 5分钟前的时间戳
     recent_messages = [
@@ -177,13 +193,14 @@ def process_ai_product(**context):
         msg['timestamp'] > five_minutes_ago_timestamp
     ]
     history_reply = ""
-    for msg in recent_messages:
+    for msg in recent_messages[:10]:
         if msg['sender'] == sender:
             history_reply += f"用户: {msg['content']}\n"
         elif msg['sender'] == f"TO_{sender}_BY_AI":
             history_reply += f"AI: {msg['content']}\n"
         else:
             history_reply += f"其他人: {msg['content']}\n"
+    print(f"[PRODUCT] 历史对话: {history_reply}")
 
     system_prompt = f"""
     你是一个专业的产品经理助手。你需要:
@@ -351,7 +368,14 @@ def humanize_reply(**context):
 # 创建DAG
 dag = DAG(
     dag_id='zacks_ai_agent',
-    owner='claude89757',
+    default_args={
+        'owner': 'claude89757',
+        'depends_on_past': False,
+        'email_on_failure': False,
+        'email_on_retry': False,
+        'retries': 0,
+        'retry_delay': timedelta(minutes=1),
+    },
     start_date=datetime(2024, 1, 1),
     schedule_interval=None,
     max_active_runs=10,

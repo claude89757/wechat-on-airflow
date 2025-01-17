@@ -111,7 +111,14 @@ def process_wx_message(**context):
 # 创建DAG
 dag = DAG(
     dag_id='wx_msg_watcher',
-    owner='claude89757',
+    default_args={
+        'owner': 'claude89757',
+        'depends_on_past': False,
+        'email_on_failure': False,
+        'email_on_retry': False,
+        'retries': 0,
+        'retry_delay': timedelta(minutes=1),
+    },
     start_date=datetime(2024, 1, 1),
     schedule_interval=None,
     max_active_runs=30,
