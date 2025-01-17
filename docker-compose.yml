@@ -192,10 +192,10 @@ services:
       start_period: 40s
 
   gewe:
-    <<: *common
     image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
     container_name: gewe
     network_mode: "host"
+    restart: unless-stopped
     cap_add:
       - NET_ADMIN
       - SYS_PTRACE
