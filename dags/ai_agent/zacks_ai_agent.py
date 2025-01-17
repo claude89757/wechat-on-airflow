@@ -346,7 +346,7 @@ def humanize_reply(**context):
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
         # 聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
         for message in data['messages']:
             send_wx_msg_by_wcf_api(wcf_ip=source_ip, message=message['content'], receiver=room_id)
 
