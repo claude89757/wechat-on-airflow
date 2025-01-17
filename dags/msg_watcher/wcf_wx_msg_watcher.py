@@ -69,7 +69,7 @@ def process_wx_message(**context):
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
 
         # 缓存聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
+        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
         simple_message_data = {
             'roomid': room_id,
             'sender': sender,
@@ -79,7 +79,7 @@ def process_wx_message(**context):
             'ts': current_msg_timestamp,
             'is_response_by_ai': False
         }
-        room_msg_data[sender] = room_msg_data.get(sender, []) + [simple_message_data]
+        room_msg_data.append(simple_message_data)
         Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
 
         # 检查是否有来自相同roomid和sender的DAG正在运行

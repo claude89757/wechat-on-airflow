@@ -41,16 +41,24 @@ def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
     """
     获取发送者的历史对话消息
     """
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
+    five_minutes_ago_timestamp = datetime.now().timestamp() - 600  # 10分钟前的时间戳
+    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
     history_chat_msg_list = []
-    for msg in room_msg_data[:10]:
-        if msg['sender'] == sender:
-            history_chat_msg_list.append(f"用户: {msg['content']}")
-        elif msg['sender'] == f"TO_{sender}_BY_AI":
-            history_chat_msg_list.append(f"AI: {msg['content']}")
-        else:
-            history_chat_msg_list.append(f"其他人: {msg['content']}")
-    history_chat_msg = "\n\n".join(history_chat_msg_list)
+
+    for msg in room_msg_data:
+        if msg['ts'] > five_minutes_ago_timestamp:  
+            # 如果消息时间超过5分钟，则不添加到历史对话中
+            pass
+        else: 
+            # 最近10分钟内的消息
+            if msg['sender'] == sender:
+                history_chat_msg_list.append(f"用户: {msg['content']}")
+            elif msg['sender'] == f"TO_{sender}_BY_AI":
+                history_chat_msg_list.append(f"AI: {msg['content']}")
+            else:
+                history_chat_msg_list.append(f"其他人: {msg['content']}")
+
+    history_chat_msg = "\n\n".join(history_chat_msg_list[-10:])  # 只取最近10条
     return history_chat_msg
 
 
@@ -330,7 +338,7 @@ def humanize_reply(**context):
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
         # 聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
+        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
         for message in data['messages']:
             send_wx_msg_by_wcf_api(wcf_ip=source_ip, message=message['content'], receiver=room_id)
 
@@ -344,7 +352,7 @@ def humanize_reply(**context):
                 'ts': datetime.now().timestamp(),
                 'is_response_by_ai': True
             }
-            room_msg_data[sender] = room_msg_data.get(sender, []) + [simple_message_data]
+            room_msg_data.append(simple_message_data)
             Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
 
             # 延迟发送消息
