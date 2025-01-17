@@ -52,7 +52,7 @@ def analyze_intent(**context) -> str:
     msg_ts = message_data['ts']
 
     # 关联该消息发送者的最近1分钟内的消息
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
     one_minute_before_timestamp = msg_ts - 60  # 60秒前的时间戳
     recent_messages = [
         msg for msg in room_msg_data.get(sender, [])
@@ -137,7 +137,7 @@ def process_ai_chat(**context):
     sender = context['ti'].xcom_pull(key='sender')
 
     # 最近5分钟内的10条对话
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
     five_minutes_ago_timestamp = datetime.now().timestamp() - 300  # 5分钟前的时间戳
     recent_messages = [
         msg for msg in room_msg_data.get(sender, [])
@@ -189,7 +189,7 @@ def process_ai_product(**context):
         return
     
     # 最近5分钟内的10条对话
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
     five_minutes_ago_timestamp = datetime.now().timestamp() - 300  # 5分钟前的时间戳
     recent_messages = [
         msg for msg in room_msg_data.get(sender, [])

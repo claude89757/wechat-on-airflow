@@ -69,7 +69,7 @@ def process_wx_message(**context):
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
 
         # 缓存聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
         simple_message_data = {
             'roomid': room_id,
             'sender': sender,
