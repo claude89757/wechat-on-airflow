@@ -194,7 +194,7 @@ services:
   gewe:
     image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
     container_name: gewe
-    network_mode: "host"
+    network_mode: "host"  # 设置为host网络模式
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
@@ -207,7 +207,7 @@ services:
       - "2531:2531"
       - "2532:2532"
     volumes:
-      - /tmp:/root/temp
+      - /tmp:/root/temp  # 正确的挂载路径
 
 volumes:
   postgres-data:
