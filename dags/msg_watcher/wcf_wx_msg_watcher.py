@@ -89,10 +89,10 @@ def process_wx_message(**context):
         )
         same_room_sender_runs = [run for run in active_runs if run.run_id.startswith(f'{room_id}_{sender}_')]   
         if same_room_sender_runs:
-            # 如果存在相同roomid和sender的DAG正在运行，最快的方式停止正在运行的DAG
+            # 如果存在相同roomid和sender的DAG正在运行，将其标记为失败以结束运行
             for run in same_room_sender_runs:
                 print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {run.run_id}, 提前结束")
-                run.state = DagRunState.SKIPPED
+                run.state = DagRunState.FAILED
                 run.end_date = datetime.now()
                 run.save()
         else:
