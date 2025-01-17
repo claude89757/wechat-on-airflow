@@ -191,6 +191,18 @@ services:
       retries: 3
       start_period: 40s
 
+  gewe:
+    <<: *common
+    image: gewe
+    container_name: gewe
+    privileged: true
+    command: /usr/sbin/init
+    ports:
+      - "2531:2531"
+      - "2532:2532"
+    volumes:
+      - ./gewe_data:/root/temp
+
 volumes:
   postgres-data:
   redis-data:
