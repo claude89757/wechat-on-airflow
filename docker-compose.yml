@@ -193,7 +193,7 @@ services:
 
   gewe:
     <<: *common
-    image: gewe
+    image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
     container_name: gewe
     privileged: true
     command: /usr/sbin/init
