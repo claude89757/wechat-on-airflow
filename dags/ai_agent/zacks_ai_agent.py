@@ -40,6 +40,7 @@ from utils.llm_channl import get_llm_response
 def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
     """
     获取发送者的历史对话消息
+    todo: 使用redis缓存，提高效率
     """
     five_minutes_ago_timestamp = datetime.now().timestamp() - 600  # 10分钟前的时间戳
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
@@ -84,7 +85,7 @@ def analyze_intent(**context) -> str:
         if msg['sender'] == sender and msg['ts'] > one_minute_before_timestamp:
             recent_messages.append(msg)
     recent_msg_count = len(recent_messages)
-    
+
     print(f"[INTENT] 发送者 {sender} 在最近1分钟内发送了 {recent_msg_count} 条消息")
     
     # 结合最近1分钟内的消息，生成完整的对话内容
