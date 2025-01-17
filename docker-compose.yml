@@ -198,6 +198,8 @@ services:
     privileged: true
     command: >
       bash -c "
+        apt-get update && 
+        apt-get install -y curl jq &&
         /usr/sbin/init &
         sleep 10 &&
         cd /root/temp &&
