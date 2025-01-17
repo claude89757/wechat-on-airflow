@@ -22,10 +22,9 @@ AI聊天处理DAG
 # 标准库导入
 import json
 import time
-import os
 import re
+import os
 from datetime import datetime, timedelta
-from typing import Dict, Any
 
 # 第三方库导入
 from airflow import DAG
@@ -65,7 +64,7 @@ def analyze_intent(**context) -> str:
     
     # 结合最近1分钟内的消息，生成完整的对话内容
     if recent_messages:
-        for msg in recent_messages:
+        for msg in recent_messages[:5]:
             content += f"{msg['content']}\n"
         content = content.replace('@Zacks', '').strip()
     else:
@@ -119,6 +118,7 @@ def analyze_intent(**context) -> str:
 
     # 缓存聊天内容到xcom, 后续任务使用
     context['ti'].xcom_push(key='content', value=content)
+    context['ti'].xcom_push(key='room_id', value=room_id)
 
     # 根据意图类型选择下一个任务
     next_dag_task_id = "process_ai_chat" if intent['type'] == "chat" else "process_ai_product"
@@ -129,14 +129,19 @@ def process_ai_chat(**context):
     """处理AI聊天的主任务函数"""
     # 获取聊天内容(聚合后的)
     content = context['ti'].xcom_pull(key='content')
+    room_id = context['ti'].xcom_pull(key='room_id')
 
-    # 提取@Zacks后的实际问题内容
-    if not content:
-        print("[CHAT] 没有检测到实际问题内容")
-        return
-        
-    system_prompt = """你是一个聊天助手，请根据对话内容生成回复。
+    # 获取历史回复
+    history_reply = Variable.get(f'{room_id}_history_reply', default_var={})
+
+    if history_reply:
+        system_prompt = f"""你是一个聊天助手，请根据对话内容生成回复。
+
+    历史对话, 作为参考:
+    {history_reply}
     """
+    else:
+        system_prompt = """你是一个聊天助手，请根据对话内容生成回复。"""
 
     # 调用AI接口获取回复
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
@@ -155,13 +160,32 @@ def process_ai_product(**context):
     """处理AI产品咨询的主任务函数"""
     # 获取聊天内容(聚合后的)
     content = context['ti'].xcom_pull(key='content')
+    room_id = context['ti'].xcom_pull(key='room_id')
+    sender = context['ti'].xcom_pull(key='sender')
 
     # 提取@Zacks后的实际问题内容
     if not content:
         print("[CHAT] 没有检测到实际问题内容")
         return
-        
-    system_prompt = """
+    
+    # 最近5分钟内的对话
+    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
+    five_minutes_ago_timestamp = datetime.now().timestamp() - 300  # 5分钟前的时间戳
+    recent_messages = [
+        msg for msg in room_msg_data.get(sender, [])
+        if msg.get('timestamp') and 
+        msg['timestamp'] > five_minutes_ago_timestamp
+    ]
+    history_reply = ""
+    for msg in recent_messages:
+        if msg['sender'] == sender:
+            history_reply += f"用户: {msg['content']}\n"
+        elif msg['sender'] == f"TO_{sender}_BY_AI":
+            history_reply += f"AI: {msg['content']}\n"
+        else:
+            history_reply += f"其他人: {msg['content']}\n"
+
+    system_prompt = f"""
     你是一个专业的产品经理助手。你需要:
     1. 仔细倾听用户的问题和需求
     2. 提供专业、具体和可执行的建议
@@ -173,6 +197,9 @@ def process_ai_product(**context):
     8. 避免过度承诺或夸大其词
     9. 适时使用专业术语,但要确保用户能理解
     10. 在合适的时候提供相关的最佳实践建议
+
+    历史对话, 作为参考:
+    {history_reply}
     """
 
     # 调用AI接口获取回复
@@ -297,8 +324,25 @@ def humanize_reply(**context):
     # 消息发送前，确认当前任务还是运行中，才发送消息
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
+        # 聊天的历史消息
+        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={})
         for message in data['messages']:
             send_wx_msg_by_wcf_api(wcf_ip=source_ip, message=message['content'], receiver=room_id)
+
+            # 缓存聊天的历史消息    
+            simple_message_data = {
+                'roomid': room_id,
+                'sender': f"TO_{sender}_BY_AI",
+                'id': "NULL",
+                'content': message['content'],
+                'is_group': is_group,
+                'ts': datetime.now().timestamp(),
+                'is_response_by_ai': True
+            }
+            room_msg_data[sender] = room_msg_data.get(sender, []) + [simple_message_data]
+            Variable.set(f'{room_id}_msg_data', room_msg_data)
+
+            # 延迟发送消息
             time.sleep(int(message['delay']))
     else:
         print(f"[CHAT] 当前任务状态: {dagrun_state}, 不发送消息")
