@@ -322,9 +322,9 @@ def humanize_reply(**context):
 
         # 提前将回复内容转换为JSON格式
         try:
-            # 使用正则提取json格式内容,支持嵌套的json结构
-            json_pattern = r'\{(?:[^{}]|(?R))*\}'
-            json_match = re.search(json_pattern, humanized_response, re.VERBOSE)
+            # 使用更简单的正则表达式来提取JSON内容
+            json_pattern = r'\{[\s\S]*\}'
+            json_match = re.search(json_pattern, humanized_response)
             if json_match:
                 data = json.loads(json_match.group())
                 # 验证数据结构
@@ -346,7 +346,6 @@ def humanize_reply(**context):
 
     print(f"[CHAT] 拟人化回复: {data}")
     print(f"[CHAT] 拟人化回复: {type(data)}")
-    print(f"[CHAT] 拟人化回复: {data['messages']}")
 
     # 消息发送前，确认当前任务还是运行中，才发送消息
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
