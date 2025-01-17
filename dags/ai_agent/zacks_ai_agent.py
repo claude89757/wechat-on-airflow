@@ -37,6 +37,23 @@ from utils.wechat_channl import send_wx_msg_by_wcf_api
 from utils.llm_channl import get_llm_response
 
 
+def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
+    """
+    获取发送者的历史对话消息
+    """
+    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
+    history_chat_msg_list = []
+    for msg in room_msg_data[:10]:
+        if msg['sender'] == sender:
+            history_chat_msg_list.append(f"用户: {msg['content']}")
+        elif msg['sender'] == f"TO_{sender}_BY_AI":
+            history_chat_msg_list.append(f"AI: {msg['content']}")
+        else:
+            history_chat_msg_list.append(f"其他人: {msg['content']}")
+    history_chat_msg = "\n\n".join(history_chat_msg_list)
+    return history_chat_msg
+
+
 # --- 意图分析函数 --- 
 
 def analyze_intent(**context) -> str:
@@ -137,31 +154,13 @@ def process_ai_chat(**context):
     sender = context['ti'].xcom_pull(key='sender')
 
     # 最近5分钟内的10条对话
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
-    five_minutes_ago_timestamp = datetime.now().timestamp() - 300  # 5分钟前的时间戳
-    recent_messages = [
-        msg for msg in room_msg_data.get(sender, [])
-        if msg.get('timestamp') and 
-        msg['timestamp'] > five_minutes_ago_timestamp
-    ]
-    history_reply = ""
-    for msg in recent_messages[:10]:
-        if msg['sender'] == sender:
-            history_reply += f"用户: {msg['content']}\n"
-        elif msg['sender'] == f"TO_{sender}_BY_AI":
-            history_reply += f"AI: {msg['content']}\n"
-        else:
-            history_reply += f"其他人: {msg['content']}\n"
-    print(f"[PRODUCT] 历史对话: {history_reply}")
+    history_chat_msg = get_sender_history_chat_msg(sender, room_id)
 
-    if history_reply:
-        system_prompt = f"""你是一个聊天助手，请根据对话内容生成回复。
+    system_prompt = f"""你是一个聊天助手，请根据对话内容生成回复。
 
     历史对话, 作为参考:
-    {history_reply}
+    {history_chat_msg}
     """
-    else:
-        system_prompt = """你是一个聊天助手，请根据对话内容生成回复。"""
 
     # 调用AI接口获取回复
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
@@ -189,22 +188,7 @@ def process_ai_product(**context):
         return
     
     # 最近5分钟内的10条对话
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
-    five_minutes_ago_timestamp = datetime.now().timestamp() - 300  # 5分钟前的时间戳
-    recent_messages = [
-        msg for msg in room_msg_data.get(sender, [])
-        if msg.get('timestamp') and 
-        msg['timestamp'] > five_minutes_ago_timestamp
-    ]
-    history_reply = ""
-    for msg in recent_messages[:10]:
-        if msg['sender'] == sender:
-            history_reply += f"用户: {msg['content']}\n"
-        elif msg['sender'] == f"TO_{sender}_BY_AI":
-            history_reply += f"AI: {msg['content']}\n"
-        else:
-            history_reply += f"其他人: {msg['content']}\n"
-    print(f"[PRODUCT] 历史对话: {history_reply}")
+    history_chat_msg = get_sender_history_chat_msg(sender, room_id)
 
     system_prompt = f"""
     你是一个专业的产品经理助手。你需要:
@@ -220,7 +204,7 @@ def process_ai_product(**context):
     10. 在合适的时候提供相关的最佳实践建议
 
     历史对话, 作为参考:
-    {history_reply}
+    {history_chat_msg}
     """
 
     # 调用AI接口获取回复
