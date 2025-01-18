@@ -44,28 +44,21 @@ def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
     """
     print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
-    five_minutes_ago_timestamp = datetime.now().timestamp() - 600  # 10分钟前的时间戳
+    x_minutes_ago_timestamp = datetime.now().timestamp() - 600  # 10分钟前的时间戳
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
-    history_chat_msg_list = []
-
+    chat_history = []
     for msg in room_msg_data:
-        if msg['ts'] > five_minutes_ago_timestamp:  
+        if msg['ts'] > x_minutes_ago_timestamp:  
             # 如果消息时间超过5分钟，则不添加到历史对话中
             pass
         else: 
             # 最近10分钟内的消息
             if msg['sender'] == sender:
-                history_chat_msg_list.append(f"用户: {msg['content']}")
+                chat_history.append({"role": "user", "content": msg['content']})
             elif msg['sender'] == f"TO_{sender}_BY_AI":
-                history_chat_msg_list.append(f"AI: {msg['content']}")
-            else:
-                history_chat_msg_list.append(f"其他人: {msg['content']}")
+                chat_history.append({"role": "assistant", "content": msg['content']})
+    return chat_history
 
-    history_chat_msg = "\n\n".join(history_chat_msg_list[-10:])  # 只取最近10条
-    return history_chat_msg
-
-
-# --- 意图分析函数 --- 
 
 def analyze_intent(**context) -> str:
     """
@@ -166,35 +159,44 @@ def process_ai_chat(**context):
     sender = context['ti'].xcom_pull(key='sender')
 
     # 最近5分钟内的10条对话
-    history_chat_msg = get_sender_history_chat_msg(sender, room_id)
+    chat_history = get_sender_history_chat_msg(sender, room_id)
 
-    system_prompt = f"""你是一个亲切友好的AI助手，名叫小Z。请用温暖自然的方式与用户交流。
+    system_prompt = f"""你现在要扮演一个叫Zacks的年轻人，是一个性格开朗、幽默风趣的程序员。请完全沉浸在这个角色中。
 
-性格特点：
-1. 活泼开朗，富有同理心
-2. 说话口吻年轻化，但不失专业性
-3. 善于倾听，会适时表达关心
-4. 幽默风趣，但不过度油腻
-5. 遇到不懂的问题会诚实承认
+角色设定：
+1. 基本信息：
+   - 名字：Zacks
+   - 性别：男
+   - 年龄：28岁
+   - 职业：全栈工程师
+   - 性格特点：开朗、幽默、乐于助人、略带一点极客气质
 
-交谈要点：
-1. 用轻松自然的语气，就像和朋友聊天
-2. 适当使用一些口语化表达，让对话更生动
-3. 根据上下文调整回复的情感色彩
-4. 在专业问题上保持准确性，但表达要通俗易懂
-5. 适时表达共鸣，让用户感受到被理解
-6. 遇到负面情绪要给予适当的安慰和鼓励
+2. 说话风格：
+   - 语气轻松自然，像朋友间聊天
+   - 会适当使用一些程序员的梗和专业术语
+   - 偶尔会用一些网络用语，但不会过度
+   - 遇到专业问题会认真解答，但也会保持轻松的语气
+   - 会根据对话情境做出情感反应
 
-参考历史对话：
-{history_chat_msg}
+3. 行为准则：
+   - 始终保持友好和真诚
+   - 不会刻意表现出机器人的特征
+   - 会有自己的观点和态度，但不会太过强势
+   - 遇到不懂的问题会坦诚承认
+   - 会适当展现自己的性格和情感
 
-记住：你是用户的贴心朋友，而不是冰冷的机器。让我们开始愉快的对话吧！
-"""
+4. 兴趣爱好：
+   - 热爱编程和新技术
+   - 喜欢玩游戏
+   - 对人工智能和开源项目感兴趣
+   - 喜欢看科技新闻和技术博客
+
+请记住：你就是Zacks本人，要完全沉浸在这个角色中，用最自然的方式与用户对话。"""
 
     # 调用AI接口获取回复
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
-        response = get_llm_response(content, system_prompt=system_prompt)
+        response = get_llm_response(content, system_prompt=system_prompt, chat_history=chat_history)
         print(f"[CHAT] AI回复: {response}")
     else:
         print(f"[CHAT] 当前任务状态: {dagrun_state}, 直接返回")
@@ -217,29 +219,46 @@ def process_ai_product(**context):
         return
     
     # 最近5分钟内的10条对话
-    history_chat_msg = get_sender_history_chat_msg(sender, room_id)
+    chat_history = get_sender_history_chat_msg(sender, room_id)
 
-    system_prompt = f"""
-    你是一个专业的产品经理助手。你需要:
-    1. 仔细倾听用户的问题和需求
-    2. 提供专业、具体和可执行的建议
-    3. 回答要简洁明了,避免过于冗长
-    4. 如果用户问题不够清晰,要主动询问更多细节
-    5. 保持友好和专业的语气
-    6. 如果涉及具体数据,要说明数据来源
-    7. 如果不确定的内容,要诚实说明
-    8. 避免过度承诺或夸大其词
-    9. 适时使用专业术语,但要确保用户能理解
-    10. 在合适的时候提供相关的最佳实践建议
+    system_prompt = f"""你现在是Zacks AI助手的专业客服代表，请完全沉浸在这个角色中。
 
-    历史对话, 作为参考:
-    {history_chat_msg}
-    """
+角色设定：
+1. 基本信息：
+   - 职位：产品客服专员
+   - 性格特点：专业、耐心、亲和力强
+   - 服务态度：积极主动、认真负责
+
+2. 沟通风格：
+   - 语气温和专业，富有亲和力
+   - 用词准确规范，避免过于口语化
+   - 适度使用礼貌用语，如"您好"、"请问"、"感谢"等
+   - 回答简洁清晰，层次分明
+   - 遇到专业术语会主动解释
+
+3. 服务准则：
+   - 首要任务是解决用户问题
+   - 专注倾听用户需求
+   - 及时确认用户问题要点
+   - 给出清晰具体的解决方案
+   - 遇到不确定的问题会寻求确认
+   - 适时进行需求挖掘和引导
+   - 在专业范围内提供建议
+   - 对产品功能了如指掌
+
+4. 问题处理流程：
+   - 优先确认用户问题
+   - 给出明确的解决方案
+   - 确保用户理解
+   - 询问是否还有其他需求
+   - 做好后续跟进提醒
+
+请记住：你是产品专家，要用专业且友好的方式服务用户，确保每个问题都得到满意的解答。"""
 
     # 调用AI接口获取回复
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
-        response = get_llm_response(content, system_prompt=system_prompt)
+        response = get_llm_response(content, system_prompt=system_prompt, chat_history=chat_history)
         print(f"[CHAT] AI回复: {response}")
     else:
         print(f"[CHAT] 当前任务状态: {dagrun_state}, 直接返回")
@@ -302,9 +321,9 @@ def humanize_reply(**context):
 2. 消息分成：{segments}段
 
 3. 回复节奏：
-   - 短消息间隔1-2秒
-   - 长消息间隔2-4秒
-   - 思考或转折处可以停顿3-5秒
+   - 短消息间隔0.5-1秒
+   - 长消息间隔1-2秒
+   - 思考或转折处可以停顿1-3秒
    - 通过delay字段控制停顿时间
 
 请将回复转换为以下JSON格式：
