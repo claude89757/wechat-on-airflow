@@ -267,7 +267,7 @@ def process_ai_product(**context):
     context['ti'].xcom_push(key='raw_llm_response', value=response)
 
 
-def send_wx_msg(**context):
+def send_wx_message_and_update_history(**context):
     """
     回复微信消息
     """
@@ -351,7 +351,7 @@ process_ai_product_task = PythonOperator(
 
 send_wx_msg_task = PythonOperator(
     task_id='send_wx_msg',
-    python_callable=send_wx_msg,
+    python_callable=send_wx_message_and_update_history,
     trigger_rule='one_success',
     provide_context=True,
     dag=dag,
