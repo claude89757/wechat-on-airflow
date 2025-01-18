@@ -38,7 +38,7 @@ from utils.wechat_channl import send_wx_msg
 from utils.llm_channl import get_llm_response
 
 
-def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
+def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) -> str:
     """
     获取发送者的历史对话消息
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
@@ -57,7 +57,7 @@ def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
                 chat_history.append({"role": "user", "content": msg['content']})
             elif msg['is_ai_msg']:
                 chat_history.append({"role": "assistant", "content": msg['content']})
-    return chat_history[-10:]
+    return chat_history[-max_count:]
 
 
 def analyze_intent(**context) -> str:
@@ -72,28 +72,8 @@ def analyze_intent(**context) -> str:
     room_id = message_data['roomid']  
     msg_ts = message_data['ts']
 
-    # 关联该消息发送者的最近1分钟内的消息
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var={}, deserialize_json=True)
-    one_minute_before_timestamp = msg_ts - 60  # 60秒前的时间戳
-    recent_messages = []
-    for msg in room_msg_data:
-        if msg['sender'] == sender and msg['ts'] > one_minute_before_timestamp:
-            recent_messages.append(msg)
-    recent_msg_count = len(recent_messages)
-
-    print(f"[INTENT] 发送者 {sender} 在最近1分钟内发送了 {recent_msg_count} 条消息")
-    
-    # 结合最近1分钟内的消息，生成完整的对话内容
-    content_list = []
-    if recent_messages:
-        for msg in recent_messages[:5]:
-            content = msg['content'].replace('@Zacks', '').strip()
-            content_list.append(content)
-    else:
-        content = content.replace('@Zacks', '').strip()
-        content_list.append(content)
-    content = "\n".join(list(set(content_list)))
-    print(f"[INTENT] 完整对话内容: {content}")
+    # 历史对话
+    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3)
 
     # 调用AI接口进行意图分析
     dagrun_state = context.get('dag_run').get_state()
@@ -117,7 +97,8 @@ def analyze_intent(**context) -> str:
     "type": "product", 
     "description": "用户在咨询产品价格"
 }"""
-        response = get_llm_response(content, model_name="gpt-4o-mini", system_prompt=system_prompt)
+        response = get_llm_response(content, model_name="gpt-4o-mini", system_prompt=system_prompt, 
+                                    chat_history=chat_history)
         try:
             # 使用正则提取json格式内容
             json_pattern = r'\{[^{}]*\}'
