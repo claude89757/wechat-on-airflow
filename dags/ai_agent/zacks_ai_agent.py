@@ -331,18 +331,21 @@ dag = DAG(
 analyze_intent_task = BranchPythonOperator(
     task_id='analyze_intent',
     python_callable=analyze_intent,
+    provide_context=True,
     dag=dag,
 )
 
 process_ai_chat_task = PythonOperator(
     task_id='process_ai_chat',
     python_callable=process_ai_chat,
+    provide_context=True,
     dag=dag,
 )
 
 process_ai_product_task = PythonOperator(
     task_id='process_ai_product',
     python_callable=process_ai_product,
+    provide_context=True,
     dag=dag,
 )
 
@@ -350,6 +353,7 @@ send_wx_msg_task = PythonOperator(
     task_id='send_wx_msg',
     python_callable=send_wx_msg,
     trigger_rule='one_success',
+    provide_context=True,
     dag=dag,
 )
 
