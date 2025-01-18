@@ -46,6 +46,7 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
     print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
     x_minutes_ago_timestamp = datetime.now().timestamp() - 600  # x分钟前的时间戳
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
+    print(f"[HISTORY] 历史消息: {room_msg_data}")
     chat_history = []
     for msg in room_msg_data:
         if msg['ts'] > x_minutes_ago_timestamp:  
@@ -57,7 +58,10 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
                 chat_history.append({"role": "user", "content": msg['content']})
             elif msg['is_ai_msg']:
                 chat_history.append({"role": "assistant", "content": msg['content']})
-    return chat_history[-max_count:]
+    print(f"[HISTORY] 历史对话: {chat_history}")
+    part_chat_history = chat_history[-max_count:]
+    print(f"[HISTORY] 返回的历史对话: {part_chat_history}")
+    return part_chat_history
 
 
 def analyze_intent(**context) -> str:
