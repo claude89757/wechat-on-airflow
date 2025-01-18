@@ -348,13 +348,13 @@ process_ai_product_task = PythonOperator(
     dag=dag,
 )
 
-humanize_reply_task = PythonOperator(
-    task_id='humanize_reply',
-    python_callable=humanize_reply,
+send_wx_msg_task = PythonOperator(
+    task_id='send_wx_msg',
+    python_callable=send_wx_msg,
     provide_context=True,
     trigger_rule='none_failed',
     dag=dag,
 )
 
 # 设置任务依赖关系
-analyze_intent_task >> [process_ai_chat_task, process_ai_product_task] >> humanize_reply_task
+analyze_intent_task >> [process_ai_chat_task, process_ai_product_task] >> send_wx_msg_task
