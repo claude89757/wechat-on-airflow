@@ -27,6 +27,7 @@ from airflow.models.dagrun import DagRun
 from airflow.utils.state import DagRunState
 from airflow.models.variable import Variable
 from airflow.utils.session import create_session
+from utils.wechat_channl import send_wx_msg_by_wcf_api
 
 
 def process_wx_message(**context):
@@ -65,6 +66,7 @@ def process_wx_message(**context):
     content = message_data.get('content', '')
     is_group = message_data.get('is_group', False)  # 是否群聊
     current_msg_timestamp = message_data.get('ts')
+    source_ip = message_data.get('source_ip')
 
     # 分类处理
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
@@ -73,6 +75,7 @@ def process_wx_message(**context):
         if content.replace('@Zacks', '').strip().lower() == 'clear':
             print("[命令] 清理历史消息")
             Variable.set(f'{room_id}_msg_data', [], serialize_json=True)
+            send_wx_msg_by_wcf_api(wcf_ip=source_ip, message='[bot]已清理历史消息', receiver=sender)
             return
 
         # 缓存聊天的历史消息
