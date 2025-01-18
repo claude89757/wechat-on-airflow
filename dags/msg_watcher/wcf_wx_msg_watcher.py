@@ -18,6 +18,7 @@ import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
+import time
 
 # Airflow相关导入
 from airflow import DAG
@@ -99,13 +100,21 @@ def process_wx_message(**context):
         )
         same_room_sender_runs = [run for run in active_runs if run.run_id.startswith(f'{room_id}_{sender}_')]   
         if same_room_sender_runs:
-            # 如果存在相同roomid和sender的DAG正在运行，将其标记为失败以结束运行
+            print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {same_room_sender_runs}")
+            # 使用数据库会话检查并强制结束未响应的DAG任务
             with create_session() as session:
                 for run in same_room_sender_runs:
-                    print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {run.run_id}, 提前结束")
-                    run.state = DagRunState.FAILED
-                    run.end_date = datetime.now(timezone.utc)
-                    session.merge(run)
+                    # 从数据库中查询最新的任务状态
+                    updated_run = session.query(DagRun).filter(DagRun.run_id == run.run_id).first()
+                    # 如果任务仍在运行状态,则强制将其标记为失败
+                    if updated_run and updated_run.state == DagRunState.RUNNING:
+                        print(f"[WATCHER] run_id: {run.run_id}, 强制结束")
+                        # 更新任务状态为失败
+                        updated_run.state = DagRunState.FAILED
+                        # 设置任务结束时间为当前UTC时间
+                        updated_run.end_date = datetime.now(timezone.utc)
+                        # 将更新后的任务状态合并到会话中
+                        session.merge(updated_run)
                 session.commit()
         else:
             pass
