@@ -44,20 +44,14 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
     """
     print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
-    x_minutes_ago_timestamp = datetime.now().timestamp() - 600  # x分钟前的时间戳
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
     print(f"[HISTORY] 历史消息: {room_msg_data}")
     chat_history = []
     for msg in room_msg_data:
-        if msg['ts'] > x_minutes_ago_timestamp:  
-            # 如果消息时间超过x分钟，则不添加到历史对话中
-            pass
-        else: 
-            # 最近x分钟内的消息
-            if msg['sender'] == sender:
-                chat_history.append({"role": "user", "content": msg['content']})
-            elif msg['is_ai_msg']:
-                chat_history.append({"role": "assistant", "content": msg['content']})
+        if msg['sender'] == sender:
+            chat_history.append({"role": "user", "content": msg['content']})
+        elif msg['is_ai_msg']:
+            chat_history.append({"role": "assistant", "content": msg['content']})
     print(f"[HISTORY] 历史对话: {chat_history}")
     part_chat_history = chat_history[-max_count:]
     print(f"[HISTORY] 返回的历史对话: {part_chat_history}")
