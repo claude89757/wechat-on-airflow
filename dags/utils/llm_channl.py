@@ -95,6 +95,10 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
                 api_key = Variable.get("CLAUDE_API_KEY")
                 client = Anthropic(api_key=api_key)
                 
+                # 剔除模型不支持的参数
+                LLM_CONFIG.pop("presence_penalty", None)
+                LLM_CONFIG.pop("frequency_penalty", None)
+
                 response = client.messages.create(model=model_name, messages=messages, **LLM_CONFIG)
                 ai_response = response.content[0].text
                 
