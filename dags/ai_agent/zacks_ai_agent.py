@@ -268,9 +268,9 @@ def process_ai_product(**context):
     context['ti'].xcom_push(key='raw_llm_response', value=response)
 
 
-def humanize_reply(**context):
+def send_wx_msg(**context):
     """
-    微信聊天的拟人化回复
+    回复微信消息
     """
     # 获取消息数据
     message_data = context.get('dag_run').conf
@@ -282,118 +282,26 @@ def humanize_reply(**context):
     # 获取AI回复内容
     raw_llm_response = context['ti'].xcom_pull(key='raw_llm_response')
 
-    # 根据原始的AI回复内容，计算分段的数量
-    segments = 1
-    if raw_llm_response:
-        # 计算内容特征
-        content_length = len(raw_llm_response)
-        newline_count = raw_llm_response.count('\n')
-        sentence_count = len(re.split('[。！？\n]', raw_llm_response))
-        
-        # 根据多个维度动态计算分段
-        if content_length > 300 or newline_count > 3 or sentence_count > 5:
-            # 较长的内容分3段,更自然
-            segments = 3
-        elif content_length > 150 or newline_count > 1 or sentence_count > 3:
-            # 中等长度分2段
-            segments = 2
-        else:
-            # 短内容保持1段
-            segments = 1
-            
-        # 添加随机性,使分段更自然
-        if random.random() < 0.3 and segments > 1:
-            segments -= 1
-            
-        print(f"[CHAT] 计算得到分段数量: {segments} (长度:{content_length}, 换行:{newline_count}, 句子:{sentence_count})")
-    
-
-    # 拟人化回复的系统提示词
-    system_prompt = """你是一个聊天助手，需要将AI的回复转换成更自然的聊天风格。
-
-请遵循以下规则:
-1. 语气要自然友好，像真人一样：
-   - 适量使用emoji表情，但不要过度
-   - 根据语境使用合适的语气词(啊、呢、哦、嘿等)
-   - 可以用一些网络用语(比如"稍等哈"、"木问题"等)，但要得体
-   - 表达要生动活泼，避免刻板
-
-2. 消息分成：{segments}段
-
-3. 回复节奏：
-   - 短消息间隔0.5-1秒
-   - 长消息间隔1-2秒
-   - 思考或转折处可以停顿1-3秒
-   - 通过delay字段控制停顿时间
-
-请将回复转换为以下JSON格式：
-{
-    "messages": [
-        {
-            "content": "消息内容",
-            "delay": 停顿秒数
-        }
-    ]
-}
-
-"""
-
-    # 调用AI接口获取回复
-    dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
-    if dagrun_state == DagRunState.RUNNING:
-        humanized_response = get_llm_response(raw_llm_response, system_prompt=system_prompt)
-        print(f"[CHAT] AI回复: {humanized_response}")
-
-        # 提前将回复内容转换为JSON格式
-        try:
-            # 使用更简单的正则表达式来提取JSON内容
-            json_pattern = r'\{[\s\S]*\}'
-            json_match = re.search(json_pattern, humanized_response)
-            if json_match:
-                data = json.loads(json_match.group())
-                # 验证数据结构
-                if not isinstance(data, dict) or 'messages' not in data:
-                    raise ValueError("Invalid JSON structure")
-                for msg in data['messages']:
-                    if not isinstance(msg, dict) or 'content' not in msg or 'delay' not in msg:
-                        raise ValueError("Invalid message format")
-            else:
-                # 如果没有找到json格式,使用默认结构
-                data = {"messages": [{"content": humanized_response, "delay": 1.5}]}
-        except (json.JSONDecodeError, re.error, ValueError) as e:
-            print(f"[CHAT] JSON解析失败: {str(e)}")
-            # 解析失败时使用默认结构
-            data = {"messages": [{"content": humanized_response, "delay": 1.5}]}
-    else:
-        print(f"[CHAT] 当前任务状态: {dagrun_state}, 直接返回")
-        return
-
-    print(f"[CHAT] 拟人化回复: {data}")
-    print(f"[CHAT] 拟人化回复: {type(data)}")
-
     # 消息发送前，确认当前任务还是运行中，才发送消息
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
         # 聊天的历史消息
         room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
-        for message in data['messages']:
-            send_wx_msg_by_wcf_api(wcf_ip=source_ip, message=message['content'], receiver=room_id)
+    
+        send_wx_msg_by_wcf_api(wcf_ip=source_ip, message=raw_llm_response, receiver=room_id)
 
-            # 缓存聊天的历史消息    
-            simple_message_data = {
-                'roomid': room_id,
-                'sender': f"TO_{sender}_BY_AI",
-                'id': "NULL",
-                'content': message['content'],
-                'is_group': is_group,
-                'ts': datetime.now().timestamp(),
-                'is_response_by_ai': True
-            }
-            room_msg_data.append(simple_message_data)
-            Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
-
-            # 延迟发送消息
-            time.sleep(int(message['delay']))
+        # 缓存聊天的历史消息    
+        simple_message_data = {
+            'roomid': room_id,
+            'sender': f"TO_{sender}_BY_AI",
+            'id': "NULL",
+            'content': raw_llm_response,
+            'is_group': is_group,
+            'ts': datetime.now().timestamp(),
+            'is_response_by_ai': True
+        }
+        room_msg_data.append(simple_message_data)
+        Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
     else:
         print(f"[CHAT] 当前任务状态: {dagrun_state}, 不发送消息")
 
