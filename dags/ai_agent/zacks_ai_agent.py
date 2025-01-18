@@ -44,18 +44,18 @@ def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
     """
     print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
-    x_minutes_ago_timestamp = datetime.now().timestamp() - 600  # 10分钟前的时间戳
+    x_minutes_ago_timestamp = datetime.now().timestamp() - 600  # x分钟前的时间戳
     room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
     chat_history = []
     for msg in room_msg_data:
         if msg['ts'] > x_minutes_ago_timestamp:  
-            # 如果消息时间超过5分钟，则不添加到历史对话中
+            # 如果消息时间超过x分钟，则不添加到历史对话中
             pass
         else: 
-            # 最近10分钟内的消息
+            # 最近x分钟内的消息
             if msg['sender'] == sender:
                 chat_history.append({"role": "user", "content": msg['content']})
-            elif msg['sender'] == f"TO_{sender}_BY_AI":
+            elif msg['is_ai_msg']:
                 chat_history.append({"role": "assistant", "content": msg['content']})
     return chat_history[:10]
 
@@ -285,6 +285,8 @@ def send_wx_msg(**context):
     """
     回复微信消息
     """
+    model_name = Variable.get("model_name", default_var="gpt-4o-mini")
+
     # 获取消息数据
     message_data = context.get('dag_run').conf
     sender = message_data.get('sender', '')  # 发送者ID
@@ -306,12 +308,12 @@ def send_wx_msg(**context):
         # 缓存聊天的历史消息    
         simple_message_data = {
             'roomid': room_id,
-            'sender': f"TO_{sender}_BY_AI",
+            'sender': model_name,
             'id': "NULL",
             'content': raw_llm_response,
             'is_group': is_group,
             'ts': datetime.now().timestamp(),
-            'is_response_by_ai': True
+            'is_ai_msg': True
         }
         room_msg_data.append(simple_message_data)
         Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)

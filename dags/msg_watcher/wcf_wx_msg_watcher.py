@@ -88,7 +88,7 @@ def process_wx_message(**context):
             'content': content,
             'is_group': is_group,
             'ts': current_msg_timestamp,
-            'is_response_by_ai': False
+            'is_ai_msg': False
         }
         room_msg_data.append(simple_message_data)
         Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
