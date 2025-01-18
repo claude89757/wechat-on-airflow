@@ -70,7 +70,8 @@ def process_wx_message(**context):
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
 
         # 命令1：清理历史消息
-        if content.lower().strip('@zacks').strip() == 'clear':
+        if content.replace('@Zacks', '').strip().lower() == 'clear':
+            print("[命令] 清理历史消息")
             Variable.set(f'{room_id}_msg_data', [], serialize_json=True)
             return
 
