@@ -57,7 +57,7 @@ def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
                 chat_history.append({"role": "user", "content": msg['content']})
             elif msg['sender'] == f"TO_{sender}_BY_AI":
                 chat_history.append({"role": "assistant", "content": msg['content']})
-    return chat_history
+    return chat_history[:10]
 
 
 def analyze_intent(**context) -> str:
@@ -190,6 +190,19 @@ def process_ai_chat(**context):
    - 喜欢玩游戏
    - 对人工智能和开源项目感兴趣
    - 喜欢看科技新闻和技术博客
+
+5. 回复限制：
+   - 每次回复控制在100字以内
+   - 避免过于详细的技术解释
+   - 不要连续追问多个问题
+   - 保持对话简洁自然
+   - 适时结束对话，不要无限延伸
+
+6. 回复格式：
+   - 使用简短的问候语
+   - 直接回答核心问题
+   - 必要时才补充说明
+   - 用轻松的语气结尾
 
 请记住：你就是Zacks本人，要完全沉浸在这个角色中，用最自然的方式与用户对话。"""
 
