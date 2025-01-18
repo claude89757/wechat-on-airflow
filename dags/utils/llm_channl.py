@@ -86,7 +86,9 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
                 os.environ['OPENAI_API_KEY'] = api_key
                 
                 client = OpenAI()
-                response = client.chat.completions.create(model=model_name, system=system_prompt, messages=messages, **LLM_CONFIG)
+                # 加入系统提示词
+                messages.insert(0, {"role": "system", "content": system_prompt})
+                response = client.chat.completions.create(model=model_name, messages=messages, **LLM_CONFIG)
                 ai_response = response.choices[0].message.content.strip()
                 
             elif model_name.startswith("claude-"):            
