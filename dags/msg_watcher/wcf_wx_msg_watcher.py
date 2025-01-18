@@ -116,6 +116,7 @@ def process_wx_message(**context):
                         # 将更新后的任务状态合并到会话中
                         session.merge(updated_run)
                 session.commit()
+            
         else:
             pass
 
