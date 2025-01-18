@@ -69,10 +69,8 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
         print(f"[AI] 系统提示: {system_prompt}")
         print(f"[AI] 问题: {user_question}")
 
-        # 系统提示
-        messages = [{"role": "system", "content": system_prompt}]
-        # 添加历史对话记录
-        if chat_history: messages.extend(chat_history)
+        # 创建消息列表
+        messages = chat_history or []
         # 添加当前用户问题
         messages.append({"role": "user", "content": user_question})
 
@@ -88,7 +86,7 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
                 os.environ['OPENAI_API_KEY'] = api_key
                 
                 client = OpenAI()
-                response = client.chat.completions.create(model=model_name, messages=messages, **LLM_CONFIG)
+                response = client.chat.completions.create(model=model_name, system=system_prompt, messages=messages, **LLM_CONFIG)
                 ai_response = response.choices[0].message.content.strip()
                 
             elif model_name.startswith("claude-"):            
@@ -99,7 +97,7 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
                 LLM_CONFIG.pop("presence_penalty", None)
                 LLM_CONFIG.pop("frequency_penalty", None)
 
-                response = client.messages.create(model=model_name, messages=messages, **LLM_CONFIG)
+                response = client.messages.create(model=model_name, messages=messages, system=system_prompt, **LLM_CONFIG)
                 ai_response = response.content[0].text
                 
             else:
