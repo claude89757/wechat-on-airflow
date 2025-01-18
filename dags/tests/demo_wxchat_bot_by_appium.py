@@ -157,7 +157,7 @@ with DAG(
     schedule=timedelta(hours=1),
     start_date=datetime(2025, 1, 10),
     catchup=False,
-    tags=['RPA方案示例'],
+    tags=['测试示例'],
 ) as dag:
 
     monitor_chats_task = PythonOperator(

@@ -20,6 +20,7 @@ dag = DAG(
     default_args=default_args,
     description='一个简单的工作流示例',
     schedule_interval=timedelta(days=1),
+    tags=['测试示例'],
     catchup=False
 )
 

@@ -21,6 +21,7 @@ dag = DAG(
     default_args=default_args,
     description='演示Redis基本操作的DAG',
     schedule_interval=timedelta(days=1),
+    tags=['测试示例'],
     catchup=False
 )
 
