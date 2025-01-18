@@ -34,7 +34,7 @@ from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.utils.state import DagRunState
 
 # 自定义库导入
-from utils.wechat_channl import send_wx_msg_by_wcf_api
+from utils.wechat_channl import send_wx_msg
 from utils.llm_channl import get_llm_response
 
 
@@ -289,7 +289,7 @@ def send_wx_msg(**context):
         # 聊天的历史消息
         room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
     
-        send_wx_msg_by_wcf_api(wcf_ip=source_ip, message=raw_llm_response, receiver=room_id)
+        send_wx_msg(wcf_ip=source_ip, message=raw_llm_response, receiver=room_id)
 
         # 缓存聊天的历史消息    
         simple_message_data = {
