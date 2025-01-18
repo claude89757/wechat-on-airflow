@@ -75,10 +75,10 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
         messages.append({"role": "user", "content": user_question})
 
         print("[AI] 输入消息:")
-        print("    ---")
+        print("="*100)
         for msg in messages:
-            print(f"    {msg['role']}: {msg['content']}")
-        print("    ---")
+            print(msg)
+        print("="*100)
 
         with proxy_context():
             if model_name.startswith("gpt-"):
