@@ -6,7 +6,6 @@ python-dotenv
 openai
 fastapi
 uvicorn
-slowapi
 httpx
 anthropic
 redis

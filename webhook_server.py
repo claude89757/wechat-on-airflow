@@ -49,9 +49,6 @@ import asyncio
 import httpx
 from fastapi import FastAPI, Request, status
 from fastapi.responses import PlainTextResponse, JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
 
 # =====================
@@ -65,10 +62,6 @@ load_dotenv()
 AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL")
 AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME")
 AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD")
-
-# Rate Limiting Configuration
-RATE_LIMIT_UPDATE = os.getenv("RATE_LIMIT_UPDATE", "50/minute")
-RATE_LIMIT_WCF = os.getenv("RATE_LIMIT_WCF", "100/minute")
 
 # Repository Path
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -106,17 +99,11 @@ logger = setup_logging()
 
 app = FastAPI(title="Optimized Webhook Server")
 
-# Initialize Limiter
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/day", "50/hour"])
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 # =====================
 # Routes
 # =====================
 
 @app.post("/update", response_class=PlainTextResponse)
-@limiter.limit(RATE_LIMIT_UPDATE)
 async def update_code(request: Request):
     """
     处理GitHub webhook请求，执行代码更新
@@ -138,7 +125,6 @@ async def update_code(request: Request):
         return PlainTextResponse(content="更新失败", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @app.post("/wcf_callback")
-@limiter.limit(RATE_LIMIT_WCF)
 async def handle_wcf_callback(request: Request):
     """
     处理WCF回调请求，触发Airflow DAG
