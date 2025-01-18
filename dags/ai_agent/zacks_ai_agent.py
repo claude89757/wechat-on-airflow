@@ -57,7 +57,7 @@ def get_sender_history_chat_msg(sender: str, room_id: str) -> str:
                 chat_history.append({"role": "user", "content": msg['content']})
             elif msg['is_ai_msg']:
                 chat_history.append({"role": "assistant", "content": msg['content']})
-    return chat_history[:10]
+    return chat_history[-10:]
 
 
 def analyze_intent(**context) -> str:

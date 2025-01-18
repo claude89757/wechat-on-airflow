@@ -67,6 +67,7 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
         
         print(f"[AI] 使用模型: {model_name}")
         print(f"[AI] 系统提示: {system_prompt}")
+        print(f"[AI] 历史对话: {chat_history}")
         print(f"[AI] 问题: {user_question}")
 
         # 创建消息列表
