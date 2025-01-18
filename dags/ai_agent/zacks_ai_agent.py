@@ -352,7 +352,7 @@ send_wx_msg_task = PythonOperator(
     task_id='send_wx_msg',
     python_callable=send_wx_msg,
     provide_context=True,
-    trigger_rule='none_failed',
+    trigger_rule='one_success',
     dag=dag,
 )
 
