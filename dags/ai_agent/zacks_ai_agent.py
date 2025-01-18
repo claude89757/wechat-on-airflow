@@ -117,7 +117,7 @@ def analyze_intent(**context) -> str:
     "type": "product", 
     "description": "用户在咨询产品价格"
 }"""
-        response = get_llm_response(content, system_prompt=system_prompt)
+        response = get_llm_response(content, model_name="gpt-4o-mini", system_prompt=system_prompt)
         try:
             # 使用正则提取json格式内容
             json_pattern = r'\{[^{}]*\}'
