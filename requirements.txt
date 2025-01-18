@@ -8,5 +8,6 @@ fastapi
 uvicorn
 slowapi
 httpx
-anthropic>=0.18.1
+anthropic
+redis
 apache-airflow-providers-redis
