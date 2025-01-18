@@ -69,6 +69,11 @@ def process_wx_message(**context):
     # 分类处理
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
 
+        # 清理历史消息
+        if content.lower().strip('@zacks').strip() == 'clear':
+            Variable.set(f'{room_id}_msg_data', [], serialize_json=True)
+            return
+
         # 缓存聊天的历史消息
         room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
         simple_message_data = {
