@@ -131,7 +131,7 @@ services:
       postgresql:
         condition: service_healthy
     ports:
-      - "8081:8081"
+      - "8082:8082"
 
   airflow:
     <<: *airflow-common
