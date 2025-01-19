@@ -78,7 +78,7 @@ def process_wx_message(**context):
         # 命令1：清理历史消息
         if content.replace('@Zacks', '').strip().lower() == 'clear':
             print("[命令] 清理历史消息")
-            Variable.set(f'{room_id}_msg_data', [], serialize_json=True)
+            Variable.delete(f'{room_id}_history')
             send_wx_msg(wcf_ip=source_ip, message='[bot]已清理历史消息', receiver=sender)
             return
 
