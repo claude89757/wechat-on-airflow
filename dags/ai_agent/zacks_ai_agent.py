@@ -48,7 +48,15 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
     """
     print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
     room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
-    print(f"[HISTORY] 历史消息: {room_history}")
+    
+    # 按时间戳排序，从旧到新
+    room_history.sort(key=lambda x: x.get('ts', 0))
+    print(f"[HISTORY] 排序后的历史消息: {len(room_history)}")
+    print("="*100)
+    for msg in room_history:
+        print(msg)
+    print("="*100)
+
     chat_history = []
     for msg in room_history:
         if msg['sender'] == sender:
@@ -57,7 +65,13 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
             chat_history.append({"role": "assistant", "content": msg['content']})
     print(f"[HISTORY] 历史对话: {chat_history}")
     part_chat_history = chat_history[-max_count:]
-    print(f"[HISTORY] 返回的历史对话: {part_chat_history}")
+
+    print(f"[HISTORY] 返回的历史对话: {len(part_chat_history)}")
+    print("="*100)
+    for msg in part_chat_history:
+        print(msg)
+    print("="*100)
+    
     return part_chat_history
 
 
