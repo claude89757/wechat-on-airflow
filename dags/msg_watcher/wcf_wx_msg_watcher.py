@@ -116,11 +116,30 @@ def process_wx_message(**context):
                 Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
        
         # 触发新的DAG运行
-        now_timestamp = datetime.now().timestamp()
-        run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now_timestamp}'
+        now = datetime.now(timezone.utc)
+        # 添加随机毫秒延迟，避免同时触发导致的execution_date冲突
+        execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)
+        run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
         print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-        trigger_dag(dag_id='zacks_ai_agent', conf=message_data, run_id=run_id)
-
+        try:
+            trigger_dag(
+                dag_id='zacks_ai_agent',
+                conf=message_data,
+                run_id=run_id,
+                execution_date=execution_date
+            )
+            print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
+        except Exception as e:
+            print(f"[WATCHER] 触发DAG失败: {str(e)}")
+            # 如果是因为execution_date冲突，可以重试一次
+            execution_date = now + timedelta(seconds=1, microseconds=hash(msg_id) % 1000000)
+            trigger_dag(
+                dag_id='zacks_ai_agent',
+                conf=message_data,
+                run_id=run_id,
+                execution_date=execution_date
+            )
+            print(f"[WATCHER] 重试触发AI聊天DAG成功，execution_date: {execution_date}")
     else:
         # 非文字消息，暂不触发AI聊天流程
         print("[WATCHER] 不触发AI聊天流程")
