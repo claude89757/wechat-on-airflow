@@ -97,7 +97,7 @@ def process_wx_message(**context):
         room_history.append(simple_message_data)
         Variable.set(f'{room_id}_history', room_history, serialize_json=True)
 
-        # 修改查询方式
+        # 查询已触发的排队中和正在运行的DAGRun
         active_runs = DagRun.find(
             dag_id='zacks_ai_agent',
             state=DagRunState.RUNNING,  # 先查询RUNNING状态
@@ -106,7 +106,6 @@ def process_wx_message(**context):
             dag_id='zacks_ai_agent',
             state=DagRunState.QUEUED,  # 再查询QUEUED状态
         )
-        # 合并查询结果
         all_active_runs = active_runs + queued_runs
         same_room_sender_runs = [run for run in all_active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
 
