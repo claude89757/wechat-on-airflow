@@ -26,12 +26,15 @@ import re
 import os
 import random
 from datetime import datetime, timedelta
+from threading import Thread
+import threading
 
 # 第三方库导入
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.utils.state import DagRunState
+from airflow.exceptions import AirflowException
 
 # 自定义库导入
 from utils.wechat_channl import send_wx_msg
@@ -58,6 +61,61 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
     return part_chat_history
 
 
+def check_pre_stop(func):
+    """
+    装饰器：检查是否需要提前停止任务
+    当检测到pre_stop信号时，抛出AirflowException终止整个DAG Run
+    """
+    def wrapper(**context):
+        stop_check_thread = None
+        stop_thread_flag = threading.Event()
+
+        def check_stop_signal():
+            run_id = context.get('dag_run').run_id
+            try:
+                pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
+                if pre_stop:
+                    print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
+                    raise AirflowException("检测到提前停止信号，终止DAG Run")
+            except Exception as e:
+                if not isinstance(e, AirflowException):
+                    print(f"[PRE_STOP] 检查提前停止状态出错: {str(e)}")
+
+        def periodic_check():
+            while not stop_thread_flag.is_set():
+                try:
+                    check_stop_signal()
+                except AirflowException:
+                    # 发现停止信号，设置事件标志并退出线程
+                    stop_thread_flag.set()
+                    break
+                # 每3秒检查一次
+                time.sleep(3)
+
+        try:
+            # 启动定时检查线程
+            stop_check_thread = Thread(target=periodic_check, daemon=True)
+            stop_check_thread.start()
+
+            # 执行原始函数
+            result = func(**context)
+
+            # 检查是否在执行过程中收到了停止信号
+            if stop_thread_flag.is_set():
+                raise AirflowException("检测到提前停止信号，终止DAG Run")
+
+            return result
+
+        finally:
+            # 停止检查线程
+            if stop_check_thread is not None:
+                stop_thread_flag.set()
+                stop_check_thread.join(timeout=1)
+
+    return wrapper
+
+
+@check_pre_stop
 def analyze_intent(**context) -> str:
     """
     分析用户意图
@@ -130,6 +188,7 @@ def analyze_intent(**context) -> str:
     return next_dag_task_id
 
 
+@check_pre_stop
 def process_ai_chat(**context):
     """处理AI聊天的主任务函数"""
     # 获取聊天内容(聚合后的)
@@ -184,6 +243,7 @@ def process_ai_chat(**context):
     context['ti'].xcom_push(key='raw_llm_response', value=response)
 
 
+@check_pre_stop
 def process_ai_product(**context):
     """处理AI产品咨询的主任务函数"""
     # 获取聊天内容(聚合后的)
@@ -246,6 +306,7 @@ def process_ai_product(**context):
     context['ti'].xcom_push(key='raw_llm_response', value=response)
 
 
+@check_pre_stop
 def send_wx_message_and_update_history(**context):
     """
     回复微信消息

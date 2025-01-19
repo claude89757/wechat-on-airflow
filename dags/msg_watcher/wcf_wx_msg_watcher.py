@@ -28,7 +28,9 @@ from airflow.models.dagrun import DagRun
 from airflow.utils.state import DagRunState
 from airflow.models.variable import Variable
 from airflow.utils.session import create_session
+
 from utils.wechat_channl import send_wx_msg
+from utils.redis import RedisLock
 
 
 def process_wx_message(**context):
@@ -61,6 +63,7 @@ def process_wx_message(**context):
     
     # 检查是否需要触发AI聊天
     room_id = message_data.get('roomid')
+    formatted_roomid = re.sub(r'[^a-zA-Z0-9]', '', str(room_id))  # 用于触发DAG的run_id
     sender = message_data.get('sender')
     msg_id = message_data.get('id')
     msg_type = message_data.get('type')
@@ -83,6 +86,7 @@ def process_wx_message(**context):
         room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
         simple_message_data = {
             'roomid': room_id,
+            'formatted_roomid': formatted_roomid,
             'sender': sender,
             'id': msg_id,
             'content': content,
@@ -91,37 +95,25 @@ def process_wx_message(**context):
             'is_ai_msg': False
         }
         room_msg_data.append(simple_message_data)
-        Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
+        Variable.set(f'{formatted_roomid}_msg_data', room_msg_data, serialize_json=True)
 
         # 检查是否有来自相同roomid和sender的DAG正在运行
         active_runs = DagRun.find(
             dag_id='zacks_ai_agent',
             state=DagRunState.RUNNING,
         )
-        same_room_sender_runs = [run for run in active_runs if run.run_id.startswith(f'{room_id}_{sender}_')]   
+        same_room_sender_runs = [run for run in active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
         if same_room_sender_runs:
-            print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {same_room_sender_runs}")
-            # 使用数据库会话检查并强制结束未响应的DAG任务
-            with create_session() as session:
-                for run in same_room_sender_runs:
-                    # 从数据库中查询最新的任务状态
-                    updated_run = session.query(DagRun).filter(DagRun.run_id == run.run_id).first()
-                    # 如果任务仍在运行状态,则强制将其标记为失败
-                    if updated_run and updated_run.state == DagRunState.RUNNING:
-                        print(f"[WATCHER] run_id: {run.run_id}, 强制结束")
-                        # 更新任务状态为失败
-                        updated_run.state = DagRunState.FAILED
-                        # 设置任务结束时间为当前UTC时间
-                        updated_run.end_date = datetime.now(timezone.utc)
-                        # 将更新后的任务状态合并到会话中
-                        session.merge(updated_run)
-                session.commit()
-            
-        else:
-            pass
+            print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {same_room_sender_runs}, 提前停止")
+            run_id = same_room_sender_runs[0].run_id
+            for run in same_room_sender_runs:
+                print(f"[WATCHER] 提前停止正在运行的DAG, run_id: {run.run_id}")
+                # 使用Variable作为标识变量，提前停止正在运行的DAG
+                Variable.set(f'{run_id}_pre_stop', True, serialize_json=True)
+            return "不触发AI聊天"
 
         # 触发新的DAG运行
-        run_id = f'{room_id}_{sender}_{msg_id}'
+        run_id = f'{formatted_roomid}_{sender}_{msg_id}'
         print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
         trigger_dag(dag_id='zacks_ai_agent', conf=message_data, run_id=run_id)
 
