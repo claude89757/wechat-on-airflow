@@ -72,7 +72,7 @@ def check_pre_stop(func):
         pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
         if pre_stop:
             print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
-            Variable.delete(f'{run_id}_pre_stop')
+            Variable.set(f'{run_id}_pre_stop', False)
             # 使用AirflowSkipException替代AirflowException
             raise AirflowException("检测到提前停止信号，停止流程执行")
         else:
