@@ -96,12 +96,20 @@ def process_wx_message(**context):
         }
         room_history.append(simple_message_data)
         Variable.set(f'{room_id}_history', room_history, serialize_json=True)
-        # 检查是否有来自相同roomid和sender的DAG正在运行或者还没触发
+
+        # 修改查询方式
         active_runs = DagRun.find(
             dag_id='zacks_ai_agent',
-            state=[DagRunState.RUNNING, DagRunState.QUEUED],
+            state=DagRunState.RUNNING,  # 先查询RUNNING状态
         )
-        same_room_sender_runs = [run for run in active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
+        queued_runs = DagRun.find(
+            dag_id='zacks_ai_agent',
+            state=DagRunState.QUEUED,  # 再查询QUEUED状态
+        )
+        # 合并查询结果
+        all_active_runs = active_runs + queued_runs
+        same_room_sender_runs = [run for run in all_active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
+
         if same_room_sender_runs:
             print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行或等待触发, run_id: {same_room_sender_runs}, 提前停止")
             run_id = same_room_sender_runs[0].run_id
