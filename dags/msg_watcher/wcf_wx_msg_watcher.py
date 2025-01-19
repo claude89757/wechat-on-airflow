@@ -116,7 +116,8 @@ def process_wx_message(**context):
                 Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
        
         # 触发新的DAG运行
-        run_id = f'{formatted_roomid}_{sender}_{msg_id}'
+        now_timestamp = datetime.now().timestamp()
+        run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now_timestamp}'
         print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
         trigger_dag(dag_id='zacks_ai_agent', conf=message_data, run_id=run_id)
 
