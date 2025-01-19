@@ -111,10 +111,9 @@ def process_wx_message(**context):
 
         if same_room_sender_runs:
             print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行或等待触发, run_id: {same_room_sender_runs}, 提前停止")
-            run_id = same_room_sender_runs[0].run_id
             for run in same_room_sender_runs:
                 print(f"[WATCHER] 提前停止DAG, run_id: {run.run_id}, 状态: {run.state}")
-                Variable.set(f'{run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
+                Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
        
         # 触发新的DAG运行
         run_id = f'{formatted_roomid}_{sender}_{msg_id}'
