@@ -110,7 +110,6 @@ def process_wx_message(**context):
                 print(f"[WATCHER] 提前停止正在运行的DAG, run_id: {run.run_id}")
                 # 使用Variable作为标识变量，提前停止正在运行的DAG
                 Variable.set(f'{run_id}_pre_stop', True, serialize_json=True)
-            return "不触发AI聊天"
 
         # 触发新的DAG运行
         run_id = f'{formatted_roomid}_{sender}_{msg_id}'
