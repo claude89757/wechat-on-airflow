@@ -83,7 +83,7 @@ def process_wx_message(**context):
             return
 
         # 缓存聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
+        room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
         simple_message_data = {
             'roomid': room_id,
             'formatted_roomid': formatted_roomid,
@@ -94,8 +94,8 @@ def process_wx_message(**context):
             'ts': current_msg_timestamp,
             'is_ai_msg': False
         }
-        room_msg_data.append(simple_message_data)
-        Variable.set(f'{formatted_roomid}_msg_data', room_msg_data, serialize_json=True)
+        room_history.append(simple_message_data)
+        Variable.set(f'{room_id}_history', room_history, serialize_json=True)
 
         # 检查是否有来自相同roomid和sender的DAG正在运行
         active_runs = DagRun.find(

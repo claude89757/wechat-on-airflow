@@ -47,10 +47,10 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
     """
     print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
-    print(f"[HISTORY] 历史消息: {room_msg_data}")
+    room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
+    print(f"[HISTORY] 历史消息: {room_history}")
     chat_history = []
-    for msg in room_msg_data:
+    for msg in room_history:
         if msg['sender'] == sender:
             chat_history.append({"role": "user", "content": msg['content']})
         elif msg['is_ai_msg']:
@@ -76,6 +76,7 @@ def check_pre_stop(func):
                 pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
                 if pre_stop:
                     print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
+                    Variable.delete(f'{run_id}_pre_stop')
                     raise AirflowException("检测到提前停止信号，终止DAG Run")
             except Exception as e:
                 if not isinstance(e, AirflowException):
@@ -327,7 +328,7 @@ def send_wx_message_and_update_history(**context):
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
         # 聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
+        room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
     
         send_wx_msg(wcf_ip=source_ip, message=raw_llm_response, receiver=room_id)
 
