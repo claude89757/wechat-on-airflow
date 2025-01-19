@@ -331,7 +331,7 @@ def send_wx_message_and_update_history(**context):
         room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
     
         send_wx_msg(wcf_ip=source_ip, message=raw_llm_response, receiver=room_id)
-
+        
         # 缓存聊天的历史消息    
         simple_message_data = {
             'roomid': room_id,
@@ -342,8 +342,8 @@ def send_wx_message_and_update_history(**context):
             'ts': datetime.now().timestamp(),
             'is_ai_msg': True
         }
-        room_msg_data.append(simple_message_data)
-        Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
+        room_history.append(simple_message_data)
+        Variable.set(f'{room_id}_history', room_history, serialize_json=True)
     else:
         print(f"[CHAT] 当前任务状态: {dagrun_state}, 不发送消息")
 
