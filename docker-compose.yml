@@ -106,6 +106,33 @@ services:
     ports:
       - "8081:8081"
 
+  airflow-scheduler-02:
+    <<: *airflow-common
+    container_name: airflow_scheduler_02
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: scheduler
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
+
+  airflow-worker-02:
+    <<: *airflow-common
+    container_name: airflow_worker_02
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: worker
+      AIRFLOW__CELERY__WORKER_CONCURRENCY: 16
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+
   airflow:
     <<: *airflow-common
     container_name: airflow_web
