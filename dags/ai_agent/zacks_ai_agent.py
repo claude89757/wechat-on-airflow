@@ -41,7 +41,7 @@ from utils.wechat_channl import send_wx_msg
 from utils.llm_channl import get_llm_response
 
 
-def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) -> str:
+def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10, exclude_msg_ids: list = []) -> str:
     """
     获取发送者的历史对话消息
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
@@ -59,6 +59,9 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
 
     chat_history = []
     for msg in room_history:
+        if msg['id'] in exclude_msg_ids:
+            print(f"[HISTORY] SKIP: {msg['id']}")
+            continue
         if msg['sender'] == sender:
             chat_history.append({"role": "user", "content": msg['content']})
         elif msg['is_ai_msg']:
@@ -71,7 +74,7 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
     for msg in part_chat_history:
         print(msg)
     print("="*100)
-    
+
     return part_chat_history
 
 
@@ -108,10 +111,11 @@ def analyze_intent(**context) -> str:
     content = message_data['content']
     sender = message_data['sender']  
     room_id = message_data['roomid']  
+    msg_id = message_data['id']
     msg_ts = message_data['ts']
 
     # 历史对话
-    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3)
+    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3, exclude_msg_ids=[msg_id])
 
     # 调用AI接口进行意图分析
     dagrun_state = context.get('dag_run').get_state()
@@ -168,6 +172,7 @@ def analyze_intent(**context) -> str:
     context['ti'].xcom_push(key='content', value=content)
     context['ti'].xcom_push(key='room_id', value=room_id)
     context['ti'].xcom_push(key='sender', value=sender)
+    context['ti'].xcom_push(key='msg_id', value=msg_id)
 
     # 根据意图类型选择下一个任务
     next_dag_task_id = "process_ai_chat" if intent['type'] == "chat" else "process_ai_product"
@@ -181,9 +186,10 @@ def process_ai_chat(**context):
     content = context['ti'].xcom_pull(key='content')
     room_id = context['ti'].xcom_pull(key='room_id')
     sender = context['ti'].xcom_pull(key='sender')
+    msg_id = context['ti'].xcom_pull(key='msg_id')
 
     # 最近5分钟内的10条对话
-    chat_history = get_sender_history_chat_msg(sender, room_id)
+    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3, exclude_msg_ids=[msg_id])
 
     system_prompt = """你是Zacks，一个普通年轻人，在微信上跟朋友闲聊。
 
@@ -229,6 +235,7 @@ def process_ai_product(**context):
     content = context['ti'].xcom_pull(key='content')
     room_id = context['ti'].xcom_pull(key='room_id')
     sender = context['ti'].xcom_pull(key='sender')
+    msg_id = context['ti'].xcom_pull(key='msg_id')
 
     # 提取@Zacks后的实际问题内容
     if not content:
@@ -236,7 +243,7 @@ def process_ai_product(**context):
         return
     
     # 最近5分钟内的10条对话
-    chat_history = get_sender_history_chat_msg(sender, room_id)
+    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3, exclude_msg_ids=[msg_id])
 
     system_prompt = f"""你现在是Zacks AI助手的专业客服代表，请完全沉浸在这个角色中。
 
