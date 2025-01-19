@@ -34,7 +34,7 @@ from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.utils.state import DagRunState
-from airflow.exceptions import AirflowException
+from airflow.exceptions import AirflowException, AirflowSkipException
 
 # 自定义库导入
 from utils.wechat_channl import send_wx_msg
@@ -64,54 +64,25 @@ def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) 
 def check_pre_stop(func):
     """
     装饰器：检查是否需要提前停止任务
-    当检测到pre_stop信号时，抛出AirflowException终止整个DAG Run
+    当检测到pre_stop信号时，抛出AirflowSkipException终止整个DAG Run
     """
     def wrapper(**context):
-        stop_check_thread = None
-        stop_thread_flag = threading.Event()
-
-        def check_stop_signal():
-            run_id = context.get('dag_run').run_id
-            try:
-                pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
-                if pre_stop:
-                    print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
-                    Variable.delete(f'{run_id}_pre_stop')
-                    raise AirflowException("检测到提前停止信号，终止DAG Run")
-            except Exception as e:
-                if not isinstance(e, AirflowException):
-                    print(f"[PRE_STOP] 检查提前停止状态出错: {str(e)}")
-
-        def periodic_check():
-            while not stop_thread_flag.is_set():
-                try:
-                    check_stop_signal()
-                except AirflowException:
-                    # 发现停止信号，设置事件标志并退出线程
-                    stop_thread_flag.set()
-                    break
-                # 每3秒检查一次
-                time.sleep(3)
-
+        run_id = context.get('dag_run').run_id
+        
+        # 直接检查停止信号
         try:
-            # 启动定时检查线程
-            stop_check_thread = Thread(target=periodic_check, daemon=True)
-            stop_check_thread.start()
-
-            # 执行原始函数
-            result = func(**context)
-
-            # 检查是否在执行过程中收到了停止信号
-            if stop_thread_flag.is_set():
-                raise AirflowException("检测到提前停止信号，终止DAG Run")
-
-            return result
-
-        finally:
-            # 停止检查线程
-            if stop_check_thread is not None:
-                stop_thread_flag.set()
-                stop_check_thread.join(timeout=1)
+            pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
+            if pre_stop:
+                print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
+                Variable.delete(f'{run_id}_pre_stop')
+                # 使用AirflowSkipException替代AirflowException
+                raise AirflowSkipException("检测到提前停止信号，跳过后续任务")
+        except Exception as e:
+            if not isinstance(e, AirflowSkipException):
+                print(f"[PRE_STOP] 检查提前停止状态出错: {str(e)}")
+                
+        # 执行原始函数
+        return func(**context)
 
     return wrapper
 
