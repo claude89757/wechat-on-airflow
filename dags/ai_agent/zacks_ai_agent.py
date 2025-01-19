@@ -321,7 +321,7 @@ def send_wx_message_and_update_history(**context):
         simple_message_data = {
             'roomid': room_id,
             'sender': model_name,
-            'id': "NULL",
+            'id': -1,
             'content': raw_llm_response,
             'is_group': is_group,
             'ts': datetime.now().timestamp(),
