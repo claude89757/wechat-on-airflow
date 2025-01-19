@@ -68,21 +68,17 @@ def check_pre_stop(func):
     """
     def wrapper(**context):
         run_id = context.get('dag_run').run_id
-        
         # 直接检查停止信号
-        try:
-            pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
-            if pre_stop:
-                print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
-                Variable.delete(f'{run_id}_pre_stop')
-                # 使用AirflowSkipException替代AirflowException
-                raise AirflowSkipException("检测到提前停止信号，跳过后续任务")
-        except Exception as e:
-            if not isinstance(e, AirflowSkipException):
-                print(f"[PRE_STOP] 检查提前停止状态出错: {str(e)}")
-                
-        # 执行原始函数
-        return func(**context)
+        pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
+        if pre_stop:
+            print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
+            Variable.delete(f'{run_id}_pre_stop')
+            # 使用AirflowSkipException替代AirflowException
+            raise AirflowException("检测到提前停止信号，停止流程执行")
+        else:
+            print(f"[PRE_STOP] 未检测到提前停止信号，继续执行")
+            # 执行原始函数
+            return func(**context)
 
     return wrapper
 
