@@ -28,7 +28,7 @@ def get_bing_news_msg(query: str) -> list:
 
     # Construct a request
     mkt = 'zh-HK'
-    params = {'q': query, 'mkt': mkt, 'answerCount': 5, 'promote': 'News', 'freshness': 'Day'}
+    params = {'q': query, 'mkt': mkt, 'answerCount': 5, 'promote': 'News', 'freshness': 'Week'}
     headers = {'Ocp-Apim-Subscription-Key': bing_subscription_key}
 
     # Call the API
