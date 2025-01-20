@@ -34,83 +34,68 @@ from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.utils.state import DagRunState
-from airflow.exceptions import AirflowException
+from airflow.exceptions import AirflowException, AirflowSkipException
 
 # 自定义库导入
 from utils.wechat_channl import send_wx_msg
 from utils.llm_channl import get_llm_response
 
 
-def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10) -> str:
+def get_sender_history_chat_msg(sender: str, room_id: str, max_count: int = 10, exclude_msg_ids: list = []) -> str:
     """
     获取发送者的历史对话消息
     todo: 使用redis缓存，提高效率使用redis缓存，提高效率
     """
     print(f"[HISTORY] 获取历史对话消息: {sender} - {room_id}")
-    room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
-    print(f"[HISTORY] 历史消息: {room_msg_data}")
+    room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
+    
+    # 按时间戳排序，从旧到新
+    room_history.sort(key=lambda x: x.get('ts', 0))
+    print(f"[HISTORY] 排序后的历史消息: {len(room_history)}")
+    print("="*100)
+    for msg in room_history:
+        print(msg)
+    print("="*100)
+
     chat_history = []
-    for msg in room_msg_data:
+    for msg in room_history:
+        if msg['id'] in exclude_msg_ids:
+            print(f"[HISTORY] SKIP: {msg['id']}")
+            continue
         if msg['sender'] == sender:
             chat_history.append({"role": "user", "content": msg['content']})
         elif msg['is_ai_msg']:
             chat_history.append({"role": "assistant", "content": msg['content']})
     print(f"[HISTORY] 历史对话: {chat_history}")
     part_chat_history = chat_history[-max_count:]
-    print(f"[HISTORY] 返回的历史对话: {part_chat_history}")
+
+    print(f"[HISTORY] 返回的历史对话: {len(part_chat_history)}")
+    print("="*100)
+    for msg in part_chat_history:
+        print(msg)
+    print("="*100)
+
     return part_chat_history
 
 
 def check_pre_stop(func):
     """
     装饰器：检查是否需要提前停止任务
-    当检测到pre_stop信号时，抛出AirflowException终止整个DAG Run
+    当检测到pre_stop信号时，抛出AirflowSkipException终止整个DAG Run
     """
     def wrapper(**context):
-        stop_check_thread = None
-        stop_thread_flag = threading.Event()
-
-        def check_stop_signal():
-            run_id = context.get('dag_run').run_id
-            try:
-                pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
-                if pre_stop:
-                    print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
-                    raise AirflowException("检测到提前停止信号，终止DAG Run")
-            except Exception as e:
-                if not isinstance(e, AirflowException):
-                    print(f"[PRE_STOP] 检查提前停止状态出错: {str(e)}")
-
-        def periodic_check():
-            while not stop_thread_flag.is_set():
-                try:
-                    check_stop_signal()
-                except AirflowException:
-                    # 发现停止信号，设置事件标志并退出线程
-                    stop_thread_flag.set()
-                    break
-                # 每3秒检查一次
-                time.sleep(3)
-
-        try:
-            # 启动定时检查线程
-            stop_check_thread = Thread(target=periodic_check, daemon=True)
-            stop_check_thread.start()
-
+        run_id = context.get('dag_run').run_id
+        # 直接检查停止信号
+        pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
+        if pre_stop:
+            print(f"[PRE_STOP] 检测到提前停止信号，run_id: {run_id}")
+            Variable.set(f'{run_id}_pre_stop', False)
+            # 使用AirflowSkipException替代AirflowException
+            raise AirflowException("检测到提前停止信号，停止流程执行")
+        else:
+            print(f"[PRE_STOP] 未检测到提前停止信号，继续执行")
             # 执行原始函数
-            result = func(**context)
-
-            # 检查是否在执行过程中收到了停止信号
-            if stop_thread_flag.is_set():
-                raise AirflowException("检测到提前停止信号，终止DAG Run")
-
-            return result
-
-        finally:
-            # 停止检查线程
-            if stop_check_thread is not None:
-                stop_thread_flag.set()
-                stop_check_thread.join(timeout=1)
+            return func(**context)
 
     return wrapper
 
@@ -126,33 +111,38 @@ def analyze_intent(**context) -> str:
     content = message_data['content']
     sender = message_data['sender']  
     room_id = message_data['roomid']  
+    msg_id = message_data['id']
     msg_ts = message_data['ts']
 
     # 历史对话
-    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3)
+    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3, exclude_msg_ids=[msg_id])
 
     # 调用AI接口进行意图分析
     dagrun_state = context.get('dag_run').get_state()
     if dagrun_state == DagRunState.RUNNING:
-        system_prompt = """你是一个聊天意图分析专家，请根据对话内容分析用户的意图。
-意图类型分为两大类:
-1. chat - 普通聊天，包括问候、闲聊等
-2. product - 产品咨询，包括产品功能、价格、使用方法等咨询
+        system_prompt = """你是Zacks，一个普通年轻人，在微信上跟朋友闲聊。
 
-请返回JSON格式数据，包含以下字段:
-- type: 意图类型，只能是chat或product
-- description: 意图的具体描述
+回复要求：
+- 一句话说完，不要追问
+- 短句子，像发微信一样随意
+- 可以用"哈哈"、"啊"、"嗯"等语气词
+- 偶尔用个表情，一句最多一个
+- 网络用语得适度，比如"yyds"
 
-示例:
-{
-    "type": "chat",
-    "description": "用户在进行日常问候"
-}
-或
-{
-    "type": "product", 
-    "description": "用户在咨询产品价格"
-}"""
+禁止：
+- 不要反问或追问对方
+- 不要一次说太多话
+- 不要用太多标点
+- 不要太正式
+- 不要太礼貌客气
+
+示例回复：
+"困死了 今天加班到八点😪"
+"哈哈 确实是这样"
+"嗯嗯 我也这么觉得"
+"上次我也遇到这情况"
+
+记住：就是随便回一句，不用太在意对方会怎么接。"""
         response = get_llm_response(content, model_name="gpt-4o-mini", system_prompt=system_prompt, 
                                     chat_history=chat_history)
         try:
@@ -182,6 +172,7 @@ def analyze_intent(**context) -> str:
     context['ti'].xcom_push(key='content', value=content)
     context['ti'].xcom_push(key='room_id', value=room_id)
     context['ti'].xcom_push(key='sender', value=sender)
+    context['ti'].xcom_push(key='msg_id', value=msg_id)
 
     # 根据意图类型选择下一个任务
     next_dag_task_id = "process_ai_chat" if intent['type'] == "chat" else "process_ai_product"
@@ -195,40 +186,34 @@ def process_ai_chat(**context):
     content = context['ti'].xcom_pull(key='content')
     room_id = context['ti'].xcom_pull(key='room_id')
     sender = context['ti'].xcom_pull(key='sender')
+    msg_id = context['ti'].xcom_pull(key='msg_id')
 
     # 最近5分钟内的10条对话
-    chat_history = get_sender_history_chat_msg(sender, room_id)
+    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3, exclude_msg_ids=[msg_id])
 
-    system_prompt = f"""你是Zacks，一个28岁的年轻人，正在和朋友聊天。请用最自然的方式回应，就像真实的日常对话一样。
+    system_prompt = """你是Zacks，一个普通年轻人，在微信上跟朋友闲聊。
 
-记住以下几点：
-1. 性格特征：
-   - 性格开朗，爱说爱笑
-   - 说话接地气，经常用"哈哈"、"emmm"等语气词
-   - 会用一些网络用语和表情，但不会太夸张
-   - 有时吐槽生活，但心态阳光
+回复要求：
+- 一句话说完，不要追问
+- 短句子，像发微信一样随意
+- 可以用"哈哈"、"啊"、"嗯"等语气词
+- 偶尔用个表情，一句最多一个
+- 网络用语得适度，比如"yyds"
 
-2. 对话要点：
-   - 参考历史对话的语气和风格，保持一致性
-   - 像老朋友一样随意闲聊
-   - 可以表达真实情绪和个人观点
-   - 适当使用表情符号让对话更生动
-   - 不要太完美，可以有口误或跑题
+禁止：
+- 不要反问或追问对方
+- 不要一次说太多话
+- 不要用太多标点
+- 不要太正式
+- 不要太礼貌客气
 
-3. 禁止事项：
-   - 不要用任何机器人相关的说法
-   - 避免过于正式或书面的表达
-   - 不要太礼貌或客套
-   - 不要一次说太多内容
-   - 不要像客服一样回答
+示例回复：
+"困死了 今天加班到八点😪"
+"哈哈 确实是这样"
+"嗯嗯 我也这么觉得"
+"上次我也遇到这情况"
 
-示例回复风格：
-"哈哈，可不是嘛！我前两天也..."
-"emmm...这事儿我得好好想想..."
-"最近忙死了，感觉整个人都不好了😪"
-"啊？还有这种事？给我说说呗..."
-
-记住：就是和朋友在日常闲聊，越自然越好。"""
+记住：就是随便回一句，不用太在意对方会怎么接。"""
 
     # 调用AI接口获取回复
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
@@ -250,6 +235,7 @@ def process_ai_product(**context):
     content = context['ti'].xcom_pull(key='content')
     room_id = context['ti'].xcom_pull(key='room_id')
     sender = context['ti'].xcom_pull(key='sender')
+    msg_id = context['ti'].xcom_pull(key='msg_id')
 
     # 提取@Zacks后的实际问题内容
     if not content:
@@ -257,7 +243,7 @@ def process_ai_product(**context):
         return
     
     # 最近5分钟内的10条对话
-    chat_history = get_sender_history_chat_msg(sender, room_id)
+    chat_history = get_sender_history_chat_msg(sender, room_id, max_count=3, exclude_msg_ids=[msg_id])
 
     system_prompt = f"""你现在是Zacks AI助手的专业客服代表，请完全沉浸在这个角色中。
 
@@ -327,22 +313,22 @@ def send_wx_message_and_update_history(**context):
     dagrun_state = context.get('dag_run').get_state()  # 获取实时状态
     if dagrun_state == DagRunState.RUNNING:
         # 聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
+        room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
     
         send_wx_msg(wcf_ip=source_ip, message=raw_llm_response, receiver=room_id)
-
+        
         # 缓存聊天的历史消息    
         simple_message_data = {
             'roomid': room_id,
             'sender': model_name,
-            'id': "NULL",
+            'id': -1,
             'content': raw_llm_response,
             'is_group': is_group,
             'ts': datetime.now().timestamp(),
             'is_ai_msg': True
         }
-        room_msg_data.append(simple_message_data)
-        Variable.set(f'{room_id}_msg_data', room_msg_data, serialize_json=True)
+        room_history.append(simple_message_data)
+        Variable.set(f'{room_id}_history', room_history, serialize_json=True)
     else:
         print(f"[CHAT] 当前任务状态: {dagrun_state}, 不发送消息")
 

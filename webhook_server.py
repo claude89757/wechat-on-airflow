@@ -193,7 +193,8 @@ async def trigger_airflow_dag(callback_data):
         # todo(@claude89757): 这里可以考虑增加消息聚合的逻辑，等待一段时间，多个消息合并为一个, 触发一次dag
         # 根据Airflow的DAG run ID命名规范, 删除所有非字母数字字符
         formatted_roomid = re.sub(r'[^a-zA-Z0-9]', '', str(callback_data.get("roomid", "")))
-        dag_run_id = f"{formatted_roomid}_{callback_data.get("id", "")}"
+        msg_id = str(callback_data.get("id", ""))
+        dag_run_id = f"{formatted_roomid}_{msg_id}"
         airflow_payload = {
             "conf": callback_data,
             "dag_run_id": dag_run_id,

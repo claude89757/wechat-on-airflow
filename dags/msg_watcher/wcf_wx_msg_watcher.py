@@ -78,12 +78,12 @@ def process_wx_message(**context):
         # 命令1：清理历史消息
         if content.replace('@Zacks', '').strip().lower() == 'clear':
             print("[命令] 清理历史消息")
-            Variable.set(f'{room_id}_msg_data', [], serialize_json=True)
+            Variable.delete(f'{room_id}_history')
             send_wx_msg(wcf_ip=source_ip, message='[bot]已清理历史消息', receiver=sender)
             return
 
         # 缓存聊天的历史消息
-        room_msg_data = Variable.get(f'{room_id}_msg_data', default_var=[], deserialize_json=True)
+        room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
         simple_message_data = {
             'roomid': room_id,
             'formatted_roomid': formatted_roomid,
@@ -94,29 +94,52 @@ def process_wx_message(**context):
             'ts': current_msg_timestamp,
             'is_ai_msg': False
         }
-        room_msg_data.append(simple_message_data)
-        Variable.set(f'{formatted_roomid}_msg_data', room_msg_data, serialize_json=True)
+        room_history.append(simple_message_data)
+        Variable.set(f'{room_id}_history', room_history, serialize_json=True)
 
-        # 检查是否有来自相同roomid和sender的DAG正在运行
+        # 查询已触发的排队中和正在运行的DAGRun
         active_runs = DagRun.find(
             dag_id='zacks_ai_agent',
-            state=DagRunState.RUNNING,
+            state=DagRunState.RUNNING,  # 先查询RUNNING状态
         )
-        same_room_sender_runs = [run for run in active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
+        queued_runs = DagRun.find(
+            dag_id='zacks_ai_agent',
+            state=DagRunState.QUEUED,  # 再查询QUEUED状态
+        )
+        all_active_runs = active_runs + queued_runs
+        same_room_sender_runs = [run for run in all_active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
+
         if same_room_sender_runs:
-            print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行, run_id: {same_room_sender_runs}, 提前停止")
-            run_id = same_room_sender_runs[0].run_id
+            print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行或等待触发, run_id: {same_room_sender_runs}, 提前停止")
             for run in same_room_sender_runs:
-                print(f"[WATCHER] 提前停止正在运行的DAG, run_id: {run.run_id}")
-                # 使用Variable作为标识变量，提前停止正在运行的DAG
-                Variable.set(f'{run_id}_pre_stop', True, serialize_json=True)
-            return "不触发AI聊天"
-
+                print(f"[WATCHER] 提前停止DAG, run_id: {run.run_id}, 状态: {run.state}")
+                Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
+       
         # 触发新的DAG运行
-        run_id = f'{formatted_roomid}_{sender}_{msg_id}'
+        now = datetime.now(timezone.utc)
+        # 添加随机毫秒延迟，避免同时触发导致的execution_date冲突
+        execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)
+        run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
         print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-        trigger_dag(dag_id='zacks_ai_agent', conf=message_data, run_id=run_id)
-
+        try:
+            trigger_dag(
+                dag_id='zacks_ai_agent',
+                conf=message_data,
+                run_id=run_id,
+                execution_date=execution_date
+            )
+            print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
+        except Exception as e:
+            print(f"[WATCHER] 触发DAG失败: {str(e)}")
+            # 如果是因为execution_date冲突，可以重试一次
+            execution_date = now + timedelta(seconds=1, microseconds=hash(msg_id) % 1000000)
+            trigger_dag(
+                dag_id='zacks_ai_agent',
+                conf=message_data,
+                run_id=run_id,
+                execution_date=execution_date
+            )
+            print(f"[WATCHER] 重试触发AI聊天DAG成功，execution_date: {execution_date}")
     else:
         # 非文字消息，暂不触发AI聊天流程
         print("[WATCHER] 不触发AI聊天流程")
