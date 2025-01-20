@@ -98,6 +98,12 @@ services:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: worker
       AIRFLOW__CELERY__WORKER_CONCURRENCY: 16
+      AIRFLOW__CELERY__WORKER_PRECHECK: True
+      AIRFLOW__CELERY__WORKER_POOL_TYPE: "prefork"
+      AIRFLOW__CELERY__WORKER_AUTOSCALE: "16,4"
+      AIRFLOW__CELERY__WORKER_MAX_MEMORY_PER_CHILD: "512000"
+      AIRFLOW__CELERY__OPERATION_TIMEOUT: 1800
+      AIRFLOW__CELERY__WORKER_HEARTBEAT_INTERVAL: 10
     depends_on:
       redis:
         condition: service_healthy
