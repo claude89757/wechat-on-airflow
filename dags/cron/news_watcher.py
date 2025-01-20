@@ -43,40 +43,74 @@ def get_bing_news_msg(query: str) -> list:
     except Exception as error:
         return [{"name": f"Ops, 我崩溃了: {error}", "url": "？"}]
 
-def send_news(**context):
-    """发送新闻消息到微信群"""
-    # 从 conf 获取关键字，默认为"智能客服"
-    keyword = context['dag_run'].conf.get('keyword', '智能客服') if context['dag_run'].conf else '智能客服'
-    
-    # current_hour = datetime.now().hour
+
+def format_news_message(news_list: list, keyword: str) -> str:
+    """
+    格式化新闻消息内容
+
+    Args:
+        news_list: 新闻数据列表
+        keyword: 搜索关键词
+
+    Returns:
+        str: 格式化后的消息文本
+    """
     weekday_cn = "星期" + "一二三四五六日"[datetime.now().weekday()]
     date_str = datetime.now().strftime("%Y-%m-%d")
     
-    # 获取新闻
-    news_list = get_bing_news_msg(query=keyword)
-    
     # 组合消息
     msg_list = []
-    for news_data in news_list:
-        msg_list.append(f"{news_data['name']}")
-        msg_list.append(f"{news_data.get('url')}\n")
+    header = f"【每日资讯】 {weekday_cn} {date_str} \n关键字: {keyword} \n"
+    msg_list.append(header)
     
-    # 根据时间设置不同的问候语
-    first_line = f"【每日资讯】 {weekday_cn} {date_str} \n关键字: {keyword} \n"
-    
-    # 组装最终消息
-    if msg_list:
-        msg_list.insert(0, first_line)
-    else:
-        msg_list.append(first_line)
+    if not news_list:
         msg_list.append("好像没什么新闻o(╥﹏╥)o")
-    msg = '\n'.join(msg_list)
+    else:
+        for news_data in news_list:
+            msg_list.append(f"{news_data['name']}")
+            msg_list.append(f"{news_data.get('url')}\n")
+    
+    return '\n'.join(msg_list)
 
-    # 发送消息
+
+def send_news(**context) -> None:
+    """
+    发送新闻消息到微信群
+
+    从Bing新闻API获取指定关键词的新闻，并发送到配置的微信群。
+
+    Args:
+        **context: Airflow上下文参数字典
+
+    Returns:
+        None
+
+    Raises:
+        Exception: 当无法获取必要的Airflow变量时抛出
+    """
+    # 获取关键词，默认为"智能客服"
+    keyword = (context['dag_run'].conf.get('keyword', '智能客服') 
+              if context['dag_run'].conf 
+              else '智能客服')
+    
+    # 获取新闻数据
+    news_list = get_bing_news_msg(query=keyword)
+    
+    # 格式化消息
+    msg = format_news_message(news_list, keyword)
+
+    # 获取微信发送配置
     wcf_ip = Variable.get("WCF_IP")
     news_room_id_list = Variable.get("NEWS_ROOM_ID_LIST", deserialize_json=True, default_var=[])
+
+    # 发送消息到每个群
     for room_id in news_room_id_list:
-        send_wx_msg(wcf_ip=wcf_ip, message=msg, receiver=room_id, aters='')
+        send_wx_msg(
+            wcf_ip=wcf_ip,
+            message=msg,
+            receiver=room_id,
+            aters=''
+        )
 
 # DAG 定义
 default_args = {
