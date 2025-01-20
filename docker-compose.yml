@@ -49,6 +49,15 @@ x-airflow-env: &airflow-env
   # API 认证配置
   # 添加 session 认证后端
   AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+  
+  # 添加以下配置来禁用示例 DAG 目录
+  AIRFLOW__CORE__DAGS_FOLDER: /opt/bitnami/airflow/dags
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+  # 明确指定不扫描示例 DAG 目录
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
+  AIRFLOW__CORE__IGNORE_DAGS_ON_LOAD_ERROR: "true"
+  # 显式排除示例 DAG 目录
+  AIRFLOW__CORE__DAGS_FOLDER_SKIP_PATTERNS: "example_*.py,examples/*.py"
 
 services:
   postgresql:
