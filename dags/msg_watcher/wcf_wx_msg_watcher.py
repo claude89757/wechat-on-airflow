@@ -38,17 +38,17 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
     if content.replace('@Zacks', '').strip().lower() == 'clear':
         print("[命令] 清理历史消息")
         Variable.delete(f'{room_id}_history')
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已清理历史消息', receiver=sender)
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已清理历史消息', receiver=room_id)
         return True
     elif content.replace('@Zacks', '').strip().lower() == 'ai off':
         print("[命令] 禁用AI聊天")
-        Variable.set(f'{sender}_disable_ai', True, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已禁用AI聊天', receiver=sender)
+        Variable.set(f'{room_id}_disable_ai', True, serialize_json=True)
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已禁用AI聊天', receiver=room_id)
         return True
     elif content.replace('@Zacks', '').strip().lower() == 'ai on':
         print("[命令] 启用AI聊天")
-        Variable.delete(f'{sender}_disable_ai')
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已启用AI聊天', receiver=sender)
+        Variable.delete(f'{room_id}_disable_ai')
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已启用AI聊天', receiver=room_id)
         return True
     return False
 
@@ -93,9 +93,8 @@ def process_wx_message(**context):
     source_ip = message_data.get('source_ip')
 
     # 检查sender是否在AI黑名单中
-    ai_black_list = Variable.get('AI_BLACK_LIST', default_var=[], deserialize_json=True)
-    if sender in ai_black_list:
-        print(f"[WATCHER] sender {sender} 在AI黑名单中，停止处理")
+    if Variable.get(f'{room_id}_disable_ai', default_var=False, deserialize_json=True):
+        print(f"[WATCHER] {room_id} 已禁用AI聊天，停止处理")
         return
 
     # 分类处理
