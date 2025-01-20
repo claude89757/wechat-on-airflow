@@ -45,8 +45,6 @@ def get_bing_news_msg(query: str) -> list:
 
 def send_news(**context):
     """发送新闻消息到微信群"""
-    from utils.wechat_channl import send_msg_to_groups
-    
     # 从 conf 获取关键字，默认为"智能客服"
     keyword = context['dag_run'].conf.get('keyword', '智能客服') if context['dag_run'].conf else '智能客服'
     
