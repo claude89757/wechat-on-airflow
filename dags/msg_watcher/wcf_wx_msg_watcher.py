@@ -92,18 +92,18 @@ def process_wx_message(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
-    # 检查sender是否在AI黑名单中
+    # 执行命令
+    if excute_wx_command(content, room_id, sender, source_ip):
+        return
+    
+    # 检查room_id是否在AI黑名单中
     if Variable.get(f'{room_id}_disable_ai', default_var=False, deserialize_json=True):
         print(f"[WATCHER] {room_id} 已禁用AI聊天，停止处理")
         return
-
+    
     # 分类处理
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
 
-        # 执行命令
-        if excute_wx_command(content, room_id, sender, source_ip):
-            return
-    
         # 缓存聊天的历史消息
         room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
         simple_message_data = {
