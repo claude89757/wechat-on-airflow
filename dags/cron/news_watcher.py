@@ -3,6 +3,7 @@
 
 import os
 import requests
+import json
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -36,6 +37,9 @@ def get_bing_news_msg(query: str) -> list:
     print(f"headers: {headers}")
     response = requests.get(endpoint, headers=headers, params=params, timeout=60)
     print(f"response: {response.text}")
+    
+    response_json = response.json()
+    print(json.dumps(response_json, ensure_ascii=False, indent=2))
 
     response.raise_for_status()
     data = response.json()
