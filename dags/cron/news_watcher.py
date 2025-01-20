@@ -28,7 +28,7 @@ def get_bing_news_msg(query: str) -> list:
 
     # Construct a request
     mkt = 'zh-HK'
-    params = {'q': query, 'mkt': mkt, 'answerCount': 5, 'promote': 'News', 'freshness': 'Week'}
+    params = {'q': query, 'mkt': mkt, 'answerCount': 5, 'promote': 'News', 'freshness': 'Day'}
     headers = {'Ocp-Apim-Subscription-Key': bing_subscription_key}
 
     # Call the API
@@ -91,9 +91,9 @@ def send_news(**context) -> None:
         Exception: 当无法获取必要的Airflow变量时抛出
     """
     # 获取关键词，默认为"智能客服"
-    keyword = (context['dag_run'].conf.get('keyword', '智能客服') 
+    keyword = (context['dag_run'].conf.get('keyword', 'AI') 
               if context['dag_run'].conf 
-              else '智能客服')
+              else 'AI')
     
     # 获取新闻数据
     news_list = get_bing_news_msg(query=keyword)
