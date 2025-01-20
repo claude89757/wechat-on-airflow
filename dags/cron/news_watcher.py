@@ -31,17 +31,15 @@ def get_bing_news_msg(query: str) -> list:
     headers = {'Ocp-Apim-Subscription-Key': bing_subscription_key}
 
     # Call the API
-    try:
-        response = requests.get(endpoint, headers=headers, params=params, timeout=60)
-        response.raise_for_status()
+    print(f"query: {query}")
+    print(f"params: {params}")
+    print(f"headers: {headers}")
+    response = requests.get(endpoint, headers=headers, params=params, timeout=60)
+    print(f"response: {response.text}")
 
-        print(response.headers)
-        # pprint(response.json())
-        data = response.json()
-
-        return data['news']['value']
-    except Exception as error:
-        return [{"name": f"Ops, 我崩溃了: {error}", "url": "？"}]
+    response.raise_for_status()
+    data = response.json()
+    return data['news']['value']
 
 
 def format_news_message(news_list: list, keyword: str) -> str:
