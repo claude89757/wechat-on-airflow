@@ -43,7 +43,11 @@ def get_bing_news_msg(query: str) -> list:
 
     response.raise_for_status()
     data = response.json()
-    return data['news']['value']
+    
+    if data.get('news'):
+        return data['news']['value']
+    else:
+        return None
 
 
 def format_news_message(news_list: list, keyword: str) -> str:
@@ -97,6 +101,10 @@ def send_news(**context) -> None:
     
     # 获取新闻数据
     news_list = get_bing_news_msg(query=keyword)
+
+    if not news_list:
+        print(f"no news for {keyword}")
+        return
     
     # 格式化消息
     msg = format_news_message(news_list, keyword)
