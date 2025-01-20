@@ -24,7 +24,6 @@ x-airflow-env: &airflow-env
   AIRFLOW_FERNET_KEY: &fernet_key 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
   AIRFLOW_SECRET_KEY: &secret_key a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
   AIRFLOW_EXECUTOR: CeleryExecutor
-  AIRFLOW_LOAD_EXAMPLES: "false"
   
   # pip 镜像源配置 - 使用腾讯云镜像
   PIP_INDEX_URL: https://mirrors.cloud.tencent.com/pypi/simple/
@@ -59,16 +58,6 @@ x-airflow-env: &airflow-env
   # 显式排除示例 DAG 目录
   AIRFLOW__CORE__DAGS_FOLDER_SKIP_PATTERNS: "example_*.py,examples/*.py"
   
-  # 添加以下配置来使用 spawn 而不是 fork
-  PYTHONPATH: /opt/bitnami/airflow
-  AIRFLOW__CORE__ENABLE_XCOM_PICKLING: "false"
-  # 设置多进程启动方式为 spawn
-  AIRFLOW__CORE__FORK_METHOD: "spawn"
-  # 设置 DAG 文件处理器使用 spawn
-  AIRFLOW__SCHEDULER__PARSING_PROCESSES_FORK_METHOD: "spawn"
-  # 优化进程处理相关配置
-  AIRFLOW__SCHEDULER__USE_ROW_LEVEL_LOCKING: "true"
-  AIRFLOW__SCHEDULER__MAX_DAGRUNS_TO_CREATE_PER_LOOP: 10
 
 services:
   postgresql:
