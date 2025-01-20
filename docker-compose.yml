@@ -24,7 +24,7 @@ x-airflow-env: &airflow-env
   AIRFLOW_FERNET_KEY: &fernet_key 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
   AIRFLOW_SECRET_KEY: &secret_key a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
   AIRFLOW_EXECUTOR: CeleryExecutor
-  AIRFLOW_LOAD_EXAMPLES: no
+  AIRFLOW_LOAD_EXAMPLES: "false"
   
   # pip 镜像源配置 - 使用腾讯云镜像
   PIP_INDEX_URL: https://mirrors.cloud.tencent.com/pypi/simple/
