@@ -33,6 +33,26 @@ from utils.wechat_channl import send_wx_msg
 from utils.redis import RedisLock
 
 
+def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -> bool:
+    """执行命令"""
+    if content.replace('@Zacks', '').strip().lower() == 'clear':
+        print("[命令] 清理历史消息")
+        Variable.delete(f'{room_id}_history')
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已清理历史消息', receiver=sender)
+        return True
+    elif content.replace('@Zacks', '').strip().lower() == 'ai on':
+        print("[命令] 禁用AI聊天")
+        Variable.set(f'{sender}_disable_ai', True, serialize_json=True)
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已禁用AI聊天', receiver=sender)
+        return True
+    elif content.replace('@Zacks', '').strip().lower() == 'ai off':
+        print("[命令] 启用AI聊天")
+        Variable.delete(f'{sender}_disable_ai')
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已启用AI聊天', receiver=sender)
+        return True
+    return False
+
+
 def process_wx_message(**context):
     """
     处理微信消息的任务函数, 消息分发到其他DAG处理
@@ -61,7 +81,7 @@ def process_wx_message(**context):
     print(json.dumps(message_data, ensure_ascii=False, indent=2))
     print("--------------------------------")
     
-    # 检查是否需要触发AI聊天
+    # 读取消息参数
     room_id = message_data.get('roomid')
     formatted_roomid = re.sub(r'[^a-zA-Z0-9]', '', str(room_id))  # 用于触发DAG的run_id
     sender = message_data.get('sender')
@@ -72,16 +92,19 @@ def process_wx_message(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
+    # 检查sender是否在AI黑名单中
+    ai_black_list = Variable.get('AI_BLACK_LIST', default_var=[], deserialize_json=True)
+    if sender in ai_black_list:
+        print(f"[WATCHER] sender {sender} 在AI黑名单中，停止处理")
+        return
+
     # 分类处理
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
 
-        # 命令1：清理历史消息
-        if content.replace('@Zacks', '').strip().lower() == 'clear':
-            print("[命令] 清理历史消息")
-            Variable.delete(f'{room_id}_history')
-            send_wx_msg(wcf_ip=source_ip, message='[bot]已清理历史消息', receiver=sender)
+        # 执行命令
+        if excute_wx_command(content, room_id, sender, source_ip):
             return
-
+    
         # 缓存聊天的历史消息
         room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
         simple_message_data = {
