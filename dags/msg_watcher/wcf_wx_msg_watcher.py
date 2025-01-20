@@ -40,12 +40,12 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         Variable.delete(f'{room_id}_history')
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已清理历史消息', receiver=sender)
         return True
-    elif content.replace('@Zacks', '').strip().lower() == 'ai on':
+    elif content.replace('@Zacks', '').strip().lower() == 'ai off':
         print("[命令] 禁用AI聊天")
         Variable.set(f'{sender}_disable_ai', True, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已禁用AI聊天', receiver=sender)
         return True
-    elif content.replace('@Zacks', '').strip().lower() == 'ai off':
+    elif content.replace('@Zacks', '').strip().lower() == 'ai on':
         print("[命令] 启用AI聊天")
         Variable.delete(f'{sender}_disable_ai')
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {sender} 已启用AI聊天', receiver=sender)
