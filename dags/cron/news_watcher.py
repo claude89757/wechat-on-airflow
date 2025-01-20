@@ -119,15 +119,15 @@ default_args = {
     'start_date': datetime(2024, 1, 1),
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    'retries': 0,
+    'retry_delay': timedelta(minutes=1),
 }
 
 dag = DAG(
     'news_watcher',  # 改为更通用的名称
     default_args=default_args,
     description='每天定时发送新闻',
-    schedule_interval='0 6,18 * * *',  # 每天6点和18点执行
+    schedule_interval='0 9,19 * * *',  # 每天9点和19点执行
     catchup=False,
 )
 
