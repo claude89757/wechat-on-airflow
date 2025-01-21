@@ -106,7 +106,7 @@ def chat_with_ragflow_agent(**context):
                 print(f"[WARNNING] 已回复的消息: {msg_id} {msg.get('content', '')}")
 
         # 输入问题
-        question = recent_message_content + content
+        question = recent_message_content + "\n" + content
         print("="*50)
         print(f"question: {question}")
         print("="*50)
