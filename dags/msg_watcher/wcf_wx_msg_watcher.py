@@ -114,7 +114,10 @@ def process_wx_message(**context):
             for run in same_room_sender_runs:
                 print(f"[WATCHER] 提前停止DAG, run_id: {run.run_id}, 状态: {run.state}")
                 Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
-                recent_message_list.append(run.conf)
+                if isinstance(run.conf, list):
+                    recent_message_list.extend(run.conf[-1])
+                else:
+                    raise ValueError(f"run.conf 不是列表: {run.conf}, 未知异常")
     
         # 触发新的DAG运行
         input_message_list = recent_message_list + [message_data]
