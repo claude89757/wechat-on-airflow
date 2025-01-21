@@ -95,15 +95,18 @@ def chat_with_ragflow_agent(**context):
         session = get_ragflow_agent_session(agent, room_id, sender)
 
         # 遍历近期的消息是否已回复，没有回复，则合并到这次提问
-        msg_replied_infos = Variable.get("msg_replied_infos", default_var={}, deserialize_json=True)
+        msg_replied_infos = Variable.get("msg_replied_infos", deserialize_json=True)
         recent_message_content = ""
-        for msg in recent_message_list:
-            msg_id = msg.get('id', '')
-            msg_replied = msg_replied_infos.get(msg_id, False)
-            if not msg_replied:
-                recent_message_content += f"\n\n{msg.get('content', '')}"
-            else:
-                print(f"[WARNNING] 已回复的消息: {msg_id} {msg.get('content', '')}")
+        if msg_replied_infos:
+            for msg in recent_message_list:
+                msg_id = msg.get('id', '')
+                msg_replied = msg_replied_infos.get(msg_id, False)
+                if not msg_replied:
+                    recent_message_content += f"\n\n{msg.get('content', '')}"
+                else:
+                    print(f"[WARNNING] 已回复的消息: {msg_id} {msg.get('content', '')}")
+        else:
+            print(f"[WARNNING] msg_replied_infos 为空")
 
         # 输入问题
         print("\n===== 完整输出 =====")
