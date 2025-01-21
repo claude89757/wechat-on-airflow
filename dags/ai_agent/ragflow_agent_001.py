@@ -95,7 +95,7 @@ def chat_with_ragflow_agent(**context):
         session = get_ragflow_agent_session(agent, room_id, sender)
 
         # 遍历近期的消息是否已回复，没有回复，则合并到这次提问
-        msg_replied_infos = Variable.get(f'msg_replied_infos', default_var={}, deserialize_json=True)
+        msg_replied_infos = Variable.get("msg_replied_infos", default_var={}, deserialize_json=True)
         recent_message_content = ""
         for msg in recent_message_list:
             msg_id = msg.get('id', '')
@@ -125,7 +125,7 @@ def chat_with_ragflow_agent(**context):
 
         # 记录消息是否被回复
         msg_replied_infos[msg_id] = True
-        Variable.set(f'msg_replied_infos', msg_replied_infos)
+        Variable.set("msg_replied_infos", msg_replied_infos, serialize_json=True)
 
 
 # 创建DAG
