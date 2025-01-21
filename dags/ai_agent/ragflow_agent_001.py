@@ -106,12 +106,19 @@ def chat_with_ragflow_agent(**context):
                 print(f"[WARNNING] 已回复的消息: {msg_id} {msg.get('content', '')}")
 
         # 输入问题
-        print("\n===== 完整输出 =====")
         question = recent_message_content + content
-        full_response = ""
+        print("="*50)
+        print(f"question: {question}")
+        print("="*50)
+
+        response = ""
         for ans in session.ask(question, stream=False):
-            full_response = ans.content
-        print(f"full_response: {full_response}")
+            response = ans.content
+        
+        # 打印AI回复
+        print("="*50)
+        print(f"response: {response}")
+        print("="*50)
 
     # 消息发送前，确认当前任务还是运行中，才发送消息
     pre_stop = Variable.get(f'{run_id}_pre_stop', default_var=False, deserialize_json=True)
@@ -120,7 +127,7 @@ def chat_with_ragflow_agent(**context):
         raise AirflowException("检测到提前停止信号，停止流程执行")
     else: 
         # 发送消息, 可能需要分段发送
-        for response in full_response.split("\n\n"):
+        for response in response.split("\n\n"):
             send_wx_msg(wcf_ip=source_ip, message=response, receiver=room_id)
 
         # 记录消息是否被回复
