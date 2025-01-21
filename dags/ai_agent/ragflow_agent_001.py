@@ -73,11 +73,10 @@ def chat_with_ragflow_agent(**context):
     else:
         print(f"[PRE_STOP] 未检测到提前停止信号，继续执行")
 
-        message_data_list = context.get('dag_run').conf
         # 近期其他消息
-        recent_message_list = message_data_list[:-1]
+        recent_message_list = context.get('dag_run').conf.get("recent_message_list", [])
         # 当前消息
-        current_message_data = message_data_list[-1]
+        current_message_data = context.get('dag_run').conf.get("current_message", {})
 
         # 获取消息数据 
         sender = current_message_data.get('sender', '')  # 发送者ID

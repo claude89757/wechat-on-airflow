@@ -114,13 +114,15 @@ def process_wx_message(**context):
             for run in same_room_sender_runs:
                 print(f"[WATCHER] 提前停止DAG, run_id: {run.run_id}, 状态: {run.state}")
                 Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
-                if isinstance(run.conf, list):
-                    recent_message_list.extend(run.conf[-1])
+                if isinstance(run.conf, dict):
+                    if run.conf.get("current_message"):
+                        recent_message_list.append(run.conf.get("current_message", {}))
+                    else:
+                        raise ValueError(f"run.conf 不包含 current_message: {run.conf}, 未知异常")
                 else:
-                    raise ValueError(f"run.conf 不是列表: {run.conf}, 未知异常")
+                    raise ValueError(f"run.conf 不是字典: {run.conf}, 未知异常")
     
         # 触发新的DAG运行
-        input_message_list = recent_message_list + [message_data]
         now = datetime.now(timezone.utc)
         execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
         run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
@@ -128,7 +130,7 @@ def process_wx_message(**context):
         try:
             trigger_dag(
                 dag_id='ragflow_agent_001',
-                conf=input_message_list,
+                conf={"current_message": message_data, "recent_message_list": recent_message_list},
                 run_id=run_id,
                 execution_date=execution_date
             )
@@ -139,7 +141,7 @@ def process_wx_message(**context):
             execution_date = now + timedelta(seconds=1, microseconds=hash(msg_id) % 1000000)
             trigger_dag(
                 dag_id='ragflow_agent_001',
-                conf=input_message_list,
+                conf={"current_message": message_data, "recent_message_list": recent_message_list},
                 run_id=run_id,
                 execution_date=execution_date
             )
