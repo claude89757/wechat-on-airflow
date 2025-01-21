@@ -101,8 +101,12 @@ def process_wx_message(**context):
         print(f"[WATCHER] {room_id} 已禁用AI聊天，停止处理")
         return
     
+    # 开启全局群聊的room_id
+    enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
+  
     # 分类处理
-    if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
+    if msg_type == 1 and ((content.startswith('@Zacks') or not is_group) 
+                          or (is_group and room_id in enable_ai_room_ids)):
         # 查询已触发的排队中和正在运行的DAGRun
         active_runs = DagRun.find(dag_id='ragflow_agent_001', state=DagRunState.RUNNING)
         queued_runs = DagRun.find(dag_id='ragflow_agent_001', state=DagRunState.QUEUED)
