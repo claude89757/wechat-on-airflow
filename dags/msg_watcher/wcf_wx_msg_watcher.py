@@ -103,50 +103,29 @@ def process_wx_message(**context):
     
     # 分类处理
     if msg_type == 1 and (content.startswith('@Zacks') or not is_group):
-
-        # 缓存聊天的历史消息
-        room_history = Variable.get(f'{room_id}_history', default_var=[], deserialize_json=True)
-        simple_message_data = {
-            'roomid': room_id,
-            'formatted_roomid': formatted_roomid,
-            'sender': sender,
-            'id': msg_id,
-            'content': content,
-            'is_group': is_group,
-            'ts': current_msg_timestamp,
-            'is_ai_msg': False
-        }
-        room_history.append(simple_message_data)
-        Variable.set(f'{room_id}_history', room_history, serialize_json=True)
-
         # 查询已触发的排队中和正在运行的DAGRun
-        active_runs = DagRun.find(
-            dag_id='zacks_ai_agent',
-            state=DagRunState.RUNNING,  # 先查询RUNNING状态
-        )
-        queued_runs = DagRun.find(
-            dag_id='zacks_ai_agent',
-            state=DagRunState.QUEUED,  # 再查询QUEUED状态
-        )
+        active_runs = DagRun.find(dag_id='ragflow_agent_001', state=DagRunState.RUNNING)
+        queued_runs = DagRun.find(dag_id='ragflow_agent_001', state=DagRunState.QUEUED)
         all_active_runs = active_runs + queued_runs
         same_room_sender_runs = [run for run in all_active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
-
+        recent_message_list = []
         if same_room_sender_runs:
             print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行或等待触发, run_id: {same_room_sender_runs}, 提前停止")
             for run in same_room_sender_runs:
                 print(f"[WATCHER] 提前停止DAG, run_id: {run.run_id}, 状态: {run.state}")
                 Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
-       
+                recent_message_list.append(run.conf)
+    
         # 触发新的DAG运行
+        input_message_list = recent_message_list + [message_data]
         now = datetime.now(timezone.utc)
-        # 添加随机毫秒延迟，避免同时触发导致的execution_date冲突
-        execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)
+        execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
         run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
         print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
         try:
             trigger_dag(
-                dag_id='zacks_ai_agent',
-                conf=message_data,
+                dag_id='ragflow_agent_001',
+                conf=input_message_list,
                 run_id=run_id,
                 execution_date=execution_date
             )
@@ -156,8 +135,8 @@ def process_wx_message(**context):
             # 如果是因为execution_date冲突，可以重试一次
             execution_date = now + timedelta(seconds=1, microseconds=hash(msg_id) % 1000000)
             trigger_dag(
-                dag_id='zacks_ai_agent',
-                conf=message_data,
+                dag_id='ragflow_agent_001',
+                conf=input_message_list,
                 run_id=run_id,
                 execution_date=execution_date
             )
