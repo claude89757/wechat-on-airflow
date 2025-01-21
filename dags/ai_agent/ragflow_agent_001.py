@@ -24,7 +24,7 @@ def get_ragflow_agent_session(agent, room_id, sender):
     获取对应room_id + sender_id 的RAGFLOW的AI助手会话
     """
     # 查询当前room_id + sender_id 是否存在会话
-    agent_session_id_infos = Variable.get(f"ragflow_agent_session_id_infos", default_var={}, deserialize_json=True)
+    agent_session_id_infos = Variable.get("ragflow_agent_session_id_infos", default_var={}, deserialize_json=True)
     roomd_sender_key = f"{room_id}_{sender}"
     existing_session = None
     if agent_session_id_infos.get(roomd_sender_key):
@@ -52,7 +52,7 @@ def get_ragflow_agent_session(agent, room_id, sender):
         existing_session = new_session
         session_id = new_session.id
         agent_session_id_infos[roomd_sender_key] = session_id
-        Variable.set(f"ragflow_agent_session_id_infos", agent_session_id_infos)
+        Variable.set(f"ragflow_agent_session_id_infos", agent_session_id_infos, serialize_json=True)
         print(f"{roomd_sender_key} session_id: {session_id}, create new session")
     else:
         print(f"{roomd_sender_key} session_id: {session_id}, use old session")
@@ -95,18 +95,15 @@ def chat_with_ragflow_agent(**context):
         session = get_ragflow_agent_session(agent, room_id, sender)
 
         # 遍历近期的消息是否已回复，没有回复，则合并到这次提问
-        msg_replied_infos = Variable.get("msg_replied_infos", deserialize_json=True)
+        msg_replied_infos = Variable.get("msg_replied_infos", default_var={}, deserialize_json=True)
         recent_message_content = ""
-        if msg_replied_infos:
-            for msg in recent_message_list:
-                msg_id = msg.get('id', '')
-                msg_replied = msg_replied_infos.get(msg_id, False)
-                if not msg_replied:
-                    recent_message_content += f"\n\n{msg.get('content', '')}"
-                else:
-                    print(f"[WARNNING] 已回复的消息: {msg_id} {msg.get('content', '')}")
-        else:
-            print(f"[WARNNING] msg_replied_infos 为空")
+        for msg in recent_message_list:
+            msg_id = msg.get('id', '')
+            msg_replied = msg_replied_infos.get(msg_id, False)
+            if not msg_replied:
+                recent_message_content += f"\n\n{msg.get('content', '')}"
+            else:
+                print(f"[WARNNING] 已回复的消息: {msg_id} {msg.get('content', '')}")
 
         # 输入问题
         print("\n===== 完整输出 =====")
