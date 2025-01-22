@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # 标准库导入
+import re
 from datetime import datetime, timedelta
 from threading import Thread
 
@@ -213,7 +214,7 @@ def chat_with_dify_agent(**context):
     # 检查是否需要提前停止
     should_pre_stop(current_message_data)
     # 发送消息, 可能需要分段发送
-    for response in response.split("\n\n"):
+    for response in re.split(r'\\n\\n|\n\n', response):
         send_wx_msg(wcf_ip=source_ip, message=response, receiver=room_id)
 
     # 记录消息已被成功回复
