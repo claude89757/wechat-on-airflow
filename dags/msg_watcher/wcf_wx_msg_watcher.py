@@ -109,14 +109,14 @@ def process_wx_message(**context):
                           or (is_group and room_id in enable_ai_room_ids)):
         # 缓存收到需要回复的消息类型
         room_sender_msg_list = Variable.get(f'{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
-        if message_data['id'] != room_sender_msg_list[-1]['id']:
+        if room_sender_msg_list and message_data['id'] != room_sender_msg_list[-1]['id']:
             room_sender_msg_list.append(message_data)
             Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
         else:
             pass
 
         if room_sender_msg_list[-1]['reply_status'] == False:
-            # 触发新的DAG运行
+            # 消息未回复, 触发新的DAG运行agent
             now = datetime.now(timezone.utc)
             execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
             run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
