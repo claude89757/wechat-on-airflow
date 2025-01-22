@@ -112,6 +112,7 @@ def process_wx_message(**context):
         if room_sender_msg_list and message_data['id'] != room_sender_msg_list[-1]['id']:
             # 消息不是最新，则更新消息缓存列表
             room_sender_msg_list.append(message_data)
+            print(f"room_sender_msg_list: {room_sender_msg_list}")
             Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
 
             if not room_sender_msg_list[-1].get('is_reply'):
