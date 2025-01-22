@@ -214,8 +214,9 @@ def chat_with_dify_agent(**context):
     # 检查是否需要提前停止
     should_pre_stop(current_message_data)
     # 发送消息, 可能需要分段发送
-    for response in re.split(r'\\n\\n|\n\n', response):
-        send_wx_msg(wcf_ip=source_ip, message=response, receiver=room_id)
+    for response_part in re.split(r'\\n\\n|\n\n', response):
+        response_part = response_part.replace('\\n', '\n')
+        send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
 
     # 记录消息已被成功回复
     for msg in room_sender_msg_list:
