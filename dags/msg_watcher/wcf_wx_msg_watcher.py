@@ -107,53 +107,32 @@ def process_wx_message(**context):
     # 分类处理
     if msg_type == 1 and ((content.startswith('@Zacks') or not is_group) 
                           or (is_group and room_id in enable_ai_room_ids)):
-        # 查询已触发的排队中和正在运行的DAGRun
-        active_runs = DagRun.find(dag_id='ragflow_agent_001', state=DagRunState.RUNNING)
-        queued_runs = DagRun.find(dag_id='ragflow_agent_001', state=DagRunState.QUEUED)
-        all_active_runs = active_runs + queued_runs
-        same_room_sender_runs = [run for run in all_active_runs if run.run_id.startswith(f'{formatted_roomid}_{sender}_')]   
-        recent_message_list = []
-        if same_room_sender_runs:
-            print(f"[WATCHER] 发现来自相同room_id和sender的DAG正在运行或等待触发, run_id: {same_room_sender_runs}, 提前停止")
-            for run in same_room_sender_runs:
-                print(f"[WATCHER] 提前停止DAG, run_id: {run.run_id}, 状态: {run.state}")
-                Variable.set(f'{run.run_id}_pre_stop', True, serialize_json=True)  # 使用Variable作为标识变量，提前停止正在运行的DAG
-                if isinstance(run.conf, dict):
-                    if run.conf.get("current_message"):
-                        recent_message_list.append(run.conf.get("current_message", {}))
-                    else:
-                        raise ValueError(f"run.conf 不包含 current_message: {run.conf}, 未知异常")
-                else:
-                    raise ValueError(f"run.conf 不是字典: {run.conf}, 未知异常")
-    
-        # 触发新的DAG运行
-        now = datetime.now(timezone.utc)
-        execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
-        run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
-        print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-        try:
+        # 缓存收到需要回复的消息类型
+        room_sender_msg_list = Variable.get(f'{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
+        if message_data['id'] != room_sender_msg_list[-1]['id']:
+            room_sender_msg_list.append(message_data)
+            Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
+        else:
+            pass
+
+        if room_sender_msg_list[-1]['reply_status'] == False:
+            # 触发新的DAG运行
+            now = datetime.now(timezone.utc)
+            execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
+            run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
+            print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
             trigger_dag(
-                dag_id='ragflow_agent_001',
-                conf={"current_message": message_data, "recent_message_list": recent_message_list},
+                dag_id='dify_agent_001',
+                conf={"current_message": message_data},
                 run_id=run_id,
                 execution_date=execution_date
             )
             print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
-        except Exception as e:
-            print(f"[WATCHER] 触发DAG失败: {str(e)}")
-            # 如果是因为execution_date冲突，可以重试一次
-            execution_date = now + timedelta(seconds=1, microseconds=hash(msg_id) % 1000000)
-            trigger_dag(
-                dag_id='ragflow_agent_001',
-                conf={"current_message": message_data, "recent_message_list": recent_message_list},
-                run_id=run_id,
-                execution_date=execution_date
-            )
-            print(f"[WATCHER] 重试触发AI聊天DAG成功，execution_date: {execution_date}")
+        else:
+            print(f"[WATCHER] 消息已回复，不重复触发AI聊天DAG")
     else:
         # 非文字消息，暂不触发AI聊天流程
         print("[WATCHER] 不触发AI聊天流程")
-
 
 # 创建DAG
 dag = DAG(
