@@ -181,7 +181,7 @@ def chat_with_dify_agent(**context):
     up_for_reply_msg_list = []
     up_for_reply_msg_id_list = []
     for msg in room_sender_msg_list[-10:]:
-        if not msg.get('reply_status', False):
+        if not msg.get('is_reply'):
             up_for_reply_msg_list.append(msg)
             up_for_reply_msg_id_list.append(msg['id'])
         else:
@@ -219,7 +219,7 @@ def chat_with_dify_agent(**context):
     # 记录消息已被成功回复
     for msg in room_sender_msg_list:
         if msg['id'] in up_for_reply_msg_id_list:
-            msg['reply_status'] = True
+            msg['is_reply'] = True
             print(f"[WATCHER] 消息已回复: {room_id} {sender} {msg['id']} {msg['content']}")
     Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
 

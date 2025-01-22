@@ -114,7 +114,7 @@ def process_wx_message(**context):
             room_sender_msg_list.append(message_data)
             Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
 
-            if room_sender_msg_list[-1]['reply_status'] == False:
+            if not room_sender_msg_list[-1].get('is_reply'):
                 # 消息未回复, 触发新的DAG运行agent
                 print(f"[WATCHER] 消息未回复, 触发新的DAG运行agent")
                 now = datetime.now(timezone.utc)
@@ -130,7 +130,7 @@ def process_wx_message(**context):
                 print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
             else:
                 print(f"[WATCHER] 消息已回复，不重复触发AI聊天DAG")
-                
+
         elif not room_sender_msg_list:
             # 用户的消息缓存列表为空，则添加第一条消息
             room_sender_msg_list.append(message_data)
