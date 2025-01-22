@@ -50,6 +50,16 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         Variable.delete(f'{room_id}_disable_ai')
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已启用AI聊天', receiver=room_id)
         return True
+    elif content.replace('@Zacks', '').strip().lower() == 'ai reset':
+        print("[命令] 重置AI聊天")
+        roomd_sender_key = f"{room_id}_{sender}"
+        agent_session_id_infos = Variable.get("dify_agent_session_id_infos", default_var={}, deserialize_json=True)
+        if roomd_sender_key in agent_session_id_infos:
+            print(f"[命令] 删除AI聊天会话: {roomd_sender_key}")
+            agent_session_id_infos[roomd_sender_key] = ""
+            Variable.set("dify_agent_session_id_infos", agent_session_id_infos, serialize_json=True)
+            send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已重置AI聊天会话', receiver=room_id)
+        return True
     return False
 
 
