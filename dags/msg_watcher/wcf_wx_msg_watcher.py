@@ -107,16 +107,30 @@ def process_wx_message(**context):
     # 分类处理
     if msg_type == 1 and ((content.startswith('@Zacks') or not is_group) 
                           or (is_group and room_id in enable_ai_room_ids)):
-        # 缓存收到需要回复的消息类型
+        # 用户的消息缓存列表（跨DAG共享该变量）
         room_sender_msg_list = Variable.get(f'{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
         if room_sender_msg_list and message_data['id'] != room_sender_msg_list[-1]['id']:
             room_sender_msg_list.append(message_data)
             Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
+            if room_sender_msg_list[-1]['reply_status'] == False:
+                # 消息未回复, 触发新的DAG运行agent
+                print(f"[WATCHER] 消息未回复, 触发新的DAG运行agent")
+                now = datetime.now(timezone.utc)
+                execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
+                run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
+                print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
+                trigger_dag(
+                    dag_id='dify_agent_001',
+                    conf={"current_message": message_data},
+                    run_id=run_id,
+                    execution_date=execution_date
+                )
+                print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
+            else:
+                print(f"[WATCHER] 消息已回复，不重复触发AI聊天DAG")
         else:
-            pass
-
-        if room_sender_msg_list[-1]['reply_status'] == False:
-            # 消息未回复, 触发新的DAG运行agent
+            # 第一条消息，触发新的DAG运行agent
+            print(f"[WATCHER] 第一条消息，触发新的DAG运行agent")
             now = datetime.now(timezone.utc)
             execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
             run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
@@ -128,8 +142,7 @@ def process_wx_message(**context):
                 execution_date=execution_date
             )
             print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
-        else:
-            print(f"[WATCHER] 消息已回复，不重复触发AI聊天DAG")
+
     else:
         # 非文字消息，暂不触发AI聊天流程
         print("[WATCHER] 不触发AI聊天流程")
