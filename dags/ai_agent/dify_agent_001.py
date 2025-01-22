@@ -181,7 +181,7 @@ def chat_with_dify_agent(**context):
     up_for_reply_msg_list = []
     up_for_reply_msg_id_list = []
     for msg in room_sender_msg_list[-10:]:
-        if msg['reply_status'] == False:
+        if not msg.get('reply_status', False):
             up_for_reply_msg_list.append(msg)
             up_for_reply_msg_id_list.append(msg['id'])
         else:
