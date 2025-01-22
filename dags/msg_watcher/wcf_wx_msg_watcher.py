@@ -110,8 +110,10 @@ def process_wx_message(**context):
         # 用户的消息缓存列表（跨DAG共享该变量）
         room_sender_msg_list = Variable.get(f'{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
         if room_sender_msg_list and message_data['id'] != room_sender_msg_list[-1]['id']:
+            # 消息不是最新，则更新消息缓存列表
             room_sender_msg_list.append(message_data)
             Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
+
             if room_sender_msg_list[-1]['reply_status'] == False:
                 # 消息未回复, 触发新的DAG运行agent
                 print(f"[WATCHER] 消息未回复, 触发新的DAG运行agent")
@@ -128,7 +130,12 @@ def process_wx_message(**context):
                 print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
             else:
                 print(f"[WATCHER] 消息已回复，不重复触发AI聊天DAG")
-        else:
+                
+        elif not room_sender_msg_list:
+            # 用户的消息缓存列表为空，则添加第一条消息
+            room_sender_msg_list.append(message_data)
+            Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
+
             # 第一条消息，触发新的DAG运行agent
             print(f"[WATCHER] 第一条消息，触发新的DAG运行agent")
             now = datetime.now(timezone.utc)
