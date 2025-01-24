@@ -3,6 +3,8 @@
 
 # 标准库导入
 import re
+import random
+import time
 from datetime import datetime, timedelta
 from threading import Thread
 
@@ -90,6 +92,10 @@ def chat_with_dify_agent(**context):
             pass
         else:
             send_wx_msg(wcf_ip=source_ip, message=msg, receiver=tem_room_id)
+            # 随机等待0-2秒
+            wait_time = random.uniform(0, 2)
+            time.sleep(wait_time)
+            
 
 
 # 创建DAG
