@@ -30,6 +30,7 @@ from airflow.models.variable import Variable
 from airflow.utils.session import create_session
 
 from utils.wechat_channl import send_wx_msg
+from utils.wechat_channl import get_wx_contact_list
 from utils.redis import RedisLock
 
 
@@ -82,18 +83,33 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已退出AI聊天群', receiver=room_id)
         return True
     elif content.replace('@Zacks', '').strip().lower() == 'jion big room':
+        # 获取群名称
+        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
+        print(f"wx_contact_list: {len(wx_contact_list)}")
+        contact_infos = {}
+        for contact in wx_contact_list:
+            wxid = contact.get('wxid', '')
+            contact_infos[wxid] = contact
+
         # 加入超级微信大群聊
         supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
         supper_big_rood_ids.append(room_id)
         Variable.set('supper_big_rood_ids', supper_big_rood_ids, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已加入超级大群, 请@Zacks发送广播消息', receiver=room_id)
+
+        # 当前群聊列表
+        room_name_list = []
+        for room_id in supper_big_rood_ids:
+            source_room_name = contact_infos.get(room_id, {}).get('name', '')
+            room_name_list.append(source_room_name)
+        room_name_str = "\n".join(room_name_list)
+        send_wx_msg(wcf_ip=source_ip, message=f'🤖 {room_id} 已加入超级大群\n\n📋 当前超级大群列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
         return True
     elif content.replace('@Zacks', '').strip().lower() == 'exit big room':
         # 退出超级微信大群聊
         supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
         supper_big_rood_ids.remove(room_id)
         Variable.set('supper_big_rood_ids', supper_big_rood_ids, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已退出超级大群', receiver=room_id)
+        send_wx_msg(wcf_ip=source_ip, message=f'🤖 {room_id} 已退出超级大群\n\n📋 当前超级大群列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
         return True
     return False
 

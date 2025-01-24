@@ -70,8 +70,6 @@ def chat_with_dify_agent(**context):
         wxid = member.get('wxid', '')
         room_members_infos[wxid] = member
 
-
-
     # 获取sender的nickname
     source_sender_nickname = room_members_infos.get(sender, {}).get('name', '')
     source_room_name = contact_infos.get(room_id, {}).get('name', '')
