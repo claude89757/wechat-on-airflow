@@ -79,7 +79,9 @@ def chat_with_dify_agent(**context):
 
     # 检查消息是否合规
     if not check_message_is_legal(msg):
-        print(f"[WARNING] 消息不合规, 停止处理")
+        print(f"[WARNING] 🚫 消息不合规, 停止处理")
+        msg = f"@{source_sender_nickname} \n ✨富强、民主、文明、和谐、自由、平等、公正、法治、爱国、敬业、诚信、友善 ✨"
+        send_wx_msg(wcf_ip=source_ip, message=msg, receiver=room_id)
         return
     
     # 广播消息
