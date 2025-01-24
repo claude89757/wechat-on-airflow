@@ -46,6 +46,7 @@ def get_wx_contact_list(wcf_ip: str) -> list:
     
     response.raise_for_status()
     result = response.json()
+    print(f"result: {result}")
     return result.get('data', [])
 
 
