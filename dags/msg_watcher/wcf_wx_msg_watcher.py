@@ -41,6 +41,7 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
     admin_wxid = Variable.get('admin_wxid', default_var=[], deserialize_json=True)
     if sender not in admin_wxid:
         # 非管理员不执行命令
+        print(f"[命令] {sender} 不是管理员，不执行命令")
         return False
 
     # 执行命令
