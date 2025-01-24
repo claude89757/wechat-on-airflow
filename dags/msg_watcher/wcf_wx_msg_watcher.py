@@ -35,6 +35,14 @@ from utils.redis import RedisLock
 
 def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -> bool:
     """执行命令"""
+
+    # 检查是否是管理员
+    admin_wxid = Variable.get('admin_wxid', default_var=[], deserialize_json=True)
+    if sender not in admin_wxid:
+        # 非管理员不执行命令
+        return False
+
+    # 执行命令
     if content.replace('@Zacks', '').strip().lower() == 'clear':
         print("[命令] 清理历史消息")
         Variable.delete(f'{room_id}_history')
@@ -145,7 +153,7 @@ def process_wx_message(**context):
     supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
 
     # 分场景分发微信消息
-    if msg_type == 1 and content.startswith('@Zacks') and room_id in supper_big_rood_ids:
+    if msg_type == 1 and room_id in supper_big_rood_ids and "@Zacks" in content:
         print(f"[WATCHER] {room_id} 已加入超级大群, 触发AI聊天DAG")
         now = datetime.now(timezone.utc)
         execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
