@@ -176,7 +176,7 @@ def get_wx_room_members(wcf_ip: str, room_id: str) -> list:
     if result.get('status') != 0:
         raise Exception(f"获取群成员失败: {result.get('message', '未知错误')}")
     print(f"result: {result}")
-    return result.get('data', {}).get('member', [])
+    return result.get('data', [])
 
 
 def send_wx_pat(wcf_ip: str, receiver: str, wxid: str) -> bool:
