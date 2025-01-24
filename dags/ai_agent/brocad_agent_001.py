@@ -68,17 +68,21 @@ def chat_with_dify_agent(**context):
         wxid = member.get('wxid', '')
         room_members_infos[wxid] = member
 
-    # 检查消息是否合规
-    if not check_message_is_legal(content):
-        print(f"[WARNING] 消息不合规, 停止处理")
-        return
+
 
     # 获取sender的nickname
     source_sender_nickname = room_members_infos.get(sender, {}).get('name', '')
     source_room_name = contact_infos.get(room_id, {}).get('name', '')
 
-    # 发送消息  
-    msg = f"[{source_sender_nickname}@{source_room_name}]\n{content}"
+    # 构造消息  
+    msg = f"[ {source_sender_nickname} from {source_room_name} ] 💬\n{content}"
+
+    # 检查消息是否合规
+    if not check_message_is_legal(msg):
+        print(f"[WARNING] 消息不合规, 停止处理")
+        return
+    
+    # 广播消息
     supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
     for tem_room_id in supper_big_rood_ids:
         if tem_room_id == room_id:
