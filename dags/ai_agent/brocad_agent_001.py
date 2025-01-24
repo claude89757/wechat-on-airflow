@@ -54,14 +54,18 @@ def chat_with_dify_agent(**context):
     # 获取群名称
     wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
     print(f"wx_contact_list: {len(wx_contact_list)}")
-    for contact in wx_contact_list[:10]:
-        print(f"contact: {contact}")
+    contact_infos = {}
+    for contact in wx_contact_list:
+        wxid = contact.get('wxid', '')
+        contact_infos[wxid] = contact
 
     # 获取sender的nickname
     room_members = get_wx_room_members(wcf_ip=source_ip, room_id=room_id)
     print(f"room_members: {len(room_members)}")
-    for member in room_members[:10]:
+    for member in room_members:
         print(f"member: {member}")
+        wxid = member.get('wxid', '')
+        contact_infos[wxid] = member
 
     # 检查消息是否合规
     if not check_message_is_legal(content):
