@@ -83,7 +83,7 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         Variable.set('enable_ai_room_ids', enable_ai_room_ids, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已退出AI聊天群', receiver=room_id)
         return True
-    elif content.replace('@Zacks', '').strip().lower() == 'join big room':
+    elif content.startswith('@Zacks') and "join big room" in content:
         # 加入超级微信大群聊
         supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
         supper_big_rood_ids.append(room_id)
@@ -106,7 +106,7 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
 
         send_wx_msg(wcf_ip=source_ip, message=f'🤖 已加入超级大群\n\n📋 当前超级大群列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
         return True
-    elif content.replace('@Zacks', '').strip().lower() == 'exit big room':
+    elif content.startswith('@Zacks') and "exit big room" in content:
         # 退出超级微信大群聊
         supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
         supper_big_rood_ids.remove(room_id)
