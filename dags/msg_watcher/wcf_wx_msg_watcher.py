@@ -99,8 +99,8 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
             contact_infos[wxid] = contact
         # 当前群聊列表
         room_name_list = []
-        for room_id in supper_big_rood_ids:
-            source_room_name = contact_infos.get(room_id, {}).get('name', '')
+        for supper_big_rood_id in supper_big_rood_ids:
+            source_room_name = contact_infos.get(supper_big_rood_id, {}).get('name', '')
             room_name_list.append(source_room_name)
         room_name_str = "\n".join(room_name_list)
 
@@ -121,8 +121,8 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
             contact_infos[wxid] = contact
         # 当前群聊列表
         room_name_list = []
-        for room_id in supper_big_rood_ids:
-            source_room_name = contact_infos.get(room_id, {}).get('name', '')
+        for supper_big_rood_id in supper_big_rood_ids:
+            source_room_name = contact_infos.get(supper_big_rood_id, {}).get('name', '')
             room_name_list.append(source_room_name)
         room_name_str = "\n".join(room_name_list)
 
