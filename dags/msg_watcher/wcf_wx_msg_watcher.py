@@ -147,6 +147,9 @@ def process_wx_message(**context):
     # 分场景分发微信消息
     if msg_type == 1 and room_id in supper_big_rood_ids:
         print(f"[WATCHER] {room_id} 已加入超级大群, 触发AI聊天DAG")
+        now = datetime.now(timezone.utc)
+        execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
+        run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
         trigger_dag(
             dag_id='broadcast_agent_001',
             conf={"current_message": message_data},
