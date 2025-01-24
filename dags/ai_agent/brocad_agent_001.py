@@ -77,7 +77,7 @@ def chat_with_dify_agent(**context):
     source_room_name = contact_infos.get(room_id, {}).get('name', '')
 
     # 构造消息  
-    msg = f"[ {source_sender_nickname} from {source_room_name} ] 💬\n{content}"
+    msg = f"[ {source_sender_nickname} from {source_room_name} ] 💬\n{content.replace('@Zacks', '')}"
 
     # 检查消息是否合规
     if not check_message_is_legal(msg):
