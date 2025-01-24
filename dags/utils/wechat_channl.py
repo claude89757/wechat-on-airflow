@@ -47,7 +47,7 @@ def get_wx_contact_list(wcf_ip: str) -> list:
     response.raise_for_status()
     result = response.json()
     print(f"result: {result}")
-    return result.get('data', [])
+    return result.get('data', {}).get('contacts', [])
 
 
 def send_wx_image(wcf_ip: str, image_path: str, receiver: str) -> bool:
@@ -176,7 +176,7 @@ def get_wx_room_members(wcf_ip: str, room_id: str) -> list:
     if result.get('status') != 0:
         raise Exception(f"获取群成员失败: {result.get('message', '未知错误')}")
     print(f"result: {result}")
-    return result.get('data', [])
+    return result.get('data', {}).get('member', [])
 
 
 def send_wx_pat(wcf_ip: str, receiver: str, wxid: str) -> bool:
