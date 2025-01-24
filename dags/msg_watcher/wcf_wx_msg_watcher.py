@@ -145,7 +145,7 @@ def process_wx_message(**context):
     supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
 
     # 分场景分发微信消息
-    if msg_type == 1 and room_id in supper_big_rood_ids:
+    if msg_type == 1 and content.startswith('@Zacks') and room_id in supper_big_rood_ids:
         print(f"[WATCHER] {room_id} 已加入超级大群, 触发AI聊天DAG")
         now = datetime.now(timezone.utc)
         execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
