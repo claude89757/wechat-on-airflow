@@ -103,6 +103,7 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
             source_room_name = contact_infos.get(room_id, {}).get('name', '')
             room_name_list.append(source_room_name)
         room_name_str = "\n".join(room_name_list)
+        print(f"room_name_str: {room_name_str}")
         send_wx_msg(wcf_ip=source_ip, message=f'🤖 已加入超级大群\n\n📋 当前超级大群列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
         return True
     elif content.replace('@Zacks', '').strip().lower() == 'exit big room':
