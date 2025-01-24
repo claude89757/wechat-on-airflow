@@ -30,7 +30,7 @@ def check_message_is_legal(content):
     system_prompt = "你是一个专业的内容审核助手。请严格审核以下内容是否包含违规信息（包括但不限于：违法犯罪、暴力血腥、色情低俗、政治敏感、人身攻击、歧视言论等）。如发现任何违规内容，直接返回'不合规'，否则返回'合格'。无需解释理由。"
     user_question = content
     print(f"raw_message: {user_question}")
-    response = get_llm_response(user_question, system_prompt=system_prompt, llm_model="gpt-4o-mini")
+    response = get_llm_response(user_question, model_name="gpt-4o-mini", system_prompt=system_prompt)
     print(f"check_message_is_legal: {response}")
     if "不合规" in response:
         return False
@@ -62,10 +62,11 @@ def chat_with_dify_agent(**context):
     # 获取sender的nickname
     room_members = get_wx_room_members(wcf_ip=source_ip, room_id=room_id)
     print(f"room_members: {len(room_members)}")
+    room_members_infos = {}
     for member in room_members:
         print(f"member: {member}")
         wxid = member.get('wxid', '')
-        contact_infos[wxid] = member
+        room_members_infos[wxid] = member
 
     # 检查消息是否合规
     if not check_message_is_legal(content):
@@ -73,8 +74,8 @@ def chat_with_dify_agent(**context):
         return
 
     # 获取sender的nickname
-    source_sender_nickname = room_members.get(sender, {}).get('nickname', '')
-    source_room_name = wx_contact_list.get(room_id, {}).get('name', '')
+    source_sender_nickname = room_members_infos.get(sender, {}).get('name', '')
+    source_room_name = contact_infos.get(room_id, {}).get('name', '')
 
     # 发送消息  
     msg = f"[{source_sender_nickname}@{source_room_name}]\n{content}"
