@@ -104,7 +104,7 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
             room_name_list.append(source_room_name)
         room_name_str = "\n".join(room_name_list)
 
-        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已加入超级大群\n\n📋 当前超级大群列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
+        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已加入跨群聊天\n\n📋 当前跨群聊天列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
         return True
     elif content.startswith('@Zacks') and "exit big room" in content:
         # 退出超级微信大群聊
@@ -126,7 +126,7 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
             room_name_list.append(source_room_name)
         room_name_str = "\n".join(room_name_list)
 
-        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已退出超级大群\n\n📋 当前超级大群列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
+        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已退出跨群聊天\n\n📋 当前跨群聊天列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
         return True
     return False
 
