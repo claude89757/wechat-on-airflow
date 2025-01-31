@@ -224,11 +224,11 @@ def process_wx_message(**context):
     supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
 
     # 分场景分发微信消息
+    now = datetime.now(timezone.utc)
+    execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
+    run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
     if msg_type == 1 and room_id in supper_big_rood_ids and "@Zacks" in content:
         print(f"[WATCHER] {room_id} 已加入超级大群, 触发AI聊天DAG")
-        now = datetime.now(timezone.utc)
-        execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
-        run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
         trigger_dag(
             dag_id='broadcast_agent_001',
             conf={"current_message": message_data},
@@ -248,9 +248,6 @@ def process_wx_message(**context):
             if not room_sender_msg_list[-1].get('is_reply'):
                 # 消息未回复, 触发新的DAG运行agent
                 print(f"[WATCHER] 消息未回复, 触发新的DAG运行agent")
-                now = datetime.now(timezone.utc)
-                execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
-                run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
                 print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
                 trigger_dag(
                     dag_id='dify_agent_001',
@@ -269,9 +266,6 @@ def process_wx_message(**context):
 
             # 第一条消息，触发新的DAG运行agent
             print(f"[WATCHER] 第一条消息，触发新的DAG运行agent")
-            now = datetime.now(timezone.utc)
-            execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
-            run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
             print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
             trigger_dag(
                 dag_id='dify_agent_001',
