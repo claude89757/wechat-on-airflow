@@ -29,6 +29,10 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
     Returns:
         str: 本地文件路径
     """
+    # 创建临时目录用于存储下载的文件
+    temp_dir = "/tmp/video_downloads"
+    os.makedirs(temp_dir, exist_ok=True)
+    
     # 从Airflow变量获取配置
     windows_smb_dir = Variable.get("WINDOWS_SMB_DIR")
     windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
@@ -55,9 +59,9 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
         print(f"连接服务器失败: {str(e)}")
         raise
 
-    # 构建远程路径（关键修改点）
+    # 构建远程路径和本地路径
     remote_path = f"//{server_name}/{share_name}/{server_path}/{remote_file_name}"
-    local_path = os.path.abspath(local_file_name)
+    local_path = os.path.join(temp_dir, local_file_name)  # 修改为使用临时目录
 
     # 执行文件下载
     try:
@@ -72,6 +76,8 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
     except Exception as e:
         print(f"文件下载失败: {str(e)}")
         raise
+
+    return local_path  # 返回完整的本地文件路径
 
 def process_ai_video(**context):
     """
@@ -93,10 +99,11 @@ def process_ai_video(**context):
     video_file_path = save_wx_file(wcf_ip=source_ip, id=msg_id, save_file_path=save_dir)
     print(f"video_file_path: {video_file_path}")
 
-    # 下载视频到本地
-    remote_file_name = video_file_path.split("/")[-1]
+    # 下载视频到本地临时目录
+    remote_file_name = os.path.basename(video_file_path)  # 使用os.path.basename获取文件名
     local_file_name = f"{msg_id}.mp4"
     local_file_path = download_file_from_windows_server(remote_file_name=remote_file_name, local_file_name=local_file_name)
+    print(f"视频已下载到本地: {local_file_path}")
 
     # 处理视频
     pass
