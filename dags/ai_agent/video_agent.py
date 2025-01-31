@@ -2,11 +2,8 @@
 # -*- coding: utf-8 -*-
 
 # 标准库导入
-import re
-import random
-import time
+import os
 from datetime import datetime, timedelta
-from threading import Thread
 
 # 第三方库导入
 import requests
@@ -14,6 +11,7 @@ from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 from airflow.exceptions import AirflowException
+from smbclient import register_session, open_file
 
 # 自定义库导入
 from utils.wechat_channl import save_wx_file
@@ -31,25 +29,48 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
     Returns:
         str: 本地文件路径
     """
-    import smbprotocol
-    from smbprotocol import smbclient
-
-    # 初始化 SMB 协议
+    # 从Airflow变量获取配置
     windows_smb_dir = Variable.get("WINDOWS_SMB_DIR")
     windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
-    smbprotocol.ClientConfig(username="Administrator", password=windows_server_password)  # 输入正确的用户名和密码
-    smbprotocol.set_socket_timeout(30)
 
-    # 设置远程文件共享的 Windows 服务器信息
-    remote_file_path = f"{windows_smb_dir}\{remote_file_name}"  # 远程文件路径
-    local_file_path = f"{local_file_name}"  # 下载到本地的文件路径
+    # 解析UNC路径（关键修改点）
+    unc_parts = windows_smb_dir.strip("\\").split("\\")
+    if len(unc_parts) < 3:
+        raise ValueError(f"无效的SMB路径格式: {windows_smb_dir}。正确格式示例: \\\\server\\share\\path")
 
-    # 下载文件
-    smbclient.get(remote_file_path, local_file_path)
-    print("文件已下载：", local_file_path)
+    server_name = unc_parts[0]          # 10_1_12_10
+    share_name = unc_parts[1]           # Users
+    server_path = "/".join(unc_parts[2:])  # Administrator/Downloads
+    print(f"server_name: {server_name}, share_name: {share_name}, server_path: {server_path}")
 
-    return local_file_path
+    # 注册SMB会话（注意这里可能需要处理服务器名称）
+    try:
+        register_session(
+            server=server_name,
+            username="Administrator",
+            password=windows_server_password
+        )
+    except Exception as e:
+        print(f"连接服务器失败: {str(e)}")
+        raise
 
+    # 构建远程路径（关键修改点）
+    remote_path = f"//{server_name}/{share_name}/{server_path}/{remote_file_name}"
+    local_path = os.path.abspath(local_file_name)
+
+    # 执行文件下载
+    try:
+        with open_file(remote_path, mode="rb") as remote_file:
+            with open(local_path, "wb") as local_file:
+                while True:
+                    data = remote_file.read(8192)  # 分块读取大文件
+                    if not data:
+                        break
+                    local_file.write(data)
+        print(f"文件成功下载到: {os.path.abspath(local_path)}")
+    except Exception as e:
+        print(f"文件下载失败: {str(e)}")
+        raise
 
 def process_ai_video(**context):
     """
