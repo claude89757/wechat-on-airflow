@@ -110,7 +110,7 @@ def process_ai_image(**context):
     extra = current_message_data.get('extra', '')  # 消息extra字段
 
     # 保存图片到微信客户端侧
-    save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.jpg"
+    save_dir = f"C:/Users/Administrator/Downloads/"
     image_file_path = save_wx_image(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir=save_dir, timeout=30)
     print(f"image_file_path: {image_file_path}")
 
