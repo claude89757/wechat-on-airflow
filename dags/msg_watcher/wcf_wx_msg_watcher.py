@@ -274,7 +274,7 @@ def process_wx_message(**context):
                 execution_date=execution_date
             )
             print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
-    elif WX_MSG_TYPES.get(msg_type) == "视频":
+    elif WX_MSG_TYPES.get(msg_type) == "视频" and (not is_group or (is_group and room_id in enable_ai_room_ids)):
         # 视频消息
         print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
         trigger_dag(
@@ -283,7 +283,7 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
-    elif WX_MSG_TYPES.get(msg_type) == "图片":
+    elif WX_MSG_TYPES.get(msg_type) == "图片" and (not is_group or (is_group and room_id in enable_ai_room_ids)):
         # 图片消息
         print(f"[WATCHER] {room_id} 收到图片消息, 触发AI图片处理DAG")
         trigger_dag(
