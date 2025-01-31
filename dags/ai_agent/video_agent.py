@@ -115,7 +115,7 @@ def process_ai_video(**context):
     print(f"video_file_path: {video_file_path}")
 
     # 等待3秒
-    time.sleep(1)
+    time.sleep(3)
 
     # 下载视频到本地临时目录
     remote_file_name = os.path.basename(video_file_path)  # 使用os.path.basename获取文件名
