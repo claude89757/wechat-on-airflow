@@ -3,6 +3,7 @@
 
 # 标准库导入
 import os
+import time
 from datetime import datetime, timedelta
 
 # 第三方库导入
@@ -98,6 +99,9 @@ def process_ai_video(**context):
     save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.mp4"
     video_file_path = save_wx_file(wcf_ip=source_ip, id=msg_id, save_file_path=save_dir)
     print(f"video_file_path: {video_file_path}")
+
+    # 等待3秒
+    time.sleep(1)
 
     # 下载视频到本地临时目录
     remote_file_name = os.path.basename(video_file_path)  # 使用os.path.basename获取文件名
