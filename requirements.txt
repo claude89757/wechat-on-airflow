@@ -11,3 +11,4 @@ anthropic
 redis
 apache-airflow-providers-redis
 ragflow-sdk
+smbprotocol

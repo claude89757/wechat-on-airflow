@@ -256,17 +256,17 @@ def save_wx_audio(wcf_ip: str, id: int, extra: str) -> str:
     return result.get('data', '')
 
 
-def save_wx_image(wcf_ip: str, id: int, extra: str, save_dir: str, timeout: int = 10) -> str:
+def save_wx_image(wcf_ip: str, id: int, extra: str, save_dir: str, timeout: int = 30) -> str:
     """
     保存图片消息
     Args:
         wcf_ip: WCF服务器IP
         id: 消息id
-        extra: 消息extra字段
-        save_dir: 保存目录
-        timeout: 超时时间(秒)
+        extra: 消息extra字段(图片的临时存储路径)
+        save_dir: 保存目录路径
+        timeout: 超时时间(秒)，默认30秒
     Returns:
-        str: 保存后的文件路径
+        str: 保存后的图片文件路径
     """
     wcf_port = os.getenv("WCF_API_PORT", "9999")
     wcf_api_url = f"http://{wcf_ip}:{wcf_port}/save-image"
@@ -285,19 +285,18 @@ def save_wx_image(wcf_ip: str, id: int, extra: str, save_dir: str, timeout: int 
     
     response.raise_for_status()
     result = response.json()
-    if result.get('status') != 0:
+    if result.get('status') != 0 and result.get('data'):
         raise Exception(f"保存图片失败: {result.get('message', '未知错误')}")
-    return result.get('data', '')
+    return result['data']
 
 
-def save_wx_file(wcf_ip: str, id: int, extra: str, thumb: str = "") -> str:
+def save_wx_file(wcf_ip: str, id: int, save_file_path: str = "") -> str:
     """
-    保存文件消息
+    保存文件或视频消息
     Args:
         wcf_ip: WCF服务器IP
         id: 消息id
-        extra: 消息extra字段
-        thumb: 缩略图字段
+        save_file_path: 保存的文件/视频路径
     Returns:
         str: 保存后的文件路径
     """
@@ -306,8 +305,8 @@ def save_wx_file(wcf_ip: str, id: int, extra: str, thumb: str = "") -> str:
 
     payload = {
         "id": id,
-        "extra": extra,
-        "thumb": thumb
+        "extra": "",
+        "thumb": save_file_path
     }
 
     print(f"[WECHAT_CHANNEL] wcf_api_url: {wcf_api_url}")
@@ -317,10 +316,9 @@ def save_wx_file(wcf_ip: str, id: int, extra: str, thumb: str = "") -> str:
     
     response.raise_for_status()
     result = response.json()
-    if result.get('status') != 0:
+    if result.get('status') != 0 and result.get('message') != "ok":
         raise Exception(f"保存文件失败: {result.get('message', '未知错误')}")
-    return result.get('data', '')
-
+    return save_file_path
 
 def receive_wx_transfer(wcf_ip: str, wxid: str, transferid: str, transactionid: str) -> bool:
     """
