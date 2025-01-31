@@ -94,9 +94,9 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
 
     return local_path  # 返回完整的本地文件路径
 
-def process_ai_video(**context):
+def process_ai_image(**context):
     """
-    处理视频
+    处理图片
     """
     # 当前消息
     current_message_data = context.get('dag_run').conf["current_message"]
@@ -111,7 +111,7 @@ def process_ai_video(**context):
 
     # 保存图片到微信客户端侧
     save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.jpg"
-    image_file_path = save_wx_image(wcf_ip=source_ip, id=msg_id, save_file_path=save_dir)
+    image_file_path = save_wx_image(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir=save_dir, timeout=30)
     print(f"image_file_path: {image_file_path}")
 
     # 等待3秒
