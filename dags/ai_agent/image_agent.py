@@ -16,7 +16,7 @@ from smbclient import register_session, open_file
 
 # 自定义库导入
 from utils.wechat_channl import save_wx_image
-
+from utils.wechat_channl import send_wx_image
 
 DAG_ID = "image_agent_001"
 
@@ -122,6 +122,9 @@ def process_ai_image(**context):
     local_file_name = f"{msg_id}.jpg"
     local_file_path = download_file_from_windows_server(remote_file_name=remote_file_name, local_file_name=local_file_name)
     print(f"图片已下载到本地: {local_file_path}")
+
+    # 测试: 直接回复原图片
+    send_wx_image(wcf_ip=source_ip, image_path=image_file_path, receiver=room_id)
 
     # 处理图片
     pass
