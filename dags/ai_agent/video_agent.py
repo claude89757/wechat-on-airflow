@@ -142,8 +142,8 @@ dag = DAG(
     schedule_interval=None,
     max_active_runs=10,
     catchup=False,
-    tags=['AI视频处理'],
-    description='AI视频处理',
+    tags=['视频消息处理'],
+    description='视频消息处理',
 )
 
 
