@@ -33,17 +33,18 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
     windows_smb_dir = Variable.get("WINDOWS_SMB_DIR")
     windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
 
-    # 解析UNC路径（关键修改点）
+    # 解析UNC路径
     unc_parts = windows_smb_dir.strip("\\").split("\\")
     if len(unc_parts) < 3:
         raise ValueError(f"无效的SMB路径格式: {windows_smb_dir}。正确格式示例: \\\\server\\share\\path")
 
-    server_name = unc_parts[0]          # 10_1_12_10
-    share_name = unc_parts[1]           # Users
-    server_path = "/".join(unc_parts[2:])  # Administrator/Downloads
+    # 将服务器名称中的下划线替换为点号
+    server_name = unc_parts[0].replace("_", ".")    # 10.1.12.10
+    share_name = unc_parts[1]                       # Users
+    server_path = "/".join(unc_parts[2:])          # Administrator/Downloads
     print(f"server_name: {server_name}, share_name: {share_name}, server_path: {server_path}")
 
-    # 注册SMB会话（注意这里可能需要处理服务器名称）
+    # 注册SMB会话
     try:
         register_session(
             server=server_name,
