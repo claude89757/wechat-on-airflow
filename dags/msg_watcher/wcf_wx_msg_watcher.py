@@ -233,7 +233,8 @@ def process_wx_message(**context):
     
     # 开启AI聊天群聊的room_id
     enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
-
+    # 开启AI视频处理的room_id
+    enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
     # 加入"超级大群"的群ID
     supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
 
@@ -288,7 +289,7 @@ def process_wx_message(**context):
                 execution_date=execution_date
             )
             print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
-    elif WX_MSG_TYPES.get(msg_type) == "视频" and (not is_group or (is_group and room_id in enable_ai_room_ids)):
+    elif WX_MSG_TYPES.get(msg_type) == "视频" and (not is_group or (is_group and room_id in enable_ai_video_ids)):
         # 视频消息
         print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
         trigger_dag(
