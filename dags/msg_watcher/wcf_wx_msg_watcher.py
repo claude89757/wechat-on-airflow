@@ -278,7 +278,7 @@ def process_wx_message(**context):
         # 视频消息
         print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
         trigger_dag(
-            dag_id='video_agent_001',
+            dag_id='ai_tennis_video',
             conf={"current_message": message_data},
             run_id=run_id,
             execution_date=execution_date

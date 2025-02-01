@@ -6,6 +6,7 @@ from anthropic import Anthropic
 from openai import OpenAI
 from airflow.models import Variable
 from contextlib import contextmanager
+import base64
 
 # LLM模型参数配置
 LLM_CONFIG = {
@@ -113,3 +114,115 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
         error_msg = f"API调用失败: {str(e)}"
         print(f"[AI] {error_msg}")
         raise Exception(error_msg)
+
+
+def get_llm_response_with_image(user_question: str, image_path: str, model_name: str = None, system_prompt: str = None, chat_history: list = None) -> str:
+    """
+    通过AI处理图片
+
+    Args:
+        user_question: 用户输入的问题
+        image_path: 图片路径
+        model_name: 使用的模型名称,支持GPT和Claude系列
+        system_prompt: 系统提示词
+        chat_history: 历史对话记录
+        
+    Returns:
+        str: AI的回复内容
+    """
+    try:
+        if not model_name:
+            model_name = Variable.get("model_name", default_var="gpt-4o-2024-11-20")
+        if not system_prompt:
+            system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
+            
+        print(f"[AI] 使用模型: {model_name}")
+        print(f"[AI] 系统提示: {system_prompt}")
+        print(f"[AI] 图片路径: {image_path}")
+        print(f"[AI] 问题: {user_question}")
+        
+        # 读取图片文件
+        with open(image_path, "rb") as image_file:
+            image_data = image_file.read()
+            
+        with proxy_context():
+            if model_name.startswith("gpt-"):
+                api_key = Variable.get("OPENAI_API_KEY")
+                os.environ['OPENAI_API_KEY'] = api_key
+                client = OpenAI()
+                
+                # 构建消息
+                messages = [{"role": "system", "content": system_prompt}]
+                if chat_history:
+                    messages.extend(chat_history)
+                    
+                # 添加图片和问题
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_question},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64.b64encode(image_data).decode()}"
+                            }
+                        }
+                    ]
+                })
+                
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    max_tokens=LLM_CONFIG["max_tokens"],
+                    temperature=LLM_CONFIG["temperature"]
+                )
+                ai_response = response.choices[0].message.content.strip()
+                
+            elif model_name.startswith("claude-"):
+                api_key = Variable.get("CLAUDE_API_KEY")
+                client = Anthropic(api_key=api_key)
+                
+                # 构建消息
+                messages = chat_history or []
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": base64.b64encode(image_data).decode()
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": user_question
+                        }
+                    ]
+                })
+                
+                # 剔除模型不支持的参数
+                config = LLM_CONFIG.copy()
+                config.pop("presence_penalty", None)
+                config.pop("frequency_penalty", None)
+                
+                response = client.messages.create(
+                    model=model_name,
+                    messages=messages,
+                    system=system_prompt,
+                    **config
+                )
+                ai_response = response.content[0].text
+                
+            else:
+                raise ValueError(f"不支持的模型: {model_name}")
+                
+        print(f"[AI] 回复: {ai_response}")
+        return ai_response
+        
+    except Exception as e:
+        error_msg = f"处理图片失败: {str(e)}"
+        print(f"[AI] {error_msg}")
+        raise Exception(error_msg)
+
