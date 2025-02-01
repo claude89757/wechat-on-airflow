@@ -60,9 +60,9 @@ def process_video_by_ai(input_video_path: str):
     # Save image
     input_video_name = input_video_path.split('/')[-1].replace(".mp4", "")
     print(f"input_video_name: {input_video_name}")
-    image_path = f"/tmp/ai_tennis/{input_video_name}_grid.jpg"
-    print(f"image_path: {image_path}")
-    output_image_path = save_video_to_images_with_sampling(output_video_frames, image_path,
+    output_image_name = f"{input_video_name}_grid.jpg"
+    print(f"output_image_name: {output_image_name}")
+    output_image_path = save_video_to_images_with_sampling(output_video_frames, output_image_name,
                                                            max_box_frame_id, num_samples=10, target_size_kb=800)
     print("save image successfully")
 
