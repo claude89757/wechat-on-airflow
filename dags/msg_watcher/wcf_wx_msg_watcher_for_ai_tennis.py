@@ -134,7 +134,7 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         # 设置系统提示词
         line_list = content.splitlines()
         system_prompt = "\n".join(line_list[1:])
-        Variable.set("system_prompt", system_prompt, serialize_json=True, deserialize_json=True)
+        Variable.set("system_prompt", system_prompt, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] 已设置系统提示词: \n\n---\n{system_prompt}\n---', receiver=room_id)
         return True
     elif f"@{WX_USERNAME}" in content and "帮助" in content:
