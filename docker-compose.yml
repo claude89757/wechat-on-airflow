@@ -12,6 +12,21 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/bitnami/airflow/dags
     - ./logs:/opt/bitnami/airflow/logs
     - ./requirements.txt:/bitnami/python/requirements.txt
+  # 添加系统包安装命令
+  user: root  # 临时切换到root用户以安装系统包
+  command: >
+    bash -c "
+      # 更新apt包索引
+      apt-get update && 
+      # 安装OpenCV必需的系统依赖:
+      # libgl1-mesa-glx: OpenCV的GPU/图形渲染支持
+      # libglib2.0-0: 基础系统库支持
+      apt-get install -y libgl1-mesa-glx libglib2.0-0 && 
+      # 清理apt缓存,减少镜像大小
+      apt-get clean &&
+      rm -rf /var/lib/apt/lists/* &&
+      # 执行原始的Airflow启动脚本
+      /opt/bitnami/scripts/airflow/entrypoint.sh"
   depends_on:
     redis:
       condition: service_healthy
