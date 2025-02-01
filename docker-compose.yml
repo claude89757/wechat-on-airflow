@@ -114,7 +114,7 @@ services:
         sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
         apt-get update && apt-get install -y libglib2.0-0 &&
         chown -R airflow:root /opt/bitnami/airflow &&
-        su airflow /opt/bitnami/scripts/airflow/run.sh
+        su -c '/opt/bitnami/scripts/airflow/run.sh' airflow
       "
     environment:
       <<: *airflow-env
@@ -185,7 +185,7 @@ services:
         sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
         apt-get update && apt-get install -y libglib2.0-0 &&
         chown -R airflow:root /opt/bitnami/airflow &&
-        su airflow /opt/bitnami/scripts/airflow/run.sh
+        su -c '/opt/bitnami/scripts/airflow/run.sh' airflow
       "
     environment:
       <<: *airflow-env
