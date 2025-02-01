@@ -18,10 +18,6 @@ from smbclient import register_session, open_file
 from utils.wechat_channl import save_wx_file
 from utils.llm_channl import get_llm_response_with_image
 
-from ai_tennis.utils import read_video
-from ai_tennis.utils import save_video_to_images_with_sampling
-from ai_tennis.utils import find_frame_id_with_max_box
-from ai_tennis.player_traker import PlayerTracker
 
 DAG_ID = "ai_tennis_video"
 
@@ -33,6 +29,10 @@ def process_video_by_ai(input_video_path: str):
     :return:
     """
     import cv2
+    from ai_tennis.utils import read_video
+    from ai_tennis.utils import save_video_to_images_with_sampling
+    from ai_tennis.utils import find_frame_id_with_max_box
+    from ai_tennis.player_traker import PlayerTracker
     input_video_name = input_video_path.split('/')[0]
     # read video
     video_frames = read_video(input_video_path)
