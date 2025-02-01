@@ -35,6 +35,7 @@ def process_video_by_ai(input_video_path: str):
     from ai_tennis.player_traker import PlayerTracker
   
     # read video
+    print(f"input_video_path: {input_video_path}")
     video_frames = read_video(input_video_path)
     print(f"video_frames: {len(video_frames)}")
     # Detect players and ball
@@ -58,6 +59,7 @@ def process_video_by_ai(input_video_path: str):
 
     # Save image
     input_video_name = input_video_path.split('/')[0].replace(".mp4", "")
+    print(f"input_video_name: {input_video_name}")
     image_path = f"/tmp/ai_tennis/{input_video_name}_grid.jpg"
     print(f"image_path: {image_path}")
     output_image_path = save_video_to_images_with_sampling(output_video_frames, image_path,
