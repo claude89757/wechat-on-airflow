@@ -39,7 +39,7 @@ def save_video(output_video_frames, output_video_path):
     out.release()
 
 
-def save_video_to_images_with_sampling(output_video_frames, output_video_path, max_frame_id, num_samples=10,
+def save_video_to_images_with_sampling(output_video_frames, output_image_path, max_frame_id, num_samples=10,
                                        target_size_kb=500):
     """
     保存视频并在max_frame_id帧的左右各采样输出num_samples张图片，并将这些图片拼接成一个9宫格的图片
@@ -130,11 +130,10 @@ def save_video_to_images_with_sampling(output_video_frames, output_video_path, m
             quality -= 5  # 逐步降低质量
 
         # 保存压缩后的九宫格图片
-        grid_image_path = f"{output_video_path}_grid_compressed.jpg"
-        with open(grid_image_path, "wb") as f:
+        with open(output_image_path, "wb") as f:
             f.write(buffer)
-        print(f"九宫格图片已保存到: {grid_image_path}，文件大小: {file_size_kb:.2f} KB")
-        return grid_image_path
+        print(f"九宫格图片已保存到: {output_image_path}，文件大小: {file_size_kb:.2f} KB")
+        return output_image_path
 
     else:
         print("采样的帧数不足9帧，无法生成九宫格图片。")

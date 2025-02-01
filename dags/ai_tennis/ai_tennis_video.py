@@ -33,7 +33,7 @@ def process_video_by_ai(input_video_path: str):
     from ai_tennis.utils import save_video_to_images_with_sampling
     from ai_tennis.utils import find_frame_id_with_max_box
     from ai_tennis.player_traker import PlayerTracker
-    input_video_name = input_video_path.split('/')[0]
+  
     # read video
     video_frames = read_video(input_video_path)
     print(f"video_frames: {len(video_frames)}")
@@ -57,7 +57,9 @@ def process_video_by_ai(input_video_path: str):
             cv2.putText(frame, f"Frame: {i}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     # Save image
-    image_path = f"/tmp/ai_tennis/{input_video_name}"
+    input_video_name = input_video_path.split('/')[0].replace(".mp4", "")
+    image_path = f"/tmp/ai_tennis/{input_video_name}_grid.jpg"
+    print(f"image_path: {image_path}")
     output_image_path = save_video_to_images_with_sampling(output_video_frames, image_path,
                                                            max_box_frame_id, num_samples=10, target_size_kb=800)
     print("save image successfully")
