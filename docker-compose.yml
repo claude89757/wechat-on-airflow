@@ -106,6 +106,7 @@ services:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
       - ./requirements.txt:/bitnami/python/requirements.txt
+      - /tmp:/opt/bitnami/airflow/tmp
     user: root
     command: >
       bash -c "
