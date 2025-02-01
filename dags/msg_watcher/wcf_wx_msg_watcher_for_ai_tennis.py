@@ -87,13 +87,25 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         print(f"[命令] {sender} 不是管理员，不执行命令")
         return False
 
-    # 执行命令
-    if content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'clear':
-        print("[命令] 清理历史消息")
-        Variable.delete(f'{room_id}_history')
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已清理历史消息', receiver=room_id)
+    # 在其他命令判断之前添加help命令
+    if f"@{WX_USERNAME}" in content and "帮助" in content:
+        help_text = f"""[bot] 🤖 可用命令列表：
+
+1. @XX 帮助 ❓ - 显示此帮助信息
+2. @XX 开启AI聊天 💬 - 加入AI聊天群
+3. @XX 关闭AI聊天 🔕 - 退出AI聊天群 
+4. @XX 开启AI视频 🎥 - 开启AI视频处理
+5. @XX 关闭AI视频 📴 - 关闭AI视频处理
+6. @XX 显示提示词 📝 - 显示当前系统提示词
+7. @XX 设置提示词 ⚙️ - 设置新的系统提示词
+    (换行后输入新的提示词)
+
+⚠️ 注意：以上命令仅管理员可用"""
+        
+        send_wx_msg(wcf_ip=source_ip, message=help_text, receiver=room_id)
         return True
-    elif content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'ai off':
+   
+    if content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'ai off':
         print("[命令] 禁用AI聊天")
         Variable.set(f'{room_id}_disable_ai', True, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已禁用AI聊天', receiver=room_id)
@@ -102,16 +114,6 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         print("[命令] 启用AI聊天")
         Variable.delete(f'{room_id}_disable_ai')
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已启用AI聊天', receiver=room_id)
-        return True
-    elif content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'ai reset':
-        print("[命令] 重置AI聊天")
-        roomd_sender_key = f"{room_id}_{sender}"
-        agent_session_id_infos = Variable.get("dify_agent_session_id_infos", default_var={}, deserialize_json=True)
-        if roomd_sender_key in agent_session_id_infos:
-            print(f"[命令] 删除AI聊天会话: {roomd_sender_key}")
-            agent_session_id_infos[roomd_sender_key] = ""
-            Variable.set("dify_agent_session_id_infos", agent_session_id_infos, serialize_json=True)
-            send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已重置AI聊天会话', receiver=room_id)
         return True
     elif f"@{WX_USERNAME}" in content and "开启AI聊天" in content:
         # 加入AI聊天群
@@ -232,6 +234,7 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
+        
     elif WX_MSG_TYPES.get(msg_type) == "图片" and (not is_group or (is_group and room_id in enable_ai_room_ids)):
         # 图片消息
         print(f"[WATCHER] {room_id} 收到图片消息, 触发AI图片处理DAG")
