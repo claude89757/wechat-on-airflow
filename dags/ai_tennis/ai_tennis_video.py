@@ -182,9 +182,17 @@ def process_ai_video(**context):
     print(f"视频已下载到本地: {local_file_path}")
 
     # 处理视频
+    start_time = time.time()
+    start_msg = f"正在处理视频..."
+    send_wx_msg(wcf_ip=source_ip, message=start_msg, receiver=room_id)
+
     response_msg, output_image_path = process_video_by_ai(local_file_path)
     print(f"response_msg: {response_msg}")
     print(f"output_image_path: {output_image_path}")
+
+    end_time = time.time()
+    end_msg = f"视频处理完成，耗时: {end_time - start_time:.2f}秒"
+    send_wx_msg(wcf_ip=source_ip, message=end_msg, receiver=room_id)
 
     # 发送消息到微信
     send_wx_msg(wcf_ip=source_ip, message=response_msg, receiver=room_id)
