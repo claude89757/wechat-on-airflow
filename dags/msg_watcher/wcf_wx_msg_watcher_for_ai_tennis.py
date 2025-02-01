@@ -32,6 +32,8 @@ from airflow.utils.session import create_session
 from utils.wechat_channl import send_wx_msg
 from utils.wechat_channl import get_wx_contact_list
 from utils.redis import RedisLock
+from utils.llm_channl import get_llm_response
+
 
 # 微信消息类型定义
 WX_MSG_TYPES = {
@@ -240,6 +242,8 @@ def process_wx_message(**context):
     enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
     # 加入"超级大群"的群ID
     supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
+    # 获取系统提示词
+    system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
 
     # 分场景分发微信消息
     now = datetime.now(timezone.utc)
@@ -256,42 +260,10 @@ def process_wx_message(**context):
 
     elif msg_type == 1 and  (is_group and room_id in enable_ai_room_ids):
         # 用户的消息缓存列表（跨DAG共享该变量）
-        room_sender_msg_list = Variable.get(f'{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
-        if room_sender_msg_list and message_data['id'] != room_sender_msg_list[-1]['id']:
-            # 消息不是最新，则更新消息缓存列表
-            room_sender_msg_list.append(message_data)
-            print(f"room_sender_msg_list: {room_sender_msg_list}")
-            Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
+        llm_response = get_llm_response(content, model_name="gpt-4o-2024-11-20", system_prompt=system_prompt)
+        # 发送LLM响应
+        send_wx_msg(wcf_ip=source_ip, message=llm_response, receiver=room_id)
 
-            if not room_sender_msg_list[-1].get('is_reply'):
-                # 消息未回复, 触发新的DAG运行agent
-                print(f"[WATCHER] 消息未回复, 触发新的DAG运行agent")
-                print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-                trigger_dag(
-                    dag_id='dify_agent_001',
-                    conf={"current_message": message_data},
-                    run_id=run_id,
-                    execution_date=execution_date
-                )
-                print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
-            else:
-                print(f"[WATCHER] 消息已回复，不重复触发AI聊天DAG")
-
-        elif not room_sender_msg_list:
-            # 用户的消息缓存列表为空，则添加第一条消息
-            room_sender_msg_list.append(message_data)
-            Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
-
-            # 第一条消息，触发新的DAG运行agent
-            print(f"[WATCHER] 第一条消息，触发新的DAG运行agent")
-            print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-            trigger_dag(
-                dag_id='dify_agent_001',
-                conf={"current_message": message_data},
-                run_id=run_id,
-                execution_date=execution_date
-            )
-            print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
     elif WX_MSG_TYPES.get(msg_type) == "视频" and (not is_group or (is_group and room_id in enable_ai_video_ids)):
         # 视频消息
         print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
