@@ -121,6 +121,20 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         Variable.set('enable_ai_room_ids', enable_ai_room_ids, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已退出AI聊天群', receiver=room_id)
         return True
+    elif content.replace('@Zacks', '').strip().lower() == 'ai video on':
+        # 开启AI视频处理
+        enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
+        enable_ai_video_ids.append(room_id)
+        Variable.set('enable_ai_video_ids', enable_ai_video_ids, serialize_json=True)
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已加入AI聊天群', receiver=room_id)
+        return True
+    elif content.replace('@Zacks', '').strip().lower() == 'ai video off':
+        # 关闭AI视频处理
+        enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
+        enable_ai_video_ids.remove(room_id)
+        Variable.set('enable_ai_video_ids', enable_ai_video_ids, serialize_json=True)
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已退出AI聊天群', receiver=room_id)
+        return True
     elif content.startswith('@Zacks') and "join big room" in content:
         # 加入超级微信大群聊
         supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
