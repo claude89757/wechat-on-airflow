@@ -12,5 +12,5 @@ redis
 apache-airflow-providers-redis
 ragflow-sdk
 smbprotocol
-opencv-python>=4.8.0
+opencv-python-headless
 ultralytics>=8.0.0

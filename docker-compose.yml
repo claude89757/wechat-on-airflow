@@ -107,15 +107,6 @@ services:
       - ./logs:/opt/bitnami/airflow/logs
       - ./requirements.txt:/bitnami/python/requirements.txt
       - /tmp:/opt/bitnami/airflow/tmp
-    user: root
-    command: >
-      bash -c "
-        apt-get update &&
-        apt-get install -y libgl1-mesa-glx libglib2.0-0 &&
-        apt-get clean &&
-        rm -rf /var/lib/apt/lists/* &&
-        # 切换回UID airflow用户运行Airflow
-        su airflow -c '/opt/bitnami/scripts/airflow/entrypoint.sh'"
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: worker
@@ -178,15 +169,6 @@ services:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
       - ./requirements.txt:/bitnami/python/requirements.txt
-    user: root
-    command: >
-      bash -c "
-        apt-get update &&
-        apt-get install -y libgl1-mesa-glx libglib2.0-0 &&
-        apt-get clean &&
-        rm -rf /var/lib/apt/lists/* &&
-        # 切换回UID airflow用户运行Airflow
-        su airflow -c '/opt/bitnami/scripts/airflow/entrypoint.sh'"
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: dag-processor
