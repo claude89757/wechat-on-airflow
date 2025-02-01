@@ -130,7 +130,7 @@ def download_file_from_windows_server(server_ip: str, remote_file_name: str, loc
         raise
 
     # 构建远程路径和本地路径
-    remote_path = f"//iZdd4c0fvbflspZ/Users/Administrator/Downloads/{remote_file_name}"
+    remote_path = f"//{server_ip}/Users/Administrator/Downloads/{remote_file_name}"
     local_path = os.path.join(temp_dir, local_file_name)  # 修改为使用临时目录
 
     # 执行文件下载
@@ -188,7 +188,7 @@ def upload_file_to_windows_server(server_ip: str, local_file_path: str, remote_f
         raise
 
     # 构建远程路径
-    remote_path = f"//iZdd4c0fvbflspZ/Users/Administrator/Downloads/{remote_file_name}"
+    remote_path = f"//{server_ip}/Users/Administrator/Downloads/{remote_file_name}"
 
     # 执行文件上传
     for attempt in range(max_retries):
