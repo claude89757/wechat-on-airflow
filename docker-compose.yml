@@ -11,7 +11,6 @@ x-airflow-common: &airflow-common
   volumes: &airflow-volumes
     - ./dags:/opt/bitnami/airflow/dags
     - ./logs:/opt/bitnami/airflow/logs
-    - ./requirements.txt:/bitnami/python/requirements.txt
   depends_on:
     redis:
       condition: service_healthy
@@ -103,6 +102,10 @@ services:
   airflow-worker:
     <<: *airflow-common
     container_name: airflow_worker
+    volumes:
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - ./requirements.txt:/bitnami/python/requirements.txt
     user: root
     command: >
       bash -c "
@@ -169,6 +172,10 @@ services:
   airflow-dag-processor:
     <<: *airflow-common
     container_name: airflow_dag_processor
+    volumes:
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - ./requirements.txt:/bitnami/python/requirements.txt
     user: root
     command: >
       bash -c "
