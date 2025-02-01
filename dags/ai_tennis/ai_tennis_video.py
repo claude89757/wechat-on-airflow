@@ -36,12 +36,27 @@ def process_video_by_ai(input_video_path: str):
     from ai_tennis.utils import find_frame_id_with_max_box
     from ai_tennis.player_traker import PlayerTracker
   
-    # read video
+    # 读取视频并降采样
     print(f"input_video_path: {input_video_path}")
-    video_frames = read_video(input_video_path)
-    print(f"video_frames: {len(video_frames)}")
-    # Detect players and ball
-    player_tracker = PlayerTracker(model_path='/opt/bitnami/airflow/dags/ai_tennis/models/yolov8x.pt')
+    video_frames = read_video(input_video_path, sample_interval=3)  # 每3帧取1帧
+    print(f"采样后的帧数: {len(video_frames)}")
+
+    # 调整图像分辨率
+    resized_frames = []
+    target_width = 640  # 设置目标宽度
+    for frame in video_frames:
+        h, w = frame.shape[:2]
+        ratio = target_width / w
+        new_h = int(h * ratio)
+        resized_frame = cv2.resize(frame, (target_width, new_h))
+        resized_frames.append(resized_frame)
+    video_frames = resized_frames
+
+    # 初始化检测器并进行批量检测
+    player_tracker = PlayerTracker(
+        model_path='/opt/bitnami/airflow/dags/ai_tennis/models/yolov8x.pt',
+        batch_size=4  # 设置批处理大小
+    )
     player_detections = player_tracker.detect_frames(video_frames)
 
     # draw players bounding boxes
