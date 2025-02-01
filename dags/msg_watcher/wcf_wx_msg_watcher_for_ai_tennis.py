@@ -209,7 +209,7 @@ def process_wx_message(**context):
     # 开启AI视频处理的room_id
     enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
     # 获取系统提示词
-    system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
+    system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。", deserialize_json=True)
 
     # 生成run_id
     now = datetime.now(timezone.utc)

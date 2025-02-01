@@ -90,7 +90,7 @@ def process_video_by_ai(input_video_path: str):
     print("save image successfully")
 
     # send image to gpt
-    system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
+    system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。", deserialize_json=True)
     response_msg = get_llm_response_with_image(user_question="", image_path=output_image_path, system_prompt=system_prompt)
 
     return response_msg, output_image_path
