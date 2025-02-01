@@ -87,24 +87,6 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         print(f"[命令] {sender} 不是管理员，不执行命令")
         return False
 
-    # 在其他命令判断之前添加help命令
-    if f"@{WX_USERNAME}" in content and "帮助" in content:
-        help_text = f"""[bot] 可用命令列表 
-
-1. @XX 帮助 - 显示此帮助信息 ❓
-2. @XX 开启AI聊天 - 加入AI聊天群 💬
-3. @XX 关闭AI聊天 - 退出AI聊天群 🔕
-4. @XX 开启AI视频 - 开启AI视频处理 🎥
-5. @XX 关闭AI视频 - 关闭AI视频处理 📴
-6. @XX 显示提示词 - 显示当前系统提示词 📝
-7. @XX 设置提示词 - 设置新的系统提示词 ⚙️
-    (换行后输入新的提示词)
-
-⚠️注意：以上命令仅管理员可用 """
-        
-        send_wx_msg(wcf_ip=source_ip, message=help_text, receiver=room_id)
-        return True
-   
     if content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'ai off':
         print("[命令] 禁用AI聊天")
         Variable.set(f'{room_id}_disable_ai', True, serialize_json=True)
@@ -155,6 +137,22 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         Variable.set("system_prompt", system_prompt, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] 已设置系统提示词: \n\n---\n{system_prompt}\n---', receiver=room_id)
         return True
+    elif f"@{WX_USERNAME}" in content and "帮助" in content:
+        help_text = f"""[bot] 可用命令列表 🤖
+
+1. @XX 帮助 - 显示此帮助信息 ❓
+2. @XX 开启AI聊天 - 加入AI聊天群 💬
+3. @XX 关闭AI聊天 - 退出AI聊天群 🔕
+4. @XX 开启AI视频 - 开启AI视频处理 🎥
+5. @XX 关闭AI视频 - 关闭AI视频处理 📴
+6. @XX 显示提示词 - 显示当前系统提示词 📝
+7. @XX 设置提示词 - 设置新的系统提示词 ⚙️
+    (换行后输入新的提示词)
+
+注意：以上命令仅管理员可用 """
+        
+        send_wx_msg(wcf_ip=source_ip, message=help_text, receiver=room_id)
+        return True
     return False
 
 
@@ -201,7 +199,7 @@ def process_wx_message(**context):
     if excute_wx_command(content, room_id, sender, source_ip):
         return
     
-    # 检查room_id是否在AI黑名单中
+    # 检查room_id是否在AI黑名单中(全局开关)
     if Variable.get(f'{room_id}_disable_ai', default_var=False, deserialize_json=True):
         print(f"[WATCHER] {room_id} 已禁用AI聊天，停止处理")
         return
