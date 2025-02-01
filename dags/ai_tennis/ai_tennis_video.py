@@ -16,6 +16,8 @@ from smbclient import register_session, open_file
 
 # 自定义库导入
 from utils.wechat_channl import save_wx_file
+from utils.wechat_channl import send_wx_msg
+from utils.wechat_channl import send_wx_image
 from utils.llm_channl import get_llm_response_with_image
 
 
@@ -183,6 +185,12 @@ def process_ai_video(**context):
     response_msg, output_image_path = process_video_by_ai(local_file_path)
     print(f"response_msg: {response_msg}")
     print(f"output_image_path: {output_image_path}")
+
+    # 发送消息到微信
+    send_wx_msg(wcf_ip=source_ip, message=response_msg, receiver=room_id)
+
+    # 发送图片到微信: 先把图片保存到Windows服务器，然后从Windows服务器转发到微信
+    send_wx_image(wcf_ip=source_ip, image_path=output_image_path, receiver=room_id)
     
 
 # 创建DAG
