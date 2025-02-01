@@ -157,18 +157,31 @@ def get_llm_response_with_image(user_question: str, image_path: str, model_name:
                     messages.extend(chat_history)
                     
                 # 添加图片和问题
-                messages.append({
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_question},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64.b64encode(image_data).decode()}"
+                if user_question:
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_question},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64.b64encode(image_data).decode()}"
+                                }
                             }
-                        }
-                    ]
-                })
+                        ]
+                    })
+                else:
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64.b64encode(image_data).decode()}"
+                                }
+                            }
+                        ]
+                    })
                 
                 response = client.chat.completions.create(
                     model=model_name,

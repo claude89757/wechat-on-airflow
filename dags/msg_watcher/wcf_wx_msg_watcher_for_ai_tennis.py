@@ -112,78 +112,46 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
             agent_session_id_infos[roomd_sender_key] = ""
             Variable.set("dify_agent_session_id_infos", agent_session_id_infos, serialize_json=True)
             send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已重置AI聊天会话', receiver=room_id)
-    elif content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'jion ai room':
+        return True
+    elif f"@{WX_USERNAME}" in content and "开启AI聊天" in content:
         # 加入AI聊天群
         enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
         enable_ai_room_ids.append(room_id)
         Variable.set('enable_ai_room_ids', enable_ai_room_ids, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已加入AI聊天群', receiver=room_id)
         return True
-    elif content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'exit ai room':
+    elif f"@{WX_USERNAME}" in content and "关闭AI聊天" in content:
         # 退出AI聊天群
         enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
         enable_ai_room_ids.remove(room_id)
         Variable.set('enable_ai_room_ids', enable_ai_room_ids, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已退出AI聊天群', receiver=room_id)
         return True
-    elif content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'ai video on':
+    elif f"@{WX_USERNAME}" in content and "开启AI视频" in content:
         # 开启AI视频处理
         enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
         enable_ai_video_ids.append(room_id)
         Variable.set('enable_ai_video_ids', enable_ai_video_ids, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已打开AI视频处理', receiver=room_id)
         return True
-    elif content.replace(f'@{WX_USERNAME}', '').strip().lower() == 'ai video off':
+    elif f"@{WX_USERNAME}" in content and "关闭AI视频" in content:
         # 关闭AI视频处理
         enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
         enable_ai_video_ids.remove(room_id)
         Variable.set('enable_ai_video_ids', enable_ai_video_ids, serialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已关闭AI视频处理', receiver=room_id)
         return True
-    elif content.startswith(f'@{WX_USERNAME}') and "join big room" in content:
-        # 加入超级微信大群聊
-        supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
-        supper_big_rood_ids.append(room_id)
-        supper_big_rood_ids = list(set(supper_big_rood_ids))
-        Variable.set('supper_big_rood_ids', supper_big_rood_ids, serialize_json=True)
-
-        # 获取群名称
-        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
-        print(f"wx_contact_list: {len(wx_contact_list)}")
-        contact_infos = {}
-        for contact in wx_contact_list:
-            wxid = contact.get('wxid', '')
-            contact_infos[wxid] = contact
-        # 当前群聊列表
-        room_name_list = []
-        for supper_big_rood_id in supper_big_rood_ids:
-            source_room_name = contact_infos.get(supper_big_rood_id, {}).get('name', '')
-            room_name_list.append(source_room_name)
-        room_name_str = "\n".join(room_name_list)
-
-        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已加入跨群聊天\n\n📋 当前跨群聊天列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
+    elif f"@{WX_USERNAME}" in content and "显示提示词" in content:
+        # 显示系统提示词
+        system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] 当前系统提示词: \n\n---\n{system_prompt}\n---', receiver=room_id)
         return True
-    elif content.startswith(f'@{WX_USERNAME}') and "exit big room" in content:
-        # 退出超级微信大群聊
-        supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
-        supper_big_rood_ids.remove(room_id)
-        Variable.set('supper_big_rood_ids', supper_big_rood_ids, serialize_json=True)
-
-        # 获取群名称
-        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
-        print(f"wx_contact_list: {len(wx_contact_list)}")
-        contact_infos = {}
-        for contact in wx_contact_list:
-            wxid = contact.get('wxid', '')
-            contact_infos[wxid] = contact
-        # 当前群聊列表
-        room_name_list = []
-        for supper_big_rood_id in supper_big_rood_ids:
-            source_room_name = contact_infos.get(supper_big_rood_id, {}).get('name', '')
-            room_name_list.append(source_room_name)
-        room_name_str = "\n".join(room_name_list)
-
-        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已退出跨群聊天\n\n📋 当前跨群聊天列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
+    elif f"@{WX_USERNAME}" in content and "设置提示词" in content:
+        # 设置系统提示词
+        line_list = content.splitlines()
+        system_prompt = "\n".join(line_list[1:])
+        Variable.set("system_prompt", system_prompt, serialize_json=True)
+        send_wx_msg(wcf_ip=source_ip, message=f'[bot] 已设置系统提示词: \n\n---\n{system_prompt}\n---', receiver=room_id)
         return True
     return False
 
@@ -240,27 +208,18 @@ def process_wx_message(**context):
     enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
     # 开启AI视频处理的room_id
     enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
-    # 加入"超级大群"的群ID
-    supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
     # 获取系统提示词
     system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
 
-    # 分场景分发微信消息
+    # 生成run_id
     now = datetime.now(timezone.utc)
     execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
     run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
-    if msg_type == 1 and room_id in supper_big_rood_ids and "@Zacks" in content:
-        print(f"[WATCHER] {room_id} 已加入超级大群, 触发AI聊天DAG")
-        trigger_dag(
-            dag_id='broadcast_agent_001',
-            conf={"current_message": message_data},
-            run_id=run_id,
-            execution_date=execution_date
-        )
-
-    elif msg_type == 1 and  (is_group and room_id in enable_ai_room_ids):
+    
+    # 分场景分发微信消息
+    if msg_type == 1 and  (is_group and room_id in enable_ai_room_ids) and f"@{WX_USERNAME}" in content:
         # 用户的消息缓存列表（跨DAG共享该变量）
-        llm_response = get_llm_response(content, model_name="gpt-4o-2024-11-20", system_prompt=system_prompt)
+        llm_response = get_llm_response(content, model_name="gpt-4o-mini", system_prompt=system_prompt)
         # 发送LLM响应
         send_wx_msg(wcf_ip=source_ip, message=llm_response, receiver=room_id)
 

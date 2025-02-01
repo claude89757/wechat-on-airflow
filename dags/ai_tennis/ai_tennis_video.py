@@ -90,12 +90,8 @@ def process_video_by_ai(input_video_path: str):
     print("save image successfully")
 
     # send image to gpt
-    text = "提供了一组网球运动员的动作照片\n" \
-           "***回复格式示例***\n【动作】:xx\n【评分】:1~100分\n【优点】:xx\n【缺点】:xx\n\n" \
-           "\n请根据[照片]，判断图片是哪一个网球动作（正手、单反、双反、正手切削、反手切削等），" \
-           "并给这个网球动作打分, 打分的标准要参考图片动作和职业球员的标准动作的差距来确定, " \
-           "并参考[回复格式示例]生成一份140字内的打分报告, 不要虚构数据和评语"
-    response_msg = get_llm_response_with_image(user_question="请基于图片，给出网球动作的打分", image_path=output_image_path, system_prompt=text)
+    system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
+    response_msg = get_llm_response_with_image(user_question="", image_path=output_image_path, system_prompt=system_prompt)
 
     return response_msg, output_image_path
 
