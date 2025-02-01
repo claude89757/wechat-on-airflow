@@ -38,7 +38,7 @@ def process_video_by_ai(input_video_path: str):
   
     # 读取视频, 采样间隔为3
     print(f"input_video_path: {input_video_path}")
-    all_frames = read_video(input_video_path, sample_interval=3)
+    all_frames = read_video(input_video_path, sample_interval=10)
 
     # 显示最多的处理帧数
     print(f"all_frames: {len(all_frames)}")
@@ -61,7 +61,7 @@ def process_video_by_ai(input_video_path: str):
     # 初始化检测器并进行批量检测
     player_tracker = PlayerTracker(
         model_path='/opt/bitnami/airflow/dags/ai_tennis/models/yolov8x.pt',
-        batch_size=4  # 设置批处理大小
+        batch_size=10  # 设置批处理大小
     )
     player_detections = player_tracker.detect_frames(video_frames)
 
@@ -86,7 +86,7 @@ def process_video_by_ai(input_video_path: str):
     output_image_name = f"{input_video_name}_grid.jpg"
     print(f"output_image_name: {output_image_name}")
     output_image_path = save_video_to_images_with_sampling(output_video_frames, output_image_name,
-                                                           max_box_frame_id, num_samples=10, target_size_kb=800)
+                                                           max_box_frame_id, num_samples=1, target_size_kb=800)
     print("save image successfully")
 
     # send image to gpt
