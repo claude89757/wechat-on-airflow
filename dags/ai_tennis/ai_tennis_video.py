@@ -3,7 +3,6 @@
 
 # 标准库导入
 import os
-import cv2
 import time
 from datetime import datetime, timedelta
 
@@ -33,6 +32,7 @@ def process_video_by_ai(input_video_path: str):
     :param input_video_path:
     :return:
     """
+    import cv2
     input_video_name = input_video_path.split('/')[0]
     # read video
     video_frames = read_video(input_video_path)
