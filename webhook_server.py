@@ -143,7 +143,7 @@ async def handle_wcf_callback(request: Request):
         callback_data['source_ip'] = client_ip
 
         # Trigger Airflow DAG asynchronously
-        dag_run_id = await trigger_airflow_dag(callback_data)
+        dag_run_id = await trigger_airflow_dag(callback_data, dag_id='wx_msg_watcher')
 
         logger.info(f'Airflow DAG触发成功, dag_run_id: {dag_run_id}')
         return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "DAG触发成功", "dag_run_id": dag_run_id})
@@ -154,6 +154,39 @@ async def handle_wcf_callback(request: Request):
     except Exception as e:
         logger.error(f'处理WCF回调失败: {e}')
         return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"message": "处理失败", "error": str(e)})
+
+
+@app.post("/wcf_callback_for_ai_tennis")
+async def handle_wcf_callback_for_ai_tennis(request: Request):
+    """
+    处理WCF回调请求，触发Airflow DAG
+    """
+    try:
+        callback_data = await request.json()
+        if not callback_data:
+            logger.warning('没有收到有效的回调数据')
+            return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": "无效的数据"})
+
+        # 获取请求的源IP地址
+        client_ip = request.client.host
+        logger.info(f'接收到来自 {client_ip} 的WCF回调数据: {callback_data}')
+        
+        # 将源IP添加到callback_data中
+        callback_data['source_ip'] = client_ip
+
+        # Trigger Airflow DAG asynchronously
+        dag_run_id = await trigger_airflow_dag(callback_data, dag_id='wx_msg_watcher_for_ai_tennis')
+
+        logger.info(f'Airflow DAG触发成功, dag_run_id: {dag_run_id}')
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"message": "DAG触发成功", "dag_run_id": dag_run_id})
+
+    except httpx.RequestError as req_err:
+        logger.error(f'调用Airflow API时发生请求异常: {req_err}')
+        return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"message": "Airflow API请求失败", "error": str(req_err)})
+    except Exception as e:
+        logger.error(f'处理WCF回调失败: {e}')
+        return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"message": "处理失败", "error": str(e)})
+
 
 @app.get("/health")
 async def health_check():
@@ -185,7 +218,7 @@ def execute_git_commands():
         logger.error(f'Git命令执行失败: {e}')
         raise
 
-async def trigger_airflow_dag(callback_data):
+async def trigger_airflow_dag(callback_data, dag_id):
     """
     异步触发Airflow DAG
     """
@@ -205,13 +238,13 @@ async def trigger_airflow_dag(callback_data):
 
         async with httpx.AsyncClient(auth=(AIRFLOW_USERNAME, AIRFLOW_PASSWORD), timeout=10) as client:
             response = await client.post(
-                f"{AIRFLOW_BASE_URL}/api/v1/dags/wx_msg_watcher/dagRuns",
+                f"{AIRFLOW_BASE_URL}/api/v1/dags/{dag_id}/dagRuns",
                 json=airflow_payload,
                 headers={'Content-Type': 'application/json'}
             )
 
         if response.status_code in [200, 201]:
-            logger.info(f'成功触发Airflow DAG: wx_msg_watcher, dag_run_id: {dag_run_id}')
+            logger.info(f'成功触发Airflow DAG: {dag_id}, dag_run_id: {dag_run_id}')
             return dag_run_id
         else:
             logger.error(f'触发Airflow DAG失败: {response.status_code} - {response.text}')
