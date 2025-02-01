@@ -89,18 +89,18 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
 
     # 在其他命令判断之前添加help命令
     if f"@{WX_USERNAME}" in content and "帮助" in content:
-        help_text = f"""[bot] 🤖 可用命令列表：
+        help_text = f"""[bot] 可用命令列表 
 
-1. @XX 帮助 ❓ - 显示此帮助信息
-2. @XX 开启AI聊天 💬 - 加入AI聊天群
-3. @XX 关闭AI聊天 🔕 - 退出AI聊天群 
-4. @XX 开启AI视频 🎥 - 开启AI视频处理
-5. @XX 关闭AI视频 📴 - 关闭AI视频处理
-6. @XX 显示提示词 📝 - 显示当前系统提示词
-7. @XX 设置提示词 ⚙️ - 设置新的系统提示词
+1. @XX 帮助 - 显示此帮助信息 ❓
+2. @XX 开启AI聊天 - 加入AI聊天群 💬
+3. @XX 关闭AI聊天 - 退出AI聊天群 🔕
+4. @XX 开启AI视频 - 开启AI视频处理 🎥
+5. @XX 关闭AI视频 - 关闭AI视频处理 📴
+6. @XX 显示提示词 - 显示当前系统提示词 📝
+7. @XX 设置提示词 - 设置新的系统提示词 ⚙️
     (换行后输入新的提示词)
 
-⚠️ 注意：以上命令仅管理员可用"""
+⚠️注意：以上命令仅管理员可用 """
         
         send_wx_msg(wcf_ip=source_ip, message=help_text, receiver=room_id)
         return True
