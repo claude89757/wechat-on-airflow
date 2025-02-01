@@ -100,7 +100,7 @@ def process_video_by_ai(input_video_path: str):
     return response_msg, output_image_path
 
 
-def download_file_from_windows_server(remote_file_name: str, local_file_name: str, max_retries: int = 3, retry_delay: int = 5):
+def download_file_from_windows_server(server_ip: str, remote_file_name: str, local_file_name: str, max_retries: int = 3, retry_delay: int = 5):
     """从SMB服务器下载文件
     
     Args:
@@ -116,25 +116,13 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
     os.makedirs(temp_dir, exist_ok=True)
     
     # 从Airflow变量获取配置
-    windows_smb_dir = Variable.get("WINDOWS_SMB_DIR")
-    windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
-
-    # 解析UNC路径
-    unc_parts = windows_smb_dir.strip("\\").split("\\")
-    if len(unc_parts) < 3:
-        raise ValueError(f"无效的SMB路径格式: {windows_smb_dir}。正确格式示例: \\\\server\\share\\path")
-
-    # 将服务器名称中的下划线替换为点号
-    server_name = unc_parts[0].replace("_", ".")    # 10.1.12.10
-    share_name = unc_parts[1]                       # Users
-    server_path = "/".join(unc_parts[2:])          # Administrator/Downloads
-    print(f"server_name: {server_name}, share_name: {share_name}, server_path: {server_path}")
+    windows_server_password = Variable.get("AI_TENNIS_WINDOWS_SERVER_PASSWORD")
 
     # 注册SMB会话
     try:
         register_session(
-            server=server_name,
-            username="Administrator",
+            server=server_ip,
+            username="administrator",
             password=windows_server_password
         )
     except Exception as e:
@@ -142,7 +130,7 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
         raise
 
     # 构建远程路径和本地路径
-    remote_path = f"//{server_name}/{share_name}/{server_path}/{remote_file_name}"
+    remote_path = f"//iZdd4c0fvbflspZ/Users/Administrator/Downloads/{remote_file_name}"
     local_path = os.path.join(temp_dir, local_file_name)  # 修改为使用临时目录
 
     # 执行文件下载
@@ -174,7 +162,7 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
     return local_path  # 返回完整的本地文件路径
 
 
-def upload_file_to_windows_server(local_file_path: str, remote_file_name: str, max_retries: int = 3, retry_delay: int = 5):
+def upload_file_to_windows_server(server_ip: str, local_file_path: str, remote_file_name: str, max_retries: int = 3, retry_delay: int = 5):
     """上传文件到SMB服务器
     
     Args:
@@ -186,25 +174,13 @@ def upload_file_to_windows_server(local_file_path: str, remote_file_name: str, m
         str: 远程文件的完整路径
     """
     # 从Airflow变量获取配置
-    windows_smb_dir = Variable.get("WINDOWS_SMB_DIR")
-    windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
-
-    # 解析UNC路径
-    unc_parts = windows_smb_dir.strip("\\").split("\\")
-    if len(unc_parts) < 3:
-        raise ValueError(f"无效的SMB路径格式: {windows_smb_dir}。正确格式示例: \\\\server\\share\\path")
-
-    # 将服务器名称中的下划线替换为点号
-    server_name = unc_parts[0].replace("_", ".")    # 10.1.12.10
-    share_name = unc_parts[1]                       # Users
-    server_path = "/".join(unc_parts[2:])          # Administrator/Downloads
-    print(f"server_name: {server_name}, share_name: {share_name}, server_path: {server_path}")
+    windows_server_password = Variable.get("AI_TENNIS_WINDOWS_SERVER_PASSWORD")
 
     # 注册SMB会话
     try:
         register_session(
-            server=server_name,
-            username="Administrator",
+            server=server_ip,
+            username="administrator",
             password=windows_server_password
         )
     except Exception as e:
@@ -212,7 +188,7 @@ def upload_file_to_windows_server(local_file_path: str, remote_file_name: str, m
         raise
 
     # 构建远程路径
-    remote_path = f"//{server_name}/{share_name}/{server_path}/{remote_file_name}"
+    remote_path = f"//iZdd4c0fvbflspZ/Users/Administrator/Downloads/{remote_file_name}"
 
     # 执行文件上传
     for attempt in range(max_retries):
@@ -263,7 +239,7 @@ def process_ai_video(**context):
     # 下载视频到本地临时目录
     remote_file_name = os.path.basename(video_file_path)  # 使用os.path.basename获取文件名
     local_file_name = f"{msg_id}.mp4"
-    local_file_path = download_file_from_windows_server(remote_file_name=remote_file_name, local_file_name=local_file_name)
+    local_file_path = download_file_from_windows_server(server_ip=source_ip, remote_file_name=remote_file_name, local_file_name=local_file_name)
     print(f"视频已下载到本地: {local_file_path}")
 
     # 处理视频
@@ -287,6 +263,7 @@ def process_ai_video(**context):
     print(f"remote_image_name: {remote_image_name}")
     print(f"output_image_path: {output_image_path}")
     windows_image_path = upload_file_to_windows_server(
+        server_ip=source_ip,
         local_file_path=output_image_path,
         remote_file_name=remote_image_name
     )
