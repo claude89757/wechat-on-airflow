@@ -58,7 +58,7 @@ def process_video_by_ai(input_video_path: str):
             cv2.putText(frame, f"Frame: {i}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     # Save image
-    input_video_name = input_video_path.split('/')[0].replace(".mp4", "")
+    input_video_name = input_video_path.split('/')[-1].replace(".mp4", "")
     print(f"input_video_name: {input_video_name}")
     image_path = f"/tmp/ai_tennis/{input_video_name}_grid.jpg"
     print(f"image_path: {image_path}")
