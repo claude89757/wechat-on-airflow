@@ -107,15 +107,16 @@ services:
       - ./logs:/opt/bitnami/airflow/logs
       - ./requirements.txt:/bitnami/python/requirements.txt
       - /tmp:/opt/bitnami/airflow/tmp
-    # user: root
-    # command: >
-    #   bash -c "
-    #     sed -i 's/deb.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
-    #     sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
-    #     apt-get update && apt-get install -y libglib2.0-0 &&
-    #     chown -R airflow:root /opt/bitnami/airflow &&
-    #     su -c '/opt/bitnami/scripts/airflow/run.sh' airflow
-    #   "
+    user: root
+    command: >
+      bash -c "
+        sed -i 's/deb.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
+        sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
+        apt-get update && 
+        apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev &&
+        chown -R airflow:root /opt/bitnami/airflow &&
+        su -c '/opt/bitnami/scripts/airflow/run.sh' airflow
+      "
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: worker
@@ -178,15 +179,16 @@ services:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
       - ./requirements.txt:/bitnami/python/requirements.txt
-    # user: root
-    # command: >
-    #   bash -c "
-    #     sed -i 's/deb.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
-    #     sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
-    #     apt-get update && apt-get install -y libglib2.0-0 &&
-    #     chown -R airflow:root /opt/bitnami/airflow &&
-    #     su -c '/opt/bitnami/scripts/airflow/run.sh' airflow
-    #   "
+    user: root
+    command: >
+      bash -c "
+        sed -i 's/deb.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
+        sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
+        apt-get update && 
+        apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev &&
+        chown -R airflow:root /opt/bitnami/airflow &&
+        su -c '/opt/bitnami/scripts/airflow/run.sh' airflow
+      "
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: dag-processor
