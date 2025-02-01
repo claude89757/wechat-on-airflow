@@ -10,21 +10,29 @@ import numpy as np
 import os
 
 
-def read_video(video_path):
+def read_video(video_path: str, sample_interval: int = 1):
     """
-    读取视频
-    :param video_path: 视频路径
+    读取视频文件
+    :param video_path: 视频文件路径
+    :param sample_interval: 采样间隔，每隔多少帧取一帧
     :return: 视频帧列表
     """
-    cap = cv2.VideoCapture(video_path)
     frames = []
-    while True:
+    cap = cv2.VideoCapture(video_path)
+    frame_count = 0
+    
+    while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
-        frames.append(frame)
+            
+        # 按采样间隔取帧
+        if frame_count % sample_interval == 0:
+            frames.append(frame)
+        frame_count += 1
+            
     cap.release()
-    return frames[:300]  # 限制处理帧数
+    return frames
 
 
 def save_video(output_video_frames, output_video_path):

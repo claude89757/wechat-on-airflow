@@ -36,15 +36,21 @@ def process_video_by_ai(input_video_path: str):
     from ai_tennis.utils import find_frame_id_with_max_box
     from ai_tennis.player_traker import PlayerTracker
   
-    # 读取视频并降采样
+    # 读取视频, 采样间隔为3
     print(f"input_video_path: {input_video_path}")
-    video_frames = read_video(input_video_path, sample_interval=3)  # 每3帧取1帧
-    print(f"采样后的帧数: {len(video_frames)}")
+    all_frames = read_video(input_video_path, sample_interval=3)
+
+    # 显示最多的处理帧数
+    print(f"all_frames: {len(all_frames)}")
+    # 如果帧数大于300，则只取前300帧
+    if len(all_frames) > 300:
+        all_frames = all_frames[:300]
+    print(f"all_frames: {len(all_frames)}")
 
     # 调整图像分辨率
     resized_frames = []
     target_width = 640  # 设置目标宽度
-    for frame in video_frames:
+    for frame in all_frames:
         h, w = frame.shape[:2]
         ratio = target_width / w
         new_h = int(h * ratio)
