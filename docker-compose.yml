@@ -114,6 +114,8 @@ services:
         sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
         apt-get update && 
         apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev &&
+        chown -R root:root /opt/bitnami &&
+        chmod -R 777 /opt/bitnami &&
         /opt/bitnami/scripts/airflow/run.sh
       "
     environment:
