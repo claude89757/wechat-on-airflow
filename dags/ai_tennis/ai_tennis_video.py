@@ -152,6 +152,70 @@ def download_file_from_windows_server(remote_file_name: str, local_file_name: st
 
     return local_path  # 返回完整的本地文件路径
 
+
+def upload_file_to_windows_server(local_file_path: str, remote_file_name: str, max_retries: int = 3, retry_delay: int = 5):
+    """上传文件到SMB服务器
+    
+    Args:
+        local_file_path: 本地文件路径
+        remote_file_name: 远程文件名
+        max_retries: 最大重试次数，默认3次
+        retry_delay: 重试间隔时间(秒)，默认5秒
+    Returns:
+        str: 远程文件的完整路径
+    """
+    # 从Airflow变量获取配置
+    windows_smb_dir = Variable.get("WINDOWS_SMB_DIR")
+    windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
+
+    # 解析UNC路径
+    unc_parts = windows_smb_dir.strip("\\").split("\\")
+    if len(unc_parts) < 3:
+        raise ValueError(f"无效的SMB路径格式: {windows_smb_dir}。正确格式示例: \\\\server\\share\\path")
+
+    # 将服务器名称中的下划线替换为点号
+    server_name = unc_parts[0].replace("_", ".")    # 10.1.12.10
+    share_name = unc_parts[1]                       # Users
+    server_path = "/".join(unc_parts[2:])          # Administrator/Downloads
+    print(f"server_name: {server_name}, share_name: {share_name}, server_path: {server_path}")
+
+    # 注册SMB会话
+    try:
+        register_session(
+            server=server_name,
+            username="Administrator",
+            password=windows_server_password
+        )
+    except Exception as e:
+        print(f"连接服务器失败: {str(e)}")
+        raise
+
+    # 构建远程路径
+    remote_path = f"//{server_name}/{share_name}/{server_path}/{remote_file_name}"
+
+    # 执行文件上传
+    for attempt in range(max_retries):
+        try:
+            with open(local_file_path, "rb") as local_file:
+                with open_file(remote_path, mode="wb") as remote_file:
+                    while True:
+                        data = local_file.read(8192)  # 分块读取大文件
+                        if not data:
+                            break
+                        remote_file.write(data)
+            
+            print(f"文件成功上传到: {remote_path}")
+            return f"C:/Users/Administrator/Downloads/{remote_file_name}"  # 返回Windows格式的路径
+            
+        except Exception as e:
+            if attempt < max_retries - 1:  # 如果不是最后一次尝试
+                print(f"第{attempt + 1}次上传失败: {str(e)}，{retry_delay}秒后重试...")
+                time.sleep(retry_delay)  # 等待一段时间后重试
+            else:
+                print(f"文件上传失败，已重试{max_retries}次: {str(e)}")
+                raise  # 重试次数用完后，抛出异常
+
+
 def process_ai_video(**context):
     """
     处理视频
@@ -197,8 +261,16 @@ def process_ai_video(**context):
     # 发送消息到微信
     send_wx_msg(wcf_ip=source_ip, message=response_msg, receiver=room_id)
 
-    # 发送图片到微信: 先把图片保存到Windows服务器，然后从Windows服务器转发到微信
-    send_wx_image(wcf_ip=source_ip, image_path=output_image_path, receiver=room_id)
+    # 发送图片到微信: 先把图片上传到Windows服务器，然后从Windows服务器转发到微信
+    remote_image_name = os.path.basename(output_image_path)
+    print(f"remote_image_name: {remote_image_name}")
+    print(f"output_image_path: {output_image_path}")
+    windows_image_path = upload_file_to_windows_server(
+        local_file_path=output_image_path,
+        remote_file_name=remote_image_name
+    )
+    print(f"windows_image_path: {windows_image_path}")
+    send_wx_image(wcf_ip=source_ip, image_path=windows_image_path, receiver=room_id)
     
 
 # 创建DAG
