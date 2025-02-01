@@ -102,6 +102,10 @@ services:
   airflow-worker:
     <<: *airflow-common
     container_name: airflow_worker
+    command: >
+      DEBIAN_FRONTEND=noninteractive apt-get update && 
+      DEBIAN_FRONTEND=noninteractive apt-get install -y libglib2.0-0 &&
+      /opt/bitnami/scripts/airflow/run.sh"
     volumes:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
@@ -165,6 +169,10 @@ services:
   airflow-dag-processor:
     <<: *airflow-common
     container_name: airflow_dag_processor
+    command: >
+      DEBIAN_FRONTEND=noninteractive apt-get update && 
+      DEBIAN_FRONTEND=noninteractive apt-get install -y libglib2.0-0 &&
+      /opt/bitnami/scripts/airflow/run.sh"
     volumes:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
