@@ -127,14 +127,14 @@ def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -
         return True
     elif f"@{WX_USERNAME}" in content and "显示提示词" in content:
         # 显示系统提示词
-        system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。")
+        system_prompt = Variable.get("system_prompt", default_var="你是一个友好的AI助手，请用简短的中文回答关于图片的问题。", deserialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] 当前系统提示词: \n\n---\n{system_prompt}\n---', receiver=room_id)
         return True
     elif f"@{WX_USERNAME}" in content and "设置提示词" in content:
         # 设置系统提示词
         line_list = content.splitlines()
         system_prompt = "\n".join(line_list[1:])
-        Variable.set("system_prompt", system_prompt, serialize_json=True)
+        Variable.set("system_prompt", system_prompt, serialize_json=True, deserialize_json=True)
         send_wx_msg(wcf_ip=source_ip, message=f'[bot] 已设置系统提示词: \n\n---\n{system_prompt}\n---', receiver=room_id)
         return True
     elif f"@{WX_USERNAME}" in content and "帮助" in content:
