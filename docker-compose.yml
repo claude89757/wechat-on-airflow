@@ -1,10 +1,18 @@
+#===============================================================================
 # 基础配置
+#===============================================================================
 x-common: &common
   restart: unless-stopped
   networks:
     - airflow-network
 
-# Airflow基础配置
+networks:
+  airflow-network:
+    driver: bridge
+
+#===============================================================================
+# Airflow 基础配置
+#===============================================================================
 x-airflow-common: &airflow-common
   <<: *common
   image: bitnami/airflow:latest
@@ -17,48 +25,64 @@ x-airflow-common: &airflow-common
     postgresql:
       condition: service_healthy
 
-# Airflow环境变量
+#===============================================================================
+# Airflow 环境变量
+#===============================================================================
 x-airflow-env: &airflow-env
-  # 基础配置
+  # 密钥配置
   AIRFLOW_FERNET_KEY: &fernet_key 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
   AIRFLOW_SECRET_KEY: &secret_key a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
   AIRFLOW_EXECUTOR: CeleryExecutor
-  
-  # pip 镜像源配置 - 使用腾讯云镜像
-  PIP_INDEX_URL: https://mirrors.cloud.tencent.com/pypi/simple/
-  PIP_TRUSTED_HOST: mirrors.cloud.tencent.com
-  
+  AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}
+  AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}
+  AIRFLOW_EMAIL: ${AIRFLOW_EMAIL}
+
   # 数据库配置
   AIRFLOW_DATABASE_NAME: &db_name ${AIRFLOW_DATABASE_NAME}
   AIRFLOW_DATABASE_USERNAME: &db_user ${AIRFLOW_DATABASE_USERNAME}
   AIRFLOW_DATABASE_PASSWORD: &db_pass ${AIRFLOW_DATABASE_PASSWORD}
-  
+
   # 核心配置
   AIRFLOW__CORE__PARALLELISM: 32
   AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: 16
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 8
   AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Shanghai
-  
-  # 其他配置
-  TZ: Asia/Shanghai
-  AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP: True
-  AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: True
-  
-  # API 认证配置
-  # 添加 session 认证后端
-  AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
-  
-  # 添加以下配置来禁用示例 DAG 目录
   AIRFLOW__CORE__DAGS_FOLDER: /opt/bitnami/airflow/dags
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-  # 明确指定不扫描示例 DAG 目录
-  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
   AIRFLOW__CORE__IGNORE_DAGS_ON_LOAD_ERROR: "true"
-  # 显式排除示例 DAG 目录
   AIRFLOW__CORE__DAGS_FOLDER_SKIP_PATTERNS: "example_*.py,examples/*.py"
-  
 
+  # Webserver 配置
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+  AIRFLOW__WEBSERVER__ALLOW_CONFIG_TRIGGER: "True"
+
+  # Scheduler 配置
+  AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: True
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
+
+  # API 配置
+  AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+  AIRFLOW__API__ACCESS_CONTROL_ALLOW_HEADERS: "*"
+  AIRFLOW__API__ACCESS_CONTROL_ALLOW_METHODS: "*"
+  AIRFLOW__API__ACCESS_CONTROL_ALLOW_ORIGINS: "*"
+
+  # Worker 配置
+  AIRFLOW__CELERY__WORKER_CONCURRENCY: 16
+  AIRFLOW__CELERY__WORKER_AUTOSCALE: "16,4"
+  AIRFLOW__CELERY__WORKER_MAX_MEMORY_PER_CHILD: "512000"
+  AIRFLOW__CELERY__OPERATION_TIMEOUT: 1800
+  AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP: True
+
+  # 系统配置
+  TZ: Asia/Shanghai
+  PIP_INDEX_URL: https://mirrors.cloud.tencent.com/pypi/simple/
+  PIP_TRUSTED_HOST: mirrors.cloud.tencent.com
+
+#===============================================================================
+# 服务定义
+#===============================================================================
 services:
+  # 数据库服务
   postgresql:
     <<: *common
     image: bitnami/postgresql:latest
@@ -68,12 +92,13 @@ services:
       POSTGRESQL_USERNAME: *db_user
       POSTGRESQL_PASSWORD: *db_pass
     volumes:
-      - postgres-data:/bitnami/postgresql
+      - ./database/postgresql:/bitnami/postgresql
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
       retries: 5
 
+  # Redis 服务
   redis:
     <<: *common
     image: bitnami/redis:latest
@@ -81,32 +106,44 @@ services:
     environment:
       ALLOW_EMPTY_PASSWORD: yes
     volumes:
-      - redis-data:/bitnami
+      - ./database/redis:/bitnami
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       retries: 5
 
+  # Airflow Web 服务
+  airflow-web:
+    <<: *airflow-common
+    container_name: airflow_web
+    ports:
+      - '80:8080'
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: webserver
+
+  # Airflow Scheduler 服务
   airflow-scheduler:
     <<: *airflow-common
     container_name: airflow_scheduler
+    deploy:
+      replicas: 2  # 运行2个调度器实例
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: scheduler
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgresql:
-        condition: service_healthy
 
+  # Airflow Worker 服务
   airflow-worker:
     <<: *airflow-common
     container_name: airflow_worker
+    ports:
+      - "8081:8081"
     volumes:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
       - ./requirements.txt:/bitnami/python/requirements.txt
       - /tmp:/opt/bitnami/airflow/tmp
+    # 设置为 root 用户, 用于安装相关系统依赖
     user: root
     command: >
       bash -c "
@@ -121,58 +158,8 @@ services:
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: worker
-      AIRFLOW__CELERY__WORKER_CONCURRENCY: 16
-      AIRFLOW__CELERY__WORKER_PRECHECK: True
-      AIRFLOW__CELERY__WORKER_POOL_TYPE: "prefork"
-      AIRFLOW__CELERY__WORKER_AUTOSCALE: "16,4"
-      AIRFLOW__CELERY__WORKER_MAX_MEMORY_PER_CHILD: "512000"
-      AIRFLOW__CELERY__OPERATION_TIMEOUT: 1800
-      AIRFLOW__CELERY__WORKER_HEARTBEAT_INTERVAL: 10
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgresql:
-        condition: service_healthy
-    ports:
-      - "8081:8081"
 
-  airflow-scheduler-02:
-    <<: *airflow-common
-    container_name: airflow_scheduler_02
-    environment:
-      <<: *airflow-env
-      AIRFLOW_COMPONENT_TYPE: scheduler
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgresql:
-        condition: service_healthy
-
-  airflow:
-    <<: *airflow-common
-    container_name: airflow_web
-    ports:
-      - '80:8080'
-    environment:
-      <<: *airflow-env
-      AIRFLOW_COMPONENT_TYPE: webserver
-      AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}
-      AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}
-      AIRFLOW_EMAIL: ${AIRFLOW_EMAIL}
-      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
-      AIRFLOW__API__ACCESS_CONTROL_ALLOW_HEADERS: "*"
-      AIRFLOW__API__ACCESS_CONTROL_ALLOW_METHODS: "*"
-      AIRFLOW__API__ACCESS_CONTROL_ALLOW_ORIGINS: "*"
-      # 允许在UI界面查看和导出Airflow的配置信息
-      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
-      # 允许通过Web UI手动触发DAG并传递配置参数
-      AIRFLOW__WEBSERVER__ALLOW_CONFIG_TRIGGER: "True"
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgresql:
-        condition: service_healthy
-
+  # Airflow DAG Processor 服务
   airflow-dag-processor:
     <<: *airflow-common
     container_name: airflow_dag_processor
@@ -180,43 +167,28 @@ services:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
       - ./requirements.txt:/bitnami/python/requirements.txt
-    user: root
-    command: >
-      bash -c "
-        sed -i 's/deb.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
-        sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
-        apt-get update && 
-        apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev &&
-        /opt/bitnami/scripts/airflow/run.sh
-      "
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: dag-processor
-      AIRFLOW__SCHEDULER__DAG_FILE_PROCESSOR_TIMEOUT: 600
-      AIRFLOW__SCHEDULER__PARSING_PROCESSES: 4
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgresql:
-        condition: service_healthy
 
+  # Airflow Triggerer 服务
   airflow-triggerer:
     <<: *airflow-common
     container_name: airflow_triggerer
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: triggerer
-      AIRFLOW__TRIGGERER__DEFAULT_CAPACITY: 1000
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgresql:
-        condition: service_healthy
 
+  # Webhook 服务
   airflow_webhook:
     <<: *common
     image: python:3.10
     container_name: airflow_webhook
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./webhook_server.py:/app/webhook_server.py  # 只挂载 webhook 服务器文件
+    working_dir: /app
     command: >
       bash -c "
         git config --global http.proxy ${PROXY_URL} &&
@@ -226,12 +198,6 @@ services:
         pip install --no-cache-dir fastapi uvicorn gunicorn python-dotenv httpx slowapi &&
         gunicorn webhook_server:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:5000
       "
-    ports:
-      - "5000:5000"
-    volumes:
-      - .:/app
-      - ./.env:/app/.env
-    working_dir: /app
     environment:
       - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL}
       - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
@@ -245,37 +211,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  # gewe:
-  #   <<: *common
-  #   image: registry.cn-hangzhou.aliyuncs.com/gewe/gewe:latest
-  #   container_name: gewe
-  #   privileged: true
-  #   command: >
-  #     bash -c "
-  #       yum clean all &&
-  #       yum makecache fast &&
-  #       yum install -y epel-release &&
-  #       yum install -y curl jq &&
-  #       cd /root/temp &&
-  #       chmod +x init_gewe.sh &&
-  #       /usr/sbin/init &
-  #       sleep 10 &&
-  #       ./init_gewe.sh
-  #     "
-  #   ports:
-  #     - "2531:2531"
-  #     - "2532:2532"
-  #   volumes:
-  #     - ./gewe_data:/root/temp
-  #   environment:
-  #     - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
-  #     - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
-
-volumes:
-  postgres-data:
-  redis-data:
-
-networks:
-  airflow-network:
-    driver: bridge
