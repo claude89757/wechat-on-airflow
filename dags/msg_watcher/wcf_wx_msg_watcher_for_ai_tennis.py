@@ -74,7 +74,7 @@ WX_MSG_TYPES = {
 
 
 
-WX_USERNAME = "H88-AI 教练胡哥"
+WX_USERNAME = "教练小 H"
 
 
 def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -> bool:
