@@ -240,7 +240,7 @@ def process_ai_video(**context):
 
     # 处理视频
     start_time = time.time()
-    start_msg = f"AI胡哥正在努力逐帧分析、疯狂动脑中，等我1分钟！"
+    start_msg = f"教练小H 正在努力逐帧分析、疯狂动脑中，等我1分钟！\n（15秒的视频分析会更快哦）"
     send_wx_msg(wcf_ip=source_ip, message=start_msg, receiver=room_id)
 
     response_msg, output_image_path = process_video_by_ai(local_file_path)
