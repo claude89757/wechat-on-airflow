@@ -8,10 +8,11 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 
 ![整体架构](./docs/images/wechat-on-airflow.png)
 
-## 待办事项
+## 功能列表
 
-- [ ] 接入 gewe 的微信机器人
-- [ ] 支持发送图片
+- [x] 发送文字消息
+- [x] 发送图片消息
+- [x] 接收视频消息
 - [ ] 支持发送文件
 - [ ] 支持发送视频
 - [ ] 支持发送语音
