@@ -1,9 +1,91 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36" version="26.0.11">
   <diagram name="第 1 页" id="PKmrScPDrfBtydWfthLu">
-    <mxGraphModel>
+    <mxGraphModel dx="795" dy="1848" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
+        <mxCell id="UsAOOKGW57un2MzhLOND-5" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;dashed=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="110" y="510" width="300" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;align=left;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="199" y="680" as="sourcePoint" />
+            <mxPoint x="199" y="600" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-8" value="WCF回调&lt;div&gt;上报实时微信消息&lt;/div&gt;" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="UsAOOKGW57un2MzhLOND-3">
+          <mxGeometry y="1" relative="1" as="geometry">
+            <mxPoint y="-5" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-1" value="Windows服务器（国内）&lt;div&gt;&lt;br&gt;&lt;div&gt;部署：WCF-RUST&lt;/div&gt;&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;作用：登录Windows客户端，hook方式交互&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="120" y="680" width="280" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="400" y="541" as="sourcePoint" />
+            <mxPoint x="490" y="541" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-12" value="提问" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="UsAOOKGW57un2MzhLOND-7">
+          <mxGeometry x="-0.0889" y="-1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="321" y="600" as="sourcePoint" />
+            <mxPoint x="321" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-10" value="WCF API交互&lt;div&gt;查询微信数据&lt;br&gt;&lt;div&gt;发消息\图片\视频&lt;/div&gt;&lt;/div&gt;" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="UsAOOKGW57un2MzhLOND-9">
+          <mxGeometry x="-0.1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-2" value="Linux服务器（国内）&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;部署：Airflow + 自研Webhook服务&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;作用：接受来自WCF的回调，接受微信信息&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="120" y="520" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="490" y="577" as="sourcePoint" />
+            <mxPoint x="400" y="577" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-13" value="回答" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="UsAOOKGW57un2MzhLOND-11">
+          <mxGeometry x="0.0889" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-4" value="Linux服务器（海外）&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;部署：Dify&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;作用：接入大模型、知识库、智能AGENT流程&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;align=left;" vertex="1" parent="1">
+          <mxGeometry x="490" y="520" width="270" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-6" value="&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;注意：&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;1. Windows服务器必须和登录手机微信同省&lt;/span&gt;&lt;/div&gt;&lt;div&gt;2.&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;两个台服务器&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;通过内网IP交互&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="120" y="790" width="250" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.25;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="UsAOOKGW57un2MzhLOND-14" target="UsAOOKGW57un2MzhLOND-2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-21" value="账号状态查询、人工回复" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="UsAOOKGW57un2MzhLOND-18">
+          <mxGeometry x="0.12" y="1" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-14" value="Linux服务器（国内）&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;部署：Web服务&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;作用：前端页面，运营人员交互&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="360" width="640" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.407;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="UsAOOKGW57un2MzhLOND-14" target="UsAOOKGW57un2MzhLOND-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="UsAOOKGW57un2MzhLOND-20" value="查询聊天记录的API" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="UsAOOKGW57un2MzhLOND-19">
+          <mxGeometry x="-0.1261" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
