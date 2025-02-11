@@ -163,13 +163,13 @@ def check_tennis_courts():
                     filtered_slots = []
                     for slot in free_slots:
                         hour_num = int(slot[0].split(':')[0])
-                        if 9 <= hour_num <= 21:  # 只关注9点到21点的场地
+                        if 18 <= hour_num <= 21:  # 只关注18点到21点的场地
                             filtered_slots.append(slot)
                     
                     if filtered_slots:
                         up_for_send_data_list.append({
                             "date": inform_date,
-                            "court_name": f"金地{court_name}",
+                            "court_name": f"威新{court_name}",
                             "free_slot_list": filtered_slots
                         })
         except Exception as e:
@@ -198,12 +198,12 @@ def check_tennis_courts():
         # 获取微信发送配置
         wcf_ip = Variable.get("WCF_IP", default_var="")
         for msg in up_for_send_msg_list:
-            # send_wx_msg(
-            #     wcf_ip=wcf_ip,
-            #     message=msg,
-            #     receiver="38763452635@chatroom",
-            #     aters=''
-            # )
+            send_wx_msg(
+                wcf_ip=wcf_ip,
+                message=msg,
+                receiver="38763452635@chatroom",
+                aters=''
+            )
             sended_msg_list.append(msg)
 
         # 更新Variable
