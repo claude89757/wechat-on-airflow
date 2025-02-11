@@ -744,8 +744,14 @@ def get_proxy_list() -> list:
     获取代理列表
     """
     # 获取公网HTTPS代理列表
+    system_proxy = Variable.get("PROXY_URL", default_var="")
+    if system_proxy:
+        proxies = {"https": system_proxy}
+    else:
+        proxies = None
+
     url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
-    response = requests.get(url, verify=False)
+    response = requests.get(url, proxies=proxies, verify=False)
     text = response.text.strip()
     lines = text.split("\n")
     proxy_list = [line.strip() for line in lines]
