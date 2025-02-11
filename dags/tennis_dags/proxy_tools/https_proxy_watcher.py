@@ -101,30 +101,37 @@ def check_proxy(candidate_proxy, proxy_url_infos):
     return None
 
 def update_proxy_file(filename, available_proxies):
-    # 确保文件内容被正确初始化
-    with open(filename, "w") as file:
-        for proxy in available_proxies:
-            file.write(proxy + "\n")
+    """更新代理文件，保留最新的100个代理
+    
+    Args:
+        filename: 代理文件路径
+        available_proxies: 新的可用代理列表
+    """
     try:
+        # 读取现有代理
         with open(filename, "r") as file:
-            existing_proxies = file.readlines()
+            existing_proxies = [line.strip() for line in file.readlines()]
     except FileNotFoundError:
-        existing_proxies = ""
+        existing_proxies = []
 
-    existing_proxies = [proxy.strip() for proxy in existing_proxies]
-    new_proxies = [proxy for proxy in available_proxies if proxy not in existing_proxies]
+    # 合并现有代理和新代理，去重
+    all_proxies = []
+    # 首先添加新的可用代理
+    for proxy in available_proxies:
+        if proxy not in all_proxies:
+            all_proxies.append(proxy)
+    # 然后添加现有代理
+    for proxy in existing_proxies:
+        if proxy not in all_proxies:
+            all_proxies.append(proxy)
 
-    if new_proxies:
-        with open(filename, "a") as file:
-            for proxy in new_proxies:
-                file.write(proxy + "\n")
+    # 只保留最新的100个代理
+    latest_proxies = all_proxies[:100]
 
-    with open(filename, "r") as file:
-        lines = file.readlines()
-
-    if len(lines) > 50:
-        with open(filename, "w") as file:
-            file.writelines(lines[-50:])
+    # 写入文件
+    with open(filename, "w") as file:
+        for proxy in latest_proxies:
+            file.write(proxy + "\n")
 
 def upload_file_to_github(filename):
     token = Variable.get('GIT_TOKEN')
@@ -150,12 +157,25 @@ def download_file():
     try:
         response = make_request('get', REMOTE_FILENAME)
         response.raise_for_status()
-
-        with open(LOCAL_FILENAME, 'wb') as file:
-            file.write(response.content)
-        print(f"File downloaded and saved to {LOCAL_FILENAME}")
+        
+        # GitHub API 返回的是 JSON 格式，包含 base64 编码的内容
+        content = response.json().get('content', '')
+        if content:
+            decoded_content = base64.b64decode(content).decode('utf-8')
+            # 计算当前代理数量
+            current_proxies = [line.strip() for line in decoded_content.split('\n') if line.strip()]
+            print(f"Current proxies count: {len(current_proxies)}")
+            
+            with open(LOCAL_FILENAME, 'w') as file:
+                file.write(decoded_content)
+            print(f"File downloaded and saved to {LOCAL_FILENAME}")
+        else:
+            print("No content found in the response")
     except requests.RequestException as e:
         print(f"Failed to download the file: {e}")
+        # 如果下载失败，确保创建一个空文件
+        with open(LOCAL_FILENAME, 'w') as file:
+            pass
 
 def get_file_sha(url, headers):
     response = make_request('get', url, headers=headers)
@@ -176,11 +196,14 @@ def task_check_proxies():
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             print(f"{now} Available proxies: {len(available_proxies)}")
             
-            update_proxy_file(LOCAL_FILENAME, available_proxies)
-            upload_file_to_github(LOCAL_FILENAME)
-            
             if len(available_proxies) >= 10:
+                # 当收集到足够的代理时才更新文件
+                update_proxy_file(LOCAL_FILENAME, available_proxies)
+                upload_file_to_github(LOCAL_FILENAME)
                 break
+    
+    if not available_proxies:
+        print("No available proxies found, keeping existing ones")
     
     print("check end.")
 
