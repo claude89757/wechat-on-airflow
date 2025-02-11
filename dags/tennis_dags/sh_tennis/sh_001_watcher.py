@@ -149,9 +149,16 @@ def check_tennis_courts():
     run_start_time = time.time()
     print_with_timestamp("start to check...")
 
+    # 获取系统代理
+    system_proxy = Variable.get("PROXY_URL", default_var="")
+    if system_proxy:
+        proxies = {"https": system_proxy}
+    else:
+        proxies = None
+
     # 获取代理列表
     url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
-    response = requests.get(url)
+    response = requests.get(url, proxies=proxies)
     text = response.text.strip()
     proxy_list = [line.strip() for line in text.split("\n")]
     random.shuffle(proxy_list)

@@ -19,34 +19,13 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models.variable import Variable
 
+from dags.utils.new_request import make_request
+
+
 # 常量定义
 LOCAL_FILENAME = "/tmp/https_proxies.txt"
 REMOTE_FILENAME = "https://api.github.com/repos/claude89757/free_https_proxies/contents/https_proxies.txt"
 
-def make_request(method, url, use_proxy=True, **kwargs):
-    """统一的请求处理函数
-    
-    Args:
-        method: 请求方法 ('get' 或 'put')
-        url: 请求URL
-        use_proxy: 是否使用系统代理
-        **kwargs: 传递给 requests 的其他参数
-    """
-    if use_proxy:
-        system_proxy = Variable.get("PROXY_URL", default_var="")
-        if system_proxy:
-            kwargs['proxies'] = {"https": system_proxy}
-    
-    if method.lower() == 'get':
-        return requests.get(url, **kwargs)
-    elif method.lower() == 'put':
-        return requests.put(url, **kwargs)
-    elif method.lower() == 'delete':
-        return requests.delete(url, **kwargs)
-    elif method.lower() == 'post':
-        return requests.post(url, **kwargs)
-    else:
-        raise ValueError(f"Unsupported method: {method}")
 
 def generate_proxies():
     """获取待检查的代理列表"""
