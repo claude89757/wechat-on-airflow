@@ -23,6 +23,31 @@ from airflow.models.variable import Variable
 LOCAL_FILENAME = "/tmp/https_proxies.txt"
 REMOTE_FILENAME = "https://api.github.com/repos/claude89757/free_https_proxies/contents/https_proxies.txt"
 
+def make_request(method, url, use_proxy=True, **kwargs):
+    """统一的请求处理函数
+    
+    Args:
+        method: 请求方法 ('get' 或 'put')
+        url: 请求URL
+        use_proxy: 是否使用系统代理
+        **kwargs: 传递给 requests 的其他参数
+    """
+    if use_proxy:
+        system_proxy = Variable.get("PROXY_URL", default_var="")
+        if system_proxy:
+            kwargs['proxies'] = {"https": system_proxy}
+    
+    if method.lower() == 'get':
+        return requests.get(url, **kwargs)
+    elif method.lower() == 'put':
+        return requests.put(url, **kwargs)
+    elif method.lower() == 'delete':
+        return requests.delete(url, **kwargs)
+    elif method.lower() == 'post':
+        return requests.post(url, **kwargs)
+    else:
+        raise ValueError(f"Unsupported method: {method}")
+
 def generate_proxies():
     """获取待检查的代理列表"""
     urls = [
@@ -31,24 +56,23 @@ def generate_proxies():
         "https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/https.txt",
         "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",
     ]
-    proxies = []
+    candidate_proxies = []
     proxy_url_infos = {}
-    
+
     for url in urls:
         print(f"getting proxy list for {url}")
-        response = requests.get(url)
+        response = make_request('get', url)
         text = response.text.strip()
         lines = text.split("\n")
-        # 过滤掉非 IP 格式的行
         lines = [line.strip() for line in lines if is_valid_proxy(line)]
-        proxies.extend(lines)
+        candidate_proxies.extend(lines)
         print(f"Loaded {len(lines)} proxies from {url}")
         for line in lines:
             proxy_url_infos[line] = url
-            
-    print(f"Total {len(proxies)} proxies loaded")
-    random.shuffle(proxies)
-    return proxies, proxy_url_infos
+    
+    print(f"Total {len(candidate_proxies)} proxies loaded")
+    random.shuffle(candidate_proxies)
+    return candidate_proxies, proxy_url_infos
 
 def is_valid_proxy(proxy):
     # 简单的 IP 格式验证
@@ -58,17 +82,20 @@ def is_valid_proxy(proxy):
     ip, port = parts
     return ip.count('.') == 3 and port.isdigit()
 
-def check_proxy(proxy_url, proxy_url_infos):
+def check_proxy(candidate_proxy, proxy_url_infos):
     """检查代理是否可用"""
     try:
-        response = requests.get(
-            "https://www.baidu.com/", 
-            proxies={"https": proxy_url}, 
+        # 检查代理时不使用系统代理
+        response = make_request(
+            'get',
+            "https://www.baidu.com/",
+            use_proxy=False,
+            proxies={"https": candidate_proxy},
             timeout=3
         )
         if response.status_code == 200:
-            print(f"[OK]  {proxy_url}, from {proxy_url_infos.get(proxy_url)}")
-            return proxy_url
+            print(f"[OK]  {candidate_proxy}, from {proxy_url_infos.get(candidate_proxy)}")
+            return candidate_proxy
     except:
         pass
     return None
@@ -105,6 +132,7 @@ def upload_file_to_github(filename):
         'Authorization': f'token {token}',
         'Accept': 'application/vnd.github.v3+json'
     }
+    
     with open(LOCAL_FILENAME, 'rb') as file:
         content = file.read()
     data = {
@@ -112,7 +140,7 @@ def upload_file_to_github(filename):
         'content': base64.b64encode(content).decode('utf-8'),
         'sha': get_file_sha(REMOTE_FILENAME, headers)
     }
-    response = requests.put(REMOTE_FILENAME, headers=headers, json=data)
+    response = make_request('put', REMOTE_FILENAME, headers=headers, json=data)
     if response.status_code == 200:
         print("File uploaded successfully.")
     else:
@@ -120,7 +148,7 @@ def upload_file_to_github(filename):
 
 def download_file():
     try:
-        response = requests.get(REMOTE_FILENAME)
+        response = make_request('get', REMOTE_FILENAME)
         response.raise_for_status()
 
         with open(LOCAL_FILENAME, 'wb') as file:
@@ -130,7 +158,7 @@ def download_file():
         print(f"Failed to download the file: {e}")
 
 def get_file_sha(url, headers):
-    response = requests.get(url, headers=headers)
+    response = make_request('get', url, headers=headers)
     if response.status_code == 200:
         return response.json()['sha']
     return None
