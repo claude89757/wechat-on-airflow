@@ -215,6 +215,7 @@ def check_tennis_courts():
         # 获取现有的通知缓存
         cache_key = "上海卢湾网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        print(f"sended_msg_list: {sended_msg_list}")
        
         # 添加新的通知
         up_for_send_msg_list = []
@@ -231,10 +232,12 @@ def check_tennis_courts():
             for free_slot in free_slot_list:
                 # 生成通知字符串
                 msg = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
-                if msg not in up_for_send_msg_list:
+                if msg not in sended_msg_list:
                     up_for_send_msg_list.append(msg)
                 else:
                     print(f"msg {msg} already sended")
+
+        print(f"up_for_send_msg_list: {up_for_send_msg_list}")
 
         # 发送微信消息
         wcf_ip = Variable.get("WCF_IP")
