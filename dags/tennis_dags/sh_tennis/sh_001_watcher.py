@@ -19,6 +19,8 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
+from utils.wechat_channl import send_wx_msg
+
 # DAG的默认参数
 default_args = {
     'owner': 'claude89757',
@@ -218,6 +220,10 @@ def check_tennis_courts():
             notifications = Variable.get(cache_key, deserialize_json=True)
         except:
             notifications = []
+
+        sended_msg_list = []
+        for notification in notifications:
+            sended_msg_list.append(notification['msg'])
         
         # 添加新的通知
         for data in up_for_send_data_list:
@@ -232,20 +238,32 @@ def check_tennis_courts():
             
             for free_slot in free_slot_list:
                 # 生成通知字符串
-                notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
-                
-                # 如果不存在，则添加到列表开头
-                if notification not in notifications:
-                    notifications.append(notification)
+                msg = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                if msg not in sended_msg_list:
+                    notifications.append({"msg": msg, "is_sended": False})
+                else:
+                    print(f"msg {msg} already sended")
 
-        # 只保留最新的10条消息
-        notifications = notifications[-10:]
-        
-        # 更新Variable
+        # 发送微信消息
+        wcf_ip = Variable.get("WCF_IP")
+        for notification in notifications:
+            if notification['is_sended']:
+                continue
+            else:
+                # 获取微信发送配置
+                send_wx_msg(
+                    wcf_ip=wcf_ip,
+                    message=notification['msg'],
+                    receiver="56351399535@chatroom",
+                    aters=''
+                )
+                notification['is_sended'] = True
+
+        # 更新缓存信息
         description = f"上海卢湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         Variable.set(
             key=cache_key,
-            value=notifications,
+            value=notifications[-100:],
             description=description,
             serialize_json=True
         )
