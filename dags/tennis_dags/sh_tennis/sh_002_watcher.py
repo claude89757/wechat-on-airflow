@@ -25,6 +25,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
+from utils.wechat_channl import send_wx_msg
 
 # 忽略 SSL 警告
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
@@ -909,13 +910,9 @@ def check_tennis_courts():
     # 处理通知逻辑
     # 获取现有的通知缓存
     cache_key = "上海青少体育网球场"
-    try:
-        notifications = Variable.get(cache_key, deserialize_json=True)
-    except:
-        notifications = []
+    sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
+    up_for_send_msg_list = []
     if up_for_send_data_list:
-
-        
         # 添加新的通知
         for data in up_for_send_data_list:
             date = data['date']
@@ -932,23 +929,32 @@ def check_tennis_courts():
                 notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                 
                 # 如果不存在，则添加到列表开头
-                if notification not in notifications:
-                     notifications.append(notification)
+                if notification not in sended_msg_list:
+                    up_for_send_msg_list.append(notification)
 
-        # 只保留最新的10条消息
-        notifications = notifications[-10:]
-        
+        # 发送微信消息
+        wcf_ip = Variable.get("WCF_IP", default_var="")
+        for msg in up_for_send_msg_list:
+            # 获取微信发送配置
+            send_wx_msg(
+                wcf_ip=wcf_ip,
+                message=msg,
+                receiver="56351399535@chatroom",
+                aters=''
+            )
+            sended_msg_list.append(msg)
+
         # 更新Variable
         description = f"上海青少体育网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         Variable.set(
             key=cache_key,
-            value=notifications,
+            value=sended_msg_list[-10:],
             description=description,
             serialize_json=True
         )
 
-    print(f"up_for_send_data_list: {up_for_send_data_list}")
-    print(f"notifications: {notifications}")
+    print(f"up_for_send_msg_list: {up_for_send_msg_list}")
+    print(f"sended_msg_list: {sended_msg_list}")
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
     print_with_timestamp(f"Total cost time：{execution_time} s")
