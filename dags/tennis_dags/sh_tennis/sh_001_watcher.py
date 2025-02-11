@@ -102,8 +102,6 @@ def get_free_tennis_court_data(field_type: str, order_date: str, proxy_list: lis
             print(f"trying for {try_time} time for {proxy}")
             try_time += 1
             try:
-                if not proxy.startswith("http://") and not proxy.startswith("https://"):
-                    proxy = "http://" + proxy
                 proxies = {"https": proxy}
                 response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=2)
                 if response.status_code == 200:
