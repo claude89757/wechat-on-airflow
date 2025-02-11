@@ -207,6 +207,7 @@ def check_tennis_courts():
             description=description,
             serialize_json=True
         )
+        print(f"updated {cache_key} with {notifications}")
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
