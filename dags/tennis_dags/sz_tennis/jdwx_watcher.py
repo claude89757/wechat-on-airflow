@@ -17,6 +17,8 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
+from utils.wechat_channl import send_wx_msg
+
 # DAG的默认参数
 default_args = {
     'owner': 'claude89757',
@@ -176,12 +178,9 @@ def check_tennis_courts():
 
     # 处理通知逻辑
     if up_for_send_data_list:
-        cache_key = "深圳金地网球场"
-        try:
-            notifications = Variable.get(cache_key, deserialize_json=True)
-        except:
-            notifications = []
-        
+        cache_key = "金地威新网球场"
+        sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        up_for_send_msg_list = []
         for data in up_for_send_data_list:
             date = data['date']
             court_name = data['court_name']
@@ -193,21 +192,28 @@ def check_tennis_courts():
             
             for free_slot in free_slot_list:
                 notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
-                if notification not in notifications:
-                    notifications.append(notification)
+                if notification not in sended_msg_list:
+                    up_for_send_msg_list.append(notification)
 
-        # 只保留最新的10条消息
-        notifications = notifications[-10:]
-        
+        # # 获取微信发送配置
+        # wcf_ip = Variable.get("WCF_IP", default_var="")
+        # for msg in up_for_send_msg_list:
+        #     send_wx_msg(
+        #         wcf_ip=wcf_ip,
+        #         message=msg,
+        #         receiver="38763452635@chatroom",
+        #         aters=''
+        #     )
+
         # 更新Variable
         description = f"深圳金地网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         Variable.set(
             key=cache_key,
-            value=notifications,
+            value=sended_msg_list[-10:],
             description=description,
             serialize_json=True
         )
-        print(f"updated {cache_key} with {notifications}")
+        print(f"updated {cache_key} with {sended_msg_list}")
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
