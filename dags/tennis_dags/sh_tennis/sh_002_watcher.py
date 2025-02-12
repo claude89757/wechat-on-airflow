@@ -226,6 +226,7 @@ def get_sign_info_from_serverless(access_token: str):
     """
     access_token:
     """
+    print(f"get_sign_info_from_serverless....")
     url = "https://api.next.bspapp.com/client?"
     data = {
         "method": "serverless.function.runtime.invoke",
@@ -315,7 +316,9 @@ def get_sign_info_from_serverless(access_token: str):
         "token": access_token
     }
     serverless_sign = Ae(data, Variable.get("QYD_SERVERLESS_CLIENT_SECRET"))
-    # print(f"serverless_sign: {serverless_sign}")
+    print(f"serverless_sign: {serverless_sign}")
+    print(f"access_token: {access_token}")
+    print(f"spaceId: {Variable.get("QYD_SERVERLESS_SPACE_ID")}")
     headers = {
         "Host": "api.next.bspapp.com",
         "x-basement-token": access_token,
