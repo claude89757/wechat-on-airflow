@@ -211,7 +211,7 @@ def get_serverless_access_token():
                                  timeout=5)
     else:
         response = requests.post(url, headers=headers, data=json.dumps(data), verify=False)
-    print(response.text)
+    print(f"get_serverless_access_token response: {response.text}")
     if response.status_code == 200:
         response_json = response.json()
         if response_json.get("success"):
