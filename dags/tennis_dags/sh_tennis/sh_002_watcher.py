@@ -882,6 +882,12 @@ def check_tennis_courts():
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     timestamp = time.time()
     print(f"当前系统时间: {current_time}, 时间戳: {timestamp}")
+    print("Airflow Variables:")
+    print(f"QYD_SERVERLESS_SPACE_ID: {Variable.get('QYD_SERVERLESS_SPACE_ID')}")
+    print(f"QYD_SERVERLESS_CLIENT_SECRET: {Variable.get('QYD_SERVERLESS_CLIENT_SECRET')}")
+    print(f"QYD_API_ACCESS_TOKEN: {Variable.get('QYD_API_ACCESS_TOKEN')}")
+    print(f"QYD_LOGIN_TOKEN: {Variable.get('QYD_LOGIN_TOKEN')}")
+    print(f"QYD_SIGN_INFO: {Variable.get('QYD_SIGN_INFO')}")
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
