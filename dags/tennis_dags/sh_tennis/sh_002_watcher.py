@@ -186,9 +186,7 @@ def get_serverless_access_token():
         "spaceId": Variable.get("QYD_SERVERLESS_SPACE_ID"),
         "timestamp": CURRENT_TIME
     }
-    print(data)
     serverless_sign = Ae(data, Variable.get("QYD_SERVERLESS_CLIENT_SECRET"))
-    # print(f"serverless_sign: {serverless_sign}")
     headers = {
         "Host": "api.next.bspapp.com",
         "xweb_xhr": "1",
@@ -205,6 +203,8 @@ def get_serverless_access_token():
         "Accept-Language": "zh-CN,zh;q=0.9"
     }
     print(url)
+    print("headers: ", json.dumps(headers, indent=4, ensure_ascii=False))
+    print("data: ", json.dumps(data, indent=4, ensure_ascii=False))
     if PROXY:
         print(f"PROXY: {PROXY}")
         response = requests.post(url, headers=headers, data=json.dumps(data), verify=False, proxies={"https": PROXY},
