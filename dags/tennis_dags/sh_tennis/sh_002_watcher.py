@@ -878,6 +878,10 @@ def check_tennis_courts():
     run_start_time = time.time()
     print_with_timestamp("start to check...")
 
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = time.time()
+    print(f"当前系统时间: {current_time}, 时间戳: {timestamp}")
+
     # 查询空闲的球场信息
     up_for_send_data_list = []
     success_proxy = None
