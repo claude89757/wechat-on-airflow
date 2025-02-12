@@ -177,6 +177,7 @@ def Ae(body, secret):
 
 
 def get_serverless_access_token():
+    print(f"get_serverless_access_token....")
     url = "https://api.next.bspapp.com/client"
 
     data = {
@@ -341,7 +342,7 @@ def get_sign_info_from_serverless(access_token: str):
         response = requests.post(url, headers=headers, data=json.dumps(data), verify=False, proxies={"https": PROXY},
                                  timeout=5)
     else:
-        response = requests.post(url, headers=headers, data=json.dumps(data), verify=False)
+        responhttps://api.next.bspapp.com/clientse = requests.post(url, headers=headers, data=json.dumps(data), verify=False)
     print(response.text)
     if response.status_code == 200:
         response_json = response.json()
