@@ -342,7 +342,7 @@ def get_sign_info_from_serverless(access_token: str):
         response = requests.post(url, headers=headers, data=json.dumps(data), verify=False, proxies={"https": PROXY},
                                  timeout=5)
     else:
-        responhttps://api.next.bspapp.com/clientse = requests.post(url, headers=headers, data=json.dumps(data), verify=False)
+        response = requests.post(url, headers=headers, data=json.dumps(data), verify=False)
     print(response.text)
     if response.status_code == 200:
         response_json = response.json()
