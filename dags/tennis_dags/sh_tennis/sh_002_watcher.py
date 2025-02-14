@@ -83,6 +83,7 @@ def load_data_from_variable(filename: str, expire_time: int, using_cached: bool 
     try:
         # 从 Variable 获取数据和时间戳
         var_data = Variable.get(filename, deserialize_json=True)
+        print(f"var_data: {var_data}")
         local_data = var_data.get('data', '')
         last_update = var_data.get('timestamp', 0)
         
