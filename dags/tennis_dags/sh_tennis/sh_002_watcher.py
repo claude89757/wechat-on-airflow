@@ -178,6 +178,7 @@ def Ae(body, secret):
 
 
 def get_serverless_access_token():
+    print(f"get_serverless_access_token....")
     url = "https://api.next.bspapp.com/client"
 
     data = {
@@ -186,9 +187,7 @@ def get_serverless_access_token():
         "spaceId": Variable.get("QYD_SERVERLESS_SPACE_ID"),
         "timestamp": CURRENT_TIME
     }
-    print(data)
     serverless_sign = Ae(data, Variable.get("QYD_SERVERLESS_CLIENT_SECRET"))
-    # print(f"serverless_sign: {serverless_sign}")
     headers = {
         "Host": "api.next.bspapp.com",
         "xweb_xhr": "1",
@@ -205,13 +204,16 @@ def get_serverless_access_token():
         "Accept-Language": "zh-CN,zh;q=0.9"
     }
     print(url)
+    print(f"QYD_SERVERLESS_CLIENT_SECRET: {Variable.get("QYD_SERVERLESS_CLIENT_SECRET")}")
+    print("headers: ", json.dumps(headers, indent=4, ensure_ascii=False))
+    print("data: ", json.dumps(data, indent=4, ensure_ascii=False))
     if PROXY:
         print(f"PROXY: {PROXY}")
         response = requests.post(url, headers=headers, data=json.dumps(data), verify=False, proxies={"https": PROXY},
                                  timeout=5)
     else:
         response = requests.post(url, headers=headers, data=json.dumps(data), verify=False)
-    print(response.text)
+    print(f"get_serverless_access_token response: {response.text}")
     if response.status_code == 200:
         response_json = response.json()
         if response_json.get("success"):
@@ -227,6 +229,7 @@ def get_sign_info_from_serverless(access_token: str):
     """
     access_token:
     """
+    print(f"get_sign_info_from_serverless....")
     url = "https://api.next.bspapp.com/client?"
     data = {
         "method": "serverless.function.runtime.invoke",
@@ -316,7 +319,9 @@ def get_sign_info_from_serverless(access_token: str):
         "token": access_token
     }
     serverless_sign = Ae(data, Variable.get("QYD_SERVERLESS_CLIENT_SECRET"))
-    # print(f"serverless_sign: {serverless_sign}")
+    print(f"serverless_sign: {serverless_sign}")
+    print(f"access_token: {access_token}")
+    print(f"spaceId: {Variable.get("QYD_SERVERLESS_SPACE_ID")}")
     headers = {
         "Host": "api.next.bspapp.com",
         "x-basement-token": access_token,
@@ -874,6 +879,16 @@ def check_tennis_courts():
     
     run_start_time = time.time()
     print_with_timestamp("start to check...")
+
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = time.time()
+    print(f"当前系统时间: {current_time}, 时间戳: {timestamp}")
+    print("Airflow Variables:")
+    print(f"QYD_SERVERLESS_SPACE_ID: {Variable.get('QYD_SERVERLESS_SPACE_ID')}")
+    print(f"QYD_SERVERLESS_CLIENT_SECRET: {Variable.get('QYD_SERVERLESS_CLIENT_SECRET')}")
+    print(f"QYD_API_ACCESS_TOKEN: {Variable.get('QYD_API_ACCESS_TOKEN')}")
+    print(f"QYD_LOGIN_TOKEN: {Variable.get('QYD_LOGIN_TOKEN')}")
+    print(f"QYD_SIGN_INFO: {Variable.get('QYD_SIGN_INFO')}")
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
