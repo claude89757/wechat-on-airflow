@@ -119,24 +119,30 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         data = {
             'VenueTypeID': 'd3bc78ba-0d9c-4996-9ac5-5a792324decb',
             'VenueTypeDisplayName': '',
-            'IsGetPrice': 'true',
-            'isApp': 'true', 
-            'billDay': date,
-            'webApiUniqueID': f"{uuid.uuid4()}"  # 添加随机UUID
+            # 'IsGetPrice': 'true',
+            # 'isApp': 'true',
+            'billDay': {date},
+            # 'webApiUniqueID': '811e68e7-f189-675c-228d-3739e48e57b2'
         }
-        
         headers = {
             "Host": "program.springcocoon.com",
+            "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"98\"",
+            # "X-XSRF-TOKEN": "rs3gB5gQUqeG-YcaRXgB13JMlQAn9N4e_vS29wl-_HV5-MZb6gCL7eLhiC030tJP-cFa0c2qgK9UfSKuwLH5vhZK_
+            # 2KYA_j7Df_NAn9ts9q3N0A9XIJe7vAXdhZLTaywn0VRMA2",
+            "sec-ch-ua-mobile": "?0",
+            # "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)
+            # Chrome/98.0.4758.102 Safari/537.36 MicroMessenger/6.8.0(0x16080000) NetType/WIFI MiniProgramEnv
+            # /Mac MacWechat/WMPF XWEB/30803",
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "X-XSRF-TOKEN": "ntutMqRb0WugZfy7xPzohrV_9ye2tSviscG8iXdqwJ8Wv63Fic7N3NZNHw9gSKOd8g5wfvq3uS2xdUGlMGqit0-RqZWn1Yb2z4eBrLXUbGMlYXxaBL-Bt8rwbMH7D0jdzVYdeQ2",
             "X-Requested-With": "XMLHttpRequest",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 MicroMessenger/6.8.0(0x16080000) NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF MacWechat/3.8.10(0x13080a11) XWEB/1227",
+            "sec-ch-ua-platform": "\"macOS\"",
             "Origin": "https://program.springcocoon.com",
             "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "cors", 
+            "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",
-            "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
-            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/"
+                       "VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
+            "Accept-Language": "zh-CN,zh",
             "Cookie": szw_cookie
         }
         url = 'https://program.springcocoon.com/szbay/api/services/app/VenueBill/GetVenueBillDataAsync'
