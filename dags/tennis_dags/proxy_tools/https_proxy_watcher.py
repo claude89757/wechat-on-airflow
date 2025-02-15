@@ -105,7 +105,7 @@ def update_proxy_file(filename, available_proxies):
             all_proxies.append(proxy)
 
     # 只保留最新的100个代理
-    latest_proxies = all_proxies[:100]
+    latest_proxies = all_proxies[:50]
 
     # 写入文件
     with open(filename, "w") as file:
