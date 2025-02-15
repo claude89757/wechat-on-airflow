@@ -3,7 +3,11 @@ import requests
 import json
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+import ssl
+import urllib3
+from urllib3.poolmanager import PoolManager
 
+# 添加回 default_args 定义
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
@@ -13,8 +17,35 @@ default_args = {
     'retry_delay': timedelta(minutes=1),
 }
 
+def get_legacy_session():
+    class CustomHttpAdapter(requests.adapters.HTTPAdapter):
+        def __init__(self, *args, **kwargs):
+            self.poolmanager = None
+            super().__init__(*args, **kwargs)
+
+        def init_poolmanager(self, connections, maxsize, block=False):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+            ctx.options |= 0x4  # 启用legacy renegotiation
+            self.poolmanager = PoolManager(
+                num_pools=connections,
+                maxsize=maxsize,
+                block=block,
+                ssl_context=ctx
+            )
+    
+    session = requests.Session()
+    adapter = CustomHttpAdapter()
+    session.mount('https://', adapter)
+    return session
+
 def check_venue_availability():
     url = "https://program.springcocoon.com/szbay/api/services/app/VenueBill/GetVenueBillDataAsync"
+    
+    session = get_legacy_session()
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # 禁用不安全请求警告
     
     headers = {
         "Host": "program.springcocoon.com",
@@ -37,8 +68,8 @@ def check_venue_availability():
     }
 
     try:
-        response = requests.post(url, headers=headers, data=data, verify=False, timeout=10)
-        response.raise_for_status()  # 检查请求是否成功
+        response = session.post(url, headers=headers, data=data, verify=False, timeout=10)
+        response.raise_for_status()
         result = response.json()
         print(f"查询时间: {datetime.now()}")
         print(f"API返回结果: {json.dumps(result, indent=2, ensure_ascii=False)}")
@@ -50,7 +81,7 @@ dag = DAG(
     'szw_tennis_court_checker',
     default_args=default_args,
     description='深圳湾网球场地可用性检查',
-    schedule_interval='*/5 * * * *',  # 每5分钟执行一次
+    schedule='*/5 * * * *',  # 使用 schedule 替代 schedule_interval
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=['tennis'],
@@ -62,3 +93,7 @@ check_task = PythonOperator(
     python_callable=check_venue_availability,
     dag=dag,
 )
+
+# # test
+# if __name__ == "__main__":
+#     check_venue_availability()
