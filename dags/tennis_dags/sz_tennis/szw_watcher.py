@@ -277,9 +277,9 @@ def filter_available_proxies(proxy_list: List[str], max_workers: int = 10) -> Li
 
 def check_tennis_courts():
     """主要检查逻辑"""
-    # if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
-    #     print("每天0点-8点不巡检")
-    #     return
+    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
+        print("每天0点-8点不巡检")
+        return
     
     run_start_time = time.time()
     print_with_timestamp("start to check...")
