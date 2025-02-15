@@ -13,6 +13,10 @@ import random
 import concurrent.futures
 from typing import List, Tuple
 import uuid
+import ssl
+import urllib3
+from urllib3.util.ssl_ import create_urllib3_context
+from urllib3.poolmanager import PoolManager
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -69,6 +73,31 @@ def find_available_slots(booked_slots: List[List[str]], time_range: dict) -> Lis
     
     return available
 
+def get_legacy_session():
+    """创建一个支持旧版SSL的会话"""
+    class CustomHttpAdapter(requests.adapters.HTTPAdapter):
+        def __init__(self, *args, **kwargs):
+            self.poolmanager = None
+            super().__init__(*args, **kwargs)
+
+        def init_poolmanager(self, connections, maxsize, block=False):
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+            ctx.options |= 0x4  # 启用legacy renegotiation
+            self.poolmanager = PoolManager(
+                num_pools=connections,
+                maxsize=maxsize,
+                block=block,
+                ssl_context=ctx
+            )
+    
+    session = requests.Session()
+    adapter = CustomHttpAdapter()
+    session.mount('https://', adapter)
+    return session
+
 def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:
     """
     获取可预订的场地信息
@@ -82,6 +111,9 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     szw_cookie = "HT.LoginType.1=20; HT.App.Type.1=10; HT.Weixin.ServiceType.1=30; HT.Weixin.AppID.1=wx6b10d95e92283e1c; HT.Weixin.OpenID.1=oH5RL5EWB5CjAPKVPOOLlfHm1bV8; HT.EmpID.1=4d5adfce-e849-48d5-b7fb-863cdf34bea0; HT.IsTrainer.1=False; HT.PartID.1=b700c053-71f2-47a6-88a1-6cf50b7cf863; HT.PartDisplayName.1=%e6%b7%b1%e5%9c%b3%e6%b9%be%e4%bd%93%e8%82%b2%e4%b8%ad%e5%bf%83; HT.ShopID.1=4f195d33-de51-495e-a345-09b23f98ce95; HT.ShopDisplayName.1=%e6%b7%b1%e5%9c%b3%e6%b9%be%e5%b0%8f%e7%a8%8b%e5%ba%8f; ASP.NET_SessionId=kzkp4in0ixh5b2ja15ntd5lt; .AspNet.ApplicationCookie=-M7ZlgO39kFB3HKUrbDJ2Xr5BLfSWTo_Ro2VRQf_Pv_g1X50ZymQcwKI4CmPMFDgTdi5e-N0IaORjtRSLVQ1uVoQ9DETv4uMYybiB18vLSEVZ4hlMd8gxdIjjGeupP3HuGFF0dOTvj2zFS1b0dm6EcKMEoQZv7t3dDJ5jsGn71WSI4lB2uGP8tqwwcLVlaAnKvAGf73dCd1uRaUvBawCpy7FcSZyPR4b_UlKGe5UxJgWuaQLseMyxpKriwalXFe4T3ZUcNwOS6bRB0mqSbKWPrgOFiIq0_WRdMAhqSNqg-cvYE7hSI4gFTRCtn_3v6em9kp4RNQqOdz-c50pk1d589Vb7ftvH0tPry8-rLM9yf0p24fR0DL8MKyi-rXTiQ8HTPTdcWrWdL30DtBRNQ4Zye8DA68RA5bV5Y61yWAf51S3s1GvVUsJ1MkBk6dPtsfkWmhG4C7Mx6-MRrMXAzrZZXrE1jB1a7wJIdSziREVZxiaQPcNcYQ5ZvFWnmtAcO_4h50NC714pIFiBdqWJbburJPof87xF6UVyZQcE3t9jqcFFUEBBZpQTiq0wi4Ejmh6CFcE9RqhaG1AUr5U6BV4Q7h3NEE3AjOtHcCx6lz-nlv0wIxs; __RequestVerificationToken_L3N6YmF50=iUyHTVkkRK6DfoP3plsDGxV7nOwcQ-xMWOh-EeW2gT6ZHPr6D4nGhrFl1d_ZRVZ3dkxSuZtREHtzL8WKiTIxYPpVA6Q1; XSRF-TOKEN=ntutMqRb0WugZfy7xPzohrV_9ye2tSviscG8iXdqwJ8Wv63Fic7N3NZNHw9gSKOd8g5wfvq3uS2xdUGlMGqit0-RqZWn1Yb2z4eBrLXUbGMlYXxaBL-Bt8rwbMH7D0jdzVYdeQ2"
     got_response = False
     response = None
+    
+    session = get_legacy_session()
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # 禁用不安全请求警告
     
     for proxy in proxy_list:
         data = {
@@ -113,7 +145,7 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         try:
             print(f"data: {data}")
             print(f"headers: {headers}" )
-            response = requests.post(url, headers=headers, data=data, proxies={"https": proxy}, verify=False, timeout=15)
+            response = session.post(url, headers=headers, data=data, proxies={"https": proxy}, timeout=15, verify=False)
             print(f"response: {response.text}")
             if response.status_code == 200:
                 try:
