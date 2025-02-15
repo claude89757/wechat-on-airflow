@@ -121,10 +121,11 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         proxy = proxy_list[index]
         print(f"trying for {index} time for {proxy}")
         try:
-            proxies = {"https": proxy}
+            proxies = {"https": "http://" + proxy}
             print(f"data: {data}")
             print(f"headers: {headers}" )
-            response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=30)
+            response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=15)
+            print(f"response: {response.text}")
             if response.status_code == 200:
                 print(response.json())
                 got_response = True
