@@ -81,21 +81,37 @@ def get_legacy_session():
             super().__init__(*args, **kwargs)
 
         def init_poolmanager(self, connections, maxsize, block=False):
-            ctx = ssl.create_default_context()
+            ctx = create_urllib3_context(
+                ciphers='DEFAULT@SECLEVEL=1:ALL:!DH:!EDH:!ADH:!AECDH:!MD5:!RC4',
+                options=(
+                    ssl.OP_NO_SSLv2 | 
+                    ssl.OP_NO_SSLv3 | 
+                    ssl.OP_NO_COMPRESSION |
+                    ssl.OP_LEGACY_SERVER_CONNECT |
+                    0x4  # 启用legacy renegotiation
+                )
+            )
+            ctx.minimum_version = ssl.TLSVersion.TLSv1
+            ctx.maximum_version = ssl.TLSVersion.TLSv1_2
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-            ctx.options |= 0x4  # 启用legacy renegotiation
+            
             self.poolmanager = PoolManager(
                 num_pools=connections,
                 maxsize=maxsize,
                 block=block,
-                ssl_context=ctx
+                ssl_context=ctx,
+                retries=urllib3.Retry(
+                    total=3,
+                    backoff_factor=0.5,
+                    status_forcelist=[500, 502, 503, 504]
+                )
             )
-    
+
     session = requests.Session()
     adapter = CustomHttpAdapter()
     session.mount('https://', adapter)
+    session.verify = False
     return session
 
 def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:
