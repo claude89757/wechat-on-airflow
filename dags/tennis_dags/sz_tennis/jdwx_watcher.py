@@ -161,10 +161,17 @@ def check_tennis_courts():
             for court_name, free_slots in court_data.items():
                 if free_slots:
                     filtered_slots = []
+                    check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
+                    is_weekend = check_date.weekday() >= 5
+                    
                     for slot in free_slots:
                         hour_num = int(slot[0].split(':')[0])
-                        if 18 <= hour_num <= 21:  # 只关注18点到21点的场地
-                            filtered_slots.append(slot)
+                        if is_weekend:
+                            if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
+                                filtered_slots.append(slot)
+                        else:
+                            if 18 <= hour_num <= 21:  # 工作日仍然只关注18点到21点的场地
+                                filtered_slots.append(slot)
                     
                     if filtered_slots:
                         up_for_send_data_list.append({
