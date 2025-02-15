@@ -10,14 +10,15 @@ import time
 import datetime
 import requests
 import random
+import concurrent.futures
+from typing import List, Tuple
 
-from typing import List
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
-# from utils.wechat_channl import send_wx_msg
+from utils.wechat_channl import send_wx_msg
 
 # DAG的默认参数
 default_args = {
@@ -182,6 +183,45 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     else:
         raise Exception("all proxies failed")
 
+def test_proxy(proxy: str) -> Tuple[str, bool]:
+    """
+    测试单个代理是否可用
+    Args:
+        proxy: 代理地址
+    Returns:
+        Tuple[str, bool]: (代理地址, 是否可用)
+    """
+    test_url = "https://program.springcocoon.com"
+    try:
+        proxies = {"https": proxy}
+        response = requests.get(test_url, proxies=proxies, timeout=10, verify=False)
+        return proxy, response.status_code == 200
+    except:
+        return proxy, False
+
+def filter_valid_proxies(proxy_list: List[str], max_workers: int = 10) -> List[str]:
+    """
+    并发测试代理列表，返回可用的代理
+    Args:
+        proxy_list: 代理列表
+        max_workers: 最大并发数
+    Returns:
+        List[str]: 可用的代理列表
+    """
+    valid_proxies = []
+    print_with_timestamp(f"开始测试 {len(proxy_list)} 个代理...")
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_proxy = {executor.submit(test_proxy, proxy): proxy for proxy in proxy_list}
+        for future in concurrent.futures.as_completed(future_to_proxy):
+            proxy, is_valid = future.result()
+            if is_valid:
+                valid_proxies.append(proxy)
+                print_with_timestamp(f"代理 {proxy} 可用")
+    
+    print_with_timestamp(f"测试完成，共找到 {len(valid_proxies)} 个可用代理")
+    return valid_proxies
+
 def check_tennis_courts():
     """主要检查逻辑"""
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
@@ -203,8 +243,15 @@ def check_tennis_courts():
     response = requests.get(url, proxies=proxies)
     text = response.text.strip()
     proxy_list = [line.strip() for line in text.split("\n")]
-    random.shuffle(proxy_list)
-    print(f"Loaded {len(proxy_list)} proxies from {url}")
+    
+    # 测试并筛选可用代理
+    valid_proxies = filter_valid_proxies(proxy_list)
+    if not valid_proxies:
+        print_with_timestamp("没有找到可用的代理")
+        return
+    
+    random.shuffle(valid_proxies)
+    print_with_timestamp(f"将使用 {len(valid_proxies)} 个可用代理")
 
     # 设置查询时间范围
     time_range = {
@@ -220,7 +267,7 @@ def check_tennis_courts():
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
         
         try:
-            court_data = get_free_tennis_court_infos_for_szw(input_date, proxy_list, time_range)
+            court_data = get_free_tennis_court_infos_for_szw(input_date, valid_proxies, time_range)
             print(f"court_data: {court_data}")
             time.sleep(1)
             
