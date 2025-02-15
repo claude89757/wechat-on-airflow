@@ -82,11 +82,8 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     szw_cookie = "HT.LoginType.1=20; HT.App.Type.1=10; HT.Weixin.ServiceType.1=30; HT.Weixin.AppID.1=wx6b10d95e92283e1c; HT.Weixin.OpenID.1=oH5RL5EWB5CjAPKVPOOLlfHm1bV8; HT.EmpID.1=4d5adfce-e849-48d5-b7fb-863cdf34bea0; HT.IsTrainer.1=False; HT.PartID.1=b700c053-71f2-47a6-88a1-6cf50b7cf863; HT.PartDisplayName.1=%e6%b7%b1%e5%9c%b3%e6%b9%be%e4%bd%93%e8%82%b2%e4%b8%ad%e5%bf%83; HT.ShopID.1=4f195d33-de51-495e-a345-09b23f98ce95; HT.ShopDisplayName.1=%e6%b7%b1%e5%9c%b3%e6%b9%be%e5%b0%8f%e7%a8%8b%e5%ba%8f; ASP.NET_SessionId=kzkp4in0ixh5b2ja15ntd5lt; .AspNet.ApplicationCookie=-M7ZlgO39kFB3HKUrbDJ2Xr5BLfSWTo_Ro2VRQf_Pv_g1X50ZymQcwKI4CmPMFDgTdi5e-N0IaORjtRSLVQ1uVoQ9DETv4uMYybiB18vLSEVZ4hlMd8gxdIjjGeupP3HuGFF0dOTvj2zFS1b0dm6EcKMEoQZv7t3dDJ5jsGn71WSI4lB2uGP8tqwwcLVlaAnKvAGf73dCd1uRaUvBawCpy7FcSZyPR4b_UlKGe5UxJgWuaQLseMyxpKriwalXFe4T3ZUcNwOS6bRB0mqSbKWPrgOFiIq0_WRdMAhqSNqg-cvYE7hSI4gFTRCtn_3v6em9kp4RNQqOdz-c50pk1d589Vb7ftvH0tPry8-rLM9yf0p24fR0DL8MKyi-rXTiQ8HTPTdcWrWdL30DtBRNQ4Zye8DA68RA5bV5Y61yWAf51S3s1GvVUsJ1MkBk6dPtsfkWmhG4C7Mx6-MRrMXAzrZZXrE1jB1a7wJIdSziREVZxiaQPcNcYQ5ZvFWnmtAcO_4h50NC714pIFiBdqWJbburJPof87xF6UVyZQcE3t9jqcFFUEBBZpQTiq0wi4Ejmh6CFcE9RqhaG1AUr5U6BV4Q7h3NEE3AjOtHcCx6lz-nlv0wIxs; __RequestVerificationToken_L3N6YmF50=iUyHTVkkRK6DfoP3plsDGxV7nOwcQ-xMWOh-EeW2gT6ZHPr6D4nGhrFl1d_ZRVZ3dkxSuZtREHtzL8WKiTIxYPpVA6Q1; XSRF-TOKEN=ntutMqRb0WugZfy7xPzohrV_9ye2tSviscG8iXdqwJ8Wv63Fic7N3NZNHw9gSKOd8g5wfvq3uS2xdUGlMGqit0-RqZWn1Yb2z4eBrLXUbGMlYXxaBL-Bt8rwbMH7D0jdzVYdeQ2"
     got_response = False
     response = None
-    index_list = list(range(len(proxy_list)))
-    random.shuffle(index_list)
-    print(index_list)
     
-    for index in index_list:
+    for proxy in proxy_list:
         data = {
             'VenueTypeID': 'd3bc78ba-0d9c-4996-9ac5-5a792324decb',
             'VenueTypeDisplayName': '',
@@ -118,13 +115,11 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         }
         url = 'https://program.springcocoon.com/szbay/api/services/app/VenueBill/GetVenueBillDataAsync'
         
-        proxy = proxy_list[index]
-        print(f"trying for {index} time for {proxy}")
+        print(f"trying for {proxy}")
         try:
-            proxies = {"https": "http://" + proxy}
             print(f"data: {data}")
             print(f"headers: {headers}" )
-            response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=15)
+            response = requests.post(url, headers=headers, data=data, proxies={"https": proxy}, verify=False, timeout=15)
             print(f"response: {response.text}")
             if response.status_code == 200:
                 print(response.json())
@@ -213,6 +208,7 @@ def check_tennis_courts():
     text = response.text.strip()
     proxy_list = [line.strip() for line in text.split("\n")]    
     random.shuffle(proxy_list)
+    print(proxy_list)
 
     # 设置查询时间范围
     time_range = {
@@ -324,8 +320,8 @@ check_courts_task = PythonOperator(
 check_courts_task
 
 
-# # 测试
-# if __name__ == "__main__":
-#     data = get_free_tennis_court_infos_for_szw("2025-02-15", ["189.240.60.166:9090"], {"start_time": "08:00", "end_time": "22:00"})
-#     for court_name, free_slots in data.items():
-#         print(f"{court_name}: {free_slots}")
+# 测试
+if __name__ == "__main__":
+    data = get_free_tennis_court_infos_for_szw("2025-02-15", ["34.215.74.117:1080"], {"start_time": "08:00", "end_time": "22:00"})
+    for court_name, free_slots in data.items():
+        print(f"{court_name}: {free_slots}")
