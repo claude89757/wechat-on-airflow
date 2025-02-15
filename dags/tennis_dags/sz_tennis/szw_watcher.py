@@ -192,9 +192,9 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
 
 def check_tennis_courts():
     """主要检查逻辑"""
-    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
-        print("每天0点-8点不巡检")
-        return
+    # if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
+    #     print("每天0点-8点不巡检")
+    #     return
     
     run_start_time = time.time()
     print_with_timestamp("start to check...")
