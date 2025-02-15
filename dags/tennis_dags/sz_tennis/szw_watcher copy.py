@@ -37,7 +37,7 @@ def check_venue_availability():
     }
 
     try:
-        response = requests.post(url, headers=headers, data=data)
+        response = requests.post(url, headers=headers, data=data, verify=False, timeout=10)
         response.raise_for_status()  # 检查请求是否成功
         result = response.json()
         print(f"查询时间: {datetime.now()}")
