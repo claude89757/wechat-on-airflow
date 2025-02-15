@@ -81,7 +81,6 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     got_response = False
     response = None
     index_list = list(range(len(proxy_list)))
-    # 打乱列表的顺序
     random.shuffle(index_list)
     print(index_list)
     
@@ -89,7 +88,7 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         data = {
             'VenueTypeID': 'd3bc78ba-0d9c-4996-9ac5-5a792324decb',
             'VenueTypeDisplayName': '',
-            'billDay': date,
+            'billDay': date
         }
         headers = {
             "Host": "program.springcocoon.com",
@@ -114,7 +113,10 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         
         try:
             proxies = {"https": proxy}
+            print(f"data: {data}")
+            print(f"headers: {headers}" )
             response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=15)
+            print(f"response: {response.text}")
             if response.status_code == 200:
                 print(f"success for {proxy}")
                 print(response.json())
