@@ -383,7 +383,7 @@ def check_tennis_courts():
         description = f"深圳湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         Variable.set(
             key=cache_key,
-            value=sended_msg_list[-10:],
+            value=sended_msg_list[-100:],
             description=description,
             serialize_json=True
         )
