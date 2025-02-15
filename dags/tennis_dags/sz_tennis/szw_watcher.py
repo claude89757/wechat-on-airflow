@@ -18,7 +18,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
-from utils.wechat_channl import send_wx_msg
+#from utils.wechat_channl import send_wx_msg
 
 # DAG的默认参数
 default_args = {
@@ -96,7 +96,7 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
             "Host": "program.springcocoon.com",
             "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"98\"",
             "sec-ch-ua-mobile": "?0",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept": "application/json",
             "X-Requested-With": "XMLHttpRequest",
             "sec-ch-ua-platform": "\"macOS\"",
             "Origin": "https://program.springcocoon.com",
@@ -191,46 +191,20 @@ def test_proxy(proxy: str) -> Tuple[str, bool]:
     Returns:
         Tuple[str, bool]: (代理地址, 是否可用)
     """
-    test_url = "https://program.springcocoon.com/szbay/api/services/app/VenueBill/GetVenueBillDataAsync"
-    headers = {
-        "Host": "program.springcocoon.com",
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": "https://program.springcocoon.com",
-        "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
-        "Accept-Language": "zh-CN,zh"
-    }
-    data = {
-        'VenueTypeID': 'd3bc78ba-0d9c-4996-9ac5-5a792324decb',
-        'VenueTypeDisplayName': '',
-        'billDay': datetime.datetime.now().strftime('%Y-%m-%d')
-    }
-    
+    test_url = "https://program.springcocoon.com"
     try:
         proxies = {"https": proxy}
-        response = requests.post(
-            test_url, 
-            headers=headers,
-            data=data,
-            proxies=proxies, 
-            timeout=10, 
+        response = requests.get(
+            test_url,
+            proxies=proxies,
+            timeout=5,
             verify=False
         )
-        
-        # 验证响应是否为有效的 JSON
-        if response.status_code == 200:
-            try:
-                json_data = response.json()
-                # 验证返回的数据结构是否符合预期
-                if isinstance(json_data, dict) and 'result' in json_data:
-                    return proxy, True
-            except:
-                pass
-        return proxy, False
+        return proxy, response.status_code == 200
     except:
         return proxy, False
 
-def filter_valid_proxies(proxy_list: List[str], max_workers: int = 10) -> List[str]:
+def filter_valid_proxies(proxy_list: List[str], max_workers: int = 20) -> List[str]:
     """
     并发测试代理列表，返回可用的代理
     Args:
@@ -394,8 +368,8 @@ check_courts_task = PythonOperator(
 check_courts_task
 
 
-# # 测试
-# if __name__ == "__main__":
-#     data = get_free_tennis_court_infos_for_szw("2025-02-15", ["14.29.116.148:727"], {"start_time": "08:00", "end_time": "22:00"})
-#     for court_name, free_slots in data.items():
-#         print(f"{court_name}: {free_slots}")
+# 测试
+if __name__ == "__main__":
+    data = get_free_tennis_court_infos_for_szw("2025-02-15", ["35.178.104.4:80"], {"start_time": "08:00", "end_time": "22:00"})
+    for court_name, free_slots in data.items():
+        print(f"{court_name}: {free_slots}")
