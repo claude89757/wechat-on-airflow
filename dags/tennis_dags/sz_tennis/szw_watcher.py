@@ -90,20 +90,29 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         data = {
             'VenueTypeID': 'd3bc78ba-0d9c-4996-9ac5-5a792324decb',
             'VenueTypeDisplayName': '',
-            'billDay': date
+            # 'IsGetPrice': 'true',
+            # 'isApp': 'true',
+            'billDay': {date},
+            # 'webApiUniqueID': '811e68e7-f189-675c-228d-3739e48e57b2'
         }
         headers = {
             "Host": "program.springcocoon.com",
             "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"98\"",
+            # "X-XSRF-TOKEN": "rs3gB5gQUqeG-YcaRXgB13JMlQAn9N4e_vS29wl-_HV5-MZb6gCL7eLhiC030tJP-cFa0c2qgK9UfSKuwLH5vhZK_
+            # 2KYA_j7Df_NAn9ts9q3N0A9XIJe7vAXdhZLTaywn0VRMA2",
             "sec-ch-ua-mobile": "?0",
-            "Accept": "application/json",
+            # "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)
+            # Chrome/98.0.4758.102 Safari/537.36 MicroMessenger/6.8.0(0x16080000) NetType/WIFI MiniProgramEnv
+            # /Mac MacWechat/WMPF XWEB/30803",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
             "X-Requested-With": "XMLHttpRequest",
             "sec-ch-ua-platform": "\"macOS\"",
             "Origin": "https://program.springcocoon.com",
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",
-            "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
+            "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/"
+                       "VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
             "Accept-Language": "zh-CN,zh",
             "Cookie": szw_cookie
         }
@@ -113,24 +122,17 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         print(f"trying for {index} time for {proxy}")
         
         try:
-            proxies = {"https": f"http://{proxy}"}
+            proxies = {"https": proxy}
             print(f"data: {data}")
             print(f"headers: {headers}" )
             response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=30)
-            print(f"response: {response.text}")
             if response.status_code == 200:
-                try:
-                    json_resp = response.json()
-                except Exception as e:
-                    print(f"JSON decode error for {proxy}: {e}")
-                    continue
-                print(f"success for {proxy}")
-                print(json_resp)
+                print(response.json())
                 got_response = True
                 time.sleep(1)
                 break
             else:
-                print(f"failed for {proxy}: {response}")
+                print(f"failed for {proxy}: {response.text}")
                 continue
         except Exception as error:
             print(f"failed for {proxy}: {error}")
@@ -375,6 +377,6 @@ check_courts_task
 
 # # 测试
 # if __name__ == "__main__":
-#     data = get_free_tennis_court_infos_for_szw("2025-02-15", ["35.154.78.253:3128"], {"start_time": "08:00", "end_time": "22:00"})
+#     data = get_free_tennis_court_infos_for_szw("2025-02-15", ["209.126.15.81:3128"], {"start_time": "08:00", "end_time": "22:00"})
 #     for court_name, free_slots in data.items():
 #         print(f"{court_name}: {free_slots}")
