@@ -219,6 +219,7 @@ def check_tennis_courts():
         
         try:
             court_data = get_free_tennis_court_infos_for_szw(input_date, proxy_list, time_range)
+            print(f"court_data: {court_data}")
             time.sleep(1)
             
             for court_name, free_slots in court_data.items():
