@@ -191,11 +191,42 @@ def test_proxy(proxy: str) -> Tuple[str, bool]:
     Returns:
         Tuple[str, bool]: (代理地址, 是否可用)
     """
-    test_url = "https://program.springcocoon.com"
+    test_url = "https://program.springcocoon.com/szbay/api/services/app/VenueBill/GetVenueBillDataAsync"
+    headers = {
+        "Host": "program.springcocoon.com",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": "https://program.springcocoon.com",
+        "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
+        "Accept-Language": "zh-CN,zh"
+    }
+    data = {
+        'VenueTypeID': 'd3bc78ba-0d9c-4996-9ac5-5a792324decb',
+        'VenueTypeDisplayName': '',
+        'billDay': datetime.datetime.now().strftime('%Y-%m-%d')
+    }
+    
     try:
         proxies = {"https": proxy}
-        response = requests.get(test_url, proxies=proxies, timeout=10, verify=False)
-        return proxy, response.status_code == 200
+        response = requests.post(
+            test_url, 
+            headers=headers,
+            data=data,
+            proxies=proxies, 
+            timeout=10, 
+            verify=False
+        )
+        
+        # 验证响应是否为有效的 JSON
+        if response.status_code == 200:
+            try:
+                json_data = response.json()
+                # 验证返回的数据结构是否符合预期
+                if isinstance(json_data, dict) and 'result' in json_data:
+                    return proxy, True
+            except:
+                pass
+        return proxy, False
     except:
         return proxy, False
 
