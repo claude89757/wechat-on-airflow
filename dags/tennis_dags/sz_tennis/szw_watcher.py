@@ -101,8 +101,7 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
             "Sec-Fetch-Site": "same-origin",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",
-            "Referer": ("https://program.springcocoon.com/szbay/AppVenue/VenueBill/VenueBill"
-                        "?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb"),
+            "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
             "Accept-Language": "zh-CN,zh",
             "Cookie": szw_cookie
         }
