@@ -18,7 +18,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
-#from utils.wechat_channl import send_wx_msg
+from utils.wechat_channl import send_wx_msg
 
 # DAG的默认参数
 default_args = {
@@ -320,8 +320,8 @@ check_courts_task = PythonOperator(
 check_courts_task
 
 
-# 测试
-if __name__ == "__main__":
-    data = get_free_tennis_court_infos_for_szw("2025-02-15", ["34.215.74.117:1080"], {"start_time": "08:00", "end_time": "22:00"})
-    for court_name, free_slots in data.items():
-        print(f"{court_name}: {free_slots}")
+# # 测试
+# if __name__ == "__main__":
+#     data = get_free_tennis_court_infos_for_szw("2025-02-15", ["34.215.74.117:1080"], {"start_time": "08:00", "end_time": "22:00"})
+#     for court_name, free_slots in data.items():
+#         print(f"{court_name}: {free_slots}")
