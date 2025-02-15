@@ -18,7 +18,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
-#from utils.wechat_channl import send_wx_msg
+from utils.wechat_channl import send_wx_msg
 
 # DAG的默认参数
 default_args = {
@@ -113,14 +113,19 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         print(f"trying for {index} time for {proxy}")
         
         try:
-            proxies = {"https": proxy}
+            proxies = {"https": f"http://{proxy}"}
             print(f"data: {data}")
             print(f"headers: {headers}" )
-            response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=15)
+            response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=30)
             print(f"response: {response.text}")
             if response.status_code == 200:
+                try:
+                    json_resp = response.json()
+                except Exception as e:
+                    print(f"JSON decode error for {proxy}: {e}")
+                    continue
                 print(f"success for {proxy}")
-                print(response.json())
+                print(json_resp)
                 got_response = True
                 time.sleep(1)
                 break
@@ -368,8 +373,8 @@ check_courts_task = PythonOperator(
 check_courts_task
 
 
-# 测试
-if __name__ == "__main__":
-    data = get_free_tennis_court_infos_for_szw("2025-02-15", ["35.178.104.4:80"], {"start_time": "08:00", "end_time": "22:00"})
-    for court_name, free_slots in data.items():
-        print(f"{court_name}: {free_slots}")
+# # 测试
+# if __name__ == "__main__":
+#     data = get_free_tennis_court_infos_for_szw("2025-02-15", ["35.154.78.253:3128"], {"start_time": "08:00", "end_time": "22:00"})
+#     for court_name, free_slots in data.items():
+#         print(f"{court_name}: {free_slots}")
