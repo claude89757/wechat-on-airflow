@@ -220,60 +220,6 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     else:
         raise Exception("all proxies failed")
 
-def test_proxy(proxy: str, session: requests.Session, timeout: int = 10) -> bool:
-    """
-    测试代理是否可用
-    Args:
-        proxy: 代理地址
-        session: 请求会话
-        timeout: 超时时间（秒）
-    Returns:
-        bool: 代理是否可用
-    """
-    test_url = "https://program.springcocoon.com"
-    try:
-        response = session.get(
-            test_url,
-            proxies={"https": proxy},
-            timeout=timeout,
-            verify=False
-        )
-        return response.status_code == 200
-    except Exception as e:
-        print(f"代理 {proxy} 测试失败: {str(e)}")
-        return False
-
-def filter_available_proxies(proxy_list: List[str], max_workers: int = 10) -> List[str]:
-    """
-    并发测试并筛选可用的代理
-    Args:
-        proxy_list: 代理列表
-        max_workers: 最大并发数
-    Returns:
-        List[str]: 可用的代理列表
-    """
-    session = get_legacy_session()
-    available_proxies = []
-    
-    print_with_timestamp(f"开始测试 {len(proxy_list)} 个代理...")
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_proxy = {
-            executor.submit(test_proxy, proxy, session): proxy 
-            for proxy in proxy_list
-        }
-        
-        for future in concurrent.futures.as_completed(future_to_proxy):
-            proxy = future_to_proxy[future]
-            try:
-                if future.result():
-                    available_proxies.append(proxy)
-                    print_with_timestamp(f"代理 {proxy} 可用")
-            except Exception as e:
-                print_with_timestamp(f"测试代理 {proxy} 时发生错误: {str(e)}")
-    
-    print_with_timestamp(f"测试完成，共找到 {len(available_proxies)} 个可用代理")
-    return available_proxies
 
 def check_tennis_courts():
     """主要检查逻辑"""
@@ -306,8 +252,6 @@ def check_tennis_courts():
 
     # 使用可用代理查询空闲的球场信息
     up_for_send_data_list = []
-    
-    # 深圳湾网球场只能提前3天预定
     for index in range(0, 4):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
