@@ -297,14 +297,6 @@ def check_tennis_courts():
     text = response.text.strip()
     proxy_list = [line.strip() for line in text.split("\n")]    
     random.shuffle(proxy_list)
-    
-    # 测试并筛选可用代理
-    available_proxies = filter_available_proxies(proxy_list)
-    if not available_proxies:
-        print_with_timestamp("没有找到可用的代理，退出检查")
-        return
-    
-    print_with_timestamp(f"可用代理列表: {available_proxies}")
 
     # 设置查询时间范围
     time_range = {
@@ -315,12 +307,13 @@ def check_tennis_courts():
     # 使用可用代理查询空闲的球场信息
     up_for_send_data_list = []
     
-    for index in range(0, 3):
+    # 深圳湾网球场只能提前3天预定
+    for index in range(0, 4):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
         
         try:
-            court_data = get_free_tennis_court_infos_for_szw(input_date, available_proxies, time_range)
+            court_data = get_free_tennis_court_infos_for_szw(input_date, proxy_list, time_range)
             print(f"court_data: {court_data}")
             time.sleep(1)
             
