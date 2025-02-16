@@ -315,7 +315,7 @@ def check_tennis_courts():
     # 使用可用代理查询空闲的球场信息
     up_for_send_data_list = []
     
-    for index in range(0, 7):
+    for index in range(0, 3):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
         
