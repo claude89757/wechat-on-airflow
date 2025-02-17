@@ -430,7 +430,10 @@ class XHSOperator:
             return note_data
             
         except Exception as e:
+            import traceback
             print(f"获取笔记内容失败: {str(e)}")
+            print("异常堆栈信息:")
+            print(traceback.format_exc())
             self.print_all_elements()
             return {
                 "title": note_title,
