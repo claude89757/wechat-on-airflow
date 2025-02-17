@@ -246,6 +246,38 @@ class XHSOperator:
                 print("未找到正文内容，使用标题作为内容")
                 content = note_title
              
+            # 获取分享链接
+            note_link = ""
+            try:
+                # 点击分享按钮
+                share_btn = self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="//android.widget.Button[@content-desc='分享']"
+                )
+                share_btn.click()
+                time.sleep(1)
+                
+                # 点击复制链接
+                copy_link_btn = self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="//android.widget.TextView[@text='复制链接']"
+                )
+                copy_link_btn.click()
+                time.sleep(1)
+                
+                # 获取剪贴板内容
+                clipboard_data = self.driver.get_clipboard_text()
+                note_link = clipboard_data.strip()
+                print(f"获取到分享链接: {note_link}")
+                
+                # 点击返回关闭分享面板
+                self.driver.press_keycode(4)  # Android 返回键
+                time.sleep(0.5)
+                
+            except Exception as e:
+                print(f"获取分享链接失败: {str(e)}")
+                note_link = ""
+             
             # 获取互动数据 - 分别处理每个数据
             likes = "0"
             try:
@@ -390,6 +422,7 @@ class XHSOperator:
                 "likes": int(likes),  # 转换为整数
                 "collects": int(collects),  # 转换为整数
                 "comments": comments,  # 现在只包含评论内容
+                "note_link": note_link,  # 添加分享链接
                 "collect_time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
             
@@ -662,7 +695,7 @@ class XHSOperator:
 # 测试代码
 if __name__ == "__main__":
     # 获取Appium服务器URL
-    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://47.115.144.127:4723')
+    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:4723')
 
     print(appium_server_url)
     
