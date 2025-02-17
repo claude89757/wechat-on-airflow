@@ -245,39 +245,7 @@ class XHSOperator:
             if not content:
                 print("未找到正文内容，使用标题作为内容")
                 content = note_title
-             
-            # 获取分享链接
-            note_link = ""
-            try:
-                # 点击分享按钮
-                share_btn = self.driver.find_element(
-                    by=AppiumBy.XPATH,
-                    value="//android.widget.Button[@content-desc='分享']"
-                )
-                share_btn.click()
-                time.sleep(1)
-                
-                # 点击复制链接
-                copy_link_btn = self.driver.find_element(
-                    by=AppiumBy.XPATH,
-                    value="//android.widget.TextView[@text='复制链接']"
-                )
-                copy_link_btn.click()
-                time.sleep(1)
-                
-                # 获取剪贴板内容
-                clipboard_data = self.driver.get_clipboard_text()
-                note_link = clipboard_data.strip()
-                print(f"获取到分享链接: {note_link}")
-                
-                # 点击返回关闭分享面板
-                self.driver.press_keycode(4)  # Android 返回键
-                time.sleep(0.5)
-                
-            except Exception as e:
-                print(f"获取分享链接失败: {str(e)}")
-                note_link = ""
-             
+          
             # 获取互动数据 - 分别处理每个数据
             likes = "0"
             try:
@@ -332,11 +300,6 @@ class XHSOperator:
             print("-" * 50)
             comments = []
             if int(total_comments) > 0:
-                # 点击评论按钮打开评论区
-                comments_btn.click()
-                time.sleep(1)
-                print("已打开评论区")
-                
                 # 循环滑动收集评论
                 no_new_comments_count = 0  # 连续没有新评论的次数
                 max_no_new_comments = 3  # 最大连续无新评论次数
@@ -411,18 +374,60 @@ class XHSOperator:
                 
                 # 返回笔记详情页
                 print("\n评论收集完成，返回笔记详情页")
-            
             print(f"共收集到 {len(comments)} 条评论")
             print("-" * 50)
-            
+
+            # 5. 最后获取分享链接
+            note_link = ""
+            try:
+                # 点击分享按钮
+                share_btn = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.Button[@content-desc='分享']"
+                    ))
+                )
+                share_btn.click()
+                time.sleep(1)
+                
+                # 点击复制链接
+                copy_link_btn = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.TextView[@text='复制链接']"
+                    ))
+                )
+                copy_link_btn.click()
+                time.sleep(1)
+                
+                # 获取剪贴板内容
+                clipboard_data = self.driver.get_clipboard_text()
+                note_link = clipboard_data.strip()
+                # 从分享文本中提取URL
+                url_start = note_link.find('http://')
+                url_end = note_link.find('，', url_start)
+                if url_start != -1 and url_end != -1:
+                    note_url = note_link[url_start:url_end]
+                    print(f"提取到笔记URL: {note_url}")
+                else:
+                    print(f"未能从分享链接中提取URL: {note_link}")
+                
+                # 点击返回关闭分享面板
+                self.driver.press_keycode(4)  # Android 返回键
+                time.sleep(1)
+                
+            except Exception as e:
+                print(f"获取分享链接失败: {str(e)}")
+                note_link = ""
+
             note_data = {
                 "title": note_title,
                 "author": author,
                 "content": content,
-                "likes": int(likes),  # 转换为整数
-                "collects": int(collects),  # 转换为整数
-                "comments": comments,  # 现在只包含评论内容
-                "note_link": note_link,  # 添加分享链接
+                "likes": int(likes),
+                "collects": int(collects),
+                "comments": comments,
+                "note_link": note_link,
                 "collect_time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
             
