@@ -697,16 +697,32 @@ class XHSOperator:
             time.sleep(0.5)
             attempts += 1
 
+    def publish_note(self, title: str, content: str):
+        """
+        发布笔记
+        """
+        pass
+
+
 # 测试代码
 if __name__ == "__main__":
+
+    # 加载.env文件
+    from dotenv import load_dotenv
+    import os
+
+    # 获取当前文件所在目录
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # 加载.env文件
+    load_dotenv(os.path.join(current_dir, '.env'))
+    
     # 获取Appium服务器URL
-    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:4723')
+    appium_server_url = os.getenv('APPIUM_SERVER_URL')
 
     print(appium_server_url)
     
     # 初始化小红书操作器
     xhs = XHSOperator(appium_server_url=appium_server_url)
-
 
     xhs.print_all_elements()
 
