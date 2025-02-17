@@ -411,11 +411,7 @@ class XHSOperator:
                     print(f"提取到笔记URL: {note_url}")
                 else:
                     print(f"未能从分享链接中提取URL: {note_link}")
-                
-                # 点击返回关闭分享面板
-                self.driver.press_keycode(4)  # Android 返回键
-                time.sleep(1)
-                
+            
             except Exception as e:
                 print(f"获取分享链接失败: {str(e)}")
                 note_link = ""
