@@ -410,11 +410,12 @@ class XHSOperator:
                     note_url = note_link[url_start:url_end]
                     print(f"提取到笔记URL: {note_url}")
                 else:
+                    note_url = note_link
                     print(f"未能从分享链接中提取URL: {note_link}")
             
             except Exception as e:
                 print(f"获取分享链接失败: {str(e)}")
-                note_link = ""
+                note_url = ""
 
             note_data = {
                 "title": note_title,
@@ -423,7 +424,7 @@ class XHSOperator:
                 "likes": int(likes),
                 "collects": int(collects),
                 "comments": comments,
-                "note_link": note_link,
+                "note_link": note_url,
                 "collect_time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
             
