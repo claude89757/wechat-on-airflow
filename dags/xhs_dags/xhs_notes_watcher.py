@@ -208,10 +208,10 @@ def publish_analysis_note(**context) -> None:
     7. 分段要清晰，可以用序号或符号分隔
     
     请按以下格式输出：
-    {
+    {{
         "title": "标题",
         "content": "正文内容"
-    }
+    }}
     """
     
     # 构建输入数据
