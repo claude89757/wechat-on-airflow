@@ -89,10 +89,11 @@ default_args = {
 }
 
 dag = DAG(
-    'xhs_notes_watcher',
+    dag_id='小红书笔记收集巡检',
     default_args=default_args,
     description='定时收集小红书笔记',
     schedule_interval='0 10,15,20 * * *',  # 每天10点、15点和20点执行
+    tags=['小红书'],
     catchup=False,
 )
 
