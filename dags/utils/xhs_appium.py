@@ -667,6 +667,9 @@ if __name__ == "__main__":
     # 初始化小红书操作器
     xhs = XHSOperator(appium_server_url=appium_server_url)
 
+    time.sleep(3)
+    xhs.print_all_elements()
+
     # 检查是否在首页
     if xhs.is_at_xhs_home_page():
         print("在首页")
