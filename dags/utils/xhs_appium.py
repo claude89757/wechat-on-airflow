@@ -662,29 +662,33 @@ class XHSOperator:
 # 测试代码
 if __name__ == "__main__":
     # 获取Appium服务器URL
-    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:4723')
+    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://47.115.144.127:4723')
+
+    print(appium_server_url)
     
     # 初始化小红书操作器
     xhs = XHSOperator(appium_server_url=appium_server_url)
 
-    time.sleep(3)
+
     xhs.print_all_elements()
 
-    # 检查是否在首页
-    if xhs.is_at_xhs_home_page():
-        print("在首页")
-    else:
-        # 重新进入首页
-        xhs.return_to_home_page()
-        if xhs.is_at_xhs_home_page():
-            print("重新进入首页成功")
-        else:
-            raise Exception("重新进入首页失败")
+    time.sleep(60)
+
+    # # 检查是否在首页
+    # if xhs.is_at_xhs_home_page():
+    #     print("在首页")
+    # else:
+    #     # 重新进入首页
+    #     xhs.return_to_home_page()
+    #     if xhs.is_at_xhs_home_page():
+    #         print("重新进入首页成功")
+    #     else:
+    #         raise Exception("重新进入首页失败")
     
-    try:
-        notes = xhs.collect_notes_by_keyword("mac mini", max_notes=3)
-    except Exception as e:
-        print(f"运行出错: {str(e)}")
-    finally:
-        # 关闭操作器
-        xhs.close()
+    # try:
+    #     notes = xhs.collect_notes_by_keyword("mac mini", max_notes=3)
+    # except Exception as e:
+    #     print(f"运行出错: {str(e)}")
+    # finally:
+    #     # 关闭操作器
+    #     xhs.close()
