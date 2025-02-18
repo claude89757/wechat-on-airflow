@@ -149,11 +149,10 @@ def check_tennis_courts():
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
-    
     for index in range(0, 2):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
-        
+        print(f"checking {input_date}...")
         try:
             court_data = get_free_tennis_court_infos_for_hjd(input_date, proxy_list)
             time.sleep(1)
@@ -182,7 +181,8 @@ def check_tennis_courts():
         except Exception as e:
             print(f"Error checking date {input_date}: {str(e)}")
             continue
-
+    
+    print(f"up_for_send_data_list: {up_for_send_data_list}")
     # 处理通知逻辑
     if up_for_send_data_list:
         cache_key = "金地威新网球场"
@@ -224,6 +224,8 @@ def check_tennis_courts():
             serialize_json=True
         )
         print(f"updated {cache_key} with {sended_msg_list}")
+    else:
+        pass
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
