@@ -204,14 +204,15 @@ def check_tennis_courts():
 
         # 获取微信发送配置
         wcf_ip = Variable.get("WCF_IP", default_var="")
-        for msg in up_for_send_msg_list:
-            send_wx_msg(
-                wcf_ip=wcf_ip,
-                message=msg,
-                receiver="38763452635@chatroom",
-                aters=''
-            )
-            sended_msg_list.append(msg)
+        for chat_room_id in ["57497883531@chatroom", "38763452635@chatroom"]:
+            for msg in up_for_send_msg_list:
+                send_wx_msg(
+                    wcf_ip=wcf_ip,
+                    message=msg,
+                    receiver=chat_room_id,
+                    aters=''
+                )
+                sended_msg_list.append(msg)
 
         # 更新Variable
         description = f"深圳金地网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
