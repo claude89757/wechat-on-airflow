@@ -211,7 +211,7 @@ def check_tennis_courts():
                     aters=''
                 )
                 sended_msg_list.append(msg)
-            time.sleep(15)
+            time.sleep(30)
 
         # 更新Variable
         description = f"深圳金地网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
