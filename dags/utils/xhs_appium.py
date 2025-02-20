@@ -226,6 +226,7 @@ class XHSOperator:
                         author_element = WebDriverWait(self.driver, 2).until(
                             EC.presence_of_element_located((AppiumBy.ID, "com.xingin.xhs:id/nickNameTV"))
                         )
+                        print(f"找到作者信息元素: {author_element.text}")
                         author = author_element.text
                         break
                     except:
