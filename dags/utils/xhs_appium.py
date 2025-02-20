@@ -216,12 +216,31 @@ class XHSOperator:
             
             # 获取笔记作者
             try:
-                author_element = WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((AppiumBy.ID, "com.xingin.xhs:id/nickNameTV"))
-                )
-                author = author_element.text
-            except:
+                # 尝试查找作者元素
+                author_element = None
+                max_scroll_attempts = 3
+                scroll_attempts = 0
+                
+                while not author_element and scroll_attempts < max_scroll_attempts:
+                    try:
+                        author_element = WebDriverWait(self.driver, 2).until(
+                            EC.presence_of_element_located((AppiumBy.ID, "com.xingin.xhs:id/nickNameTV"))
+                        )
+                        author = author_element.text
+                        break
+                    except:
+                        # 向下滚动一小段距离
+                        self.scroll_screen(small_scroll=True)
+                        scroll_attempts += 1
+                        time.sleep(1)
+                
+                if not author_element:
+                    author = ""
+                    print("未找到作者信息元素")
+                    
+            except Exception as e:
                 author = ""
+                print(f"获取作者信息失败: {str(e)}")
             
             # 获取笔记内容 - 需要滑动查找
             content = ""
