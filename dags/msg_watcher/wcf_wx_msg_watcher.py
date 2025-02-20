@@ -316,6 +316,15 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
+    elif WX_MSG_TYPES.get(msg_type) == "拍一拍":
+        # 拍一拍消息
+        print(f"[WATCHER] {room_id} 收到拍一拍消息, 触发AI拍一拍处理DAG")
+        trigger_dag(
+            dag_id='xhs_notes_watcher',
+            conf={"current_message": message_data},
+            run_id=run_id,
+            execution_date=execution_date
+        )
     else:
         # 非文字消息，暂不触发AI聊天流程
         print("[WATCHER] 不触发AI聊天流程")
