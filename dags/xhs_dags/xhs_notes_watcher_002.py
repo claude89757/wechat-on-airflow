@@ -72,6 +72,16 @@ def collect_xhs_notes(**context) -> None:
             print(f"未找到关于 '{keyword}' 的笔记")
             return
             
+        # 过滤标签
+        for note in notes:
+            if 'content' in note:
+                # 将内容按空格分割，过滤掉以#开头的部分
+                content = note['content']
+                words = content.split()
+                filtered_words = [word for word in words if not word.startswith('#')]
+                # 重新组合内容
+                note['content'] = ' '.join(filtered_words)
+        
         # 打印收集结果
         print("\n收集完成!")
         print(f"共收集到 {len(notes)} 条笔记:")

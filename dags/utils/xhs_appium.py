@@ -158,38 +158,45 @@ class XHSOperator:
         print(f"开始收集笔记,计划收集{max_notes}条...")
         notes = []
         while len(notes) < max_notes:
-            # 获取所有笔记标题元素
-            note_titles = self.driver.find_elements(
-                by=AppiumBy.ID,
-                value="com.xingin.xhs:id/g6_"
-            )
-            
-            for note_element in note_titles:
-                note_title = note_element.text
-                if note_title not in notes:
-                    print(f"收集笔记: {note_title}, 当前收集数量: {len(notes)}")
+            try:
+                # 获取所有笔记标题元素
+                note_titles = self.driver.find_elements(
+                    by=AppiumBy.ID,
+                    value="com.xingin.xhs:id/g6_"
+                )
+                
+                for note_element in note_titles:
+                    note_title = note_element.text
+                    if note_title not in notes:
+                        print(f"收集笔记: {note_title}, 当前收集数量: {len(notes)}")
 
-                    # 点击笔记
-                    note_element.click()
+                        # 点击笔记
+                        note_element.click()
+                        time.sleep(1)
+
+                        # 获取笔记内容
+                        note_data = self.get_note_data(note_title, include_comments)
+                        notes.append(note_data)
+
+                        # 返回上一页
+                        self.driver.press_keycode(4)  # Android 返回键
+                        time.sleep(1)
+
+                        if len(notes) >= max_notes:
+                            break
+                    else:
+                        print(f"笔记已收集过: {note_title}")
+                
+                # 滑动到下一页
+                if len(notes) < max_notes:
+                    self.scroll_down()
                     time.sleep(1)
-
-                    # 获取笔记内容
-                    note_data = self.get_note_data(note_title, include_comments)
-                    notes.append(note_data)
-
-                    # 返回上一页
-                    self.driver.press_keycode(4)  # Android 返回键
-                    time.sleep(1)
-
-                    if len(notes) >= max_notes:
-                        break
-                else:
-                    print(f"笔记已收集过: {note_title}")
             
-            # 滑动到下一页
-            if len(notes) < max_notes:
-                self.scroll_down()
-                time.sleep(1)
+            except Exception as e:
+                print(f"收集笔记失败: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
+                break
 
         # 打印所有笔记数据
         for note in notes:
