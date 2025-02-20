@@ -215,10 +215,13 @@ class XHSOperator:
             time.sleep(1)
             
             # 获取笔记作者
-            author_element = WebDriverWait(self.driver, 5).until(
-                EC.presence_of_element_located((AppiumBy.ID, "com.xingin.xhs:id/nickNameTV"))
-            )
-            author = author_element.text
+            try:
+                author_element = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((AppiumBy.ID, "com.xingin.xhs:id/nickNameTV"))
+                )
+                author = author_element.text
+            except:
+                author = ""
             
             # 获取笔记内容 - 需要滑动查找
             content = ""
@@ -245,7 +248,7 @@ class XHSOperator:
             
             if not content:
                 print("未找到正文内容，使用标题作为内容")
-                content = note_title
+                content = ""
           
             # 获取互动数据 - 分别处理每个数据
             likes = "0"
