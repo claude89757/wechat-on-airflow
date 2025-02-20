@@ -21,13 +21,13 @@ def generate_welcome_message(member_id: str) -> str:
     
     prompt = f"""请你扮演一个热情友好的网球俱乐部管理员。
 现在有一位新成员加入了我们的交流群。
-请生成一段简短的欢迎词(50字以内)，要求：
-1. 要体现网球运动的特点
-2. 语气要活泼、友好
-3. 可以适当加入一些网球相关的表情符号 🎾
-4. 要让新成员感受到群的活力和温暖
+请生成一段简短的欢迎词(20字以内)，要求：
+1. 体现网球运动特点
+2. 语气活泼友好
+3. 加入网球相关表情符号 🎾
+4. 让新成员感受到群的活力和温暖
 
-只需要返回欢迎词文本，不需要任何解释。"""
+只返回欢迎词文本，不需要解释。"""
 
     welcome_msg = get_llm_response(f"新成员(ID:{member_id})加入", model_name="gpt-4o-mini", system_prompt=prompt)
     return welcome_msg
