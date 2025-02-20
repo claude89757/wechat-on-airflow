@@ -231,7 +231,7 @@ class XHSOperator:
                         break
                     except:
                         # 向下滚动一小段距离
-                        self.scroll_screen(small_scroll=True)
+                        self.scroll_down()
                         scroll_attempts += 1
                         time.sleep(1)
                 
