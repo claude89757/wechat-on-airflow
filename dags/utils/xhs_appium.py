@@ -405,7 +405,7 @@ class XHSOperator:
                 print("不收集评论")
 
             # 5. 最后获取分享链接
-            note_link = ""
+            note_url = ""
             try:
                 # 点击分享按钮
                 share_btn = WebDriverWait(self.driver, 5).until(
@@ -429,20 +429,24 @@ class XHSOperator:
                 
                 # 获取剪贴板内容
                 clipboard_data = self.driver.get_clipboard_text()
-                note_link = clipboard_data.strip()
+                share_text = clipboard_data.strip()
+                
                 # 从分享文本中提取URL
-                url_start = note_link.find('http://')
-                url_end = note_link.find('，', url_start)
-                if url_start != -1 and url_end != -1:
-                    note_url = note_link[url_start:url_end]
+                url_start = share_text.find('http://')
+                if url_start == -1:
+                    url_start = share_text.find('https://')
+                url_end = share_text.find('，', url_start) if url_start != -1 else -1
+                
+                if url_start != -1:
+                    note_url = share_text[url_start:url_end] if url_end != -1 else share_text[url_start:]
                     print(f"提取到笔记URL: {note_url}")
                 else:
-                    note_url = note_link
+                    note_url = "未知"
                     print(f"未能从分享链接中提取URL: {note_link}")
             
             except Exception as e:
                 print(f"获取分享链接失败: {str(e)}")
-                note_url = ""
+                note_url = "未知"
 
             note_data = {
                 "title": note_title,
@@ -451,7 +455,7 @@ class XHSOperator:
                 "likes": int(likes),
                 "collects": int(collects),
                 "comments": comments,
-                "note_link": note_url,
+                "url": note_url,
                 "collect_time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
             
@@ -466,6 +470,7 @@ class XHSOperator:
             return {
                 "title": note_title,
                 "error": str(e),
+                "url": "",
                 "collect_time": time.strftime("%Y-%m-%d %H:%M:%S")
             }
     
