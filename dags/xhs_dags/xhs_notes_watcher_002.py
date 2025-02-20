@@ -236,11 +236,13 @@ def summarize_notes(**context) -> None:
         print(f"未找到关于 '{keyword}' 的分类结果")
         return
     
-    # 筛选真实笔记
+    # 筛选真实笔记和营销笔记
     genuine_notes = [
         result['note'] for result in classified_results 
         if result['category'] == '真实笔记'
     ]
+    marketing_notes_count = sum(1 for result in classified_results 
+                              if result['category'] == '营销笔记')
     
     if not genuine_notes:
         return "未发现关于 '{keyword}' 的真实笔记"
@@ -292,11 +294,18 @@ def summarize_notes(**context) -> None:
         print(f"已完成 {min(i + BATCH_SIZE, len(genuine_notes))}/{len(genuine_notes)} 条笔记的总结")
     
     # 构建最终消息
-    message_parts = [f"🔍 {keyword} - 最新笔记速览（共{len(all_summaries)}条）\n"]
+    message_parts = [
+        f"🔍 {keyword} - 最新笔记速览\n",
+        f" 统计信息：",
+        f"• 总计：{len(classified_results)}条笔记",
+        f"• 真实：{len(genuine_notes)}条",
+        f"• 过滤：{marketing_notes_count}条营销笔记\n",
+        f" 笔记概要：",
+    ]
     
     for idx, item in enumerate(all_summaries, 1):
         message_parts.append(f"{idx}. {item['summary']}")
-        message_parts.append(f"   链接：{item['url']}\n")
+        message_parts.append(f"   👉 {item['url']}\n")
     
     message = "\n".join(message_parts)
     
