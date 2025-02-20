@@ -326,12 +326,11 @@ dag = DAG(
     default_args=default_args,
     description='小红书笔记收集巡检',
     schedule_interval=None, 
-    max_active_runs=1,
     tags=['小红书'],
     catchup=False,
     concurrency=1,  # 限制同时运行的任务实例数
     max_active_tasks=1,  # 限制同时运行的任务数
-    dag_file_processor_max_runs=1,  # 限制处理器运行数
+    max_active_runs=1,
 )
 
 collect_notes_task = PythonOperator(
