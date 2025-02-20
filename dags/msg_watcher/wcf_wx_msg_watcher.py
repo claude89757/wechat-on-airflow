@@ -307,6 +307,15 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
+    elif WX_MSG_TYPES.get(msg_type) == "系统" and "加入群聊" in content:
+        # 系统消息，且消息内容包含"加入群聊"
+        print(f"[WATCHER] {room_id} 收到系统消息, 触发AI加入群聊处理DAG")
+        trigger_dag(
+            dag_id='welcome_agent_001',
+            conf={"current_message": message_data},
+            run_id=run_id,
+            execution_date=execution_date
+        )
     else:
         # 非文字消息，暂不触发AI聊天流程
         print("[WATCHER] 不触发AI聊天流程")
