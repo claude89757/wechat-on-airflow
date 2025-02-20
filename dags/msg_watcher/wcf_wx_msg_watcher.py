@@ -322,10 +322,14 @@ def process_wx_message(**context):
         # 检查是否有正在运行或排队的 dagrun
         active_runs = DagRun.find(
             dag_id='xhs_notes_watcher',
-            state=['running', 'queued']  # 直接使用字符串而不是枚举值
+            state='running'  # 先检查运行中的
+        )
+        queued_runs = DagRun.find(
+            dag_id='xhs_notes_watcher',
+            state='queued'   # 再检查排队中的
         )
         
-        if active_runs:
+        if active_runs or queued_runs:
             print(f"[WATCHER] {room_id} 已有正在运行或排队的任务，跳过触发")
             return
             
