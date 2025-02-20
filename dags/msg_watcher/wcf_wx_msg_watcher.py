@@ -28,6 +28,8 @@ from airflow.models.dagrun import DagRun
 from airflow.utils.state import DagRunState
 from airflow.models.variable import Variable
 from airflow.utils.session import create_session
+from airflow.models import DagRun
+from airflow.utils.state import DagRunState
 
 from utils.wechat_channl import send_wx_msg
 from utils.wechat_channl import get_wx_contact_list
@@ -316,8 +318,17 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
-    elif WX_MSG_TYPES.get(msg_type) == "红包、系统消息" and "拍了拍我" in content:
-        # 拍一拍消息
+    elif WX_MSG_TYPES.get(msg_type) == "红包、系统消息" and "拍了拍我" in content:        
+        # 检查是否有正在运行或排队的 dagrun
+        active_runs = DagRun.find(
+            dag_id='xhs_notes_watcher',
+            state=[DagRunState.RUNNING, DagRunState.QUEUED]
+        )
+        if active_runs:
+            print(f"[WATCHER] {room_id} 已有正在运行或排队的任务，跳过触发")
+            return
+            
+        # 没有活跃任务时，触发新的 DAG
         print(f"[WATCHER] {room_id} 收到拍一拍消息, 触发AI拍一拍处理DAG")
         trigger_dag(
             dag_id='xhs_notes_watcher',
