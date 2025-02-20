@@ -297,10 +297,10 @@ class XHSOperator:
                 print(f"获取评论数失败: {str(e)}")
             
             # 收集评论数据
+            comments = []
             if include_comments:
                 print(f"\n开始收集评论 (目标数量: {max_comments})")
                 print("-" * 50)
-                comments = []
                 if int(total_comments) > 0:
                     # 循环滑动收集评论
                     no_new_comments_count = 0  # 连续没有新评论的次数
