@@ -295,11 +295,7 @@ def summarize_notes(**context) -> None:
     
     # 构建最终消息
     message_parts = [
-        f"🔍 {keyword} - 最新笔记速览\n",
-        f" 统计信息：",
-        f"• 总计：{len(classified_results)}条笔记",
-        f"• 真实：{len(genuine_notes)}条",
-        f"• 过滤：{marketing_notes_count}条营销笔记\n",
+        f"🔍 {keyword} | 总{len(classified_results)}条 | 真实{len(genuine_notes)}条 | 营销{marketing_notes_count}条\n",
         f" 笔记概要：",
     ]
     
@@ -333,6 +329,9 @@ dag = DAG(
     max_active_runs=1,
     tags=['小红书'],
     catchup=False,
+    concurrency=1,  # 限制同时运行的任务实例数
+    max_active_tasks=1,  # 限制同时运行的任务数
+    dag_file_processor_max_runs=1,  # 限制处理器运行数
 )
 
 collect_notes_task = PythonOperator(
