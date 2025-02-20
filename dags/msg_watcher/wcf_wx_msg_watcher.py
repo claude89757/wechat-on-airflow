@@ -316,7 +316,7 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
-    elif WX_MSG_TYPES.get(msg_type) == "红包、系统消息" and "拍了拍" in content:
+    elif WX_MSG_TYPES.get(msg_type) == "红包、系统消息" and "拍了拍我" in content:
         # 拍一拍消息
         print(f"[WATCHER] {room_id} 收到拍一拍消息, 触发AI拍一拍处理DAG")
         trigger_dag(
