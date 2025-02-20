@@ -38,7 +38,7 @@ def collect_xhs_notes(**context) -> None:
     if group_id and source_ip:
         send_wx_msg(
             wcf_ip=source_ip,
-            message=f"🔍 正在搜索「{keyword}」的笔记，请稍等~",
+            message=f"🔍 正在搜索「{keyword}」的最新真实笔记，请稍等~",
             receiver=group_id
         )
 
