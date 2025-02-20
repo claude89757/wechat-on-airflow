@@ -9,6 +9,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models.variable import Variable
 
 from utils.xhs_appium import XHSOperator
+from utils.wechat_channl import send_wx_msg
 
 
 def collect_xhs_notes(**context) -> None:
@@ -23,11 +24,24 @@ def collect_xhs_notes(**context) -> None:
     Returns:
         None
     """
+    # 获取触发消息的微信群ID和来源IP
+    message_data = context['dag_run'].conf.get('current_message', {})
+    group_id = message_data.get('roomid')
+    source_ip = message_data.get('source_ip')
+    
     # 获取关键词，默认为"AI客服"
     keyword = (context['dag_run'].conf.get('keyword', '深圳网球') 
               if context['dag_run'].conf 
               else '深圳网球')
     
+    # 发送开始搜索的提醒
+    if group_id and source_ip:
+        send_wx_msg(
+            wcf_ip=source_ip,
+            message=f"🔍 正在搜索「{keyword}」的笔记，请稍等~",
+            receiver=group_id
+        )
+
     # 获取最大收集笔记数，默认为5
     max_notes = (context['dag_run'].conf.get('max_notes', 10)
                 if context['dag_run'].conf
