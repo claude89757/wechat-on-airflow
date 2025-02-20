@@ -15,7 +15,7 @@ def collect_xhs_notes(**context) -> None:
     """
     收集小红书笔记
     
-    从小红书搜索指定关键词的笔记并缓存到Airflow变量中。
+    从小红书搜索指定关键词的笔记并通过xcom传递给下一个任务。
     
     Args:
         **context: Airflow上下文参数字典
@@ -64,10 +64,9 @@ def collect_xhs_notes(**context) -> None:
         for note in notes:
             print(note)
 
-        # 缓存数据到Airflow变量
-        date_str = datetime.now().strftime("%Y%m%d-%H%M%S")
-        cache_key = f"XHS_NOTES_{keyword}"
-        Variable.set(cache_key, notes, serialize_json=True, description=f"小红书笔记缓存: {keyword} at {date_str}")
+        # 使用固定的XCom key
+        task_instance = context['task_instance']
+        task_instance.xcom_push(key="collected_notes", value=notes)
             
     except Exception as e:
         error_msg = f"收集小红书笔记失败: {str(e)}"
@@ -92,13 +91,16 @@ def classify_notes_by_llm(**context) -> None:
     from utils.llm_channl import get_llm_response
     
     # 获取关键词
-    keyword = (context['dag_run'].conf.get('keyword', '网球') 
+    keyword = (context['dag_run'].conf.get('keyword', '深圳网球') 
               if context['dag_run'].conf 
-              else '网球')
+              else '深圳网球')
     
-    # 从Airflow变量中获取缓存的笔记
-    cache_key = f"XHS_NOTES_{keyword}"
-    notes = Variable.get(cache_key, deserialize_json=True)
+    # 从XCom获取笔记数据，使用固定key
+    task_instance = context['task_instance']
+    notes = task_instance.xcom_pull(
+        task_ids='collect_xhs_notes',
+        key="collected_notes"
+    )
     
     if not notes:
         print(f"未找到关于 '{keyword}' 的缓存笔记")
@@ -133,6 +135,7 @@ def classify_notes_by_llm(**context) -> None:
     classified_results = []
     
     # 逐条分析笔记
+    print(f"开始分析 {len(notes)} 条笔记")
     for note in notes:
         try:
             # 构建问题
@@ -157,13 +160,10 @@ def classify_notes_by_llm(**context) -> None:
             print(f"分析笔记失败: {str(e)}")
             continue
     
-    # 缓存分类结果
-    cache_key = f"XHS_NOTES_CLASSIFIED_{keyword}"
-    Variable.set(
-        cache_key, 
-        classified_results, 
-        serialize_json=True,
-        description=f"小红书笔记分类结果: {keyword} at {datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    # 使用固定的XCom key传递分类结果
+    task_instance.xcom_push(
+        key="classified_notes",
+        value=classified_results
     )
     
     # 打印分类结果统计
@@ -188,9 +188,9 @@ def summarize_notes(**context) -> None:
     from utils.wechat_channl import send_wx_msg
     
     # 获取关键词
-    keyword = (context['dag_run'].conf.get('keyword', '网球') 
+    keyword = (context['dag_run'].conf.get('keyword', '深圳网球') 
               if context['dag_run'].conf 
-              else '网球')
+              else '深圳网球')
     
     # 获取触发消息的微信群ID和来源IP
     message_data = context['dag_run'].conf.get('current_message', {})
@@ -201,9 +201,12 @@ def summarize_notes(**context) -> None:
         print("未提供微信群ID或来源IP，无法推送消息")
         return
     
-    # 从Airflow变量中获取分类结果
-    cache_key = f"XHS_NOTES_CLASSIFIED_{keyword}"
-    classified_results = Variable.get(cache_key, deserialize_json=True)
+    # 从XCom获取分类结果，使用固定key
+    task_instance = context['task_instance']
+    classified_results = task_instance.xcom_pull(
+        task_ids='classify_notes_by_llm',
+        key="classified_notes"
+    )
     
     if not classified_results:
         print(f"未找到关于 '{keyword}' 的分类结果")
