@@ -320,6 +320,8 @@ collect_notes_task = PythonOperator(
     task_id='collect_xhs_notes',
     python_callable=collect_xhs_notes,
     provide_context=True,
+    retries=2,
+    retry_delay=timedelta(seconds=3),
     dag=dag,
 )
 

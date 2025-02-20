@@ -245,7 +245,7 @@ class XHSOperator:
             
             # 获取笔记内容 - 需要滑动查找
             content = ""
-            max_scroll_attempts = 5  # 最大滑动次数
+            max_scroll_attempts = 3  # 最大滑动次数
             scroll_count = 0
             
             while scroll_count < max_scroll_attempts:
