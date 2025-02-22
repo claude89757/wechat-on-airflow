@@ -180,7 +180,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./webhook_server.py:/app/webhook_server.py  # 只挂载 webhook 服务器文件
+      - ./:/app
     working_dir: /app
     command: >
       bash -c "

@@ -31,10 +31,10 @@ def process_video_by_ai(input_video_path: str):
     :return:
     """
     import cv2
-    from ai_tennis.utils import read_video
-    from ai_tennis.utils import save_video_to_images_with_sampling
-    from ai_tennis.utils import find_frame_id_with_max_box
-    from ai_tennis.player_traker import PlayerTracker
+    from ai_tennis_dags.utils import read_video
+    from ai_tennis_dags.utils import save_video_to_images_with_sampling
+    from ai_tennis_dags.utils import find_frame_id_with_max_box
+    from ai_tennis_dags.player_traker import PlayerTracker
   
     # 读取视频, 采样间隔为3
     print(f"input_video_path: {input_video_path}")
