@@ -84,10 +84,9 @@ x-airflow-env: &airflow-env
 #===============================================================================
 services:
   # 数据库服务
-  postgresql:
+  airflow-postgresql:
     <<: *common
     image: bitnami/postgresql:latest
-    container_name: airflow_postgres
     environment: 
       POSTGRESQL_DATABASE: *db_name
       POSTGRESQL_USERNAME: *db_user
@@ -100,10 +99,9 @@ services:
       retries: 5
 
   # Redis 服务
-  redis:
+  airflow-redis:
     <<: *common
     image: bitnami/redis:latest
-    container_name: airflow_redis
     environment:
       ALLOW_EMPTY_PASSWORD: yes
     volumes:
@@ -116,7 +114,6 @@ services:
   # Airflow Web 服务
   airflow-web:
     <<: *airflow-common
-    container_name: airflow_web
     ports:
       - '80:8080'
     environment:
@@ -126,7 +123,6 @@ services:
   # Airflow Scheduler 服务
   airflow-scheduler:
     <<: *airflow-common
-    container_name: airflow_scheduler
     deploy:
       replicas: 2  # 运行2个调度器实例
     environment:
@@ -136,7 +132,6 @@ services:
   # Airflow Worker 服务
   airflow-worker:
     <<: *airflow-common
-    container_name: airflow_worker
     ports:
       - "8081:8081"
     volumes:
@@ -163,7 +158,6 @@ services:
   # Airflow DAG Processor 服务
   airflow-dag-processor:
     <<: *airflow-common
-    container_name: airflow_dag_processor
     volumes:
       - ./dags:/opt/bitnami/airflow/dags
       - ./logs:/opt/bitnami/airflow/logs
@@ -181,10 +175,9 @@ services:
       AIRFLOW_COMPONENT_TYPE: triggerer
 
   # Webhook 服务
-  airflow_webhook:
+  airflow-webhook:
     <<: *common
     image: python:3.10
-    container_name: airflow_webhook
     ports:
       - "5000:5000"
     volumes:
