@@ -47,7 +47,8 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: 16
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 8
   AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Shanghai
-  AIRFLOW__CORE__DAGS_FOLDER: /opt/bitnami/airflow/dags
+  # 这里使用了环境变量 AIRFLOW_DAGS_FOLDER 来配置 DAG 文件夹路径
+  AIRFLOW__CORE__DAGS_FOLDER: ${AIRFLOW_DAGS_FOLDER:-/opt/bitnami/airflow/dags}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__CORE__IGNORE_DAGS_ON_LOAD_ERROR: "true"
   AIRFLOW__CORE__DAGS_FOLDER_SKIP_PATTERNS: "example_*.py,examples/*.py"
