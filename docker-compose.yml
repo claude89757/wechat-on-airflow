@@ -20,9 +20,9 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/bitnami/airflow/dags
     - ./logs:/opt/bitnami/airflow/logs
   depends_on:
-    airflow-redis:
+    redis:
       condition: service_healthy
-    airflow-postgresql:
+    postgresql:
       condition: service_healthy
 
 #===============================================================================
@@ -84,7 +84,7 @@ x-airflow-env: &airflow-env
 #===============================================================================
 services:
   # 数据库服务
-  airflow-postgresql:
+  postgresql:
     <<: *common
     image: bitnami/postgresql:latest
     environment: 
@@ -99,7 +99,7 @@ services:
       retries: 5
 
   # Redis 服务
-  airflow-redis:
+  redis:
     <<: *common
     image: bitnami/redis:latest
     environment:
@@ -112,7 +112,7 @@ services:
       retries: 5
 
   # Airflow Web 服务
-  airflow-web:
+  web:
     <<: *airflow-common
     ports:
       - '80:8080'
@@ -121,7 +121,7 @@ services:
       AIRFLOW_COMPONENT_TYPE: webserver
 
   # Airflow Scheduler 服务
-  airflow-scheduler:
+  scheduler:
     <<: *airflow-common
     deploy:
       replicas: 2  # 运行2个调度器实例
@@ -130,7 +130,7 @@ services:
       AIRFLOW_COMPONENT_TYPE: scheduler
 
   # Airflow Worker 服务
-  airflow-worker:
+  worker:
     <<: *airflow-common
     ports:
       - "8081:8081"
@@ -156,7 +156,7 @@ services:
       AIRFLOW_COMPONENT_TYPE: worker
 
   # Airflow DAG Processor 服务
-  airflow-dag-processor:
+  dag-processor:
     <<: *airflow-common
     volumes:
       - ./dags:/opt/bitnami/airflow/dags
@@ -167,15 +167,14 @@ services:
       AIRFLOW_COMPONENT_TYPE: dag-processor
 
   # Airflow Triggerer 服务
-  airflow-triggerer:
+  triggerer:
     <<: *airflow-common
-    container_name: airflow_triggerer
     environment:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: triggerer
 
   # Webhook 服务
-  airflow-webhook:
+  webhook:
     <<: *common
     image: python:3.10
     ports:
