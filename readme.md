@@ -6,7 +6,7 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 
 ## 整体架构
 
-![整体架构](./docs/images/wechat-on-airflow.png)
+![整体架构](./docs/images/system.png)
 
 ## 功能列表
 
