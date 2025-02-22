@@ -20,9 +20,9 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/bitnami/airflow/dags
     - ./logs:/opt/bitnami/airflow/logs
   depends_on:
-    redis:
+    airflow-redis:
       condition: service_healthy
-    postgresql:
+    airflow-postgresql:
       condition: service_healthy
 
 #===============================================================================
@@ -33,7 +33,7 @@ x-airflow-env: &airflow-env
   AIRFLOW_FERNET_KEY: &fernet_key 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
   AIRFLOW_SECRET_KEY: &secret_key a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
   AIRFLOW_EXECUTOR: CeleryExecutor
-  AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}
+  AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}d
   AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}
   AIRFLOW_EMAIL: ${AIRFLOW_EMAIL}
 
