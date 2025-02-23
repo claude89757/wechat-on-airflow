@@ -98,6 +98,42 @@ def should_pre_stop(current_message):
         print(f"[PRE_STOP] 未检测到提前停止信号，继续执行")
 
 
+def get_contact_name(source_ip: str, wxid: str) -> str:
+    """
+    获取联系人/群名称，使用Airflow Variable缓存联系人列表，1小时刷新一次
+    wxid: 可以是sender或roomid
+    """
+    # 获取缓存的联系人列表
+    cache_key = f"wx_contact_list_{source_ip}"
+    current_timestamp = int(time.time())
+    
+    cached_data = Variable.get(cache_key, default_var={"timestamp": 0, "contacts": {}}, deserialize_json=True)
+    
+    # 检查是否需要刷新缓存（1小时 = 3600秒）
+    if current_timestamp - cached_data["timestamp"] > 3600:
+        # 获取最新的联系人列表
+        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
+        print(f"刷新联系人列表缓存，数量: {len(wx_contact_list)}")
+        
+        # 构建联系人信息字典
+        contact_infos = {}
+        for contact in wx_contact_list:
+            contact_wxid = contact.get('wxid', '')
+            contact_infos[contact_wxid] = contact
+            
+        # 更新缓存和时间戳
+        cached_data = {
+            "timestamp": current_timestamp,
+            "contacts": contact_infos
+        }
+        Variable.set(cache_key, cached_data, serialize_json=True)
+    else:
+        print(f"使用缓存的联系人列表，数量: {len(cached_data['contacts'])}")
+
+    # 返回联系人名称
+    return cached_data["contacts"].get(wxid, {}).get('name', '')
+
+
 def process_wx_message(**context):
     """
     处理微信消息的任务函数, 消息分发到其他DAG处理
@@ -224,7 +260,12 @@ def handler_text_msg(**context):
     should_pre_stop(message_data)
 
     # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
+                           base_url=Variable.get("DIFY_BASE_URL"), 
+                           room_name=get_contact_name(source_ip, room_id), 
+                           user_name=get_contact_name(source_ip, sender), 
+                           user_id=sender, 
+                           my_name=WX_USER_ID)
 
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)

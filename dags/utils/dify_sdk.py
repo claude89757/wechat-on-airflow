@@ -8,13 +8,18 @@ from airflow.models import Variable
 
 
 class DifyAgent:
-    def __init__(self, api_key, base_url):
+    def __init__(self, api_key, base_url, room_name="", room_id="", user_name="", user_id="", my_name=""):
         self.api_key = api_key
         self.base_url = base_url
         self.headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'
         }
+        self.room_name = room_name
+        self.room_id = room_id
+        self.user_name = user_name
+        self.user_id = user_id
+        self.my_name = my_name
 
     def create_chat_message(self, query, user_id, conversation_id="", inputs=None):
         """
@@ -22,7 +27,14 @@ class DifyAgent:
         """
         if inputs is None:
             inputs = {}
-            
+
+        # 增加会话名称, 对方名称, 自己的名称
+        inputs["room_name"] = self.room_name
+        inputs["room_id"] = self.room_id
+        inputs["user_name"] = self.user_name
+        inputs["user_id"] = self.user_id
+        inputs["my_name"] = self.my_name
+
         url = f"{self.base_url}/chat-messages"
         payload = {
             "inputs": inputs,
