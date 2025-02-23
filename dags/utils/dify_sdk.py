@@ -82,6 +82,7 @@ class DifyAgent:
         # 检查是否存在会话ID
         conversation_id = conversation_infos.get(room_id)
         if conversation_id:
+            print(f"{user_id} 使用已存在的会话ID: {conversation_id}")
             # 尝试获取会话列表
             conversations = self.list_conversations(user_id=user_id, limit=100)
             conversation_exists = False

@@ -261,6 +261,7 @@ def handler_text_msg(**context):
     source_ip = message_data.get('source_ip')
 
     # 检查是否需要提前停止流程
+    time.sleep(3)
     should_pre_stop(message_data)
 
     # 获取所有开启AI的room列表
