@@ -274,9 +274,11 @@ def handler_text_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
 
+    # Airflow Variable缓存的消息列表
+    room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
+    
     if enable_ai:
         # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
-        room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
         up_for_reply_msg_list = []
         up_for_reply_msg_id_list = []
         for msg in room_sender_msg_list[-10:]:  # 只取最近的10条消息
