@@ -87,6 +87,7 @@ def check_for_unfinished_msg(dify_agent, conversation_id):
     """
     检查是否需要提前停止流程
     """
+    print(f"检查是否需要提前停止流程, conversation_id: {conversation_id}")
     # dify的消息列表
     messages = dify_agent.get_conversation_messages(conversation_id, WX_USER_ID)
     print("="*50)
@@ -111,6 +112,7 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
     获取联系人/群名称，使用Airflow Variable缓存联系人列表，1小时刷新一次
     wxid: 可以是sender或roomid
     """
+    print(f"获取联系人/群名称, source_ip: {source_ip}, wxid: {wxid}")
     # 获取缓存的联系人列表
     cache_key = f"wx_contact_list_{source_ip}"
     current_timestamp = int(time.time())
@@ -139,7 +141,9 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
         print(f"使用缓存的联系人列表，数量: {len(cached_data['contacts'])}")
 
     # 返回联系人名称
-    return cached_data["contacts"].get(wxid, {}).get('name', '')
+    contact_name = cached_data["contacts"].get(wxid, {}).get('name', '')
+    print(f"返回联系人名称, wxid: {wxid}, 名称: {contact_name}")
+    return contact_name
 
 
 def process_wx_message(**context):
