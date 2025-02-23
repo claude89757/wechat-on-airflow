@@ -96,7 +96,7 @@ class DifyAgent:
 
         # 保存会话ID
         conversation_infos[room_id] = conversation_id
-        Variable.set("dify_agent_session_id_infos", conversation_infos, serialize_json=True)
+        Variable.set(f"{user_id}_conversation_infos", conversation_infos, serialize_json=True)
         print(f"{user_id} 创建新会话ID: {conversation_id}")
         
         return conversation_id
