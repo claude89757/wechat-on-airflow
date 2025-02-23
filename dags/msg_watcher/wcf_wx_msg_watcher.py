@@ -119,7 +119,7 @@ def process_wx_message(**context):
     print("[WATCHER] 消息类型:", message_data.get('type'))
     print("[WATCHER] 消息内容:", message_data.get('content'))
     print("[WATCHER] 发送者:", message_data.get('sender'))
-    print("[WATCHER] 群聊ID:", message_data.get('roomid'))
+    print("[WATCHER] ROOM:", message_data.get('roomid'))
     print("[WATCHER] 是否群聊:", message_data.get('is_group'))
     print("[WATCHER] 完整消息数据:")
     print("--------------------------------")
