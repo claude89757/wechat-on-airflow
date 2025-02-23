@@ -44,7 +44,10 @@ class DifyAgent:
             "user": user_id,
             "auto_generate_name": False
         }
-        
+        print("="*50)
+        print(f"url: {url}")
+        print(f"payload: {payload}")
+        print("="*50)
         response = requests.post(url, headers=self.headers, json=payload)
         if response.status_code == 200:
             return response.json()
