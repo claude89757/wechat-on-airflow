@@ -268,6 +268,7 @@ def handler_text_msg(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
+    # 标识是否开启AI
     enable_ai = Variable.get(f"{WX_USER_ID}_{room_id}_enable_ai", default_var=0)
     print(f"{WX_USER_ID}_{room_id}_enable_ai: {enable_ai}")
 
