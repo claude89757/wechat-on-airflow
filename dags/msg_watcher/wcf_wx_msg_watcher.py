@@ -283,8 +283,11 @@ def handler_text_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
 
-    # 检查是否存在未执行完的dify流程
-    check_for_unfinished_msg(dify_agent=dify_agent, conversation_id=conversation_id)
+    if conversation_id:
+        # 检查是否存在未执行完的dify流程
+        check_for_unfinished_msg(dify_agent=dify_agent, conversation_id=conversation_id)
+    else:
+        pass
 
     # Airflow Variable缓存的消息列表
     # room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
@@ -310,7 +313,7 @@ def handler_text_msg(**context):
     #     # 如果未开启AI，则直接使用消息内容
     #     question = content
     question = content
-
+    
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
@@ -321,6 +324,12 @@ def handler_text_msg(**context):
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
     response = full_answer
+
+    # 保存会话ID
+    conversation_id = metadata.get("conversation_id")
+    conversation_infos = Variable.get(f"{WX_USER_ID}_conversation_infos", default_var={}, deserialize_json=True)
+    conversation_infos[room_id] = conversation_id
+    Variable.set(f"{WX_USER_ID}_conversation_infos", conversation_infos, serialize_json=True)
     
     # 打印AI回复
     print("="*50)
