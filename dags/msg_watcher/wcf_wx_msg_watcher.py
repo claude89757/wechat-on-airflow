@@ -256,6 +256,9 @@ def handler_text_msg(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
+    enable_ai = Variable.get(f"{WX_USER_ID}_{room_id}_enable_ai", default_var=0)
+    print(f"{WX_USER_ID}_{room_id}_enable_ai: {enable_ai}")
+
     # 检查是否需要提前停止
     should_pre_stop(message_data)
 
@@ -271,30 +274,32 @@ def handler_text_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
 
-    # 遍历近期的消息是否已回复，没有回复，则合并到这次提问
-    room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
-    up_for_reply_msg_list = []
-    up_for_reply_msg_id_list = []
-    for msg in room_sender_msg_list[-10:]:
-        if not msg.get('is_reply'):
-            up_for_reply_msg_list.append(msg)
-            up_for_reply_msg_id_list.append(msg['id'])
-        else:
-            pass
+    if enable_ai:
+        # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
+        room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
+        up_for_reply_msg_list = []
+        up_for_reply_msg_id_list = []
+        for msg in room_sender_msg_list[-10:]:  # 只取最近的10条消息
+            if not msg.get('is_reply'):
+                up_for_reply_msg_list.append(msg)
+                up_for_reply_msg_id_list.append(msg['id'])
+            else:
+                pass
 
-    # 整合最近未被回复的消息列表
-    recent_message_content_list = [f"\n\n{msg.get('content', '')}" for msg in up_for_reply_msg_list]
-    question = "\n".join(recent_message_content_list) 
-    print("="*50)
-    print(f"question: {question}")
-    print("="*50)
+        # 整合最近未被回复的消息列表
+        recent_message_content_list = [f"\n\n{msg.get('content', '')}" for msg in up_for_reply_msg_list]
+        question = "\n".join(recent_message_content_list) 
+        print("="*50)
+        print(f"question: {question}")
+        print("="*50)
+    else:
+        # 如果未开启AI，则直接使用消息内容
+        question = content
 
     # 检查是否需要提前停止
     should_pre_stop(message_data)
 
     # 获取AI回复
-    enable_ai = Variable.get(f"{WX_USER_ID}_{room_id}_enable_ai", default_var=0)
-    print(f"{WX_USER_ID}_{room_id}_enable_ai: {enable_ai}")
     response_data = dify_agent.create_chat_message(
         query=question,
         user_id=WX_USER_ID,
