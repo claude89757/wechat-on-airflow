@@ -263,6 +263,7 @@ def handler_text_msg(**context):
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
                            base_url=Variable.get("DIFY_BASE_URL"), 
                            room_name=get_contact_name(source_ip, room_id), 
+                           room_id=room_id,
                            user_name=get_contact_name(source_ip, sender), 
                            user_id=sender, 
                            my_name=WX_USER_ID)
