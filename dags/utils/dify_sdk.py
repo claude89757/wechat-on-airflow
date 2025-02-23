@@ -245,11 +245,15 @@ class DifyAgent:
             "content": content
         }
         
+        print(f"创建消息反馈, url: {url}, payload: {payload}")  # 添加日志
         response = requests.post(url, headers=self.headers, json=payload)
+        
         if response.status_code == 200:
             return response.json()
         else:
-            raise Exception(f"创建消息反馈失败: {response.text}")
+            # 增加更详细的错误信息
+            error_msg = f"状态码: {response.status_code}, 响应内容: {response.text}"
+            raise Exception(f"创建消息反馈失败: {error_msg}")
 
     def create_chat_message_stream(self, query, user_id, conversation_id="", inputs=None):
         """
