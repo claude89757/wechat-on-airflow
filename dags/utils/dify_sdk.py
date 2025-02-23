@@ -5,6 +5,7 @@
 # 第三方库导入
 import requests
 from airflow.models import Variable
+import json
 
 
 class DifyAgent:
@@ -235,3 +236,192 @@ class DifyAgent:
             return response.json()
         else:
             raise Exception(f"删除会话失败: {response.text}")
+
+    def create_message_feedback(self, message_id, user_id, rating="like", content=""):
+        """
+        为消息添加反馈（点赞/点踩）
+        
+        Args:
+            message_id (str): 消息ID
+            user_id (str): 用户标识
+            rating (str, optional): 反馈类型，可选值：'like'(点赞)、'dislike'(点踩)、None(撤销). 默认为'like'
+            content (str, optional): 反馈的具体信息. 默认为空字符串
+            
+        Returns:
+            dict: 包含反馈结果的响应数据，成功时返回 {"result": "success"}
+            
+        Raises:
+            Exception: 当API调用失败时抛出异常
+        """
+        url = f"{self.base_url}/messages/{message_id}/feedbacks"
+        
+        payload = {
+            "rating": rating,
+            "user": user_id,
+            "content": content
+        }
+        
+        response = requests.post(url, headers=self.headers, json=payload)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"创建消息反馈失败: {response.text}")
+
+    def create_chat_message_stream(self, query, user_id, conversation_id="", inputs=None):
+        """
+        创建聊天消息并以流式方式返回结果
+        
+        Args:
+            query (str): 用户输入内容
+            user_id (str): 用户标识
+            conversation_id (str, optional): 会话ID
+            inputs (dict, optional): 输入参数
+            
+        Returns:
+            tuple: (完整回答文本, 元数据字典)
+                - 完整回答文本: AI助手的完整回答内容
+                - 元数据字典: 包含message_id, conversation_id, task_id等信息
+        """
+        if inputs is None:
+            inputs = {}
+
+        # 增加会话相关信息
+        inputs["room_name"] = self.room_name
+        inputs["room_id"] = self.room_id
+        inputs["user_name"] = self.user_name
+        inputs["user_id"] = self.user_id
+        inputs["my_name"] = self.my_name
+
+        url = f"{self.base_url}/chat-messages"
+        payload = {
+            "inputs": inputs,
+            "query": query,
+            "response_mode": "streaming",  # 使用流式响应
+            "conversation_id": conversation_id,
+            "user": user_id,
+            "auto_generate_name": False
+        }
+
+        full_answer = ""
+        metadata = {}
+        task_id = None
+        message_id = None
+        workflow_metadata = {}
+        
+        with requests.post(url, headers=self.headers, json=payload, stream=True) as response:
+            if response.status_code != 200:
+                raise Exception(f"创建消息失败: {response.text}")
+            
+            for line in response.iter_lines():
+                if line:
+                    # 移除 "data: " 前缀并解析 JSON
+                    line = line.decode('utf-8')
+                    if not line.startswith("data: "):
+                        continue
+                    
+                    data = json.loads(line[6:])  # 跳过 "data: " 前缀
+                    print(f"data: {data}")
+                    event = data.get("event")
+                    
+                    # 保存task_id和message_id
+                    if "task_id" in data:
+                        task_id = data["task_id"]
+                    if "message_id" in data:
+                        message_id = data["message_id"]
+
+                    # 处理不同类型的事件
+                    if event == "message":
+                        # 累积回答文本
+                        answer_chunk = data.get("answer", "")
+                        full_answer += answer_chunk
+                        
+                    elif event == "message_end":
+                        # 保存元数据
+                        metadata = {
+                            "message_id": data.get("message_id"),
+                            "conversation_id": data.get("conversation_id"),
+                            "metadata": data.get("metadata"),
+                            "usage": data.get("usage"),
+                            "retriever_resources": data.get("retriever_resources"),
+                            "task_id": task_id,  # 添加task_id到元数据中
+                            "workflow_metadata": workflow_metadata  # 添加workflow相关信息
+                        }
+                        
+                    elif event == "workflow_started":
+                        workflow_metadata["workflow_id"] = data.get("workflow_run_id")
+                        workflow_metadata["started_at"] = data.get("data", {}).get("created_at")
+                        
+                    elif event == "workflow_finished":
+                        workflow_data = data.get("data", {})
+                        workflow_metadata.update({
+                            "status": workflow_data.get("status"),
+                            "elapsed_time": workflow_data.get("elapsed_time"),
+                            "total_tokens": workflow_data.get("total_tokens"),
+                            "total_steps": workflow_data.get("total_steps"),
+                            "finished_at": workflow_data.get("finished_at")
+                        })
+                        
+                    elif event == "node_started":
+                        node_data = data.get("data", {})
+                        if "nodes" not in workflow_metadata:
+                            workflow_metadata["nodes"] = []
+                        workflow_metadata["nodes"].append({
+                            "node_id": node_data.get("node_id"),
+                            "node_type": node_data.get("node_type"),
+                            "title": node_data.get("title"),
+                            "status": "started",
+                            "started_at": node_data.get("created_at")
+                        })
+                        
+                    elif event == "node_finished":
+                        node_data = data.get("data", {})
+                        for node in workflow_metadata.get("nodes", []):
+                            if node.get("node_id") == node_data.get("node_id"):
+                                node.update({
+                                    "status": node_data.get("status"),
+                                    "elapsed_time": node_data.get("elapsed_time"),
+                                    "execution_metadata": node_data.get("execution_metadata"),
+                                    "finished_at": node_data.get("created_at")
+                                })
+                                
+                    elif event == "error":
+                        error_msg = data.get("message", "未知错误")
+                        raise Exception(f"流式响应错误: {error_msg}")
+            
+            # 判断是否提前停止(存在连续消息的情况)
+            pre_stop_msg_id_list = Variable.get(f"{conversation_id}_pre_stop_msg_id_list", default_var=[], deserialize_json=True)
+            print(f"pre_stop_msg_id_list: {pre_stop_msg_id_list}")
+            if task_id and task_id in pre_stop_msg_id_list:
+                self.stop_chat_message(task_id, user_id)
+                raise Exception("通过task_id提前停止")
+            elif message_id and message_id in pre_stop_msg_id_list:
+                self.stop_chat_message(message_id, user_id)
+                raise Exception("通过message_id提前停止")
+
+        return full_answer, metadata
+
+    def stop_chat_message(self, task_id, user_id):
+        """
+        停止流式响应
+        
+        Args:
+            task_id (str): 任务ID，从流式响应的chunk中获取
+            user_id (str): 用户标识，必须和发送消息时的user_id保持一致
+            
+        Returns:
+            dict: 包含停止结果的响应数据，成功时返回 {"result": "success"}
+            
+        Raises:
+            Exception: 当API调用失败时抛出异常
+        """
+        url = f"{self.base_url}/chat-messages/{task_id}/stop"
+        
+        payload = {
+            "user": user_id
+        }
+        
+        response = requests.post(url, headers=self.headers, json=payload)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"停止响应失败: {response.text}")

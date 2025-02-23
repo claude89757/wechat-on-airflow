@@ -83,19 +83,27 @@ WX_MSG_TYPES = {
 }
 
 
-def should_pre_stop(current_message):
+def check_for_unfinished_msg(dify_agent, conversation_id):
     """
     检查是否需要提前停止流程
     """
-    # 缓存的消息
-    room_id = current_message.get('roomid')
-    sender = current_message.get('sender')
-    room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
-    if current_message['id'] != room_sender_msg_list[-1]['id']:
-        print(f"[PRE_STOP] 检测到提前停止信号，停止流程执行")
-        raise AirflowException("检测到提前停止信号，停止流程执行")
-    else:
-        print(f"[PRE_STOP] 未检测到提前停止信号，继续执行")
+    # dify的消息列表
+    messages = dify_agent.get_conversation_messages(conversation_id, WX_USER_ID)
+    print("="*50)
+    up_for_pre_stop_msg_list = []
+    for msg in messages:
+        print(f"msg: {msg}")
+        if msg.get('status') == 'normal':
+            # 正常消息
+            pass
+        else:
+            # 未执行完的流程
+            up_for_pre_stop_msg_list.append(msg)
+    print("="*50)
+    if up_for_pre_stop_msg_list:
+        up_for_pre_stop_msg_id_list = [msg.get('id') for msg in up_for_pre_stop_msg_list]            
+        # 还完执行完的流程会用这个变量作为提前停止响应的信号
+        Variable.set(f"{conversation_id}_pre_stop_msg_id_list", up_for_pre_stop_msg_id_list[-100:], serialize_json=True)
 
 
 def get_contact_name(source_ip: str, wxid: str) -> str:
@@ -259,9 +267,6 @@ def handler_text_msg(**context):
     enable_ai = Variable.get(f"{WX_USER_ID}_{room_id}_enable_ai", default_var=0)
     print(f"{WX_USER_ID}_{room_id}_enable_ai: {enable_ai}")
 
-    # 检查是否需要提前停止
-    should_pre_stop(message_data)
-
     # 初始化dify
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
                            base_url=Variable.get("DIFY_BASE_URL"), 
@@ -271,38 +276,39 @@ def handler_text_msg(**context):
                            user_id=sender, 
                            my_name=WX_USER_ID)
 
+    # 检查是否存在未执行完的dify流程
+    check_for_unfinished_msg(dify_agent=dify_agent, conversation_id=conversation_id)
+
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
 
     # Airflow Variable缓存的消息列表
-    room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
-    
-    if enable_ai:
-        # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
-        up_for_reply_msg_list = []
-        up_for_reply_msg_id_list = []
-        for msg in room_sender_msg_list[-10:]:  # 只取最近的10条消息
-            if not msg.get('is_reply'):
-                up_for_reply_msg_list.append(msg)
-                up_for_reply_msg_id_list.append(msg['id'])
-            else:
-                pass
+    # room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
 
-        # 整合最近未被回复的消息列表
-        recent_message_content_list = [f"\n\n{msg.get('content', '')}" for msg in up_for_reply_msg_list]
-        question = "\n".join(recent_message_content_list) 
-        print("="*50)
-        print(f"question: {question}")
-        print("="*50)
-    else:
-        # 如果未开启AI，则直接使用消息内容
-        question = content
+    # if enable_ai:
+    #     # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
+    #     up_for_reply_msg_list = []
+    #     up_for_reply_msg_id_list = []
+    #     for msg in room_sender_msg_list[-10:]:  # 只取最近的10条消息
+    #         if not msg.get('is_reply'):
+    #             up_for_reply_msg_list.append(msg)
+    #             up_for_reply_msg_id_list.append(msg['id'])
+    #         else:
+    #             pass
 
-    # 检查是否需要提前停止
-    should_pre_stop(message_data)
+    #     # 整合最近未被回复的消息列表
+    #     recent_message_content_list = [f"\n\n{msg.get('content', '')}" for msg in up_for_reply_msg_list]
+    #     question = "\n".join(recent_message_content_list) 
+    #     print("="*50)
+    #     print(f"question: {question}")
+    #     print("="*50)
+    # else:
+    #     # 如果未开启AI，则直接使用消息内容
+    #     question = content
+    question = content
 
     # 获取AI回复
-    response_data = dify_agent.create_chat_message(
+    response_data = dify_agent.create_chat_message_stream(
         query=question,
         user_id=WX_USER_ID,
         conversation_id=conversation_id,
@@ -315,25 +321,22 @@ def handler_text_msg(**context):
     print(f"response: {response}")
     print("="*50)
 
-    # 检查是否需要提前停止
-    should_pre_stop(message_data)
-
     # 发送消息, 可能需要分段发送
     if enable_ai:
-        for response_part in re.split(r'\\n\\n|\n\n', response):
-            response_part = response_part.replace('\\n', '\n')
-            send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
-        # 记录消息已被成功回复
-        for msg in room_sender_msg_list:
-            if msg['id'] in up_for_reply_msg_id_list:
-                msg['is_reply'] = True
-                print(f"[WATCHER] 消息已回复: {room_id} {sender} {msg['id']} {msg['content']}")
+        try:
+            for response_part in re.split(r'\\n\\n|\n\n', response):
+                response_part = response_part.replace('\\n', '\n')
+                send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
+            # 记录消息已被成功回复
+            dify_agent.create_message_feedback(message_id=msg_id, user_id=WX_USER_ID, rating="like", content="微信自动回复成功")
+        except Exception as error:
+            print(f"[WATCHER] 发送消息失败: {error}")
+            # 记录消息已被成功回复
+            dify_agent.create_message_feedback(message_id=msg_id, user_id=WX_USER_ID, rating="dislike", content=f"微信自动回复失败, {error}")
     else:
         print(f"[WATCHER] {room_id} 未开启AI, 不发送消息")
 
-    Variable.set(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
-
-    # 测试
+    # 打印会话消息
     messages = dify_agent.get_conversation_messages(conversation_id, WX_USER_ID)
     print("="*50)
     for msg in messages:
