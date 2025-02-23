@@ -329,7 +329,7 @@ def handler_text_msg(**context):
     if not conversation_id:
         # 新会话，重命名会话
         conversation_id = metadata.get("conversation_id")
-        dify_agent.rename_conversation(WX_USER_ID, room_id, room_name)
+        dify_agent.rename_conversation(conversation_id, WX_USER_ID, room_name)
     else:
         # 旧会话，不重命名
         pass
