@@ -17,23 +17,33 @@
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
 import time
+from datetime import datetime, timedelta, timezone
+from threading import Thread
+
+# 第三方库导入
+import requests
 
 # Airflow相关导入
 from airflow import DAG
-from airflow.operators.python import PythonOperator
 from airflow.api.common.trigger_dag import trigger_dag
-from airflow.models.dagrun import DagRun
-from airflow.utils.state import DagRunState
-from airflow.models.variable import Variable
-from airflow.utils.session import create_session
+from airflow.exceptions import AirflowException
 from airflow.models import DagRun
+from airflow.models.dagrun import DagRun
+from airflow.models.variable import Variable
+from airflow.operators.python import BranchPythonOperator, PythonOperator
+from airflow.utils.session import create_session
 from airflow.utils.state import DagRunState
 
-from utils.wechat_channl import send_wx_msg
-from utils.wechat_channl import get_wx_contact_list
+# 自定义库导入
+from utils.dify_sdk import DifyAgent
 from utils.redis import RedisLock
+from utils.wechat_channl import get_wx_contact_list, send_wx_msg
+
+
+WX_USER_ID = "zacks"
+DAG_ID = "wx_msg_watcher"
+
 
 # 微信消息类型定义
 WX_MSG_TYPES = {
@@ -73,116 +83,19 @@ WX_MSG_TYPES = {
 }
 
 
-
-def excute_wx_command(content: str, room_id: str, sender: str, source_ip: str) -> bool:
-    """执行命令"""
-
-    # 检查是否是管理员
-    admin_wxid = Variable.get('admin_wxid', default_var=[], deserialize_json=True)
-    if sender not in admin_wxid:
-        # 非管理员不执行命令
-        print(f"[命令] {sender} 不是管理员，不执行命令")
-        return False
-
-    # 执行命令
-    if content.replace('@Zacks', '').strip().lower() == 'clear':
-        print("[命令] 清理历史消息")
-        Variable.delete(f'{room_id}_history')
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已清理历史消息', receiver=room_id)
-        return True
-    elif content.replace('@Zacks', '').strip().lower() == 'ai off':
-        print("[命令] 禁用AI聊天")
-        Variable.set(f'{room_id}_disable_ai', True, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已禁用AI聊天', receiver=room_id)
-        return True
-    elif content.replace('@Zacks', '').strip().lower() == 'ai on':
-        print("[命令] 启用AI聊天")
-        Variable.delete(f'{room_id}_disable_ai')
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已启用AI聊天', receiver=room_id)
-        return True
-    elif content.replace('@Zacks', '').strip().lower() == 'ai reset':
-        print("[命令] 重置AI聊天")
-        roomd_sender_key = f"{room_id}_{sender}"
-        agent_session_id_infos = Variable.get("dify_agent_session_id_infos", default_var={}, deserialize_json=True)
-        if roomd_sender_key in agent_session_id_infos:
-            print(f"[命令] 删除AI聊天会话: {roomd_sender_key}")
-            agent_session_id_infos[roomd_sender_key] = ""
-            Variable.set("dify_agent_session_id_infos", agent_session_id_infos, serialize_json=True)
-            send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已重置AI聊天会话', receiver=room_id)
-    elif content.replace('@Zacks', '').strip().lower() == 'jion ai room':
-        # 加入AI聊天群
-        enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
-        enable_ai_room_ids.append(room_id)
-        Variable.set('enable_ai_room_ids', enable_ai_room_ids, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已加入AI聊天群', receiver=room_id)
-        return True
-    elif content.replace('@Zacks', '').strip().lower() == 'exit ai room':
-        # 退出AI聊天群
-        enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
-        enable_ai_room_ids.remove(room_id)
-        Variable.set('enable_ai_room_ids', enable_ai_room_ids, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已退出AI聊天群', receiver=room_id)
-        return True
-    elif content.replace('@Zacks', '').strip().lower() == 'ai video on':
-        # 开启AI视频处理
-        enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
-        enable_ai_video_ids.append(room_id)
-        Variable.set('enable_ai_video_ids', enable_ai_video_ids, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已打开AI视频处理', receiver=room_id)
-        return True
-    elif content.replace('@Zacks', '').strip().lower() == 'ai video off':
-        # 关闭AI视频处理
-        enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
-        enable_ai_video_ids.remove(room_id)
-        Variable.set('enable_ai_video_ids', enable_ai_video_ids, serialize_json=True)
-        send_wx_msg(wcf_ip=source_ip, message=f'[bot] {room_id} 已关闭AI视频处理', receiver=room_id)
-        return True
-    elif content.startswith('@Zacks') and "join big room" in content:
-        # 加入超级微信大群聊
-        supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
-        supper_big_rood_ids.append(room_id)
-        supper_big_rood_ids = list(set(supper_big_rood_ids))
-        Variable.set('supper_big_rood_ids', supper_big_rood_ids, serialize_json=True)
-
-        # 获取群名称
-        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
-        print(f"wx_contact_list: {len(wx_contact_list)}")
-        contact_infos = {}
-        for contact in wx_contact_list:
-            wxid = contact.get('wxid', '')
-            contact_infos[wxid] = contact
-        # 当前群聊列表
-        room_name_list = []
-        for supper_big_rood_id in supper_big_rood_ids:
-            source_room_name = contact_infos.get(supper_big_rood_id, {}).get('name', '')
-            room_name_list.append(source_room_name)
-        room_name_str = "\n".join(room_name_list)
-
-        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已加入跨群聊天\n\n📋 当前跨群聊天列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
-        return True
-    elif content.startswith('@Zacks') and "exit big room" in content:
-        # 退出超级微信大群聊
-        supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
-        supper_big_rood_ids.remove(room_id)
-        Variable.set('supper_big_rood_ids', supper_big_rood_ids, serialize_json=True)
-
-        # 获取群名称
-        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
-        print(f"wx_contact_list: {len(wx_contact_list)}")
-        contact_infos = {}
-        for contact in wx_contact_list:
-            wxid = contact.get('wxid', '')
-            contact_infos[wxid] = contact
-        # 当前群聊列表
-        room_name_list = []
-        for supper_big_rood_id in supper_big_rood_ids:
-            source_room_name = contact_infos.get(supper_big_rood_id, {}).get('name', '')
-            room_name_list.append(source_room_name)
-        room_name_str = "\n".join(room_name_list)
-
-        send_wx_msg(wcf_ip=source_ip, message=f'🤖 已退出跨群聊天\n\n📋 当前跨群聊天列表:\n{room_name_str}\n\n💡 提示：请 @Zacks 发送跨群广播消息 📢', receiver=room_id)
-        return True
-    return False
+def should_pre_stop(current_message):
+    """
+    检查是否需要提前停止流程
+    """
+    # 缓存的消息
+    room_id = current_message.get('roomid')
+    sender = current_message.get('sender')
+    room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
+    if current_message['id'] != room_sender_msg_list[-1]['id']:
+        print(f"[PRE_STOP] 检测到提前停止信号，停止流程执行")
+        raise AirflowException("检测到提前停止信号，停止流程执行")
+    else:
+        print(f"[PRE_STOP] 未检测到提前停止信号，继续执行")
 
 
 def process_wx_message(**context):
@@ -212,7 +125,7 @@ def process_wx_message(**context):
     print("--------------------------------")
     print(json.dumps(message_data, ensure_ascii=False, indent=2))
     print("--------------------------------")
-    
+
     # 读取消息参数
     room_id = message_data.get('roomid')
     formatted_roomid = re.sub(r'[^a-zA-Z0-9]', '', str(room_id))  # 用于触发DAG的run_id
@@ -224,74 +137,19 @@ def process_wx_message(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
-    # 执行命令
-    if excute_wx_command(content, room_id, sender, source_ip):
-        return
-    
-    # 检查room_id是否在AI黑名单中
-    if Variable.get(f'{room_id}_disable_ai', default_var=False, deserialize_json=True):
-        print(f"[WATCHER] {room_id} 已禁用AI聊天，停止处理")
-        return
-    
-    # 开启AI聊天群聊的room_id
-    enable_ai_room_ids = Variable.get('enable_ai_room_ids', default_var=[], deserialize_json=True)
-    # 开启AI视频处理的room_id
-    enable_ai_video_ids = Variable.get('enable_ai_video_ids', default_var=[], deserialize_json=True)
-    # 加入"超级大群"的群ID
-    supper_big_rood_ids = Variable.get('supper_big_rood_ids', default_var=[], deserialize_json=True)
-
     # 分场景分发微信消息
     now = datetime.now(timezone.utc)
     execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
     run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
-    if msg_type == 1 and room_id in supper_big_rood_ids and "@Zacks" in content:
-        print(f"[WATCHER] {room_id} 已加入超级大群, 触发AI聊天DAG")
-        trigger_dag(
-            dag_id='broadcast_agent_001',
-            conf={"current_message": message_data},
-            run_id=run_id,
-            execution_date=execution_date
-        )
+    if WX_MSG_TYPES.get(msg_type) == "文字":
+        # 用户的消息缓存列表
+        room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
+        room_sender_msg_list.append(message_data)
+        Variable.set(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
 
-    elif msg_type == 1 and  (is_group and room_id in enable_ai_room_ids):
-        # 用户的消息缓存列表（跨DAG共享该变量）
-        room_sender_msg_list = Variable.get(f'{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
-        if room_sender_msg_list and message_data['id'] != room_sender_msg_list[-1]['id']:
-            # 消息不是最新，则更新消息缓存列表
-            room_sender_msg_list.append(message_data)
-            print(f"room_sender_msg_list: {room_sender_msg_list}")
-            Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
-
-            if not room_sender_msg_list[-1].get('is_reply'):
-                # 消息未回复, 触发新的DAG运行agent
-                print(f"[WATCHER] 消息未回复, 触发新的DAG运行agent")
-                print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-                trigger_dag(
-                    dag_id='dify_agent_001',
-                    conf={"current_message": message_data},
-                    run_id=run_id,
-                    execution_date=execution_date
-                )
-                print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
-            else:
-                print(f"[WATCHER] 消息已回复，不重复触发AI聊天DAG")
-
-        elif not room_sender_msg_list:
-            # 用户的消息缓存列表为空，则添加第一条消息
-            room_sender_msg_list.append(message_data)
-            Variable.set(f'{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
-
-            # 第一条消息，触发新的DAG运行agent
-            print(f"[WATCHER] 第一条消息，触发新的DAG运行agent")
-            print(f"[WATCHER] 触发AI聊天DAG，run_id: {run_id}")
-            trigger_dag(
-                dag_id='dify_agent_001',
-                conf={"current_message": message_data},
-                run_id=run_id,
-                execution_date=execution_date
-            )
-            print(f"[WATCHER] 成功触发AI聊天DAG，execution_date: {execution_date}")
-    elif WX_MSG_TYPES.get(msg_type) == "视频" and (not is_group or (is_group and room_id in enable_ai_video_ids)):
+        # 执行handler_text_msg任务
+        return ['handler_text_msg']
+    elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
         print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
         trigger_dag(
@@ -300,7 +158,7 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
-    elif WX_MSG_TYPES.get(msg_type) == "图片" and (not is_group or (is_group and room_id in enable_ai_room_ids)):
+    elif WX_MSG_TYPES.get(msg_type) == "图片" and not is_group:
         # 图片消息
         print(f"[WATCHER] {room_id} 收到图片消息, 触发AI图片处理DAG")
         trigger_dag(
@@ -342,35 +200,118 @@ def process_wx_message(**context):
             execution_date=execution_date
         )
     else:
-        # 非文字消息，暂不触发AI聊天流程
+        # 其他类型消息暂不处理
         print("[WATCHER] 不触发AI聊天流程")
+    return []
+
+
+def handler_text_msg(**context):
+    """
+    处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信消息
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    room_id = message_data.get('roomid')
+    sender = message_data.get('sender')
+    msg_id = message_data.get('id')
+    msg_type = message_data.get('type')
+    content = message_data.get('content', '')
+    is_group = message_data.get('is_group', False)  # 是否群聊
+    current_msg_timestamp = message_data.get('ts')
+    source_ip = message_data.get('source_ip')
+
+    # 检查是否需要提前停止
+    should_pre_stop(message_data)
+
+    # 初始化dify
+    dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+
+    # 获取会话ID
+    conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
+
+    # 遍历近期的消息是否已回复，没有回复，则合并到这次提问
+    room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
+    up_for_reply_msg_list = []
+    up_for_reply_msg_id_list = []
+    for msg in room_sender_msg_list[-10:]:
+        if not msg.get('is_reply'):
+            up_for_reply_msg_list.append(msg)
+            up_for_reply_msg_id_list.append(msg['id'])
+        else:
+            pass
+
+    # 整合最近未被回复的消息列表
+    recent_message_content_list = [f"\n\n{msg.get('content', '')}" for msg in up_for_reply_msg_list]
+    question = "\n".join(recent_message_content_list) 
+    print("="*50)
+    print(f"question: {question}")
+    print("="*50)
+
+    # 检查是否需要提前停止
+    should_pre_stop(message_data)
+
+    # 获取AI回复
+    enable_ai = Variable.get(f"{WX_USER_ID}_{room_id}_enable_ai", default_var=0)
+    print(f"{WX_USER_ID}_{room_id}_enable_ai: {enable_ai}")
+    response_data = dify_agent.create_chat_message(
+        query=question,
+        user_id=WX_USER_ID,
+        conversation_id=conversation_id,
+        inputs={"enable_ai": enable_ai}
+    )
+    response = response_data.get("answer", "")
+    
+    # 打印AI回复
+    print("="*50)
+    print(f"response: {response}")
+    print("="*50)
+
+    # 检查是否需要提前停止
+    should_pre_stop(message_data)
+
+    # 发送消息, 可能需要分段发送
+    if enable_ai:
+        for response_part in re.split(r'\\n\\n|\n\n', response):
+            response_part = response_part.replace('\\n', '\n')
+            send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
+        # 记录消息已被成功回复
+        for msg in room_sender_msg_list:
+            if msg['id'] in up_for_reply_msg_id_list:
+                msg['is_reply'] = True
+                print(f"[WATCHER] 消息已回复: {room_id} {sender} {msg['id']} {msg['content']}")
+    else:
+        print(f"[WATCHER] {room_id} 未开启AI, 不发送消息")
+
+    Variable.set(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
+
 
 # 创建DAG
 dag = DAG(
-    dag_id='wx_msg_watcher',
-    default_args={
-        'owner': 'claude89757',
-        'depends_on_past': False,
-        'email_on_failure': False,
-        'email_on_retry': False,
-        'retries': 0,
-        'retry_delay': timedelta(minutes=1),
-    },
+    dag_id=DAG_ID,
+    default_args={'owner': 'claude89757'},
     start_date=datetime(2024, 1, 1),
     schedule_interval=None,
-    max_active_runs=30,
+    max_active_runs=50,
     catchup=False,
-    tags=['WCF-微信消息监控'],
-    description='WCF-微信消息监控',
+    tags=['Zacks-微信消息监控'],
+    description='Zacks-微信消息监控',
 )
 
 # 创建处理消息的任务
-process_message = PythonOperator(
+process_message_task = BranchPythonOperator(
     task_id='process_wx_message',
     python_callable=process_wx_message,
     provide_context=True,
     dag=dag
 )
 
-# 设置任务依赖关系（当前只有一个任务，所以不需要设置依赖）
-process_message
+# 创建处理文本消息的任务
+handler_text_msg_task = PythonOperator(
+    task_id='handler_text_msg',
+    python_callable=handler_text_msg,
+    provide_context=True,
+    dag=dag
+)
+
+# 设置任务依赖关系
+process_message_task >> handler_text_msg_task
