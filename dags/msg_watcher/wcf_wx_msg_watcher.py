@@ -268,9 +268,14 @@ def handler_text_msg(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
-    # 标识是否开启AI
-    enable_ai = Variable.get(f"{WX_USER_ID}_{room_id}_enable_ai", default_var=0)
-    print(f"{WX_USER_ID}_{room_id}_enable_ai: {enable_ai}")
+    # 获取所有开启AI的room列表
+    enable_ai_room_ids = Variable.get("enable_ai_room_ids", default_var=[], deserialize_json=True)
+    # 判断当前room是否开启AI
+    if room_id in enable_ai_room_ids:
+        enable_ai = 1
+    else:
+        enable_ai = 0
+    print(f"当前room是否开启AI: {room_id} {enable_ai}")
 
     # 初始化dify
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
