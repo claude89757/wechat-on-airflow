@@ -276,11 +276,11 @@ def handler_text_msg(**context):
                            user_id=sender, 
                            my_name=WX_USER_ID)
 
-    # 检查是否存在未执行完的dify流程
-    check_for_unfinished_msg(dify_agent=dify_agent, conversation_id=conversation_id)
-
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
+
+    # 检查是否存在未执行完的dify流程
+    check_for_unfinished_msg(dify_agent=dify_agent, conversation_id=conversation_id)
 
     # Airflow Variable缓存的消息列表
     # room_sender_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', default_var=[], deserialize_json=True)
