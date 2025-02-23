@@ -308,9 +308,9 @@ def handler_text_msg(**context):
     else:
         # 如果未开启AI，则直接使用消息内容
         question = content
-    print("="*50)
+    print("-"*50)
     print(f"question: {question}")
-    print("="*50)
+    print("-"*50)
     
     # 检查是否需要提前停止流程
     should_pre_stop(message_data)
@@ -328,6 +328,7 @@ def handler_text_msg(**context):
 
     if not conversation_id:
         # 新会话，重命名会话
+        conversation_id = metadata.get("conversation_id")
         dify_agent.rename_conversation(WX_USER_ID, room_id, room_name)
     else:
         # 旧会话，不重命名
@@ -337,8 +338,6 @@ def handler_text_msg(**context):
     should_pre_stop(message_data)
 
     # 保存会话ID
-    dify_msg_id = metadata.get("message_id")
-    conversation_id = metadata.get("conversation_id")
     conversation_infos = Variable.get(f"{WX_USER_ID}_conversation_infos", default_var={}, deserialize_json=True)
     conversation_infos[room_id] = conversation_id
     Variable.set(f"{WX_USER_ID}_conversation_infos", conversation_infos, serialize_json=True)
@@ -348,6 +347,7 @@ def handler_text_msg(**context):
 
     # 发送消息, 可能需要分段发送
     if ai_reply == "enable":
+        dify_msg_id = metadata.get("message_id")
         try:
             for response_part in re.split(r'\\n\\n|\n\n', response):
                 response_part = response_part.replace('\\n', '\n')
@@ -371,10 +371,10 @@ def handler_text_msg(**context):
 
     # 打印会话消息
     messages = dify_agent.get_conversation_messages(conversation_id, WX_USER_ID)
-    print("="*50)
+    print("-"*50)
     for msg in messages:
-        print(f"msg: {msg}")
-    print("="*50)
+        print(msg)
+    print("-"*50)
 
 
 # 创建DAG

@@ -37,7 +37,7 @@ class DifyAgent:
         inputs["sender_id"] = self.sender_id
         inputs["my_name"] = self.my_name
         inputs["is_group"] = self.is_group
-        
+
         url = f"{self.base_url}/chat-messages"
         payload = {
             "inputs": inputs,
@@ -77,7 +77,19 @@ class DifyAgent:
 
     def get_conversation_id_for_room(self, user_id, room_id):
         """
-        获取对应room_id + sender_id 的Dify的AI助手会话
+        根据房间ID获取对应的会话ID
+        
+        Args:
+            user_id (str): 用户标识
+            room_id (str): 房间ID
+            
+        Returns:
+            str: 会话ID。如果找不到有效会话则返回空字符串
+            
+        说明:
+            1. 先从缓存中获取会话ID
+            2. 如果缓存中有会话ID,则检查该会话是否仍然有效
+            3. 如果会话无效或不存在,则返回空字符串,由调用方创建新会话
         """
         conversation_infos = Variable.get(f"{user_id}_conversation_infos", default_var={}, deserialize_json=True)
         
