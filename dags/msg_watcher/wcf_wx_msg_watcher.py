@@ -308,13 +308,15 @@ def handler_text_msg(**context):
     question = content
 
     # 获取AI回复
-    response_data = dify_agent.create_chat_message_stream(
+    full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=WX_USER_ID,
         conversation_id=conversation_id,
         inputs={"enable_ai": enable_ai}
     )
-    response = response_data.get("answer", "")
+    print(f"full_answer: {full_answer}")
+    print(f"metadata: {metadata}")
+    response = full_answer
     
     # 打印AI回复
     print("="*50)
