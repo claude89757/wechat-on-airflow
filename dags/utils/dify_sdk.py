@@ -153,3 +153,85 @@ class DifyAgent:
             return response.json()
         else:
             raise Exception(f"重命名会话失败: {response.text}")
+
+    def get_conversation_messages(self, conversation_id, user_id, first_id="", limit=100):
+        """
+        获取会话历史消息
+        
+        Args:
+            conversation_id (str): 会话ID
+            user_id (str): 用户标识
+            first_id (str, optional): 当前页第一条聊天记录的ID，默认为空
+            limit (int, optional): 一次请求返回的消息条数，默认20条
+            
+        Returns:
+            dict: 包含消息列表的响应数据，格式如下：
+                {
+                    "data": [
+                        {
+                            "id": "消息ID",
+                            "conversation_id": "会话ID",
+                            "inputs": {}, # 用户输入参数
+                            "query": "用户输入内容",
+                            "message_files": [], # 消息文件列表
+                            "answer": "回答内容",
+                            "created_at": "创建时间",
+                            "feedback": {
+                                "rating": "like/dislike"
+                            }
+                        }
+                    ],
+                    "has_more": bool, # 是否还有更多消息
+                    "limit": int # 返回的消息条数
+                }
+                
+        Raises:
+            Exception: 当API调用失败时抛出异常
+        """
+        url = f"{self.base_url}/messages"
+        params = {
+            "conversation_id": conversation_id,
+            "user": user_id,
+            "first_id": first_id,
+            "limit": limit
+        }
+        
+        response = requests.get(url, headers=self.headers, params=params)
+        if response.status_code == 200:
+            messages = response.json()["data"]
+            return messages
+        else:
+            raise Exception(f"获取会话历史消息失败: {response.text}")
+
+    def delete_conversation(self, conversation_id, user_id):
+        """
+        删除指定的会话
+        
+        Args:
+            conversation_id (str): 要删除的会话ID
+            user_id (str): 用户标识
+            
+        Returns:
+            dict: 包含删除结果的响应数据，成功时返回 {"result": "success"}
+            
+        Raises:
+            Exception: 当API调用失败时抛出异常
+        """
+        url = f"{self.base_url}/conversations/{conversation_id}"
+        payload = {
+            "user": user_id
+        }
+        
+        response = requests.delete(url, headers=self.headers, json=payload)
+        if response.status_code == 200:
+            # 从本地存储中删除会话ID映射
+            conversation_infos = Variable.get(f"{user_id}_conversation_infos", default_var={}, deserialize_json=True)
+            # 找到并删除对应的room_id
+            for room_id, conv_id in list(conversation_infos.items()):
+                if conv_id == conversation_id:
+                    del conversation_infos[room_id]
+                    Variable.set(f"{user_id}_conversation_infos", conversation_infos, serialize_json=True)
+                    break
+            return response.json()
+        else:
+            raise Exception(f"删除会话失败: {response.text}")

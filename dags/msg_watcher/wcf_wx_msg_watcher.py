@@ -331,6 +331,13 @@ def handler_text_msg(**context):
 
     Variable.set(f'{WX_USER_ID}_{room_id}_{sender}_msg_list', room_sender_msg_list, serialize_json=True)
 
+    # 测试
+    messages = dify_agent.get_conversation_messages(conversation_id, WX_USER_ID)
+    print("="*50)
+    for msg in messages:
+        print(f"msg: {msg}")
+    print("="*50)
+
 
 # 创建DAG
 dag = DAG(
