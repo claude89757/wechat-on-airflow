@@ -272,10 +272,10 @@ def handler_text_msg(**context):
     enable_ai_room_ids = Variable.get("enable_ai_room_ids", default_var=[], deserialize_json=True)
     # 判断当前room是否开启AI
     if room_id in enable_ai_room_ids:
-        enable_ai = 1
+        ai_reply = "enable"
     else:
-        enable_ai = 0
-    print(f"当前room是否开启AI: {room_id} {enable_ai}")
+        ai_reply = "disable"
+    print(f"当前room是否开启AI: {room_id} {ai_reply}")
 
     # 初始化dify
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
@@ -300,13 +300,14 @@ def handler_text_msg(**context):
         query=content,
         user_id=WX_USER_ID,
         conversation_id=conversation_id,
-        inputs={"enable_ai": enable_ai}
+        inputs={"ai_reply": ai_reply}
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
     response = full_answer
 
     # 保存会话ID
+    dify_msg_id = metadata.get("message_id")
     conversation_id = metadata.get("conversation_id")
     conversation_infos = Variable.get(f"{WX_USER_ID}_conversation_infos", default_var={}, deserialize_json=True)
     conversation_infos[room_id] = conversation_id
@@ -318,17 +319,17 @@ def handler_text_msg(**context):
     print("="*50)
 
     # 发送消息, 可能需要分段发送
-    if enable_ai:
+    if ai_reply == "enable":
         try:
             for response_part in re.split(r'\\n\\n|\n\n', response):
                 response_part = response_part.replace('\\n', '\n')
                 send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
             # 记录消息已被成功回复
-            dify_agent.create_message_feedback(message_id=msg_id, user_id=WX_USER_ID, rating="like", content="微信自动回复成功")
+            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=WX_USER_ID, rating="like", content="微信自动回复成功")
         except Exception as error:
             print(f"[WATCHER] 发送消息失败: {error}")
             # 记录消息已被成功回复
-            dify_agent.create_message_feedback(message_id=msg_id, user_id=WX_USER_ID, rating="dislike", content=f"微信自动回复失败, {error}")
+            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=WX_USER_ID, rating="dislike", content=f"微信自动回复失败, {error}")
     else:
         print(f"[WATCHER] {room_id} 未开启AI, 不发送消息")
 
