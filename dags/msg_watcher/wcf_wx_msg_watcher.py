@@ -274,13 +274,16 @@ def handler_text_msg(**context):
     print(f"当前room是否开启AI: {room_id} {ai_reply}")
 
     # 初始化dify
+    room_name = get_contact_name(source_ip, room_id)
+    sender_name = get_contact_name(source_ip, sender)
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
                            base_url=Variable.get("DIFY_BASE_URL"), 
-                           room_name=get_contact_name(source_ip, room_id), 
+                           room_name=room_name, 
                            room_id=room_id,
-                           user_name=get_contact_name(source_ip, sender), 
-                           user_id=sender, 
-                           my_name=WX_USER_ID)
+                           sender_name=sender_name, 
+                           sender_id=sender, 
+                           my_name=WX_USER_ID,
+                           is_group=str(is_group))
 
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
@@ -322,6 +325,13 @@ def handler_text_msg(**context):
     print(f"metadata: {metadata}")
     response = full_answer
 
+    if not conversation_id:
+        # 新会话，重命名会话
+        dify_agent.rename_conversation(WX_USER_ID, room_id, room_name)
+    else:
+        # 旧会话，不重命名
+        pass
+    
     # 检查是否需要提前停止流程
     should_pre_stop(message_data)
 

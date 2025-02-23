@@ -9,7 +9,7 @@ import json
 
 
 class DifyAgent:
-    def __init__(self, api_key, base_url, room_name="", room_id="", user_name="", user_id="", my_name=""):
+    def __init__(self, api_key, base_url, room_name="", room_id="", sender_name="", sender_id="", my_name="", is_group=""):
         self.api_key = api_key
         self.base_url = base_url
         self.headers = {
@@ -18,9 +18,10 @@ class DifyAgent:
         }
         self.room_name = room_name
         self.room_id = room_id
-        self.user_name = user_name
-        self.user_id = user_id
+        self.sender_name = sender_name
+        self.sender_id = sender_id
         self.my_name = my_name
+        self.is_group = is_group
 
     def create_chat_message(self, query, user_id, conversation_id="", inputs=None):
         """
@@ -32,10 +33,11 @@ class DifyAgent:
         # 增加会话名称, 对方名称, 自己的名称
         inputs["room_name"] = self.room_name
         inputs["room_id"] = self.room_id
-        inputs["user_name"] = self.user_name
-        inputs["user_id"] = self.user_id
+        inputs["sender_name"] = self.sender_name
+        inputs["sender_id"] = self.sender_id
         inputs["my_name"] = self.my_name
-
+        inputs["is_group"] = self.is_group
+        
         url = f"{self.base_url}/chat-messages"
         payload = {
             "inputs": inputs,
@@ -277,8 +279,8 @@ class DifyAgent:
         # 增加会话相关信息
         inputs["room_name"] = self.room_name
         inputs["room_id"] = self.room_id
-        inputs["user_name"] = self.user_name
-        inputs["user_id"] = self.user_id
+        inputs["sender_name"] = self.sender_name
+        inputs["sender_id"] = self.sender_id
         inputs["my_name"] = self.my_name
 
         url = f"{self.base_url}/chat-messages"
@@ -294,7 +296,6 @@ class DifyAgent:
         full_answer = ""
         metadata = {}
         task_id = None
-        message_id = None
         workflow_metadata = {}
         
         with requests.post(url, headers=self.headers, json=payload, stream=True) as response:
@@ -376,17 +377,7 @@ class DifyAgent:
                     elif event == "error":
                         error_msg = data.get("message", "未知错误")
                         raise Exception(f"流式响应错误: {error_msg}")
-            
-            # 判断是否提前停止(存在连续消息的情况)
-            pre_stop_msg_id_list = Variable.get(f"{conversation_id}_pre_stop_msg_id_list", default_var=[], deserialize_json=True)
-            print(f"pre_stop_msg_id_list: {pre_stop_msg_id_list}")
-            if task_id and task_id in pre_stop_msg_id_list:
-                self.stop_chat_message(task_id, user_id)
-                raise Exception("通过task_id提前停止")
-            elif message_id and message_id in pre_stop_msg_id_list:
-                self.stop_chat_message(message_id, user_id)
-                raise Exception("通过message_id提前停止")
-
+        
         return full_answer, metadata
 
     def stop_chat_message(self, task_id, user_id):
