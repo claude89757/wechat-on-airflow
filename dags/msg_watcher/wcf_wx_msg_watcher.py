@@ -266,8 +266,9 @@ def handler_text_msg(**context):
 
     # 获取所有开启AI的room列表
     enable_ai_room_ids = Variable.get("enable_ai_room_ids", default_var=[], deserialize_json=True)
+    disable_ai_room_ids = Variable.get("disable_ai_room_ids", default_var=[], deserialize_json=True)
     # 判断当前room是否开启AI
-    if room_id in enable_ai_room_ids:
+    if room_id in enable_ai_room_ids and room_id not in disable_ai_room_ids:
         ai_reply = "enable"
     else:
         ai_reply = "disable"
