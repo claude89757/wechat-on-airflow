@@ -289,6 +289,7 @@ class DifyAgent:
         task_id = None
         workflow_metadata = {}
         
+        print(f"创建聊天消息, url: {url}, payload: {payload}")
         with requests.post(url, headers=self.headers, json=payload, stream=True) as response:
             if response.status_code != 200:
                 raise Exception(f"创建消息失败: {response.text}")
