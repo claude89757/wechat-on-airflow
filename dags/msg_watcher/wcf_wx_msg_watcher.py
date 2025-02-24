@@ -82,13 +82,13 @@ WX_MSG_TYPES = {
 }
 
 
-def should_pre_stop(current_message):
+def should_pre_stop(current_message, wx_user_name):
     """
     检查是否需要提前停止流程
     """
     # 缓存的消息
     room_id = current_message.get('roomid')
-    room_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+    room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
     if current_message['id'] != room_msg_list[-1]['id']:
         print(f"[PRE_STOP] 最新消息id不一致，停止流程执行")
         raise AirflowException("检测到提前停止信号，停止流程执行")
@@ -312,7 +312,7 @@ def handler_text_msg(**context):
     time.sleep(3) 
 
     # 检查是否需要提前停止流程 
-    should_pre_stop(message_data)
+    should_pre_stop(message_data, wx_user_name)
 
     # 检查房间是否开启AI
     enable_rooms = Variable.get("enable_ai_room_ids", default_var=[], deserialize_json=True)
@@ -334,7 +334,7 @@ def handler_text_msg(**context):
     conversation_id = dify_agent.get_conversation_id_for_room(wx_user_name, room_id)
 
     # 检查是否需要提前停止流程
-    should_pre_stop(message_data)
+    should_pre_stop(message_data, wx_user_name)
 
     # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
     if ai_reply == "enable":
@@ -357,7 +357,7 @@ def handler_text_msg(**context):
     print("-"*50)
     
     # 检查是否需要提前停止流程
-    should_pre_stop(message_data)
+    should_pre_stop(message_data, wx_user_name)
 
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
@@ -391,7 +391,7 @@ def handler_text_msg(**context):
         pass
     
     # 检查是否需要提前停止流程
-    should_pre_stop(message_data)
+    should_pre_stop(message_data, wx_user_name)
 
     # 开启AI，且不是自己发送的消息，则自动回复消息
     if ai_reply == "enable" and not is_self:
