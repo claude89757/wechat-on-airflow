@@ -75,8 +75,8 @@ dag = DAG(
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=1),
     catchup=False,
-    tags=['微信账号状态监控'],
-    description='微信账号状态监控',
+    tags=['微信账号监控'],
+    description='微信账号监控',
 )
 
 # 创建处理消息的任务

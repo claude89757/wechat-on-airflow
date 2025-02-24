@@ -433,8 +433,8 @@ dag = DAG(
     schedule_interval=None,
     max_active_runs=50,
     catchup=False,
-    tags=['Zacks-微信消息监控'],
-    description='Zacks-微信消息监控',
+    tags=['微信消息监控'],
+    description='微信消息监控',
 )
 
 # 创建处理消息的任务
