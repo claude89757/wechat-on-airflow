@@ -45,7 +45,7 @@ def check_wx_account_status(**context):
     aters = input_data.get('aters', '')
 
     # 发送文本消息
-    send_wx_msg(wcf_ip=source_ip, msg=up_for_send_msg, room_id=room_id, aters=aters)
+    send_wx_msg(wcf_ip=source_ip, message=up_for_send_msg, receiver=room_id, aters=aters)
 
     # TODO(claude89757): 增加支持发送图片/视频/文件等
 
