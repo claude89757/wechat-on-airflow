@@ -330,17 +330,14 @@ def handler_text_msg(**context):
         # 新会话，重命名会话
         conversation_id = metadata.get("conversation_id")
         dify_agent.rename_conversation(conversation_id, WX_USER_ID, room_name)
+
+        # 保存会话ID
+        conversation_infos = Variable.get(f"{WX_USER_ID}_conversation_infos", default_var={}, deserialize_json=True)
+        conversation_infos[room_id] = conversation_id
+        Variable.set(f"{WX_USER_ID}_conversation_infos", conversation_infos, serialize_json=True)
     else:
         # 旧会话，不重命名
         pass
-    
-    # 检查是否需要提前停止流程
-    should_pre_stop(message_data)
-
-    # 保存会话ID
-    conversation_infos = Variable.get(f"{WX_USER_ID}_conversation_infos", default_var={}, deserialize_json=True)
-    conversation_infos[room_id] = conversation_id
-    Variable.set(f"{WX_USER_ID}_conversation_infos", conversation_infos, serialize_json=True)
     
     # 检查是否需要提前停止流程
     should_pre_stop(message_data)
