@@ -96,7 +96,7 @@ def should_pre_stop(current_message, wx_user_name):
         print(f"[PRE_STOP] 最新消息id一致，继续执行")
 
 
-def get_contact_name(source_ip: str, wxid: str) -> str:
+def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
     """
     获取联系人/群名称，使用Airflow Variable缓存联系人列表，1小时刷新一次
     wxid: 可以是sender或roomid
@@ -104,13 +104,12 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
 
     print(f"获取联系人/群名称, source_ip: {source_ip}, wxid: {wxid}")
     # 获取缓存的联系人列表
-    cache_key = f"wx_contact_list_{source_ip}"
+    cache_key = f"{wx_user_name}_CONTACT_INFOS"
     current_timestamp = int(time.time())
-    
-    cached_data = Variable.get(cache_key, default_var={"timestamp": 0, "contacts": {}}, deserialize_json=True)
+    cached_data = Variable.get(cache_key, default_var={"update_time": 0, "contact_infos": {}}, deserialize_json=True)
     
     # 检查是否需要刷新缓存（1小时 = 3600秒）
-    if current_timestamp - cached_data["timestamp"] > 3600:
+    if current_timestamp - cached_data["update_time"] > 3600:
         # 获取最新的联系人列表
         wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
         print(f"刷新联系人列表缓存，数量: {len(wx_contact_list)}")
@@ -122,13 +121,16 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
             contact_infos[contact_wxid] = contact
             
         # 更新缓存和时间戳
-        cached_data = {"timestamp": current_timestamp, "contacts": contact_infos}
-        Variable.set(cache_key, cached_data, serialize_json=True)
+        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos}
+        try:
+            Variable.set(cache_key, cached_data, serialize_json=True)
+        except Exception as error:
+            print(f"[WATCHER] 更新缓存失败: {error}")
     else:
-        print(f"使用缓存的联系人列表，数量: {len(cached_data['contacts'])}")
+        print(f"使用缓存的联系人列表，数量: {len(cached_data['contact_infos'])}")
 
     # 返回联系人名称
-    contact_name = cached_data["contacts"].get(wxid, {}).get('name', '')
+    contact_name = cached_data["contact_infos"].get(wxid, {}).get('name', '')
 
     # 如果联系人名称不存在，则尝试刷新缓存
     if not contact_name:
@@ -143,8 +145,11 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
             contact_infos[contact_wxid] = contact
             
         # 更新缓存和时间戳
-        cached_data = {"timestamp": current_timestamp, "contacts": contact_infos}
-        Variable.set(cache_key, cached_data, serialize_json=True)
+        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos}
+        try:
+            Variable.set(cache_key, cached_data, serialize_json=True)
+        except Exception as error:
+            print(f"[WATCHER] 更新缓存失败: {error}")
 
         # 重新获取联系人名称
         contact_name = contact_infos.get(wxid, {}).get('name', '')
@@ -320,8 +325,8 @@ def handler_text_msg(**context):
     ai_reply = "enable" if room_id in enable_rooms and room_id not in disable_rooms else "disable"
 
     # 获取房间和发送者信息
-    room_name = get_contact_name(source_ip, room_id)
-    sender_name = get_contact_name(source_ip, sender) or (wx_user_name if is_self else None)
+    room_name = get_contact_name(source_ip, room_id, wx_user_name)
+    sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
 
     # 打印调试信息
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
