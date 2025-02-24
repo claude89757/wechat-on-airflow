@@ -146,7 +146,7 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
         # 更新缓存和时间戳
         cached_data = {"timestamp": current_timestamp, "contacts": contact_infos}
         Variable.set(cache_key, cached_data, serialize_json=True)
-        
+
         # 重新获取联系人名称
         contact_name = contact_infos.get(wxid, {}).get('name', '')
 
@@ -279,22 +279,24 @@ def handler_text_msg(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
-    time.sleep(3)  # 等待3秒，聚合消息
-     # 检查是否需要提前停止流程
+    # 等待3秒，聚合消息
+    time.sleep(3) 
+
+    # 检查是否需要提前停止流程 
     should_pre_stop(message_data)
 
-    # 获取所有开启AI的room列表
-    enable_ai_room_ids = Variable.get("enable_ai_room_ids", default_var=[], deserialize_json=True)
-    disable_ai_room_ids = Variable.get("disable_ai_room_ids", default_var=[], deserialize_json=True)
-    # 判断当前room是否开启AI
-    if room_id in enable_ai_room_ids and room_id not in disable_ai_room_ids:
-        ai_reply = "enable"
-    else:
-        ai_reply = "disable"
+    # 检查房间是否开启AI
+    enable_rooms = Variable.get("enable_ai_room_ids", default_var=[], deserialize_json=True)
+    disable_rooms = Variable.get("disable_ai_room_ids", default_var=[], deserialize_json=True)
+    ai_reply = "enable" if room_id in enable_rooms and room_id not in disable_rooms else "disable"
+
+    # 获取房间和发送者信息
     room_name = get_contact_name(source_ip, room_id)
-    sender_name = get_contact_name(source_ip, sender)
-    print(f"room_id: {room_id}, room_name: {room_name}, sender_id: {sender}, sender_name: {sender_name}")
-    print(f"当前room是否开启AI: {room_id} {ai_reply}")
+    sender_name = get_contact_name(source_ip, sender) or (WX_USER_ID if is_self else None)
+
+    # 打印调试信息
+    print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
+    print(f"AI状态: {room_id} {ai_reply}")
 
     # 初始化dify
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
