@@ -41,7 +41,6 @@ from utils.redis import RedisLock
 from utils.wechat_channl import get_wx_contact_list, send_wx_msg, get_wx_self_info
 
 
-WX_USER_ID = "zacks"
 DAG_ID = "wx_msg_watcher"
 
 
@@ -160,27 +159,19 @@ def get_and_cache_user_info(source_ip: str) -> dict:
     """
     # 获取当前已缓存的用户信息
     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
-    print("-"*50)
-    print(f"当前已缓存的用户信息: {len(wx_account_list)}")
-    cache_source_ip_list = []
     for account in wx_account_list:
         print(account)
-        source_ip = account['source_ip']
-        cache_source_ip_list.append(source_ip)
-    print(f"当前已缓存的source_ip: {cache_source_ip_list}")
-    print("-"*50)
+        if source_ip == account['source_ip']:
+            print(f"获取到缓存的用户信息: {account}")
+            return account
 
-    # 如果当前source_ip不在已缓存的用户信息中，则获取用户信息并缓存
-    if source_ip not in cache_source_ip_list:
-        user_info = get_wx_self_info(wcf_ip=source_ip)
-        user_info['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        user_info['source_ip'] = source_ip
-        wx_account_list.append(user_info)
-        print(f"更新用户信息: {user_info}")
-        Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
-    else:
-        print(f"当前source_ip({source_ip})已缓存，跳过获取用户信息, cache_source_ip_list: {cache_source_ip_list}") 
-    
+    account = get_wx_self_info(wcf_ip=source_ip)
+    account['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    account['source_ip'] = source_ip
+    wx_account_list.append(account)
+    print(f"新用户, 更新用户信息: {account}")
+    Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
+    return account
 
 def process_wx_message(**context):
     """
@@ -222,7 +213,10 @@ def process_wx_message(**context):
     source_ip = message_data.get('source_ip')
 
     # 获取用户信息, 并缓存
-    get_and_cache_user_info(source_ip)
+    wx_account_info =get_and_cache_user_info(source_ip)
+    wx_user_name = wx_account_info['name']
+    # 将微信账号信息传递到xcom中供后续任务使用
+    context['task_instance'].xcom_push(key='wx_account_info', value=wx_account_info)
 
     # 生成run_id
     now = datetime.now(timezone.utc)
@@ -232,9 +226,9 @@ def process_wx_message(**context):
     # 分场景分发微信消息
     if WX_MSG_TYPES.get(msg_type) == "文字":
         # 用户的消息缓存列表
-        room_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
-        Variable.set(f'{WX_USER_ID}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
+        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
 
         # 执行handler_text_msg任务
         return ['handler_text_msg']
@@ -310,6 +304,10 @@ def handler_text_msg(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
+    # 获取微信账号信息
+    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+    wx_user_name = wx_account_info['name']
+
     # 等待3秒，聚合消息
     time.sleep(3) 
 
@@ -323,7 +321,7 @@ def handler_text_msg(**context):
 
     # 获取房间和发送者信息
     room_name = get_contact_name(source_ip, room_id)
-    sender_name = get_contact_name(source_ip, sender) or (WX_USER_ID if is_self else None)
+    sender_name = get_contact_name(source_ip, sender) or (wx_user_name if is_self else None)
 
     # 打印调试信息
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
@@ -333,14 +331,14 @@ def handler_text_msg(**context):
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
-    conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
+    conversation_id = dify_agent.get_conversation_id_for_room(wx_user_name, room_id)
 
     # 检查是否需要提前停止流程
     should_pre_stop(message_data)
 
     # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
     if ai_reply == "enable":
-        room_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         up_for_reply_msg_content_list = []
         up_for_reply_msg_id_list = []
         for msg in room_msg_list[-10:]:  # 只取最近的10条消息
@@ -364,14 +362,14 @@ def handler_text_msg(**context):
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
-        user_id=WX_USER_ID,
+        user_id=wx_user_name,
         conversation_id=conversation_id,
         inputs={"ai_reply": ai_reply, 
                 "room_id": room_id, 
                 "room_name": room_name,
                 "sender_name": sender_name, 
                 "sender_id": sender, 
-                "my_name": WX_USER_ID,
+                "my_name": wx_user_name,
                 "is_self": str(is_self),
                 "is_group": str(is_group)}
     )
@@ -382,12 +380,12 @@ def handler_text_msg(**context):
     if not conversation_id:
         # 新会话，重命名会话
         conversation_id = metadata.get("conversation_id")
-        dify_agent.rename_conversation(conversation_id, WX_USER_ID, room_name)
+        dify_agent.rename_conversation(conversation_id, wx_user_name, room_name)
 
         # 保存会话ID
-        conversation_infos = Variable.get(f"{WX_USER_ID}_conversation_infos", default_var={}, deserialize_json=True)
+        conversation_infos = Variable.get(f"{wx_user_name}_conversation_infos", default_var={}, deserialize_json=True)
         conversation_infos[room_id] = conversation_id
-        Variable.set(f"{WX_USER_ID}_conversation_infos", conversation_infos, serialize_json=True)
+        Variable.set(f"{wx_user_name}_conversation_infos", conversation_infos, serialize_json=True)
     else:
         # 旧会话，不重命名
         pass
@@ -403,24 +401,24 @@ def handler_text_msg(**context):
                 response_part = response_part.replace('\\n', '\n')
                 send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
             # 记录消息已被成功回复
-            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=WX_USER_ID, rating="like", content="微信自动回复成功")
+            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="like", content="微信自动回复成功")
 
             # 缓存的消息中，标记消息已回复
-            room_msg_list = Variable.get(f'{WX_USER_ID}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+            room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
             for msg in room_msg_list:
                 if msg['id'] in up_for_reply_msg_id_list:
                     msg['is_reply'] = True
-            Variable.set(f'{WX_USER_ID}_{room_id}_msg_list', room_msg_list, serialize_json=True)
+            Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
 
         except Exception as error:
             print(f"[WATCHER] 发送消息失败: {error}")
             # 记录消息已被成功回复
-            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=WX_USER_ID, rating="dislike", content=f"微信自动回复失败, {error}")
+            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="dislike", content=f"微信自动回复失败, {error}")
     else:
         print(f"[WATCHER] {room_id} 未开启AI, 不发送消息")
 
     # 打印会话消息
-    messages = dify_agent.get_conversation_messages(conversation_id, WX_USER_ID)
+    messages = dify_agent.get_conversation_messages(conversation_id, wx_user_name)
     print("-"*50)
     for msg in messages:
         print(msg)
