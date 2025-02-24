@@ -102,6 +102,7 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
     获取联系人/群名称，使用Airflow Variable缓存联系人列表，1小时刷新一次
     wxid: 可以是sender或roomid
     """
+
     print(f"获取联系人/群名称, source_ip: {source_ip}, wxid: {wxid}")
     # 获取缓存的联系人列表
     cache_key = f"wx_contact_list_{source_ip}"
@@ -122,16 +123,33 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
             contact_infos[contact_wxid] = contact
             
         # 更新缓存和时间戳
-        cached_data = {
-            "timestamp": current_timestamp,
-            "contacts": contact_infos
-        }
+        cached_data = {"timestamp": current_timestamp, "contacts": contact_infos}
         Variable.set(cache_key, cached_data, serialize_json=True)
     else:
         print(f"使用缓存的联系人列表，数量: {len(cached_data['contacts'])}")
 
     # 返回联系人名称
     contact_name = cached_data["contacts"].get(wxid, {}).get('name', '')
+
+    # 如果联系人名称不存在，则尝试刷新缓存
+    if not contact_name:
+        # 获取最新的联系人列表
+        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
+        print(f"刷新联系人列表缓存，数量: {len(wx_contact_list)}")
+        
+        # 构建联系人信息字典
+        contact_infos = {}
+        for contact in wx_contact_list:
+            contact_wxid = contact.get('wxid', '')
+            contact_infos[contact_wxid] = contact
+            
+        # 更新缓存和时间戳
+        cached_data = {"timestamp": current_timestamp, "contacts": contact_infos}
+        Variable.set(cache_key, cached_data, serialize_json=True)
+        
+        # 重新获取联系人名称
+        contact_name = contact_infos.get(wxid, {}).get('name', '')
+
     print(f"返回联系人名称, wxid: {wxid}, 名称: {contact_name}")
     return contact_name
 
@@ -256,12 +274,13 @@ def handler_text_msg(**context):
     msg_id = message_data.get('id')
     msg_type = message_data.get('type')
     content = message_data.get('content', '')
+    is_self = message_data.get('is_self', False)  # 是否自己发送的消息
     is_group = message_data.get('is_group', False)  # 是否群聊
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
-    # 检查是否需要提前停止流程
-    time.sleep(3)
+    time.sleep(3)  # 等待3秒，聚合消息
+     # 检查是否需要提前停止流程
     should_pre_stop(message_data)
 
     # 获取所有开启AI的room列表
@@ -319,7 +338,8 @@ def handler_text_msg(**context):
                 "room_name": room_name,
                 "sender_name": sender_name, 
                 "sender_id": sender, 
-                "my_name": WX_USER_ID, 
+                "my_name": WX_USER_ID,
+                "is_self": str(is_self),
                 "is_group": str(is_group)}
     )
     print(f"full_answer: {full_answer}")
@@ -342,8 +362,8 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data)
 
-    # 发送消息, 可能需要分段发送
-    if ai_reply == "enable":
+    # 开启AI，且不是自己发送的消息，则自动回复消息
+    if ai_reply == "enable" and not is_self:
         dify_msg_id = metadata.get("message_id")
         try:
             for response_part in re.split(r'\\n\\n|\n\n', response):
