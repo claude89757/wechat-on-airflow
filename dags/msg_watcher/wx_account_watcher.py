@@ -54,6 +54,7 @@ def check_wx_account_status(**context):
         Variable.set(f"{account['wxid']}_CONTACT_LIST", contact_list, serialize_json=True)
 
         # 检查微信登录状态
+        new_wx_account_info['source_ip'] = source_ip
         new_wx_account_info['is_online'] = check_wx_login(source_ip)
         new_wx_account_info['contact_num'] = len(contact_list)
         new_wx_account_info['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

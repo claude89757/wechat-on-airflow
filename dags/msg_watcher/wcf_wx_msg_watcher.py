@@ -165,12 +165,13 @@ def get_and_cache_user_info(source_ip: str) -> dict:
     cache_source_ip_list = []
     for account in wx_account_list:
         print(account)
-        cache_source_ip_list.append(account.get('source_ip', ''))
+        source_ip = account['source_ip']
+        cache_source_ip_list.append(source_ip)
     print(f"当前已缓存的source_ip: {cache_source_ip_list}")
     print("-"*50)
 
     # 如果当前source_ip不在已缓存的用户信息中，则获取用户信息并缓存
-    if source_ip not in wx_account_list:
+    if source_ip not in cache_source_ip_list:
         user_info = get_wx_self_info(wcf_ip=source_ip)
         user_info['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         user_info['source_ip'] = source_ip
