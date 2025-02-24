@@ -105,11 +105,12 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
     print(f"获取联系人/群名称, source_ip: {source_ip}, wxid: {wxid}")
     # 获取缓存的联系人列表
     cache_key = f"{wx_user_name}_CONTACT_INFOS"
-    current_timestamp = int(time.time())
-    cached_data = Variable.get(cache_key, default_var={"update_time": 0, "contact_infos": {}}, deserialize_json=True)
+    current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    cached_data = Variable.get(cache_key, default_var={"update_time": "1970-01-01 00:00:00", "contact_infos": {}}, deserialize_json=True)
     
     # 检查是否需要刷新缓存（1小时 = 3600秒）
-    if current_timestamp - cached_data["update_time"] > 3600:
+    cached_time = datetime.strptime(cached_data["update_time"], '%Y-%m-%d %H:%M:%S')
+    if (datetime.now() - cached_time).total_seconds() > 3600:
         # 获取最新的联系人列表
         wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
         print(f"刷新联系人列表缓存，数量: {len(wx_contact_list)}")
