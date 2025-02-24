@@ -227,7 +227,8 @@ async def trigger_airflow_dag(callback_data, dag_id):
         # 根据Airflow的DAG run ID命名规范, 删除所有非字母数字字符
         formatted_roomid = re.sub(r'[^a-zA-Z0-9]', '', str(callback_data.get("roomid", "")))
         msg_id = str(callback_data.get("id", ""))
-        dag_run_id = f"{formatted_roomid}_{msg_id}"
+        source_ip = str(callback_data.get("source_ip", ""))
+        dag_run_id = f"{source_ip}_{formatted_roomid}_{msg_id}"
         airflow_payload = {
             "conf": callback_data,
             "dag_run_id": dag_run_id,
