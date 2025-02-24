@@ -277,6 +277,7 @@ def handler_text_msg(**context):
     # 初始化dify
     room_name = get_contact_name(source_ip, room_id)
     sender_name = get_contact_name(source_ip, sender)
+    print(f"room_id: {room_id}, room_name: {room_name}, sender_id: {sender}, sender_name: {sender_name}")
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
                            base_url=Variable.get("DIFY_BASE_URL"), 
                            room_name=room_name, 
