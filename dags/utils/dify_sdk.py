@@ -9,19 +9,13 @@ import json
 
 
 class DifyAgent:
-    def __init__(self, api_key, base_url, room_name="", room_id="", sender_name="", sender_id="", my_name="", is_group=""):
+    def __init__(self, api_key, base_url):
         self.api_key = api_key
         self.base_url = base_url
         self.headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'
         }
-        self.room_name = room_name
-        self.room_id = room_id
-        self.sender_name = sender_name
-        self.sender_id = sender_id
-        self.my_name = my_name
-        self.is_group = is_group
 
     def create_chat_message(self, query, user_id, conversation_id="", inputs=None):
         """
@@ -29,14 +23,6 @@ class DifyAgent:
         """
         if inputs is None:
             inputs = {}
-
-        # 增加会话名称, 对方名称, 自己的名称
-        inputs["room_name"] = self.room_name
-        inputs["room_id"] = self.room_id
-        inputs["sender_name"] = self.sender_name
-        inputs["sender_id"] = self.sender_id
-        inputs["my_name"] = self.my_name
-        inputs["is_group"] = self.is_group
 
         url = f"{self.base_url}/chat-messages"
         payload = {
@@ -287,13 +273,6 @@ class DifyAgent:
         """
         if inputs is None:
             inputs = {}
-
-        # 增加会话相关信息
-        inputs["room_name"] = self.room_name
-        inputs["room_id"] = self.room_id
-        inputs["sender_name"] = self.sender_name
-        inputs["sender_id"] = self.sender_id
-        inputs["my_name"] = self.my_name
 
         url = f"{self.base_url}/chat-messages"
         payload = {

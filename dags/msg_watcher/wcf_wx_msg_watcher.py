@@ -272,20 +272,13 @@ def handler_text_msg(**context):
         ai_reply = "enable"
     else:
         ai_reply = "disable"
-    print(f"当前room是否开启AI: {room_id} {ai_reply}")
-
-    # 初始化dify
     room_name = get_contact_name(source_ip, room_id)
     sender_name = get_contact_name(source_ip, sender)
     print(f"room_id: {room_id}, room_name: {room_name}, sender_id: {sender}, sender_name: {sender_name}")
-    dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), 
-                           base_url=Variable.get("DIFY_BASE_URL"), 
-                           room_name=room_name, 
-                           room_id=room_id,
-                           sender_name=sender_name, 
-                           sender_id=sender, 
-                           my_name=WX_USER_ID,
-                           is_group=str(is_group))
+    print(f"当前room是否开启AI: {room_id} {ai_reply}")
+
+    # 初始化dify
+    dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(WX_USER_ID, room_id)
@@ -321,7 +314,13 @@ def handler_text_msg(**context):
         query=question,
         user_id=WX_USER_ID,
         conversation_id=conversation_id,
-        inputs={"ai_reply": ai_reply}
+        inputs={"ai_reply": ai_reply, 
+                "room_id": room_id, 
+                "room_name": room_name,
+                "sender_name": sender_name, 
+                "sender_id": sender, 
+                "my_name": WX_USER_ID, 
+                "is_group": str(is_group)}
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
