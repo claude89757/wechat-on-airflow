@@ -58,7 +58,7 @@ dag = DAG(
     schedule_interval=None,
     dagrun_timeout=timedelta(minutes=1),
     catchup=False,
-    tags=['微信工具'],
+    tags=['微信工具', '发送消息'],
     description='微信消息发送',
 )
 
