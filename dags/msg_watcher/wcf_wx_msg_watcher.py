@@ -38,7 +38,7 @@ from airflow.utils.state import DagRunState
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
 from utils.redis import RedisLock
-from utils.wechat_channl import get_wx_contact_list, send_wx_msg
+from utils.wechat_channl import get_wx_contact_list, send_wx_msg, get_wx_self_info
 
 
 WX_USER_ID = "zacks"
@@ -154,6 +154,33 @@ def get_contact_name(source_ip: str, wxid: str) -> str:
     return contact_name
 
 
+def get_and_cache_user_info(source_ip: str) -> dict:
+    """
+    获取用户信息，并缓存
+    """
+    # 获取当前已缓存的用户信息
+    wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
+    print("-"*50)
+    print(f"当前已缓存的用户信息: {len(wx_account_list)}")
+    cache_source_ip_list = []
+    for account in wx_account_list:
+        print(account)
+        cache_source_ip_list.append(account.get('source_ip', ''))
+    print(f"当前已缓存的source_ip: {cache_source_ip_list}")
+    print("-"*50)
+
+    # 如果当前source_ip不在已缓存的用户信息中，则获取用户信息并缓存
+    if source_ip not in wx_account_list:
+        user_info = get_wx_self_info(wcf_ip=source_ip)
+        user_info['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        user_info['source_ip'] = source_ip
+        wx_account_list.append(user_info)
+        print(f"更新用户信息: {user_info}")
+        Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
+    else:
+        print(f"当前source_ip({source_ip})已缓存，跳过获取用户信息, cache_source_ip_list: {cache_source_ip_list}") 
+    
+
 def process_wx_message(**context):
     """
     处理微信消息的任务函数, 消息分发到其他DAG处理
@@ -192,6 +219,9 @@ def process_wx_message(**context):
     is_group = message_data.get('is_group', False)  # 是否群聊
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
+
+    # 获取用户信息, 并缓存
+    get_and_cache_user_info(source_ip)
 
     # 生成run_id
     now = datetime.now(timezone.utc)
