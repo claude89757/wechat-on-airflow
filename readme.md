@@ -75,4 +75,6 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 
 ## 开发人员
 
-<a href="https://github.com/claude89757/wechat-on-airflow/graphs/contributors">![](https://contrib.rocks/image?repo=claude89757/wechat-on-airflow)</a>
+<a href="https://github.com/claude89757/wechat-on-airflow/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=claude89757/wechat-on-airflow&max=100" />
+</a>
