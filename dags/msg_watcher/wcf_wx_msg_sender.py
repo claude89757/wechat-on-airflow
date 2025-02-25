@@ -29,9 +29,9 @@ from utils.wechat_channl import send_wx_msg
 DAG_ID = "wx_msg_sender"
 
 
-def check_wx_account_status(**context):
+def send_wx_msg(**context):
     """
-    检查微信账号状态
+    发送微信消息
     
     Args:
         **context: Airflow上下文参数，包含dag_run等信息
@@ -63,9 +63,9 @@ dag = DAG(
 )
 
 # 创建处理消息的任务
-check_wx_account_status_task = PythonOperator(
-    task_id='check_wx_account_status',
-    python_callable=check_wx_account_status,
+send_wx_msg_task = PythonOperator(
+    task_id='send_wx_msg',
+    python_callable=send_wx_msg,
     provide_context=True,
     dag=dag
 )
