@@ -56,7 +56,7 @@ dag = DAG(
     default_args={'owner': 'claude89757'},
     start_date=datetime(2024, 1, 1),
     schedule_interval=None,
-    dagrun_timeout=timedelta(minutes=1),
+    max_active_runs=50,
     catchup=False,
     tags=['微信工具', '发送消息'],
     description='微信消息发送',
