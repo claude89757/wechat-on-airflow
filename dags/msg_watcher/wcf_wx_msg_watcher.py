@@ -161,7 +161,7 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
 
 def get_and_cache_user_info(source_ip: str) -> dict:
     """
-    获取用户信息，并缓存
+    获取用户信息，并缓存。对于新用户，会初始化其专属的 enable_ai_room_ids 列表
     """
     # 获取当前已缓存的用户信息
     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
@@ -176,6 +176,11 @@ def get_and_cache_user_info(source_ip: str) -> dict:
     account['source_ip'] = source_ip
     wx_account_list.append(account)
     print(f"新用户, 更新用户信息: {account}")
+    
+    # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
+    Variable.set(f"{account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
+    Variable.set(f"{account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
+    
     Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
     return account
 
@@ -320,9 +325,9 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程 
     should_pre_stop(message_data, wx_user_name)
 
-    # 检查房间是否开启AI
-    enable_rooms = Variable.get("enable_ai_room_ids", default_var=[], deserialize_json=True)
-    disable_rooms = Variable.get("disable_ai_room_ids", default_var=[], deserialize_json=True)
+    # 检查房间是否开启AI - 使用用户专属的配置
+    enable_rooms = Variable.get(f"{wx_account_info['wxid']}_enable_ai_room_ids", default_var=[], deserialize_json=True)
+    disable_rooms = Variable.get(f"{wx_account_info['wxid']}_disable_ai_room_ids", default_var=[], deserialize_json=True)
     ai_reply = "enable" if room_id in enable_rooms and room_id not in disable_rooms else "disable"
 
     # 获取房间和发送者信息
