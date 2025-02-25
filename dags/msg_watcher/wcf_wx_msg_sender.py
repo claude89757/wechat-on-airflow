@@ -29,7 +29,7 @@ from utils.wechat_channl import send_wx_msg
 DAG_ID = "wx_msg_sender"
 
 
-def send_wx_msg(**context):
+def send_msg(**context):
     """
     发送微信消息
     
@@ -63,9 +63,9 @@ dag = DAG(
 )
 
 # 创建处理消息的任务
-send_wx_msg_task = PythonOperator(
-    task_id='send_wx_msg',
-    python_callable=send_wx_msg,
+send_msg_task = PythonOperator(
+    task_id='send_msg',
+    python_callable=send_msg,
     provide_context=True,
     dag=dag
 )
