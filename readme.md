@@ -42,7 +42,20 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 - 大模型服务： 基于大模型 API 实现
 ```
 
-## 功能列表
+## Airflow流程功能列表
+
+- [x] 接受微信新消息, 并分发到不同的Dify应用
+- [x] 定时更新微信账号状态\联系人数据
+- [x] 发送微信消息
+- [ ] 缓存聊天记录到Mysql
+- [ ] 缓存联系人数据到Mysql
+- [ ] 发送图片
+- [ ] 发送视频
+- [ ] 发送语音
+- [ ] 发送文件
+
+
+## 微信功能列表
 
 - [x] 发送文字消息
 - [x] 发送图片消息
@@ -55,8 +68,10 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 
 ## 关联项目
 
+- [前端UI](https://github.com/YuChanGongzhu/ai-agent)
 - [airflow](https://github.com/apache/airflow)
 - [wcf-client-rust](https://github.com/lich0821/wcf-client-rust)
+- [dify](https://github.com/langgenius/dify)
 
 ## 开发人员
 
