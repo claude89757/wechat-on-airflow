@@ -23,6 +23,7 @@ class WeChatMPBot:
     def get_access_token(self):
         """获取稳定的 Access Token"""
         url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={self.appid}&secret={self.appsecret}"
+        print(f"获取 Access Token 的 URL: {url}")
         response = requests.get(url)
         data = response.json()
         if 'access_token' in data:
@@ -37,6 +38,7 @@ class WeChatMPBot:
         if not self.access_token:
             self.get_access_token()
         url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送文本消息的 URL: {url}")
         data = {
             "touser": to_user,
             "msgtype": "text",
@@ -54,6 +56,7 @@ class WeChatMPBot:
         if not self.access_token:
             self.get_access_token()
         url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送图片消息的 URL: {url}")
         data = {
             "touser": to_user,
             "msgtype": "image",
