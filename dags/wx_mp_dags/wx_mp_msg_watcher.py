@@ -125,8 +125,11 @@ def handler_text_msg(**context):
     
     if not conversation_id:
         # 新会话，重命名会话
-        conversation_id = metadata.get("conversation_id")
-        dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号对话")
+        try:
+            conversation_id = metadata.get("conversation_id")
+            dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号对话")
+        except Exception as e:
+            print(f"[WATCHER] 重命名会话失败: {e}")
         
         # 保存会话ID
         conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
