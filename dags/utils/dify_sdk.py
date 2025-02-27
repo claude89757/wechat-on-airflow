@@ -172,7 +172,8 @@ class DifyAgent:
             payload["name"] = name
         else:
             raise ValueError("必须提供name或设置auto_generate=True")
-            
+        
+        print(f"重命名会话, url: {url}, payload: {payload}")
         response = requests.post(url, headers=self.headers, json=payload)
         if response.status_code == 200:
             return response.json()
