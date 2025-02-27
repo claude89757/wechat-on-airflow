@@ -58,8 +58,8 @@ dag = DAG(
     schedule_interval=None,
     max_active_runs=50,
     catchup=False,
-    tags=['微信工具', '发送消息'],
-    description='微信消息发送',
+    tags=['个人微信', '发送消息'],
+    description='个人微信消息发送',
 )
 
 # 创建处理消息的任务
