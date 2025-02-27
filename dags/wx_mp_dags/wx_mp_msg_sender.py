@@ -41,8 +41,8 @@ def send_wx_mp_msg(**context):
     input_data = context.get('dag_run').conf
     print(f"输入数据: {input_data}")
     
-    msg = input_data['msg']
-    to_user = input_data['to_user']
+    msg = input_data.get('msg', 'test')
+    to_user = input_data.get('to_user', 'oVSlU7PqMNpp7BqnxkhCWZtqrA5U')
 
     app_id = Variable.get('WX_MP_APP_ID')
     app_secret = Variable.get('WX_MP_SECRET')

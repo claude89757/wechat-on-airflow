@@ -98,8 +98,47 @@ class DifyAgent:
                 print(f"{user_id} 使用已存在的会话ID: {conversation_id}")
                 return conversation_id
         else:
-            pass
+            print(f"{user_id} 没有找到会话ID")
+        return ""
 
+    def get_conversation_id_for_user(self, user_id):
+        """
+        根据用户ID获取对应的会话ID，主要用于微信公众号等一对一对话场景
+        
+        Args:
+            user_id (str): 用户标识（如微信公众号的OpenID）
+            
+        Returns:
+            str: 会话ID。如果找不到有效会话则返回空字符串
+            
+        说明:
+            1. 先从缓存中获取会话ID
+            2. 如果缓存中有会话ID,则检查该会话是否仍然有效
+            3. 如果会话无效或不存在,则返回空字符串,由调用方创建新会话
+        """
+        conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
+        
+        # 检查是否存在会话ID
+        conversation_id = conversation_infos.get(user_id)
+        if conversation_id:
+            print(f"用户 {user_id} 使用已存在的会话ID: {conversation_id}")
+            # 尝试获取会话列表
+            conversations = self.list_conversations(user_id=user_id, limit=100)
+            conversation_exists = False
+            # 检查会话是否存在且状态正常
+            if conversations.get("data"):
+                for conv in conversations["data"]:
+                    if conv.get("id") == conversation_id and conv.get("status") == "normal":
+                        conversation_exists = True
+                        break
+            if not conversation_exists:
+                print(f"用户 {user_id} 的会话 {conversation_id} 不存在或状态异常")
+                return ""
+            else:
+                print(f"用户 {user_id} 使用已存在的会话ID: {conversation_id}")
+                return conversation_id
+        else:
+            print(f"用户 {user_id} 没有找到会话ID")
         return ""
 
     def rename_conversation(self, conversation_id, user_id, name="", auto_generate=False):
