@@ -1,0 +1,67 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+微信公众号机器人客户端
+
+用于与微信公众号平台进行交互,实现消息收发等功能。
+
+Author: by cursor
+Date: 2025-02-27
+"""
+
+import requests
+import json
+
+class WeChatMPBot:
+    def __init__(self, appid, appsecret):
+        self.appid = appid
+        self.appsecret = appsecret
+        self.access_token = None
+        self.token_expiry = 0
+
+    def get_access_token(self):
+        """获取稳定的 Access Token"""
+        url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={self.appid}&secret={self.appsecret}"
+        response = requests.get(url)
+        data = response.json()
+        if 'access_token' in data:
+            self.access_token = data['access_token']
+            self.token_expiry = data['expires_in']
+            return self.access_token
+        else:
+            raise Exception(f"获取 Access Token 失败: {data.get('errmsg', '未知错误')}")
+
+    def send_text_message(self, to_user, content):
+        """发送文本消息"""
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        data = {
+            "touser": to_user,
+            "msgtype": "text",
+            "text": {
+                "content": content
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送文本消息失败: {result.get('errmsg', '未知错误')}")
+
+    def send_image_message(self, to_user, media_id):
+        """发送图片消息"""
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        data = {
+            "touser": to_user,
+            "msgtype": "image",
+            "image": {
+                "media_id": media_id
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送图片消息失败: {result.get('errmsg', '未知错误')}")
