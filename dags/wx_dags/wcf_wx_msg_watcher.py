@@ -528,7 +528,7 @@ dag = DAG(
     schedule_interval=None,
     max_active_runs=50,
     catchup=False,
-    tags=['个人微信', '接收消息'],
+    tags=['个人微信'],
     description='个人微信消息监控',
 )
 

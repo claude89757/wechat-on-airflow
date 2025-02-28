@@ -83,7 +83,7 @@ def upload_file_to_windows_server(server_ip: str, local_file_path: str, remote_f
 def send_image(**context):
     """
     发送图片到微信
-    
+    xxxx.png
     Args:
         **context: Airflow上下文参数，包含dag_run等信息
     """
@@ -138,7 +138,7 @@ dag = DAG(
     schedule_interval=None,  # 由外部触发
     max_active_runs=10,
     catchup=False,
-    tags=['微信', '图片发送'],
+    tags=['个人微信'],
     description='发送图片到微信',
 )
 

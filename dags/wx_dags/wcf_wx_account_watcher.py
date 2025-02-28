@@ -82,7 +82,7 @@ dag = DAG(
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=1),
     catchup=False,
-    tags=['个人微信', '监控账号'],
+    tags=['个人微信'],
     description='个人微信账号监控',
 )
 

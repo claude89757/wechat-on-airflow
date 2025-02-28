@@ -68,7 +68,7 @@ dag = DAG(
     schedule_interval=None,
     max_active_runs=50,
     catchup=False,
-    tags=['微信公众号', '发送消息'],
+    tags=['微信公众号'],
     description='微信公众号消息发送',
 )
 
