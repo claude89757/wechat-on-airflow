@@ -7,7 +7,8 @@
 
 ## 调用方式
 - 请求方法: GET/POST
-- 请求URL: 云函数触发器URL
+- 请求URL: curl http://1300108802-e28slit0tb.in.ap-guangzhou.tencentscf.com
+- 备注：只能在airflow服务器中访问，公网无法访问
 
 ## 请求参数
 | 参数名      | 类型   | 必填 | 说明                                  |
