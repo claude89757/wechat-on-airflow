@@ -394,26 +394,6 @@ def handler_text_msg(**context):
     print("-"*50)
 
 
-def get_hook(conn_id: str):
-    """
-    根据连接ID获取对应的数据库Hook
-    
-    Args:
-        conn_id: 连接ID
-        
-    Returns:
-        对应类型的Hook对象
-    """
-    conn = BaseHook.get_connection(conn_id)
-
-    allowed_conn_type = {'google_cloud_platform', 'jdbc', 'mssql',
-                         'mysql', 'oracle', 'postgres',
-                         'presto', 'sqlite', 'vertica'}
-    if conn.conn_type not in allowed_conn_type:
-        raise AirflowException("不支持的数据库连接类型。" +
-                               f"支持的连接类型: {list(allowed_conn_type)}")
-    return conn.get_hook()
-
 def save_message_to_cdb(**context):
     """
     保存消息到CDB
@@ -502,7 +482,7 @@ def save_message_to_cdb(**context):
     cursor = None
     try:
         # 使用get_hook函数获取数据库连接
-        db_hook = get_hook("wx_db")
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
         db_conn = db_hook.get_conn()
         cursor = db_conn.cursor()
         
