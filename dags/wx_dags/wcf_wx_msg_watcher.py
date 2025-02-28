@@ -242,6 +242,12 @@ def process_wx_message(**context):
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
         Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
+
+        # 用户的消息数量+1，用于判断是否有新消息
+        msg_count = Variable.get(f"{wx_user_name}_msg_count", default_var=0, deserialize_json=True)
+        msg_count += 1
+        Variable.set(f"{wx_user_name}_msg_count", msg_count, serialize_json=True)
+
     elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
         print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
