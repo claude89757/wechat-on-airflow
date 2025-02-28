@@ -160,30 +160,48 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
     return contact_name
 
 
-def get_and_cache_user_info(source_ip: str) -> dict:
+def update_wx_user_info(source_ip: str) -> dict:
     """
     获取用户信息，并缓存。对于新用户，会初始化其专属的 enable_ai_room_ids 列表
     """
     # 获取当前已缓存的用户信息
     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
-    for account in wx_account_list:
+    # 遍历用户列表，获取用户信息
+    exist_account = None 
+    exist_account_index = -1
+    for index, account in enumerate(wx_account_list):
         print(account)
         if source_ip == account['source_ip']:
             print(f"获取到缓存的用户信息: {account}")
-            return account
+            exist_account = account
+            exist_account_index = index
+            break
+    
+    # 获取最新用户信息
+    new_account = get_wx_self_info(wcf_ip=source_ip)
+    new_account.update({
+        'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'source_ip': source_ip
+    })
 
-    account = get_wx_self_info(wcf_ip=source_ip)
-    account['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    account['source_ip'] = source_ip
-    wx_account_list.append(account)
-    print(f"新用户, 更新用户信息: {account}")
-    
-    # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
-    Variable.set(f"{account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
-    Variable.set(f"{account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
-    
+    if exist_account:
+        # 更新存量用户
+        new_account['msg_count'] = exist_account.get('msg_count', 0) + 1  # 消息数量+1
+        wx_account_list[exist_account_index] = new_account
+        print(f"存量用户, 更新用户信息: {new_account}")
+    else:
+        # 添加新用户
+        new_account['msg_count'] = 0  # 消息数量初始化为0
+        wx_account_list.append(new_account)
+
+        # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
+        Variable.set(f"{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
+        Variable.set(f"{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
+
+        print(f"新用户, 更新用户信息: {new_account}")
+
     Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
-    return account
+    return new_account
 
 def process_wx_message(**context):
     """
@@ -226,7 +244,7 @@ def process_wx_message(**context):
     source_ip = message_data.get('source_ip')
 
     # 获取用户信息, 并缓存
-    wx_account_info =get_and_cache_user_info(source_ip)
+    wx_account_info = update_wx_user_info(source_ip)
     wx_user_name = wx_account_info['name']
     # 将微信账号信息传递到xcom中供后续任务使用
     context['task_instance'].xcom_push(key='wx_account_info', value=wx_account_info)

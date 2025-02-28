@@ -49,21 +49,8 @@ def check_wx_account_status(**context):
         # 获取当前微信账号信息
         new_wx_account_info = get_wx_self_info(source_ip)
 
-        # 缓存微信联系人
-        contact_list = get_wx_contact_list(source_ip)
-        # 构建联系人信息字典
-        contact_infos = {}
-        for contact in contact_list:
-            contact_wxid = contact.get('wxid', '')
-            contact_infos[contact_wxid] = contact
-        Variable.set(f"{account['name']}_CONTACT_INFOS", 
-                     {"contact_infos": contact_infos, "update_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, 
-                     serialize_json=True)
-
         # 检查微信登录状态
         new_wx_account_info['source_ip'] = source_ip
-        new_wx_account_info['is_online'] = check_wx_login(source_ip)
-        new_wx_account_info['contact_num'] = len(contact_list)
         new_wx_account_info['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # 更新缓存
