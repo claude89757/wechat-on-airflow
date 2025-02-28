@@ -31,6 +31,7 @@ from airflow.exceptions import AirflowException
 from airflow.models import DagRun
 from airflow.models.dagrun import DagRun
 from airflow.models.variable import Variable
+from airflow.hooks.base import BaseHook
 from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.utils.session import create_session
 from airflow.utils.state import DagRunState
@@ -220,6 +221,7 @@ def process_wx_message(**context):
     msg_type = message_data.get('type')
     content = message_data.get('content', '')
     is_group = message_data.get('is_group', False)  # 是否群聊
+    is_self = message_data.get('is_self', False)  # 是否自己发送的消息
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
@@ -240,9 +242,6 @@ def process_wx_message(**context):
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
         Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
-
-        # 执行handler_text_msg任务
-        return ['handler_text_msg']
     elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
         print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
@@ -261,42 +260,20 @@ def process_wx_message(**context):
             run_id=run_id,
             execution_date=execution_date
         )
-    elif WX_MSG_TYPES.get(msg_type) == "红包、系统消息" and "加入群聊" in content:
-        # 系统消息，且消息内容包含"加入群聊"
-        print(f"[WATCHER] {room_id} 收到系统消息, 触发AI加入群聊处理DAG")
-        trigger_dag(
-            dag_id='welcome_agent_001',
-            conf={"current_message": message_data},
-            run_id=run_id,
-            execution_date=execution_date
-        )
-    elif WX_MSG_TYPES.get(msg_type) == "红包、系统消息" and "拍了拍我" in content:        
-        # 检查是否有正在运行或排队的 dagrun
-        active_runs = DagRun.find(
-            dag_id='xhs_notes_watcher',
-            state='running'  # 先检查运行中的
-        )
-        queued_runs = DagRun.find(
-            dag_id='xhs_notes_watcher',
-            state='queued'   # 再检查排队中的
-        )
-        
-        if active_runs or queued_runs:
-            print(f"[WATCHER] {room_id} 已有正在运行或排队的任务，跳过触发")
-            return
-            
-        # 没有活跃任务时，触发新的 DAG
-        print(f"[WATCHER] {room_id} 收到拍一拍消息, 触发AI拍一拍处理DAG")
-        trigger_dag(
-            dag_id='xhs_notes_watcher',
-            conf={"current_message": message_data},
-            run_id=run_id,
-            execution_date=execution_date
-        )
     else:
         # 其他类型消息暂不处理
         print("[WATCHER] 不触发AI聊天流程")
-    return []
+
+    # 检查房间是否开启AI - 使用用户专属的配置
+    enable_rooms = Variable.get(f"{wx_account_info['wxid']}_enable_ai_room_ids", default_var=[], deserialize_json=True)
+    disable_rooms = Variable.get(f"{wx_account_info['wxid']}_disable_ai_room_ids", default_var=[], deserialize_json=True)
+    ai_reply = "enable" if room_id in enable_rooms and room_id not in disable_rooms else "disable"
+
+    # 决策下游的任务
+    if ai_reply == "enable" and not is_self:
+        return ['handler_text_msg', 'save_message_to_cdb']
+    else:
+        return ['save_message_to_cdb']
 
 
 def handler_text_msg(**context):
@@ -325,18 +302,12 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程 
     should_pre_stop(message_data, wx_user_name)
 
-    # 检查房间是否开启AI - 使用用户专属的配置
-    enable_rooms = Variable.get(f"{wx_account_info['wxid']}_enable_ai_room_ids", default_var=[], deserialize_json=True)
-    disable_rooms = Variable.get(f"{wx_account_info['wxid']}_disable_ai_room_ids", default_var=[], deserialize_json=True)
-    ai_reply = "enable" if room_id in enable_rooms and room_id not in disable_rooms else "disable"
-
     # 获取房间和发送者信息
     room_name = get_contact_name(source_ip, room_id, wx_user_name)
     sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
 
     # 打印调试信息
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
-    print(f"AI状态: {room_id} {ai_reply}")
 
     # 初始化dify
     dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
@@ -348,21 +319,18 @@ def handler_text_msg(**context):
     should_pre_stop(message_data, wx_user_name)
 
     # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
-    if ai_reply == "enable":
-        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-        up_for_reply_msg_content_list = []
-        up_for_reply_msg_id_list = []
-        for msg in room_msg_list[-10:]:  # 只取最近的10条消息
-            if not msg.get('is_reply'):
-                up_for_reply_msg_content_list.append(msg.get('content', ''))
-                up_for_reply_msg_id_list.append(msg['id'])
-            else:
-                pass
-        # 整合未回复的消息
-        question = "\n\n".join(up_for_reply_msg_content_list)
-    else:
-        # 如果未开启AI，则直接使用消息内容
-        question = content
+    room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+    up_for_reply_msg_content_list = []
+    up_for_reply_msg_id_list = []
+    for msg in room_msg_list[-10:]:  # 只取最近的10条消息
+        if not msg.get('is_reply'):
+            up_for_reply_msg_content_list.append(msg.get('content', ''))
+            up_for_reply_msg_id_list.append(msg['id'])
+        else:
+            pass
+    # 整合未回复的消息
+    question = "\n\n".join(up_for_reply_msg_content_list)
+
     print("-"*50)
     print(f"question: {question}")
     print("-"*50)
@@ -375,14 +343,7 @@ def handler_text_msg(**context):
         query=question,
         user_id=wx_user_name,
         conversation_id=conversation_id,
-        inputs={"ai_reply": ai_reply, 
-                "room_id": room_id, 
-                "room_name": room_name,
-                "sender_name": sender_name, 
-                "sender_id": sender, 
-                "my_name": wx_user_name,
-                "is_self": str(is_self),
-                "is_group": str(is_group)}
+        inputs={}
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
@@ -405,28 +366,25 @@ def handler_text_msg(**context):
     should_pre_stop(message_data, wx_user_name)
 
     # 开启AI，且不是自己发送的消息，则自动回复消息
-    if ai_reply == "enable" and not is_self:
-        dify_msg_id = metadata.get("message_id")
-        try:
-            for response_part in re.split(r'\\n\\n|\n\n', response):
-                response_part = response_part.replace('\\n', '\n')
-                send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
-            # 记录消息已被成功回复
-            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="like", content="微信自动回复成功")
+    dify_msg_id = metadata.get("message_id")
+    try:
+        for response_part in re.split(r'\\n\\n|\n\n', response):
+            response_part = response_part.replace('\\n', '\n')
+            send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
+        # 记录消息已被成功回复
+        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="like", content="微信自动回复成功")
 
-            # 缓存的消息中，标记消息已回复
-            room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-            for msg in room_msg_list:
-                if msg['id'] in up_for_reply_msg_id_list:
-                    msg['is_reply'] = True
-            Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
+        # 缓存的消息中，标记消息已回复
+        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+        for msg in room_msg_list:
+            if msg['id'] in up_for_reply_msg_id_list:
+                msg['is_reply'] = True
+        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
 
-        except Exception as error:
-            print(f"[WATCHER] 发送消息失败: {error}")
-            # 记录消息已被成功回复
-            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="dislike", content=f"微信自动回复失败, {error}")
-    else:
-        print(f"[WATCHER] {room_id} 未开启AI, 不发送消息")
+    except Exception as error:
+        print(f"[WATCHER] 发送消息失败: {error}")
+        # 记录消息已被成功回复
+        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="dislike", content=f"微信自动回复失败, {error}")
 
     # 打印会话消息
     messages = dify_agent.get_conversation_messages(conversation_id, wx_user_name)
@@ -434,6 +392,132 @@ def handler_text_msg(**context):
     for msg in messages:
         print(msg)
     print("-"*50)
+
+
+def save_message_to_cdb(**context):
+    """
+    保存消息到CDB
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    if not message_data:
+        print("[DB_SAVE] 没有收到消息数据")
+        return
+    
+    # 提取消息信息
+    room_id = message_data.get('roomid', '')
+    sender = message_data.get('sender', '')
+    msg_id = message_data.get('id', '')
+    msg_type = message_data.get('type', 0)
+    content = message_data.get('content', '')
+    is_self = message_data.get('is_self', False)  # 是否自己发送的消息
+    is_group = message_data.get('is_group', False)  # 是否群聊
+    msg_timestamp = message_data.get('ts', 0)
+    source_ip = message_data.get('source_ip', '')
+    
+    # 获取微信账号信息
+    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+    if not wx_account_info:
+        print("[DB_SAVE] 没有获取到微信账号信息")
+        return
+    
+    wx_user_name = wx_account_info.get('name', '')
+    wx_user_id = wx_account_info.get('wxid', '')
+    
+    # 获取房间和发送者信息
+    room_name = get_contact_name(source_ip, room_id, wx_user_name)
+    sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else '')
+    
+    # 消息类型名称
+    msg_type_name = WX_MSG_TYPES.get(msg_type, f"未知类型({msg_type})")
+    
+    # 转换时间戳为datetime
+    if msg_timestamp:
+        msg_datetime = datetime.fromtimestamp(msg_timestamp)
+    else:
+        msg_datetime = datetime.now()
+    
+    # 聊天记录的创建数据包
+    create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_chat_records` (
+        `id` bigint(20) NOT NULL AUTO_INCREMENT,
+        `msg_id` varchar(64) NOT NULL COMMENT '微信消息ID',
+        `wx_user_id` varchar(64) NOT NULL COMMENT '微信用户ID',
+        `wx_user_name` varchar(64) NOT NULL COMMENT '微信用户名',
+        `room_id` varchar(64) NOT NULL COMMENT '聊天室ID',
+        `room_name` varchar(128) DEFAULT NULL COMMENT '聊天室名称',
+        `sender_id` varchar(64) NOT NULL COMMENT '发送者ID',
+        `sender_name` varchar(128) DEFAULT NULL COMMENT '发送者名称',
+        `msg_type` int(11) NOT NULL COMMENT '消息类型',
+        `msg_type_name` varchar(64) DEFAULT NULL COMMENT '消息类型名称',
+        `content` text COMMENT '消息内容',
+        `is_self` tinyint(1) DEFAULT '0' COMMENT '是否自己发送',
+        `is_group` tinyint(1) DEFAULT '0' COMMENT '是否群聊',
+        `source_ip` varchar(64) DEFAULT NULL COMMENT '来源IP',
+        `msg_timestamp` bigint(20) DEFAULT NULL COMMENT '消息时间戳',
+        `msg_datetime` datetime DEFAULT NULL COMMENT '消息时间',
+        `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uk_msg_id` (`msg_id`),
+        KEY `idx_room_id` (`room_id`),
+        KEY `idx_sender_id` (`sender_id`),
+        KEY `idx_wx_user_id` (`wx_user_id`),
+        KEY `idx_msg_datetime` (`msg_datetime`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信聊天记录';
+    """
+    
+    # 插入数据SQL
+    insert_sql = """INSERT INTO `wx_chat_records` 
+    (msg_id, wx_user_id, wx_user_name, room_id, room_name, sender_id, sender_name, 
+    msg_type, msg_type_name, content, is_self, is_group, source_ip, msg_timestamp, msg_datetime) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON DUPLICATE KEY UPDATE 
+    content = VALUES(content),
+    room_name = VALUES(room_name),
+    sender_name = VALUES(sender_name),
+    updated_at = CURRENT_TIMESTAMP
+    """
+    
+    try:
+        # 连接数据库
+        db_conn = BaseHook.get_connection("wx_db").get_conn()
+        cursor = db_conn.cursor()
+        
+        # 创建表（如果不存在）
+        cursor.execute(create_table_sql)
+        
+        # 插入数据
+        cursor.execute(insert_sql, (
+            msg_id, 
+            wx_user_id,
+            wx_user_name,
+            room_id,
+            room_name,
+            sender,
+            sender_name,
+            msg_type,
+            msg_type_name,
+            content,
+            1 if is_self else 0,
+            1 if is_group else 0,
+            source_ip,
+            msg_timestamp,
+            msg_datetime
+        ))
+        
+        # 提交事务
+        db_conn.commit()
+        print(f"[DB_SAVE] 成功保存消息到数据库: {msg_id}")
+    except Exception as e:
+        print(f"[DB_SAVE] 保存消息到数据库失败: {e}")
+        if db_conn:
+            db_conn.rollback()
+    finally:
+        # 关闭连接
+        if cursor:
+            cursor.close()
+        if db_conn:
+            db_conn.close()
 
 
 # 创建DAG
@@ -464,5 +548,13 @@ handler_text_msg_task = PythonOperator(
     dag=dag
 )
 
+# 创建保存消息到数据库的任务
+save_message_task = PythonOperator(
+    task_id='save_message_to_cdb',
+    python_callable=save_message_to_cdb,
+    provide_context=True,
+    dag=dag
+)
+
 # 设置任务依赖关系
-process_message_task >> handler_text_msg_task
+process_message_task >> [handler_text_msg_task, save_message_task]
