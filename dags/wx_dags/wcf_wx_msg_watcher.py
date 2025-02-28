@@ -483,8 +483,19 @@ def save_message_to_cdb(**context):
     try:
         # 使用get_hook函数获取数据库连接
         db_hook = BaseHook.get_connection("wx_db").get_hook()
-        db_conn = db_hook.get_conn()
+        
+        # 设置数据库连接超时参数
+        conn_args = {
+            'connect_timeout': 5,  # 连接超时5秒
+            'read_timeout': 5,    # 读取超时10秒
+            'write_timeout': 5    # 写入超时10秒
+        }
+        
+        db_conn = db_hook.get_conn(connect_args=conn_args)
         cursor = db_conn.cursor()
+        
+        # 设置SQL执行超时
+        cursor.execute("SET SESSION MAX_EXECUTION_TIME=5000")  # 5000毫秒 = 5秒
         
         # 创建表（如果不存在）
         cursor.execute(create_table_sql)
