@@ -100,13 +100,13 @@ def send_image(**context):
         
     try:
         # 1. 上传图片到Windows服务器
-        remote_image_name = os.path.basename(image_path)
-        windows_image_path = upload_file_to_windows_server(
-            server_ip=source_ip,
-            local_file_path=image_path,
-            remote_file_name=remote_image_name
-        )
-        print(f"图片已上传到Windows服务器: {windows_image_path}")
+        # remote_image_name = os.path.basename(image_path)
+        # windows_image_path = upload_file_to_windows_server(
+        #     server_ip=source_ip,
+        #     local_file_path=image_path,
+        #     remote_file_name=remote_image_name
+        # )
+        # print(f"图片已上传到Windows服务器: {windows_image_path}")
         
         # 2. 发送图片到微信
         send_wx_image(wcf_ip=source_ip, image_path=windows_image_path, receiver=room_id)
