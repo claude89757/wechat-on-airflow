@@ -117,29 +117,31 @@ def get_user_rooms_with_latest_message(wx_user_id: str) -> list:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # 使用子查询找到每个聊天室的最新消息ID
+        # 使用子查询找到每个聊天室的最新消息
         query = """
-        WITH latest_messages AS (
-            SELECT room_id, MAX(msg_datetime) as latest_datetime
+        WITH room_messages AS (
+            SELECT 
+                room_id,
+                wx_user_id,
+                sender_id,
+                content as msg_content,
+                msg_datetime,
+                ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY msg_datetime DESC) as rn
             FROM wx_chat_records
             WHERE wx_user_id = %s
-            GROUP BY room_id
         )
         SELECT 
-            r.room_id,
-            r.wx_user_id,
-            r.sender_id,
-            r.content as msg_content,
-            r.msg_datetime
-        FROM wx_chat_records r
-        INNER JOIN latest_messages lm
-            ON r.room_id = lm.room_id
-            AND r.msg_datetime = lm.latest_datetime
-        WHERE r.wx_user_id = %s
-        ORDER BY r.msg_datetime DESC
+            room_id,
+            wx_user_id,
+            sender_id,
+            msg_content,
+            msg_datetime
+        FROM room_messages
+        WHERE rn = 1
+        ORDER BY msg_datetime DESC
         """
         
-        cursor.execute(query, (wx_user_id, wx_user_id))
+        cursor.execute(query, (wx_user_id,))
         results = cursor.fetchall()
         
         # 格式化日期时间
@@ -186,7 +188,14 @@ def main_handler(event, context):
     
     # 提取查询参数
     wx_user_id = query_params.get('wx_user_id', '')
-    get_list = str(query_params.get('get_list', '')).lower() == 'true'
+    # 获取并处理 get_list 参数
+    get_list_value = query_params.get('get_list')
+    get_list = False
+    if isinstance(get_list_value, bool):
+        get_list = get_list_value
+    elif isinstance(get_list_value, str):
+        get_list = get_list_value.lower() == 'true'
+    logger.info(f"get_list 参数值: {get_list_value}, 类型: {type(get_list_value)}, 处理后: {get_list}")
     
     # 如果是获取聊天室列表请求
     if wx_user_id and get_list:
