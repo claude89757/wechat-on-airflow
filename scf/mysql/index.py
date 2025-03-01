@@ -286,7 +286,7 @@ def main_handler(event, context):
             "message": "success",
             "data": {
                 "total": total_count,
-                "records": records,
+                "recordlist": records,
                 "limit": limit,
                 "offset": offset
             }
