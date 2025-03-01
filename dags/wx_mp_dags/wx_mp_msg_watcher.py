@@ -23,6 +23,7 @@ from threading import Thread
 
 # 第三方库导入
 import requests
+from pydub import AudioSegment
 
 # Airflow相关导入
 from airflow import DAG
@@ -401,45 +402,16 @@ def handler_voice_msg(**context):
         try:
             # 转换音频格式 - 如果是AMR格式，转换为WAV格式
             converted_file_path = None
-            if format_type.lower() == 'amr':
-                try:
-                    # 尝试导入pydub库进行音频转换
-                    from pydub import AudioSegment
-                    
-                    # 创建转换后的文件路径
-                    converted_file_path = os.path.join(temp_dir, f"wx_voice_{from_user_name}_{timestamp}.wav")
-                    
-                    # 进行格式转换
-                    print(f"[WATCHER] 正在将AMR格式转换为WAV格式...")
-                    try:
-                        sound = AudioSegment.from_file(voice_file_path, format="amr")
-                        sound.export(converted_file_path, format="wav")
-                        print(f"[WATCHER] 音频格式转换成功，WAV文件保存在: {converted_file_path}")
-                    except Exception as e:
-                        print(f"[WATCHER] 使用pydub转换音频格式失败: {e}")
-                        # 尝试使用ffmpeg命令行工具进行转换
-                        import subprocess
-                        cmd = ["ffmpeg", "-y", "-i", voice_file_path, converted_file_path]
-                        print(f"[WATCHER] 执行命令: {' '.join(cmd)}")
-                        process = subprocess.run(cmd, capture_output=True, text=True)
-                        if process.returncode != 0:
-                            print(f"[WATCHER] ffmpeg转换失败: {process.stderr}")
-                            raise Exception(f"音频格式转换失败: {process.stderr}")
-                        else:
-                            print(f"[WATCHER] ffmpeg转换成功，WAV文件保存在: {converted_file_path}")
-                except ImportError:
-                    print("[WATCHER] 未找到pydub库，尝试使用ffmpeg命令行工具转换音频格式...")
-                    import subprocess
-                    converted_file_path = os.path.join(temp_dir, f"wx_voice_{from_user_name}_{timestamp}.wav")
-                    cmd = ["ffmpeg", "-y", "-i", voice_file_path, converted_file_path]
-                    print(f"[WATCHER] 执行命令: {' '.join(cmd)}")
-                    process = subprocess.run(cmd, capture_output=True, text=True)
-                    if process.returncode != 0:
-                        print(f"[WATCHER] ffmpeg转换失败: {process.stderr}")
-                        raise Exception(f"音频格式转换失败: {process.stderr}")
-                    else:
-                        print(f"[WATCHER] ffmpeg转换成功，WAV文件保存在: {converted_file_path}")
-            
+            if format_type.lower() == 'amr':                
+                # 创建转换后的文件路径
+                converted_file_path = os.path.join(temp_dir, f"wx_voice_{from_user_name}_{timestamp}.wav")
+                
+                # 进行格式转换
+                print(f"[WATCHER] 正在将AMR格式转换为WAV格式...")
+                sound = AudioSegment.from_file(voice_file_path, format="amr")
+                sound.export(converted_file_path, format="wav")
+                print(f"[WATCHER] 音频格式转换成功，WAV文件保存在: {converted_file_path}")
+                
             # 使用可能转换过的文件路径进行语音转文字
             file_to_use = converted_file_path if converted_file_path else voice_file_path
             print(f"[WATCHER] 用于语音转文字的文件: {file_to_use}")
