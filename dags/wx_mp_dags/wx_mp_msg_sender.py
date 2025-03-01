@@ -57,10 +57,6 @@ def send_wx_mp_msg(**context):
     wx_mp_bot.send_text_message(to_user, msg)
 
 
-    # 获取公众号全部关注者列表
-    followers = wx_mp_bot.get_all_followers()
-    print(f"公众号全部关注者列表: {followers}")
-
 
 # 创建DAG
 dag = DAG(

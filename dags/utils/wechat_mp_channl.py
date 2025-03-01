@@ -142,8 +142,8 @@ class WeChatMPBot:
         
         response = requests.get(url)
         result = response.json()
-        print(f"获取关注者列表的结果: {result}")
-        
+        # print(f"获取关注者列表的结果: {result}")
+
         if 'errcode' in result:
             raise Exception(f"获取关注者列表失败: {result.get('errmsg', '未知错误')}")
         
@@ -162,12 +162,11 @@ class WeChatMPBot:
         """
         # 首次调用，获取第一批关注者
         result = self.get_followers()
-        total = result.get('total', 0)
-        
+
         # 初始化存储所有openid的列表
-        all_openids = []
+        all_followers = []
         if 'data' in result and 'openid' in result['data']:
-            all_openids.extend(result['data'])
+            all_followers.extend(result['data'])
         
         # 如果next_openid不为空，继续获取下一批关注者
         next_openid = result.get('next_openid')
@@ -175,14 +174,12 @@ class WeChatMPBot:
             print(f"继续获取下一批关注者，next_openid: {next_openid}")
             result = self.get_followers(next_openid)
             if 'data' in result and 'openid' in result['data']:
-                all_openids.extend(result['data'])
+                all_followers.extend(result['data'])
             next_openid = result.get('next_openid')
             
             # 如果next_openid为空或者与上一次相同，说明已经获取完毕
             if not next_openid or next_openid == result.get('next_openid'):
                 break
         
-        return {
-            'total': total,
-            'openid_list': all_openids
-        }
+        print(f"获取公众号全部关注者列表的结果: {all_followers}")
+        return all_followers
