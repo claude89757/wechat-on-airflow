@@ -69,6 +69,275 @@ class WeChatMPBot:
         if result.get('errcode') != 0:
             raise Exception(f"发送图片消息失败: {result.get('errmsg', '未知错误')}")
 
+    def send_voice_message(self, to_user, media_id):
+        """发送语音消息
+        
+        参数:
+            to_user: 接收者的OpenID
+            media_id: 语音消息媒体id，通过上传临时素材获取
+            
+        注意:
+            语音文件的media_id有效期为3天
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送语音消息的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "voice",
+            "voice": {
+                "media_id": media_id
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送语音消息失败: {result.get('errmsg', '未知错误')}")
+
+    def send_video_message(self, to_user, media_id, thumb_media_id, title="", description=""):
+        """发送视频消息
+        
+        参数:
+            to_user: 接收者的OpenID
+            media_id: 视频消息媒体id，通过上传临时素材获取
+            thumb_media_id: 视频消息缩略图的媒体id，通过上传临时素材获取
+            title: 视频消息的标题，可选
+            description: 视频消息的描述，可选
+            
+        注意:
+            视频和缩略图的media_id有效期为3天
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送视频消息的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "video",
+            "video": {
+                "media_id": media_id,
+                "thumb_media_id": thumb_media_id,
+                "title": title,
+                "description": description
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送视频消息失败: {result.get('errmsg', '未知错误')}")
+            
+    def send_music_message(self, to_user, musicurl, hqmusicurl, thumb_media_id, title="", description=""):
+        """发送音乐消息
+        
+        参数:
+            to_user: 接收者的OpenID
+            musicurl: 音乐链接
+            hqmusicurl: 高质量音乐链接，WIFI环境优先使用该链接播放音乐
+            thumb_media_id: 缩略图的媒体id，通过上传临时素材获取
+            title: 音乐标题，可选
+            description: 音乐描述，可选
+            
+        注意:
+            缩略图的media_id有效期为3天
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送音乐消息的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "music",
+            "music": {
+                "title": title,
+                "description": description,
+                "musicurl": musicurl,
+                "hqmusicurl": hqmusicurl,
+                "thumb_media_id": thumb_media_id
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送音乐消息失败: {result.get('errmsg', '未知错误')}")
+            
+    def send_news_message(self, to_user, title, description, url, picurl):
+        """发送图文消息（点击跳转到外链）
+        
+        参数:
+            to_user: 接收者的OpenID
+            title: 图文消息标题
+            description: 图文消息描述
+            url: 点击后跳转的链接
+            picurl: 图文消息的图片链接，支持JPG、PNG格式
+            
+        注意:
+            图文消息条数限制在1条以内，如果图文数超过1，则将会返回错误码45008
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url_api = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送图文消息的 URL: {url_api}")
+        data = {
+            "touser": to_user,
+            "msgtype": "news",
+            "news": {
+                "articles": [
+                    {
+                        "title": title,
+                        "description": description,
+                        "url": url,
+                        "picurl": picurl
+                    }
+                ]
+            }
+        }
+        response = requests.post(url_api, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送图文消息失败: {result.get('errmsg', '未知错误')}")
+            
+    def send_mpnews_message(self, to_user, media_id):
+        """发送图文消息（点击跳转到图文消息页面）
+        
+        参数:
+            to_user: 接收者的OpenID
+            media_id: 图文消息媒体ID，通过素材管理接口获取
+            
+        注意:
+            图文消息条数限制在1条以内，如果图文数超过1，则将会返回错误码45008
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送图文消息(mpnews)的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "mpnews",
+            "mpnews": {
+                "media_id": media_id
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送图文消息(mpnews)失败: {result.get('errmsg', '未知错误')}")
+            
+    def send_mpnewsarticle_message(self, to_user, article_id):
+        """发送图文消息（点击跳转到图文消息页面，使用article_id）
+        
+        参数:
+            to_user: 接收者的OpenID
+            article_id: 发布后获得的图文消息的article_id
+            
+        注意:
+            草稿接口灰度完成后，将不再支持此前客服接口中带media_id的mpnews类型的图文消息
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送图文消息(mpnewsarticle)的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "mpnewsarticle",
+            "mpnewsarticle": {
+                "article_id": article_id
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送图文消息(mpnewsarticle)失败: {result.get('errmsg', '未知错误')}")
+            
+    def send_menu_message(self, to_user, head_content, menu_items, tail_content=""):
+        """发送菜单消息
+        
+        参数:
+            to_user: 接收者的OpenID
+            head_content: 菜单消息的头部文字
+            menu_items: 菜单项列表，每个菜单项是一个字典，包含id和content字段
+                例如：[{"id": "101", "content": "满意"}, {"id": "102", "content": "不满意"}]
+            tail_content: 菜单消息的尾部文字，可选
+            
+        注意:
+            该消息仅支持已认证服务号使用，其余账号类型不允许使用
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送菜单消息的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "msgmenu",
+            "msgmenu": {
+                "head_content": head_content,
+                "list": menu_items,
+                "tail_content": tail_content
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送菜单消息失败: {result.get('errmsg', '未知错误')}")
+            
+    def send_wxcard_message(self, to_user, card_id):
+        """发送卡券消息
+        
+        参数:
+            to_user: 接收者的OpenID
+            card_id: 卡券ID
+            
+        注意:
+            客服消息接口投放卡券仅支持非自定义Code码和导入code模式的卡券
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送卡券消息的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "wxcard",
+            "wxcard": {
+                "card_id": card_id
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送卡券消息失败: {result.get('errmsg', '未知错误')}")
+            
+    def send_miniprogrampage_message(self, to_user, title, appid, pagepath, thumb_media_id):
+        """发送小程序卡片消息
+        
+        参数:
+            to_user: 接收者的OpenID
+            title: 小程序卡片的标题
+            appid: 小程序的appid，要求小程序的appid需要与公众号有关联关系
+            pagepath: 小程序的页面路径，跟app.json中保持一致，可带参数
+            thumb_media_id: 小程序卡片的封面图片，通过上传临时素材接口获取
+            
+        注意:
+            小程序卡片的封面图片建议大小为520*416
+        """
+        if not self.access_token:
+            self.get_access_token()
+        url = f"https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token={self.access_token}"
+        print(f"发送小程序卡片消息的 URL: {url}")
+        data = {
+            "touser": to_user,
+            "msgtype": "miniprogrampage",
+            "miniprogrampage": {
+                "title": title,
+                "appid": appid,
+                "pagepath": pagepath,
+                "thumb_media_id": thumb_media_id
+            }
+        }
+        response = requests.post(url, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        result = response.json()
+        if result.get('errcode') != 0:
+            raise Exception(f"发送小程序卡片消息失败: {result.get('errmsg', '未知错误')}")
+
     def get_user_info(self, openid):
         """获取用户基本信息（包括UnionID机制）
         

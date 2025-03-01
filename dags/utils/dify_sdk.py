@@ -6,6 +6,7 @@
 import requests
 from airflow.models import Variable
 import json
+import os
 
 
 class DifyAgent:
@@ -437,3 +438,83 @@ class DifyAgent:
             return response.json()
         else:
             raise Exception(f"停止响应失败: {response.text}")
+
+    def audio_to_text(self, audio_file_path):
+        """
+        将语音文件转换为文字
+        
+        Args:
+            audio_file_path (str): 本地语音文件路径
+            
+        Returns:
+            str: 转换后的文字内容
+            
+        Raises:
+            Exception: 当API调用失败时抛出异常
+        """
+        api_url = f"{self.base_url}/audio-to-text"
+        
+        # 根据文件扩展名确定文件类型
+        ext = os.path.splitext(audio_file_path)[1].lower()[1:]  # 去掉点号，获取扩展名
+        if ext in ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm']:
+            mime_type = f'audio/{ext}'
+        else:
+            # 默认为 wav 格式
+            mime_type = 'audio/wav'
+        
+        print(f"处理语音文件，路径: {audio_file_path}, MIME类型: {mime_type}")
+        
+        # 准备文件
+        with open(audio_file_path, 'rb') as audio_file:
+            files = {'file': (os.path.basename(audio_file_path), audio_file, mime_type)}
+            
+            # 发送请求
+            headers = {'Authorization': f'Bearer {self.api_key}'}
+            response = requests.post(api_url, headers=headers, files=files)
+        
+        # 处理响应
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('text', '')
+        else:
+            raise Exception(f"语音转文字失败: [{response.status_code}] {response.text}")
+
+    def text_to_audio(self, text, user_id, save_path):
+        """
+        将文字转换为语音并保存到指定路径
+        
+        Args:
+            text (str): 要转换的文字内容
+            user_id (str): 用户标识
+            save_path (str): 保存语音文件的本地路径
+            
+        Returns:
+            str: 保存的语音文件路径
+            
+        Raises:
+            Exception: 当API调用失败时抛出异常
+        """
+        api_url = f"{self.base_url}/text-to-audio"
+        
+        # 准备请求数据
+        payload = {
+            "text": text,
+            "user": user_id
+        }
+        
+        # 发送请求
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        # 使用流式下载，直接保存到文件
+        with requests.post(api_url, headers=headers, json=payload, stream=True) as response:
+            if response.status_code == 200:
+                with open(save_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                print(f"文字已转换为语音，保存到: {save_path}")
+                return save_path
+            else:
+                raise Exception(f"文字转语音失败: [{response.status_code}] {response.text}")

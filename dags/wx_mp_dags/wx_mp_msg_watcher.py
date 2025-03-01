@@ -337,6 +337,16 @@ def handler_image_msg(**context):
 def handler_voice_msg(**context):
     """
     处理语音类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    
+    处理流程:
+    1. 接收用户发送的语音消息
+    2. 下载语音文件并保存到临时目录
+    3. 使用语音转文字API将语音内容转为文本
+    4. 将转换后的文本发送给Dify AI进行处理
+    5. 将AI回复的文本转换为语音
+    6. 上传语音到微信公众号获取media_id
+    7. 发送语音回复给用户
+    8. 同时发送文字回复作为备份
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
@@ -369,9 +379,6 @@ def handler_voice_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     
-    # 准备问题内容
-    query = "这是一段语音消息，请进行转录并回复用户"
-    
     # 创建临时目录用于保存下载的语音文件
     import tempfile
     import os
@@ -385,22 +392,33 @@ def handler_voice_msg(**context):
     voice_file_path = os.path.join(temp_dir, f"wx_voice_{from_user_name}_{timestamp}.{format_type.lower()}")
     
     try:
-        # 下载语音文件
+        # 1. 下载语音文件
         mp_bot.download_temporary_media(voice_media_id, voice_file_path)
         print(f"[WATCHER] 语音文件已保存到: {voice_file_path}")
         
-        # 获取AI回复（带有语音转录）
-        # 注意：这里假设Dify支持语音处理，如果不支持，需要修改为其他语音识别API
+        # 2. 语音转文字
+        try:
+            transcribed_text = dify_agent.audio_to_text(voice_file_path)
+            print(f"[WATCHER] 语音转文字结果: {transcribed_text}")
+            
+            if not transcribed_text.strip():
+                raise Exception("语音转文字结果为空")
+        except Exception as e:
+            print(f"[WATCHER] 语音转文字失败: {e}")
+            # 如果语音转文字失败，使用默认文本
+            transcribed_text = "您发送了一条语音消息，但我无法识别内容。请问您想表达什么？"
+        
+        # 3. 发送转写的文本到Dify
         full_answer, metadata = dify_agent.create_chat_message_stream(
-            query=query,
+            query=transcribed_text,  # 使用转写的文本
             user_id=from_user_name,
             conversation_id=conversation_id,
             inputs={
                 "platform": "wechat_mp",
                 "user_id": from_user_name,
                 "msg_id": msg_id,
-                "voice_path": voice_file_path,  # 传递语音文件路径给Dify
-                "voice_format": format_type.lower()
+                "is_voice_msg": True,
+                "transcribed_text": transcribed_text
             }
         )
         print(f"full_answer: {full_answer}")
@@ -421,35 +439,50 @@ def handler_voice_msg(**context):
             conversation_infos[from_user_name] = conversation_id
             Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
         
-        # 发送回复消息
+        # 4. 文字转语音
+        audio_response_path = os.path.join(temp_dir, f"wx_audio_response_{from_user_name}_{timestamp}.wav")
         try:
-            # 将长回复拆分成多条消息发送
-            for response_part in re.split(r'\\n\\n|\n\n', response):
-                response_part = response_part.replace('\\n', '\n')
-                if response_part.strip():  # 确保不发送空消息
-                    mp_bot.send_text_message(from_user_name, response_part)
-                    time.sleep(0.5)  # 避免发送过快
+            dify_agent.text_to_audio(response, from_user_name, audio_response_path)
+            print(f"[WATCHER] 文字转语音成功，保存到: {audio_response_path}")
             
-            # 记录消息已被成功回复
-            dify_msg_id = metadata.get("message_id")
-            if dify_msg_id:
-                dify_agent.create_message_feedback(
-                    message_id=dify_msg_id, 
-                    user_id=from_user_name, 
-                    rating="like", 
-                    content="微信公众号语音消息自动回复成功"
-                )
-        except Exception as error:
-            print(f"[WATCHER] 发送消息失败: {error}")
-            # 记录消息回复失败
-            dify_msg_id = metadata.get("message_id")
-            if dify_msg_id:
-                dify_agent.create_message_feedback(
-                    message_id=dify_msg_id, 
-                    user_id=from_user_name, 
-                    rating="dislike", 
-                    content=f"微信公众号语音消息自动回复失败, {error}"
-                )
+            # 5. 上传语音文件到微信获取media_id
+            upload_result = mp_bot.upload_temporary_media("voice", audio_response_path)
+            response_media_id = upload_result.get('media_id')
+            print(f"[WATCHER] 语音文件上传成功，media_id: {response_media_id}")
+            
+            # 6. 发送语音回复
+            mp_bot.send_voice_message(from_user_name, response_media_id)
+            print(f"[WATCHER] 语音回复发送成功")
+            
+            # 7. 同时发送文字回复作为备份
+            send_text_response = True
+        except Exception as e:
+            print(f"[WATCHER] 语音回复失败: {e}")
+            send_text_response = True
+        
+        # 发送文字回复（无论语音成功与否）
+        if send_text_response:
+            try:
+                # 将长回复拆分成多条消息发送
+                for response_part in re.split(r'\\n\\n|\n\n', response):
+                    response_part = response_part.replace('\\n', '\n')
+                    if response_part.strip():  # 确保不发送空消息
+                        mp_bot.send_text_message(from_user_name, response_part)
+                        time.sleep(0.5)  # 避免发送过快
+                        
+                print(f"[WATCHER] 文字回复发送成功")
+            except Exception as text_error:
+                print(f"[WATCHER] 文字回复发送失败: {text_error}")
+        
+        # 记录消息已被成功回复
+        dify_msg_id = metadata.get("message_id")
+        if dify_msg_id:
+            dify_agent.create_message_feedback(
+                message_id=dify_msg_id, 
+                user_id=from_user_name, 
+                rating="like", 
+                content="微信公众号语音消息自动回复成功"
+            )
     except Exception as e:
         print(f"[WATCHER] 处理语音消息失败: {e}")
         # 发送错误提示给用户
@@ -460,9 +493,10 @@ def handler_voice_msg(**context):
     finally:
         # 清理临时文件
         try:
-            if os.path.exists(voice_file_path):
-                os.remove(voice_file_path)
-                print(f"[WATCHER] 临时语音文件已删除: {voice_file_path}")
+            for file_path in [voice_file_path, audio_response_path]:
+                if 'file_path' in locals() and os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"[WATCHER] 临时文件已删除: {file_path}")
         except Exception as e:
             print(f"[WATCHER] 删除临时文件失败: {e}")
 
