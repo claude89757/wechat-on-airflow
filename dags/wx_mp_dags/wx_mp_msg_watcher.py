@@ -68,6 +68,7 @@ def process_wx_message(**context):
     # 获取用户信息
     mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
     user_info = mp_bot.get_user_info(message_data.get('FromUserName'))
+    
     print(f"用户信息: {user_info}")
     
     # 判断消息类型
