@@ -64,6 +64,11 @@ def process_wx_message(**context):
     print("--------------------------------")
     print(json.dumps(message_data, ensure_ascii=False, indent=2))
     print("--------------------------------")
+
+    # 获取用户信息
+    mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
+    user_info = mp_bot.get_user_info(message_data.get('FromUserName'))
+    print(f"用户信息: {user_info}")
     
     # 判断消息类型
     msg_type = message_data.get('MsgType')
