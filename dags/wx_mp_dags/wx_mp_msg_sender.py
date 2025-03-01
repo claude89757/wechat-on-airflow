@@ -59,10 +59,7 @@ def send_wx_mp_msg(**context):
 
     # 获取公众号全部关注者列表
     followers = wx_mp_bot.get_all_followers()
-    print(f"公众号全部关注者列表: {len(followers['openid_list'])}")
-    for follower in followers:
-        print(f"follower: {follower}")
-    # TODO(claude89757): 增加支持发送图片/视频/文件等
+    print(f"公众号全部关注者列表: {followers}")
 
 
 # 创建DAG
