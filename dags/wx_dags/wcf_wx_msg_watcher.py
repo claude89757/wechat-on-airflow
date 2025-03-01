@@ -166,16 +166,12 @@ def update_wx_user_info(source_ip: str) -> dict:
     """
     # 获取当前已缓存的用户信息
     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
+
     # 遍历用户列表，获取用户信息
-    exist_account = None 
-    exist_account_index = -1
-    for index, account in enumerate(wx_account_list):
-        print(account)
+    for account in wx_account_list:
         if source_ip == account['source_ip']:
             print(f"获取到缓存的用户信息: {account}")
-            exist_account = account
-            exist_account_index = index
-            break
+            return account
     
     # 获取最新用户信息
     new_account = get_wx_self_info(wcf_ip=source_ip)
@@ -183,23 +179,14 @@ def update_wx_user_info(source_ip: str) -> dict:
         'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'source_ip': source_ip
     })
+    # 添加新用户
+    wx_account_list.append(new_account)
 
-    if exist_account:
-        # 更新存量用户
-        new_account['msg_count'] = exist_account.get('msg_count', 0) + 1  # 消息数量+1
-        wx_account_list[exist_account_index] = new_account
-        print(f"存量用户, 更新用户信息: {new_account}")
-    else:
-        # 添加新用户
-        new_account['msg_count'] = 0  # 消息数量初始化为0
-        wx_account_list.append(new_account)
+    # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
+    Variable.set(f"{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
+    Variable.set(f"{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
 
-        # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
-        Variable.set(f"{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
-        Variable.set(f"{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
-
-        print(f"新用户, 更新用户信息: {new_account}")
-
+    print(f"新用户, 更新用户信息: {new_account}")
     Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
     return new_account
 
@@ -249,6 +236,14 @@ def process_wx_message(**context):
     # 将微信账号信息传递到xcom中供后续任务使用
     context['task_instance'].xcom_push(key='wx_account_info', value=wx_account_info)
 
+    try:
+        # 账号的消息计时器+1
+        msg_count = Variable.get(f"{wx_user_name}_msg_count", default_var=0, deserialize_json=True)
+        Variable.set(f"{wx_user_name}_msg_count", msg_count+1, serialize_json=True)
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 更新消息计时器失败: {error}")
+    
     # 生成run_id
     now = datetime.now(timezone.utc)
     execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
@@ -260,11 +255,6 @@ def process_wx_message(**context):
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
         Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
-
-        # 用户的消息数量+1，用于判断是否有新消息
-        msg_count = Variable.get(f"{wx_user_name}_msg_count", default_var=0, deserialize_json=True)
-        msg_count += 1
-        Variable.set(f"{wx_user_name}_msg_count", msg_count, serialize_json=True)
 
     elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
