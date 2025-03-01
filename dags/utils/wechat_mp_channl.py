@@ -102,3 +102,86 @@ class WeChatMPBot:
             raise Exception(f"获取用户信息失败: {result.get('errmsg', '未知错误')}")
         
         return result
+
+    def get_followers(self, next_openid=None):
+        """获取公众号关注者列表
+        
+        当关注者数量超过10000时，可通过填写next_openid参数，多次拉取列表的方式来获取完整关注者列表。
+        每次调用最多拉取10000个关注者的OpenID。
+        
+        参数:
+            next_openid: 第一个拉取的OPENID，不填默认从头开始拉取
+            
+        返回:
+            包含以下字段的字典:
+            - total: 关注该公众账号的总用户数
+            - count: 拉取的OPENID个数，最大值为10000
+            - data: 列表数据，包含openid字段
+            - next_openid: 拉取列表的最后一个用户的OPENID，为空则表示已拉取完毕
+        
+        使用示例:
+            # 首次调用，获取前10000个关注者
+            result = mp_bot.get_followers()
+            all_openids = result['data']['openid']
+            
+            # 如果next_openid不为空，继续获取下一批关注者
+            next_openid = result['next_openid']
+            while next_openid:
+                result = mp_bot.get_followers(next_openid)
+                all_openids.extend(result['data']['openid'])
+                next_openid = result['next_openid']
+        """
+        if not self.access_token:
+            self.get_access_token()
+        
+        url = f"https://api.weixin.qq.com/cgi-bin/user/get?access_token={self.access_token}"
+        if next_openid:
+            url += f"&next_openid={next_openid}"
+        
+        print(f"获取关注者列表的 URL: {url}")
+        
+        response = requests.get(url)
+        result = response.json()
+        
+        if 'errcode' in result:
+            raise Exception(f"获取关注者列表失败: {result.get('errmsg', '未知错误')}")
+        
+        return result
+
+    def get_all_followers(self):
+        """获取公众号全部关注者列表
+        
+        自动处理分页逻辑，一次性返回所有关注者的OpenID列表，无需手动处理next_openid。
+        内部会自动多次调用get_followers方法，直到获取所有关注者。
+        
+        返回:
+            dict: 包含以下字段的字典:
+            - total: 关注该公众账号的总用户数
+            - openid_list: 所有关注者的OpenID列表
+        """
+        # 首次调用，获取第一批关注者
+        result = self.get_followers()
+        total = result.get('total', 0)
+        
+        # 初始化存储所有openid的列表
+        all_openids = []
+        if 'data' in result and 'openid' in result['data']:
+            all_openids.extend(result['data']['openid'])
+        
+        # 如果next_openid不为空，继续获取下一批关注者
+        next_openid = result.get('next_openid')
+        while next_openid:
+            print(f"继续获取下一批关注者，next_openid: {next_openid}")
+            result = self.get_followers(next_openid)
+            if 'data' in result and 'openid' in result['data']:
+                all_openids.extend(result['data']['openid'])
+            next_openid = result.get('next_openid')
+            
+            # 如果next_openid为空或者与上一次相同，说明已经获取完毕
+            if not next_openid or next_openid == result.get('next_openid'):
+                break
+        
+        return {
+            'total': total,
+            'openid_list': all_openids
+        }
