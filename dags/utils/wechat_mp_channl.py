@@ -166,7 +166,7 @@ class WeChatMPBot:
         # 初始化存储所有openid的列表
         all_openids = []
         if 'data' in result and 'openid' in result['data']:
-            all_openids.extend(result['data']['openid'])
+            all_openids.extend(result['data'])
         
         # 如果next_openid不为空，继续获取下一批关注者
         next_openid = result.get('next_openid')
@@ -174,7 +174,7 @@ class WeChatMPBot:
             print(f"继续获取下一批关注者，next_openid: {next_openid}")
             result = self.get_followers(next_openid)
             if 'data' in result and 'openid' in result['data']:
-                all_openids.extend(result['data']['openid'])
+                all_openids.extend(result['data'])
             next_openid = result.get('next_openid')
             
             # 如果next_openid为空或者与上一次相同，说明已经获取完毕
