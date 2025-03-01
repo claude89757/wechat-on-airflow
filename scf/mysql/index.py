@@ -188,14 +188,7 @@ def main_handler(event, context):
     
     # 提取查询参数
     wx_user_id = query_params.get('wx_user_id', '')
-    # 获取并处理 get_list 参数
-    get_list_value = query_params.get('get_list')
-    get_list = False
-    if isinstance(get_list_value, bool):
-        get_list = get_list_value
-    elif isinstance(get_list_value, str):
-        get_list = get_list_value.lower() == 'true'
-    logger.info(f"get_list 参数值: {get_list_value}, 类型: {type(get_list_value)}, 处理后: {get_list}")
+    get_list = str(query_params.get('get_list', '')).lower() == 'true'
     
     # 如果是获取聊天室列表请求
     if wx_user_id and get_list:
@@ -286,7 +279,7 @@ def main_handler(event, context):
             "message": "success",
             "data": {
                 "total": total_count,
-                "recordlist": records,
+                "records": records,
                 "limit": limit,
                 "offset": offset
             }
