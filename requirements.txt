@@ -14,3 +14,4 @@ ragflow-sdk
 smbprotocol
 ultralytics>=8.0.0
 opencv-python-headless>=4.11.0
+pydub
