@@ -142,7 +142,7 @@ class WeChatMPBot:
         
         response = requests.get(url)
         result = response.json()
-        # print(f"获取关注者列表的结果: {result}")
+        #print(f"获取关注者列表的结果: {result}")
 
         if 'errcode' in result:
             raise Exception(f"获取关注者列表失败: {result.get('errmsg', '未知错误')}")
@@ -151,7 +151,6 @@ class WeChatMPBot:
 
     def get_all_followers(self):
         """获取公众号全部关注者列表
-        
         自动处理分页逻辑，一次性返回所有关注者的OpenID列表，无需手动处理next_openid。
         内部会自动多次调用get_followers方法，直到获取所有关注者。
         
@@ -183,3 +182,104 @@ class WeChatMPBot:
         
         print(f"获取公众号全部关注者列表的结果: {all_followers}")
         return all_followers
+        
+    def upload_temporary_media(self, media_type, media_file_path):
+        """上传临时素材
+        
+        参数:
+            media_type: 媒体文件类型，可选值：image（图片）、voice（语音）、video（视频）和thumb（缩略图）
+            media_file_path: 媒体文件的本地路径
+            
+        返回:
+            dict: 包含以下字段的字典:
+            - type: 媒体文件类型
+            - media_id: 媒体文件上传后的唯一标识
+            - created_at: 媒体文件上传时间戳
+            
+        注意:
+            1. 临时素材的media_id是可复用的
+            2. 媒体文件在微信后台保存时间为3天，即3天后media_id失效
+            3. 上传的媒体文件限制:
+               - 图片（image）: 10M，支持PNG\JPEG\JPG\GIF格式
+               - 语音（voice）：2M，播放长度不超过60s，支持AMR\MP3格式
+               - 视频（video）：10MB，支持MP4格式
+               - 缩略图（thumb）：64KB，支持JPG格式
+        """
+        if not self.access_token:
+            self.get_access_token()
+            
+        url = f"https://api.weixin.qq.com/cgi-bin/media/upload?access_token={self.access_token}&type={media_type}"
+        print(f"上传临时素材的 URL: {url}")
+        
+        # 准备文件数据
+        with open(media_file_path, 'rb') as media_file:
+            files = {'media': media_file}
+            response = requests.post(url, files=files)
+            
+        result = response.json()
+        print(f"上传临时素材的结果: {result}")
+        
+        if 'errcode' in result:
+            raise Exception(f"上传临时素材失败: {result.get('errmsg', '未知错误')}")
+            
+        return result
+    
+    def get_temporary_media(self, media_id):
+        """获取临时素材
+        
+        参数:
+            media_id: 媒体文件ID
+            
+        返回:
+            对于图片、语音、缩略图：返回文件的二进制内容
+            对于视频：返回包含视频下载链接的字典 {"video_url": "下载链接"}
+            
+        注意:
+            临时素材的media_id在微信服务器上保存3天，3天后media_id失效
+        """
+        if not self.access_token:
+            self.get_access_token()
+            
+        url = f"https://api.weixin.qq.com/cgi-bin/media/get?access_token={self.access_token}&media_id={media_id}"
+        print(f"获取临时素材的 URL: {url}")
+        
+        response = requests.get(url)
+        
+        # 检查是否是JSON错误响应
+        if response.headers.get('Content-Type') == 'application/json' or response.headers.get('Content-Type') == 'text/plain':
+            try:
+                result = response.json()
+                if 'errcode' in result:
+                    raise Exception(f"获取临时素材失败: {result.get('errmsg', '未知错误')}")
+                # 如果是视频，会返回JSON格式的下载链接
+                return result
+            except ValueError:
+                # 不是JSON格式，可能是二进制文件内容
+                pass
+        
+        # 如果是媒体文件，直接返回二进制内容
+        return response.content
+        
+    def download_temporary_media(self, media_id, save_path):
+        """下载临时素材并保存到指定路径
+        
+        参数:
+            media_id: 媒体文件ID
+            save_path: 保存文件的本地路径，对于视频将保存为JSON文件包含下载链接
+            
+        返回:
+            str: 保存的文件路径
+        """
+        content = self.get_temporary_media(media_id)
+        
+        if isinstance(content, dict) and 'video_url' in content:
+            # 如果是视频，保存下载链接
+            with open(save_path, 'w', encoding='utf-8') as f:
+                json.dump(content, f)
+        else:
+            # 对于其他媒体类型，保存二进制内容
+            with open(save_path, 'wb') as f:
+                f.write(content)
+                
+        print(f"临时素材已保存到: {save_path}")
+        return save_path
