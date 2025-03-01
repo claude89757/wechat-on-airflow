@@ -1,59 +1,9 @@
 # -*- coding: utf8 -*-
 """
-# 微信聊天记录查询API
+获取指定聊天室的消息列表
 
-## 功能说明
-本API用于查询微信聊天记录数据，支持多种查询条件筛选，并以JSON格式返回结果。
-
-## 调用方式
-- 请求方法: GET/POST
-- 请求URL: curl http://1300108802-e28slit0tb.in.ap-guangzhou.tencentscf.com
-- 备注：只能在airflow服务器中访问，公网无法访问
-
-## 请求参数
-| 参数名      | 类型   | 必填 | 说明                                  |
-|------------|--------|------|--------------------------------------|
-| room_id    | string | 否   | 聊天室ID，用于筛选特定聊天室的消息      |
-| wx_user_id | string | 否   | 微信用户ID，用于筛选特定用户的消息      |
-| sender_id  | string | 否   | 发送者ID，用于筛选特定发送者的消息      |
-| start_time | string | 否   | 开始时间，格式: 'YYYY-MM-DD HH:MM:SS' |
-| end_time   | string | 否   | 结束时间，格式: 'YYYY-MM-DD HH:MM:SS' |
-| limit      | int    | 否   | 返回记录数量限制，默认100              |
-| offset     | int    | 否   | 分页偏移量，默认0                      |
-
-## 返回结果
-```json
-{
-    "code": 0,           // 状态码，0表示成功，非0表示失败
-    "message": "success", // 状态描述
-    "data": {
-        "total": 100,    // 符合条件的总记录数
-        "records": [     // 记录列表
-            {
-                "id": 1,
-                "room_id": "room123",
-                "wx_user_id": "user123",
-                "sender_id": "sender123",
-                "msg_content": "消息内容",
-                "msg_datetime": "2023-01-01 12:00:00",
-                // 其他字段...
-            }
-        ],
-        "limit": 100,    // 当前限制数量
-        "offset": 0      // 当前偏移量
-    }
-}
-```
-
-## 错误码说明
-- 0: 成功
-- -1: 查询失败，详细错误信息在message字段中
-
-## 调用示例
-```
-GET /api?room_id=room123&limit=10&offset=0
-```
-
+Author: by cursor
+Date: 2025-03-01
 """
 import json
 import os
@@ -93,72 +43,6 @@ def get_db_connection():
         logger.error(f"数据库连接失败: {str(e)}")
         raise e
 
-def get_user_rooms_with_latest_message(wx_user_id: str) -> list:
-    """
-    获取指定用户的所有聊天室及其最新消息
-    
-    Args:
-        wx_user_id: 微信用户ID
-        
-    Returns:
-        list: 包含每个聊天室最新消息的列表，格式如下：
-        [
-            {
-                "room_id": "room123",
-                "wx_user_id": "user123",
-                "sender_id": "sender123",
-                "msg_content": "消息内容",
-                "msg_datetime": "2023-01-01 12:00:00"
-            },
-            ...
-        ]
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # 使用子查询找到每个聊天室的最新消息
-        query = """
-        WITH room_messages AS (
-            SELECT 
-                room_id,
-                wx_user_id,
-                sender_id,
-                content as msg_content,
-                msg_datetime,
-                ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY msg_datetime DESC) as rn
-            FROM wx_chat_records
-            WHERE wx_user_id = %s
-        )
-        SELECT 
-            room_id,
-            wx_user_id,
-            sender_id,
-            msg_content,
-            msg_datetime
-        FROM room_messages
-        WHERE rn = 1
-        ORDER BY msg_datetime DESC
-        """
-        
-        cursor.execute(query, (wx_user_id,))
-        results = cursor.fetchall()
-        
-        # 格式化日期时间
-        for row in results:
-            if row['msg_datetime']:
-                row['msg_datetime'] = row['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')
-        
-        cursor.close()
-        conn.close()
-        
-        return results
-        
-    except Exception as e:
-        print(f"Error querying user rooms: {str(e)}")
-        return []
-
-
 def main_handler(event, context):
     """
     云函数入口函数，用于查询微信聊天数据并以JSON格式返回
@@ -185,29 +69,9 @@ def main_handler(event, context):
                 query_params = event['body']
         except:
             pass
-    
-    # 提取查询参数
-    wx_user_id = query_params.get('wx_user_id', '')
-    get_list = str(query_params.get('get_list', '')).lower() == 'true'
-    
-    # 如果是获取聊天室列表请求
-    if wx_user_id and get_list:
-        try:
-            records = get_user_rooms_with_latest_message(wx_user_id)
-            return {
-                'code': 0,
-                'message': 'success',
-                'data': records
-            }
-        except Exception as e:
-            logger.error(f"获取聊天室列表失败: {str(e)}")
-            return {
-                'code': -1,
-                'message': f"获取聊天室列表失败: {str(e)}",
-                'data': None
-            }
-    
+        
     # 常规查询参数
+    wx_user_id = query_params.get('wx_user_id', '')
     room_id = query_params.get('room_id', '')
     sender_id = query_params.get('sender_id', '')
     start_time = query_params.get('start_time', '')
