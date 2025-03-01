@@ -81,7 +81,7 @@ def main_handler(event, context):
     if wx_user_id:
         try:
             conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor()
             
             # 使用子查询找到每个聊天室的最新消息
             query = """
