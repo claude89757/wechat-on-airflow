@@ -69,13 +69,11 @@ class WeChatMPBot:
         if result.get('errcode') != 0:
             raise Exception(f"发送图片消息失败: {result.get('errmsg', '未知错误')}")
 
-    def get_user_info(self, openid, lang="zh_CN"):
+    def get_user_info(self, openid):
         """获取用户基本信息（包括UnionID机制）
         
         参数:
             openid: 普通用户的标识，对当前公众号唯一
-            lang: 返回国家地区语言版本，zh_CN 简体，zh_TW 繁体，en 英语
-            
         返回:
             用户信息的字典，包含以下字段:
             - subscribe: 用户是否订阅该公众号标识
@@ -93,11 +91,12 @@ class WeChatMPBot:
         if not self.access_token:
             self.get_access_token()
         
-        url = f"https://api.weixin.qq.com/cgi-bin/user/info?access_token={self.access_token}&openid={openid}&lang={lang}"
+        url = f"https://api.weixin.qq.com/cgi-bin/user/info?access_token={self.access_token}&openid={openid}"
         print(f"获取用户信息的 URL: {url}")
         
         response = requests.get(url)
         result = response.json()
+        print(f"获取用户信息的结果: {result}")  
         
         if 'errcode' in result:
             raise Exception(f"获取用户信息失败: {result.get('errmsg', '未知错误')}")

@@ -69,8 +69,8 @@ def process_wx_message(**context):
     mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
     user_info = mp_bot.get_user_info(message_data.get('FromUserName'))
     print(f"FromUserName: {message_data.get('FromUserName')}, 用户信息: {user_info}")
-    user_info = mp_bot.get_user_info(message_data.get('ToUserName'))
-    print(f"ToUserName: {message_data.get('ToUserName')}, 用户信息: {user_info}")
+    # user_info = mp_bot.get_user_info(message_data.get('ToUserName'))
+    # print(f"ToUserName: {message_data.get('ToUserName')}, 用户信息: {user_info}")
     
     # 判断消息类型
     msg_type = message_data.get('MsgType')
