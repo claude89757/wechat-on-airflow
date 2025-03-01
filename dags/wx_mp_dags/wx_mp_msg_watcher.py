@@ -490,22 +490,47 @@ def handler_voice_msg(**context):
             dify_agent.text_to_audio(response, from_user_name, audio_response_path)
             print(f"[WATCHER] 文字转语音成功，保存到: {audio_response_path}")
             
-            # 5. 上传语音文件到微信获取media_id
-            upload_result = mp_bot.upload_temporary_media("voice", audio_response_path)
-            response_media_id = upload_result.get('media_id')
-            print(f"[WATCHER] 语音文件上传成功，media_id: {response_media_id}")
-            
-            # 6. 发送语音回复
-            mp_bot.send_voice_message(from_user_name, response_media_id)
-            print(f"[WATCHER] 语音回复发送成功")
-            
-            # 7. 同时发送文字回复作为备份
-            send_text_response = True
+            # 将WAV格式转换为MP3格式，因为微信只支持AMR和MP3格式
+            mp3_response_path = os.path.join(temp_dir, f"wx_audio_response_{from_user_name}_{timestamp}.mp3")
+            try:
+                # 尝试使用pydub转换
+                try:
+                    from pydub import AudioSegment
+                    sound = AudioSegment.from_wav(audio_response_path)
+                    sound.export(mp3_response_path, format="mp3", bitrate="128k")
+                    print(f"[WATCHER] 成功将WAV格式转换为MP3格式，保存到: {mp3_response_path}")
+                except Exception as e:
+                    print(f"[WATCHER] 使用pydub转换音频格式失败: {e}")
+                    # 尝试使用ffmpeg命令行工具
+                    import subprocess
+                    cmd = ["ffmpeg", "-y", "-i", audio_response_path, "-ar", "24000", "-ac", "1", "-b:a", "128k", mp3_response_path]
+                    print(f"[WATCHER] 执行命令: {' '.join(cmd)}")
+                    process = subprocess.run(cmd, capture_output=True, text=True)
+                    if process.returncode != 0:
+                        raise Exception(f"音频格式转换失败: {process.stderr}")
+                    print(f"[WATCHER] 成功将WAV格式转换为MP3格式，保存到: {mp3_response_path}")
+                
+                # 5. 上传语音文件到微信获取media_id
+                upload_result = mp_bot.upload_temporary_media("voice", mp3_response_path)
+                response_media_id = upload_result.get('media_id')
+                print(f"[WATCHER] 语音文件上传成功，media_id: {response_media_id}")
+                
+                # 6. 发送语音回复
+                mp_bot.send_voice_message(from_user_name, response_media_id)
+                print(f"[WATCHER] 语音回复发送成功")
+                
+                # 语音回复成功，不需要发送文字回复
+                send_text_response = False
+                
+            except Exception as convert_error:
+                print(f"[WATCHER] 音频格式转换或上传失败: {convert_error}")
+                send_text_response = True
+                
         except Exception as e:
             print(f"[WATCHER] 语音回复失败: {e}")
             send_text_response = True
         
-        # 发送文字回复（无论语音成功与否）
+        # 只有在语音回复失败时才发送文字回复
         if send_text_response:
             try:
                 # 将长回复拆分成多条消息发送
@@ -538,14 +563,22 @@ def handler_voice_msg(**context):
     finally:
         # 清理临时文件
         try:
-            for file_path in [voice_file_path, audio_response_path]:
-                if 'file_path' in locals() and os.path.exists(file_path):
+            # 定义需要清理的所有临时文件
+            temp_files = []
+            if 'voice_file_path' in locals() and voice_file_path:
+                temp_files.append(voice_file_path)
+            if 'audio_response_path' in locals() and audio_response_path:
+                temp_files.append(audio_response_path)
+            if 'mp3_response_path' in locals() and mp3_response_path:
+                temp_files.append(mp3_response_path)
+            if 'converted_file_path' in locals() and converted_file_path:
+                temp_files.append(converted_file_path)
+            
+            # 删除所有临时文件
+            for file_path in temp_files:
+                if os.path.exists(file_path):
                     os.remove(file_path)
                     print(f"[WATCHER] 临时文件已删除: {file_path}")
-            # 删除转换后的文件（如果存在）
-            if 'converted_file_path' in locals() and converted_file_path and os.path.exists(converted_file_path):
-                os.remove(converted_file_path)
-                print(f"[WATCHER] 临时转换文件已删除: {converted_file_path}")
         except Exception as e:
             print(f"[WATCHER] 删除临时文件失败: {e}")
 
