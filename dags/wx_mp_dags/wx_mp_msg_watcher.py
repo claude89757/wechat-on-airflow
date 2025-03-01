@@ -39,6 +39,7 @@ from airflow.utils.state import DagRunState
 from utils.dify_sdk import DifyAgent
 from utils.redis import RedisLock
 from utils.wechat_mp_channl import WeChatMPBot
+from utils.tts import text_to_speech
 
 
 DAG_ID = "wx_mp_msg_watcher"
@@ -343,7 +344,7 @@ def handler_voice_msg(**context):
     2. 下载语音文件并保存到临时目录
     3. 使用语音转文字API将语音内容转为文本
     4. 将转换后的文本发送给Dify AI进行处理
-    5. 将AI回复的文本转换为语音
+    5. 将AI回复的文本转换为语音（使用阿里云文字转语音）
     6. 上传语音到微信公众号获取media_id
     7. 发送语音回复给用户
     8. 同时发送文字回复作为备份
@@ -484,47 +485,33 @@ def handler_voice_msg(**context):
             conversation_infos[from_user_name] = conversation_id
             Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
         
-        # 4. 文字转语音
-        audio_response_path = os.path.join(temp_dir, f"wx_audio_response_{from_user_name}_{timestamp}.wav")
+        # 4. 使用阿里云的文字转语音功能
+        audio_response_path = os.path.join(temp_dir, f"wx_audio_response_{from_user_name}_{timestamp}.mp3")
         try:
-            dify_agent.text_to_audio(response, from_user_name, audio_response_path)
+            # 调用阿里云的TTS服务 - 直接生成MP3格式
+            success, _ = text_to_speech(
+                text=response, 
+                output_path=audio_response_path, 
+                model="cosyvoice-v2", 
+                voice="longxiaoxia"
+            )
+            
+            if not success:
+                raise Exception("文字转语音失败")
+                
             print(f"[WATCHER] 文字转语音成功，保存到: {audio_response_path}")
             
-            # 将WAV格式转换为MP3格式，因为微信只支持AMR和MP3格式
-            mp3_response_path = os.path.join(temp_dir, f"wx_audio_response_{from_user_name}_{timestamp}.mp3")
-            try:
-                # 尝试使用pydub转换
-                try:
-                    from pydub import AudioSegment
-                    sound = AudioSegment.from_wav(audio_response_path)
-                    sound.export(mp3_response_path, format="mp3", bitrate="128k")
-                    print(f"[WATCHER] 成功将WAV格式转换为MP3格式，保存到: {mp3_response_path}")
-                except Exception as e:
-                    print(f"[WATCHER] 使用pydub转换音频格式失败: {e}")
-                    # 尝试使用ffmpeg命令行工具
-                    import subprocess
-                    cmd = ["ffmpeg", "-y", "-i", audio_response_path, "-ar", "24000", "-ac", "1", "-b:a", "128k", mp3_response_path]
-                    print(f"[WATCHER] 执行命令: {' '.join(cmd)}")
-                    process = subprocess.run(cmd, capture_output=True, text=True)
-                    if process.returncode != 0:
-                        raise Exception(f"音频格式转换失败: {process.stderr}")
-                    print(f"[WATCHER] 成功将WAV格式转换为MP3格式，保存到: {mp3_response_path}")
-                
-                # 5. 上传语音文件到微信获取media_id
-                upload_result = mp_bot.upload_temporary_media("voice", mp3_response_path)
-                response_media_id = upload_result.get('media_id')
-                print(f"[WATCHER] 语音文件上传成功，media_id: {response_media_id}")
-                
-                # 6. 发送语音回复
-                mp_bot.send_voice_message(from_user_name, response_media_id)
-                print(f"[WATCHER] 语音回复发送成功")
-                
-                # 语音回复成功，不需要发送文字回复
-                send_text_response = False
-                
-            except Exception as convert_error:
-                print(f"[WATCHER] 音频格式转换或上传失败: {convert_error}")
-                send_text_response = True
+            # 5. 上传语音文件到微信获取media_id
+            upload_result = mp_bot.upload_temporary_media("voice", audio_response_path)
+            response_media_id = upload_result.get('media_id')
+            print(f"[WATCHER] 语音文件上传成功，media_id: {response_media_id}")
+            
+            # 6. 发送语音回复
+            mp_bot.send_voice_message(from_user_name, response_media_id)
+            print(f"[WATCHER] 语音回复发送成功")
+            
+            # 语音回复成功，不需要发送文字回复
+            send_text_response = False
                 
         except Exception as e:
             print(f"[WATCHER] 语音回复失败: {e}")
@@ -569,8 +556,6 @@ def handler_voice_msg(**context):
                 temp_files.append(voice_file_path)
             if 'audio_response_path' in locals() and audio_response_path:
                 temp_files.append(audio_response_path)
-            if 'mp3_response_path' in locals() and mp3_response_path:
-                temp_files.append(mp3_response_path)
             if 'converted_file_path' in locals() and converted_file_path:
                 temp_files.append(converted_file_path)
             
