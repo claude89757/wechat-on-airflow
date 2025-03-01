@@ -465,7 +465,7 @@ def handler_voice_msg(**context):
                 text=response, 
                 output_path=audio_response_path, 
                 model="cosyvoice-v2", 
-                voice="longxiaoxia"
+                voice="longxiaoxia_v2"
             )
             
             if not success:

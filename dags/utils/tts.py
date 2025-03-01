@@ -12,7 +12,7 @@ except ImportError:
     pass
 
 
-def text_to_speech(text, output_path='output.mp3', model="cosyvoice-v2", voice="longxiaoxia", api_key=None):
+def text_to_speech(text, output_path='output.mp3', model="cosyvoice-v2", voice="longxiaoxia_v2", api_key=None):
     """
     将文本转换为语音并保存为MP3文件
     
@@ -59,7 +59,7 @@ def text_to_speech(text, output_path='output.mp3', model="cosyvoice-v2", voice="
 
 if __name__ == "__main__":
     # 测试函数
-    success, result = text_to_speech("今天天气怎么样？")
+    success, result = text_to_speech("今天天气怎么样？", api_key="sk-1e48d59c49fe4e5bb34a8fc60c4d169b")
     if success:
         print(f"语音生成成功，文件已保存至 output.mp3")
     else:
