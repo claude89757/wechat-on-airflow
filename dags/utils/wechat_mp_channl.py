@@ -142,6 +142,7 @@ class WeChatMPBot:
         
         response = requests.get(url)
         result = response.json()
+        print(f"获取关注者列表的结果: {result}")
         
         if 'errcode' in result:
             raise Exception(f"获取关注者列表失败: {result.get('errmsg', '未知错误')}")
