@@ -65,18 +65,19 @@ def process_wx_message(**context):
     print(json.dumps(message_data, ensure_ascii=False, indent=2))
     print("--------------------------------")
 
-    # 获取用户信息
+    # 获取用户信息(注意，微信公众号并未提供详细的用户消息）
     mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
     user_info = mp_bot.get_user_info(message_data.get('FromUserName'))
     print(f"FromUserName: {message_data.get('FromUserName')}, 用户信息: {user_info}")
     # user_info = mp_bot.get_user_info(message_data.get('ToUserName'))
     # print(f"ToUserName: {message_data.get('ToUserName')}, 用户信息: {user_info}")
     
+    
     # 判断消息类型
     msg_type = message_data.get('MsgType')
     
     if msg_type == 'text':
-        return ['handler_text_msg']
+        return ['handler_text_msg', 'save_msg_to_mysql']
     else:
         print(f"[WATCHER] 不支持的消息类型: {msg_type}")
         return []
@@ -161,6 +162,10 @@ def handler_text_msg(**context):
                 rating="like", 
                 content="微信公众号自动回复成功"
             )
+
+        # 保存消息到MySQL
+        # TODO(claude89757): 保存消息到MySQL
+
     except Exception as error:
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息回复失败
@@ -179,6 +184,38 @@ def handler_text_msg(**context):
     for msg in messages:
         print(msg)
     print("-"*50)
+
+
+def save_msg_to_mysql(**context):
+    """
+    保存消息到MySQL
+    """
+    # TODO(claude89757): 保存消息到MySQL
+    pass
+
+
+def handler_image_msg(**context):
+    """
+    处理图片类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    """
+    # TODO(claude89757): 处理图片类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    pass
+
+
+def handler_voice_msg(**context):
+    """
+    处理语音类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    """
+    # TODO(claude89757): 处理语音类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    pass
+
+
+def handler_file_msg(**context):
+    """
+    处理文件类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    """
+    # TODO(claude89757): 处理文件类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    pass
 
 
 # 创建DAG
