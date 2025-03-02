@@ -205,12 +205,13 @@ def save_msg_to_mysql(**context):
     
     # 提取消息信息
     from_user_name = message_data.get('from_user_name', '')
+    from_user_id = message_data.get('from_user_id', '')
     to_user_name = message_data.get('to_user_name', '')
+    to_user_id = message_data.get('to_user_id', '')
     msg_id = message_data.get('id', '')
     msg_type = message_data.get('type', 0)
     content = message_data.get('content', '')
     msg_timestamp = message_data.get('ts', 0)
-    source_ip = message_data.get('source_ip', '')
     
     # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
@@ -218,8 +219,6 @@ def save_msg_to_mysql(**context):
         print("[DB_SAVE] 没有获取到微信公众号账号信息")
         return
     
-    wx_user_name = wx_account_info.get('name', '')
-    wx_user_id = wx_account_info.get('wxid', '')
     
     # 消息类型名称
     msg_type_name = WX_MSG_TYPES.get(msg_type, f"未知类型({msg_type})")
@@ -233,15 +232,14 @@ def save_msg_to_mysql(**context):
     # 聊天记录的创建数据包
     create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_mp_chat_records` (
         `id` bigint(20) NOT NULL AUTO_INCREMENT,
-        `msg_id` varchar(64) NOT NULL COMMENT '微信消息ID',        
-        `msg_type` int(11) NOT NULL COMMENT '消息类型',
-        `msg_type_name` varchar(64) DEFAULT NULL COMMENT '消息类型名称',
         `from_user_id` varchar(64) NOT NULL COMMENT '发送者ID',
         `from_user_name` varchar(128) DEFAULT NULL COMMENT '发送者名称',
         `to_user_id` varchar(128) DEFAULT NULL COMMENT '接收者ID',
         `to_user_name` varchar(128) DEFAULT NULL COMMENT '接收者名称',
+        `msg_id` varchar(64) NOT NULL COMMENT '微信消息ID',        
+        `msg_type` int(11) NOT NULL COMMENT '消息类型',
+        `msg_type_name` varchar(64) DEFAULT NULL COMMENT '消息类型名称',
         `content` text COMMENT '消息内容',
-        `source_ip` varchar(64) DEFAULT NULL COMMENT '来源IP',
         `msg_timestamp` bigint(20) DEFAULT NULL COMMENT '消息时间戳',
         `msg_datetime` datetime DEFAULT NULL COMMENT '消息时间',
         `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -256,9 +254,9 @@ def save_msg_to_mysql(**context):
     
     # 插入数据SQL
     insert_sql = """INSERT INTO `wx_mp_chat_records` 
-    (msg_id, from_user_id, from_user_name, to_user_id, to_user_name, 
-    msg_type, msg_type_name, content, source_ip, msg_timestamp, msg_datetime) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
+    msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE 
     content = VALUES(content),
     from_user_name = VALUES(from_user_name),
@@ -285,7 +283,6 @@ def save_msg_to_mysql(**context):
             msg_type,
             msg_type_name,
             content,
-            source_ip,
             msg_timestamp,
             msg_datetime
         ))

@@ -63,6 +63,7 @@ def main_handler(event, context):
         query_params = event['queryString']
     elif 'body' in event:
         try:
+            # 尝试解析body为JSON
             if isinstance(event['body'], str):
                 query_params = json.loads(event['body'])
             else:
