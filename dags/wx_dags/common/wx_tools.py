@@ -149,7 +149,7 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
             print(f"[WATCHER] 更新缓存失败: {error}")
 
         # 重新获取联系人名称
-        contact_name = contact_infos.get(wxid, {}).get('name', '')
+        contact_name = contact_infos.get(wxid, {}).get('name', wxid)
 
     print(f"返回联系人名称, wxid: {wxid}, 名称: {contact_name}")
     return contact_name
