@@ -285,8 +285,10 @@ def process_wx_message(**context):
 
     # 决策下游的任务
     if ai_reply == "enable" and not is_self:
+        print("[WATCHER] 触发AI聊天流程")
         return ['handler_text_msg', 'save_message_to_cdb']
     else:
+        print("[WATCHER] 不触发AI聊天流程")
         return ['save_message_to_cdb']
 
 
