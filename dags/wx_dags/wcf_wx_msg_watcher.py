@@ -146,7 +146,12 @@ def process_wx_message(**context):
     # 检查房间是否开启AI - 使用用户专属的配置
     enable_rooms = Variable.get(f"{wx_account_info['wxid']}_enable_ai_room_ids", default_var=[], deserialize_json=True)
     disable_rooms = Variable.get(f"{wx_account_info['wxid']}_disable_ai_room_ids", default_var=[], deserialize_json=True)
-    ai_reply = "enable" if room_id in enable_rooms and room_id not in disable_rooms else "disable"
+    if is_group:
+        # 群聊消息, 需要同时满足在开启列表中，且不在禁用列表中
+        ai_reply = "enable" if room_id in enable_rooms else "disable" and room_id not in disable_rooms
+    else:
+        # 单聊消息, 默认开启AI
+        ai_reply = "enable" if room_id not in disable_rooms else "disable"
 
     # 决策下游的任务
     if ai_reply == "enable" and not is_self:
