@@ -288,7 +288,7 @@ def process_wx_message(**context):
         print("[WATCHER] 触发AI聊天流程")
         return ['handler_text_msg', 'save_message_to_cdb']
     else:
-        print("[WATCHER] 不触发AI聊天流程")
+        print("[WATCHER] 不触发AI聊天流程",is_self,ai_reply)
         return ['save_message_to_cdb']
 
 
