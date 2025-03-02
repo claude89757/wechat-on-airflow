@@ -92,7 +92,7 @@ def send_msg(**context):
 
     # 发送文本消息
     send_wx_msg(wcf_ip=source_ip, message=up_for_send_msg, receiver=room_id, aters=aters)
-
+    
 
 def save_msg_to_db(**context):
     """
@@ -119,13 +119,16 @@ def save_msg_to_db(**context):
     
     # 获取微信账号信息
     wx_account_info = update_wx_user_info(source_ip)
-    if not wx_account_info:
-        print("[DB_SAVE] 没有获取到微信账号信息")
-        return
-    
     wx_user_name = wx_account_info.get('name', '')
     wx_user_id = wx_account_info.get('wxid', '')
-    
+    try:
+        # 账号的消息计时器+1
+        msg_count = Variable.get(f"{wx_user_name}_msg_count", default_var=0, deserialize_json=True)
+        Variable.set(f"{wx_user_name}_msg_count", msg_count+1, serialize_json=True)
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 更新消息计时器失败: {error}")
+
     # 获取房间和发送者信息
     room_name = get_contact_name(source_ip, room_id, wx_user_name)
     sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else '')
