@@ -31,6 +31,9 @@ from utils.wechat_channl import get_wx_contact_list
 from airflow.hooks.base import BaseHook
 from airflow.models import Variable
 
+# 自定义库导入
+from commom import update_wx_user_info, get_contact_name
+
 # 微信消息类型定义
 WX_MSG_TYPES = {
     0: "朋友圈消息",
@@ -70,69 +73,6 @@ WX_MSG_TYPES = {
 
 
 DAG_ID = "wx_msg_sender"
-
-
-def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
-    """
-    获取联系人/群名称，使用Airflow Variable缓存联系人列表，1小时刷新一次
-    wxid: 可以是sender或roomid
-    """
-
-    print(f"获取联系人/群名称, source_ip: {source_ip}, wxid: {wxid}")
-    # 获取缓存的联系人列表
-    cache_key = f"{wx_user_name}_CONTACT_INFOS"
-    current_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    cached_data = Variable.get(cache_key, default_var={"update_time": "1970-01-01 00:00:00", "contact_infos": {}}, deserialize_json=True)
-    
-    # 检查是否需要刷新缓存（1小时 = 3600秒）
-    cached_time = datetime.strptime(cached_data["update_time"], '%Y-%m-%d %H:%M:%S')
-    if (datetime.now() - cached_time).total_seconds() > 3600:
-        # 获取最新的联系人列表
-        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
-        print(f"刷新联系人列表缓存，数量: {len(wx_contact_list)}")
-        
-        # 构建联系人信息字典
-        contact_infos = {}
-        for contact in wx_contact_list:
-            contact_wxid = contact.get('wxid', '')
-            contact_infos[contact_wxid] = contact
-            
-        # 更新缓存和时间戳
-        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos}
-        try:
-            Variable.set(cache_key, cached_data, serialize_json=True)
-        except Exception as error:
-            print(f"[WATCHER] 更新缓存失败: {error}")
-    else:
-        print(f"使用缓存的联系人列表，数量: {len(cached_data['contact_infos'])}", cached_data)
-
-    # 返回联系人名称
-    contact_name = cached_data["contact_infos"].get(wxid, {}).get('name', '')
-
-    # 如果联系人名称不存在，则尝试刷新缓存
-    if not contact_name:
-        # 获取最新的联系人列表
-        wx_contact_list = get_wx_contact_list(wcf_ip=source_ip)
-        print(f"刷新联系人列表缓存，数量: {len(wx_contact_list)}")
-        
-        # 构建联系人信息字典
-        contact_infos = {}
-        for contact in wx_contact_list:
-            contact_wxid = contact.get('wxid', '')
-            contact_infos[contact_wxid] = contact
-            
-        # 更新缓存和时间戳
-        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos}
-        try:
-            Variable.set(cache_key, cached_data, serialize_json=True)
-        except Exception as error:
-            print(f"[WATCHER] 更新缓存失败: {error}")
-
-        # 重新获取联系人名称
-        contact_name = contact_infos.get(wxid, {}).get('name', '')
-
-    print(f"返回联系人名称, wxid: {wxid}, 名称: {contact_name}")
-    return contact_name
 
 
 def send_msg(**context):
@@ -178,7 +118,7 @@ def save_msg_to_db(**context):
     source_ip = message_data.get('source_ip', '')
     
     # 获取微信账号信息
-    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+    wx_account_info = update_wx_user_info(source_ip)
     if not wx_account_info:
         print("[DB_SAVE] 没有获取到微信账号信息")
         return
@@ -191,7 +131,7 @@ def save_msg_to_db(**context):
     sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else '')
     
     # 消息类型名称
-    msg_type_name = "文字"
+    msg_type_name = WX_MSG_TYPES.get(msg_type, '未知')
       
     # 聊天记录的创建数据包
     create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_chat_records` (
