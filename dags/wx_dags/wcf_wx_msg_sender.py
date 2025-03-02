@@ -147,7 +147,7 @@ def send_msg(**context):
     print(f"输入数据: {input_data}")
     up_for_send_msg = input_data['content']
     source_ip = input_data['source_ip']
-    room_id = input_data['roomid']
+    room_id = input_data['room_id']
     aters = input_data.get('aters', '')
 
     # 发送文本消息
@@ -166,10 +166,10 @@ def save_msg_to_db(**context):
         return
     
     # 提取消息信息
-    room_id = message_data.get('roomid', '')
+    room_id = message_data.get('room_id', '')
     sender = message_data.get('sender', '')
     msg_id = message_data.get('id', '') or str(uuid.uuid4())
-    msg_type = message_data.get('type', 0)
+    msg_type = message_data.get('msg_type', 0)
     content = message_data.get('content', '')
     is_self =  message_data.get('is_self', True)  # 是否群聊
     is_group = message_data.get('is_group', 0)  # 是否群聊
