@@ -99,6 +99,7 @@ def process_wx_message(**context):
     # 获取用户信息, 并缓存
     wx_account_info = update_wx_user_info(source_ip)
     wx_user_name = wx_account_info['name']
+    wx_user_id = wx_account_info['wxid']
     # 将微信账号信息传递到xcom中供后续任务使用
     context['task_instance'].xcom_push(key='wx_account_info', value=wx_account_info)
 
@@ -145,7 +146,7 @@ def process_wx_message(**context):
         print("[WATCHER] 不触发AI聊天流程")
 
     # 检查AI是否开启
-    is_ai_enable = check_ai_enable(wx_user_name, room_id, is_group)
+    is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
 
     # 决策下游的任务
     if is_ai_enable and not is_self:
