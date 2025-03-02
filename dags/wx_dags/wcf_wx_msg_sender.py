@@ -122,7 +122,7 @@ send_msg_task = PythonOperator(
 
 save_msg_to_db_task = PythonOperator(
     task_id='save_msg_to_db',
-    python_callable=save_msg_to_db,
+    python_callable=save_msg,
     provide_context=True,
     retries=5,
     retry_delay=timedelta(seconds=1),
