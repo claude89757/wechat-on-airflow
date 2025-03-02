@@ -153,3 +153,22 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
 
     print(f"返回联系人名称, wxid: {wxid}, 名称: {contact_name}")
     return contact_name
+
+
+def check_ai_enable(wx_user_name: str, room_id: str, is_group: bool) -> bool:
+    """
+    检查AI是否开启
+    """
+    # 检查房间是否开启AI - 使用用户专属的配置
+    enable_rooms = Variable.get(f"{wx_user_name}_enable_ai_room_ids", default_var=[], deserialize_json=True)
+    disable_rooms = Variable.get(f"{wx_user_name}_disable_ai_room_ids", default_var=[], deserialize_json=True)
+    print(f"enable_rooms: {enable_rooms}")
+    print(f"disable_rooms: {disable_rooms}")
+    if is_group:
+        print(f"群聊消息, 需要同时满足在开启列表中，且不在禁用列表中")
+        ai_reply = True if room_id in enable_rooms else False and room_id not in disable_rooms
+    else:
+        print(f"单聊消息, 默认开启AI")
+        ai_reply = True if room_id in disable_rooms else False
+
+    return ai_reply

@@ -35,6 +35,7 @@ from utils.wechat_channl import send_wx_msg
 from wx_dags.common.wx_tools import WX_MSG_TYPES
 from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
+from wx_dags.common.wx_tools import check_ai_enable
 from wx_dags.common.mysql_tools import save_msg_to_db
 
 
@@ -143,27 +144,15 @@ def process_wx_message(**context):
         # 其他类型消息暂不处理
         print("[WATCHER] 不触发AI聊天流程")
 
-    # 检查房间是否开启AI - 使用用户专属的配置
-    enable_rooms = Variable.get(f"{wx_account_info['wxid']}_enable_ai_room_ids", default_var=[], deserialize_json=True)
-    disable_rooms = Variable.get(f"{wx_account_info['wxid']}_disable_ai_room_ids", default_var=[], deserialize_json=True)
-    print(f"enable_rooms: {enable_rooms}")
-    print(f"disable_rooms: {disable_rooms}")
-    if is_group:
-        print(f"群聊消息, 需要同时满足在开启列表中，且不在禁用列表中")
-        ai_reply = "enable" if room_id in enable_rooms else "disable" and room_id not in disable_rooms
-    else:
-        print(f"单聊消息, 默认开启AI")
-        if room_id in disable_rooms:
-            ai_reply = "disable"
-        else:
-            ai_reply = "enable"
+    # 检查AI是否开启
+    is_ai_enable = check_ai_enable(wx_user_name, room_id, is_group)
 
     # 决策下游的任务
-    if ai_reply == "enable" and not is_self:
+    if is_ai_enable and not is_self:
         print("[WATCHER] 触发AI聊天流程")
         return ['handler_text_msg', 'save_message_to_db']
     else:
-        print("[WATCHER] 不触发AI聊天流程",is_self,ai_reply)
+        print("[WATCHER] 不触发AI聊天流程",is_self, is_ai_enable)
         return ['save_message_to_db']
 
 
