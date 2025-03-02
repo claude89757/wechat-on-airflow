@@ -136,35 +136,6 @@ def save_msg_to_db(**context):
     # 消息类型名称
     msg_type_name = WX_MSG_TYPES.get(msg_type, '未知')
       
-    # 聊天记录的创建数据包
-    create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_chat_records` (
-        `id` bigint(20) NOT NULL AUTO_INCREMENT,
-        `msg_id` varchar(64) NOT NULL COMMENT '微信消息ID',
-        `wx_user_id` varchar(64) NOT NULL COMMENT '微信用户ID',
-        `wx_user_name` varchar(64) NOT NULL COMMENT '微信用户名',
-        `room_id` varchar(64) NOT NULL COMMENT '聊天室ID',
-        `room_name` varchar(128) DEFAULT NULL COMMENT '聊天室名称',
-        `sender_id` varchar(64) NOT NULL COMMENT '发送者ID',
-        `sender_name` varchar(128) DEFAULT NULL COMMENT '发送者名称',
-        `msg_type` int(11) NOT NULL COMMENT '消息类型',
-        `msg_type_name` varchar(64) DEFAULT NULL COMMENT '消息类型名称',
-        `content` text COMMENT '消息内容',
-        `is_self` tinyint(1) DEFAULT '0' COMMENT '是否自己发送',
-        `is_group` tinyint(1) DEFAULT '0' COMMENT '是否群聊',
-        `source_ip` varchar(64) DEFAULT NULL COMMENT '来源IP',
-        `msg_timestamp` bigint(20) DEFAULT NULL COMMENT '消息时间戳',
-        `msg_datetime` datetime DEFAULT NULL COMMENT '消息时间',
-        `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-        `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        PRIMARY KEY (`id`),
-        UNIQUE KEY `uk_msg_id` (`msg_id`),
-        KEY `idx_room_id` (`room_id`),
-        KEY `idx_sender_id` (`sender_id`),
-        KEY `idx_wx_user_id` (`wx_user_id`),
-        KEY `idx_msg_datetime` (`msg_datetime`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信聊天记录';
-    """
-    
     # 插入数据SQL
     insert_sql = """INSERT INTO `wx_chat_records` 
     (msg_id, wx_user_id, wx_user_name, room_id, room_name, sender_id, sender_name, 
@@ -184,9 +155,6 @@ def save_msg_to_db(**context):
         db_hook = BaseHook.get_connection("wx_db").get_hook()
         db_conn = db_hook.get_conn()
         cursor = db_conn.cursor()
-        
-        # 创建表（如果不存在）
-        cursor.execute(create_table_sql)
         
         # 插入数据
         cursor.execute(insert_sql, (
