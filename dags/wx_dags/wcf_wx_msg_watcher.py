@@ -306,6 +306,7 @@ def save_msg(**context):
     
     # 获取房间和发送者信息
     room_name = get_contact_name(save_msg['source_ip'], save_msg['room_id'], save_msg['wx_user_name'])
+    save_msg['room_name'] = room_name
     if save_msg['is_self']:
         save_msg['sender_name'] = save_msg['wx_user_name']
     else:
@@ -337,7 +338,7 @@ def save_ai_reply_msg(**context):
     save_msg['msg_type'] = 1  # 消息类型
     save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], '文本')
     save_msg['content'] = ai_reply_msg
-    save_msg['is_self'] = 1  # 是否自己发送的消息
+    save_msg['is_self'] = True  # 是否自己发送的消息
     save_msg['is_group'] = message_data.get('is_group', False)  # 是否群聊
     save_msg['msg_timestamp'] = message_data.get('ts', 0)
     save_msg['msg_datetime'] = datetime.now() if not save_msg['msg_timestamp'] else datetime.fromtimestamp(save_msg['msg_timestamp'])

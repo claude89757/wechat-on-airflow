@@ -1,7 +1,3 @@
-
-
-
-
 from airflow.hooks.base import BaseHook
 
 
@@ -61,7 +57,7 @@ def save_msg_to_db(msg_data: dict):
     print(f"[DB_SAVE] 保存消息到数据库, msg_data: {msg_data}")
     
     # 提取消息信息
-    msg_id = msg_data.get('id', '')
+    msg_id = msg_data.get('msg_id', '')
     wx_user_id = msg_data.get('wx_user_id', '')
     wx_user_name = msg_data.get('wx_user_name', '')
     room_id = msg_data.get('room_id', '')
@@ -71,8 +67,8 @@ def save_msg_to_db(msg_data: dict):
     msg_type = msg_data.get('msg_type', 0)
     msg_type_name = msg_data.get('msg_type_name', '')
     content = msg_data.get('content', '')
-    is_self = msg_data.get('is_self', False)
-    is_group = msg_data.get('is_group', 0)
+    is_self = 1 if msg_data.get('is_self', False) else 0
+    is_group = 1 if msg_data.get('is_group', False) else 0
     source_ip = msg_data.get('source_ip', '')
     msg_timestamp = msg_data.get('msg_timestamp', '')
     msg_datetime = msg_data.get('msg_datetime', '')
@@ -121,8 +117,8 @@ def save_msg_to_db(msg_data: dict):
             msg_type,
             msg_type_name,
             content,
-            1 if is_self else 0,
-            1 if is_group else 0,
+            is_self,
+            is_group,
             source_ip,
             msg_timestamp,
             msg_datetime
