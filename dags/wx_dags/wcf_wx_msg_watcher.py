@@ -441,6 +441,7 @@ def save_message_to_cdb(**context):
     # 获取房间和发送者信息
     room_name = get_contact_name(source_ip, room_id, wx_user_name)
     sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else '')
+    print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
     
     # 消息类型名称
     msg_type_name = WX_MSG_TYPES.get(msg_type, f"未知类型({msg_type})")
