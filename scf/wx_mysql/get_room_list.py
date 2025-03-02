@@ -96,6 +96,7 @@ def main_handler(event, context):
                     msg_id,
                     content as msg_content,
                     msg_datetime,
+                    msg_type,
                     ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY msg_datetime DESC) as rn
                 FROM wx_chat_records
                 WHERE wx_user_id = %s
@@ -109,7 +110,8 @@ def main_handler(event, context):
                 sender_name,
                 msg_id,
                 msg_content,
-                msg_datetime
+                msg_datetime,
+                msg_type
             FROM room_messages
             WHERE rn = 1
             ORDER BY msg_datetime DESC
