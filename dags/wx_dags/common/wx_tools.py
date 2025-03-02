@@ -81,8 +81,8 @@ def update_wx_user_info(source_ip: str) -> dict:
     wx_account_list.append(new_account)
 
     # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
-    Variable.set(f"{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
-    Variable.set(f"{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
 
     # 初始化新用户的聊天记录表
     init_wx_chat_records_table(new_account['wxid'])
@@ -155,13 +155,13 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
     return contact_name
 
 
-def check_ai_enable(wx_user_name: str, room_id: str, is_group: bool) -> bool:
+def check_ai_enable(wx_user_name: str, wx_user_id: str, room_id: str, is_group: bool) -> bool:
     """
     检查AI是否开启
     """
     # 检查房间是否开启AI - 使用用户专属的配置
-    enable_rooms = Variable.get(f"{wx_user_name}_enable_ai_room_ids", default_var=[], deserialize_json=True)
-    disable_rooms = Variable.get(f"{wx_user_name}_disable_ai_room_ids", default_var=[], deserialize_json=True)
+    enable_rooms = Variable.get(f"{wx_user_name}_{wx_user_id}_enable_ai_room_ids", default_var=[], deserialize_json=True)
+    disable_rooms = Variable.get(f"{wx_user_name}_{wx_user_id}_disable_ai_room_ids", default_var=[], deserialize_json=True)
     print(f"enable_rooms: {enable_rooms}")
     print(f"disable_rooms: {disable_rooms}")
     if is_group:

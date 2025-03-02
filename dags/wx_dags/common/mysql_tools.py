@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+MySQL数据库工具模块
+
+功能:
+1. 初始化微信聊天记录表
+2. 保存微信消息到数据库
+3. 查询微信消息记录
+
+特点:
+1. 支持多账号数据隔离
+2. 自动创建账号专属数据表
+3. 异常重试和事务回滚
+"""
+
 
 from airflow.hooks.base import BaseHook
 
@@ -32,7 +48,7 @@ def init_wx_chat_records_table(wx_user_id: str):
         `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
         `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
         PRIMARY KEY (`id`),
-        UNIQUE KEY `uk_msg_id` (`msg_id`),
+        UNIQUE KEY `uk_msg_id_wx_user_id` (`msg_id`, `wx_user_id`),
         KEY `idx_room_id` (`room_id`),
         KEY `idx_sender_id` (`sender_id`),
         KEY `idx_wx_user_id` (`wx_user_id`),
@@ -42,7 +58,6 @@ def init_wx_chat_records_table(wx_user_id: str):
 
     # 创建表（如果不存在）
     cursor.execute(create_table_sql)
-
 
     # 聊天记录的创建数据包
     create_table_sql_for_user = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_chat_records` (
@@ -65,16 +80,13 @@ def init_wx_chat_records_table(wx_user_id: str):
         `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
         `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
         PRIMARY KEY (`id`),
-        UNIQUE KEY `uk_msg_id` (`msg_id`),
+        UNIQUE KEY `uk_msg_id_wx_user_id` (`msg_id`, `wx_user_id`),
         KEY `idx_room_id` (`room_id`),
         KEY `idx_sender_id` (`sender_id`),
         KEY `idx_wx_user_id` (`wx_user_id`),
         KEY `idx_msg_datetime` (`msg_datetime`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信聊天记录';
     """
-
-    # 创建表（如果不存在）
-    cursor.execute(create_table_sql)
     
     cursor.execute(create_table_sql_for_user)
 
