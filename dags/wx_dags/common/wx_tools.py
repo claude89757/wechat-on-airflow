@@ -17,6 +17,7 @@ from datetime import datetime
 from airflow.models import Variable
 from utils.wechat_channl import get_wx_self_info
 from utils.wechat_channl import get_wx_contact_list
+from wx_dags.common.mysql_tools import init_wx_chat_records_table
 
 
 # 微信消息类型定义
@@ -82,6 +83,9 @@ def update_wx_user_info(source_ip: str) -> dict:
     # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
     Variable.set(f"{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
     Variable.set(f"{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
+
+    # 初始化新用户的聊天记录表
+    init_wx_chat_records_table(new_account['wxid'])
 
     print(f"新用户, 更新用户信息: {new_account}")
     Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
