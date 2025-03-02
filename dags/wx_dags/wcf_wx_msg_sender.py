@@ -32,7 +32,7 @@ from airflow.hooks.base import BaseHook
 from airflow.models import Variable
 
 # 自定义库导入
-from commom import update_wx_user_info, get_contact_name
+from wx_dags.commom import update_wx_user_info, get_contact_name
 
 # 微信消息类型定义
 WX_MSG_TYPES = {
