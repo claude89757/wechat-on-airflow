@@ -123,13 +123,13 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
             contact_infos[contact_wxid] = contact
             
         # 更新缓存和时间戳
-        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos}
+        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos["contact_infos"]}
         try:
             Variable.set(cache_key, cached_data, serialize_json=True)
         except Exception as error:
             print(f"[WATCHER] 更新缓存失败: {error}")
     else:
-        print(f"使用缓存的联系人列表，数量: {len(cached_data['contact_infos'])}")
+        print(f"使用缓存的联系人列表，数量: {len(cached_data['contact_infos'])}", cached_data)
 
     # 返回联系人名称
     contact_name = cached_data["contact_infos"].get(wxid, {}).get('name', '')
