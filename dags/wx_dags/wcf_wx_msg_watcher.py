@@ -123,7 +123,7 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
             contact_infos[contact_wxid] = contact
             
         # 更新缓存和时间戳
-        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos["contact_infos"]}
+        cached_data = {"update_time": current_timestamp, "contact_infos": contact_infos}
         try:
             Variable.set(cache_key, cached_data, serialize_json=True)
         except Exception as error:
