@@ -149,11 +149,14 @@ def process_wx_message(**context):
     print(f"enable_rooms: {enable_rooms}")
     print(f"disable_rooms: {disable_rooms}")
     if is_group:
-        # 群聊消息, 需要同时满足在开启列表中，且不在禁用列表中
+        print(f"群聊消息, 需要同时满足在开启列表中，且不在禁用列表中")
         ai_reply = "enable" if room_id in enable_rooms else "disable" and room_id not in disable_rooms
     else:
-        # 单聊消息, 默认开启AI
-        ai_reply = "enable" if room_id not in disable_rooms else "disable"
+        print(f"单聊消息, 默认开启AI")
+        if room_id in disable_rooms:
+            ai_reply = "disable"
+        else:
+            ai_reply = "enable"
 
     # 决策下游的任务
     if ai_reply == "enable" and not is_self:
