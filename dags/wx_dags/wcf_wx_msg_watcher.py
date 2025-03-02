@@ -535,6 +535,7 @@ def save_message_to_cdb(**context):
                 db_conn.rollback()
             except:
                 pass
+        raise Exception(f"[DB_SAVE] 保存消息到数据库失败, 稍后重试")
     finally:
         # 关闭连接
         if cursor:
@@ -582,6 +583,8 @@ save_message_task = PythonOperator(
     task_id='save_message_to_cdb',
     python_callable=save_message_to_cdb,
     provide_context=True,
+    retries=5,
+    retry_delay=timedelta(seconds=1),
     dag=dag
 )
 
