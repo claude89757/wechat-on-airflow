@@ -166,9 +166,15 @@ def check_ai_enable(wx_user_name: str, room_id: str, is_group: bool) -> bool:
     print(f"disable_rooms: {disable_rooms}")
     if is_group:
         print(f"群聊消息, 需要同时满足在开启列表中，且不在禁用列表中")
-        ai_reply = True if room_id in enable_rooms else False and room_id not in disable_rooms
+        if room_id in enable_rooms and room_id not in disable_rooms:
+            ai_reply = True
+        else:
+            ai_reply = False
     else:
         print(f"单聊消息, 默认开启AI")
-        ai_reply = True if room_id in disable_rooms else False
+        if room_id in disable_rooms:
+            ai_reply = False
+        else:
+            ai_reply = True
 
     return ai_reply
