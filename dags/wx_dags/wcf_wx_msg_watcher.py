@@ -350,8 +350,8 @@ def save_ai_reply_msg(**context):
     save_msg['content'] = ai_reply_msg
     save_msg['is_self'] = True  # 是否自己发送的消息
     save_msg['is_group'] = message_data.get('is_group', False)  # 是否群聊
-    save_msg['msg_timestamp'] = message_data.get('ts', 0)
-    save_msg['msg_datetime'] = datetime.now() if not save_msg['msg_timestamp'] else datetime.fromtimestamp(save_msg['msg_timestamp'])
+    save_msg['msg_timestamp'] = int(datetime.now().timestamp())
+    save_msg['msg_datetime'] = datetime.now()
     save_msg['source_ip'] = message_data.get('source_ip', '')
     save_msg['wx_user_name'] = wx_account_info.get('name', '')
     save_msg['wx_user_id'] = wx_account_info.get('wxid', '')
