@@ -152,7 +152,34 @@ dag = DAG(
     catchup=False,
     tags=['个人微信'],
     description='聊天记录总结',
+    params={
+        'room_id': {
+            'type': 'string',
+            'default': '',
+            'description': '微信会话ID'
+        },
+        'wx_user_id': {
+            'type': 'string',
+            'default': '',
+            'description': '微信用户ID'
+        }
+    },
+    render_template_as_native_obj=True,
 )
+
+# 为DAG添加文档说明
+dag.doc_md = """
+## 聊天记录总结DAG
+
+此DAG用于总结微信群聊的聊天记录，并使用AI生成摘要。
+
+### 必填参数:
+- `room_id`: 微信会话ID
+- `wx_user_id`: 微信用户ID
+
+### 输出:
+- 会将摘要结果缓存到Airflow变量中，缓存键为`{wx_user_id}_{room_id}_chat_summary`
+"""
 
 # 创建处理消息的任务
 summary_chat_history_task = PythonOperator(
