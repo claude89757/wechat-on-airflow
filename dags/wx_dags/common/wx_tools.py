@@ -175,6 +175,6 @@ def check_ai_enable(wx_user_name: str, wx_user_id: str, room_id: str, is_group: 
         if room_id in disable_rooms:
             ai_reply = False
         else:
-            ai_reply = True
+            ai_reply = False
 
     return ai_reply
