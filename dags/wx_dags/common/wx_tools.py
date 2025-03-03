@@ -34,6 +34,7 @@ from airflow.exceptions import AirflowException
 # 自定义库导入
 from utils.wechat_channl import save_wx_image
 from utils.wechat_channl import send_wx_image
+from utils.wechat_channl import save_wx_audio
 
 # 第三方库导入
 from smbclient import register_session, open_file
@@ -199,7 +200,7 @@ def check_ai_enable(wx_user_name: str, wx_user_id: str, room_id: str, is_group: 
     return ai_reply
 
 
-def download_file_from_windows_server(source_ip: str, msg_id: str, extra: str, max_retries: int = 2, retry_delay: int = 5):
+def download_image_from_windows_server(source_ip: str, msg_id: str, extra: str, max_retries: int = 2, retry_delay: int = 5):
     """从SMB服务器下载文件到服务器本地
     
     Args:
@@ -271,3 +272,22 @@ def download_file_from_windows_server(source_ip: str, msg_id: str, extra: str, m
     return local_path
 
 
+def download_voice_from_windows_server(source_ip: str, msg_id: str, extra: str, max_retries: int = 2, retry_delay: int = 5):
+    """从SMB服务器下载语音到服务器本地
+    
+    Args:
+        remote_file_name: 远程文件名    
+        local_file_name: 本地文件名
+        max_retries: 最大重试次数，默认3次
+        retry_delay: 重试间隔时间(秒)，默认5秒
+    Returns:
+        str: 本地文件路径
+    """
+
+    # 保存语音到微信客户端侧
+    save_dir = f"C:/Users/Administrator/Downloads/"
+    voice_file_path = save_wx_audio(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir=save_dir, timeout=30)
+    remote_voice_file_name = os.path.basename(voice_file_path)
+    print(f"voice_file_path: {voice_file_path}")
+
+    # 等待3秒

@@ -37,7 +37,8 @@ from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import check_ai_enable
 from wx_dags.common.mysql_tools import save_data_to_db
-from wx_dags.common.wx_tools import download_file_from_windows_server
+from wx_dags.common.wx_tools import download_image_from_windows_server
+from wx_dags.common.wx_tools import download_voice_from_windows_server
 
 
 DAG_ID = "wx_msg_watcher"
@@ -132,7 +133,9 @@ def process_wx_message(**context):
             next_task_list.append('handler_text_msg')
         else:
             print("[WATCHER] 不触发AI聊天流程",is_self, is_ai_enable)
-        
+    elif WX_MSG_TYPES.get(msg_type) == "语音":
+        # 语音消息
+        next_task_list.append('handler_voice_msg')
     elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
         # next_task_list.append('handler_video_msg')
@@ -149,6 +152,7 @@ def process_wx_message(**context):
         print("[WATCHER] 不触发AI聊天流程")
  
     return next_task_list
+
 
 def handler_image_msg(**context):
     """
@@ -180,6 +184,30 @@ def handler_image_msg(**context):
 
     # # 删除本地图片
     # os.remove(image_file_path)
+
+def handler_voice_msg(**context):
+    """
+    处理语音消息, 通过Dify的AI助手进行聊天, 并回复微信消息
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    room_id = message_data.get('roomid')
+    
+    message_data = context.get('dag_run').conf
+    room_id = message_data.get('roomid')
+    sender = message_data.get('sender')
+    msg_id = message_data.get('id')
+    msg_type = message_data.get('type')
+    content = message_data.get('content', '')
+    is_self = message_data.get('is_self', False)  # 是否自己发送的消息
+    is_group = message_data.get('is_group', False)  # 是否群聊
+    extra = message_data.get('extra', '')
+    current_msg_timestamp = message_data.get('ts')
+    source_ip = message_data.get('source_ip')
+
+    # 下载图片
+    image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
+
 
 def handler_text_msg(**context):
     """
@@ -343,6 +371,47 @@ def save_image_to_db(**context):
     save_data_to_db(save_msg)
 
 
+def save_voice_to_db(**context):
+    """
+    保存语音消息到DB
+    """
+   # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    
+     # 获取微信账号信息
+    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+    voice_to_text_result = context.get('task_instance').xcom_pull(key='voice_to_text_result')
+
+    save_msg = {}
+    # 提取消息信息
+    save_msg['room_id'] = message_data.get('roomid', '')
+    save_msg['sender_id'] = message_data.get('sender', '')
+    save_msg['msg_id'] = message_data.get('id', '')
+    save_msg['msg_type'] = message_data.get('type', 0)
+    save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], f"未知类型({save_msg['msg_type']})")
+    save_msg['content'] = voice_to_text_result
+    save_msg['is_self'] = message_data.get('is_self', False)  # 是否自己发送的消息
+    save_msg['is_group'] = message_data.get('is_group', False)  # 是否群聊
+    save_msg['msg_timestamp'] = message_data.get('ts', 0)
+    save_msg['msg_datetime'] = datetime.now() if not save_msg['msg_timestamp'] else datetime.fromtimestamp(save_msg['msg_timestamp'])
+    save_msg['source_ip'] = message_data.get('source_ip', '')
+    save_msg['wx_user_name'] = wx_account_info.get('name', '')
+    save_msg['wx_user_id'] = wx_account_info.get('wxid', '')
+    
+    # 获取房间和发送者信息
+    room_name = get_contact_name(save_msg['source_ip'], save_msg['room_id'], save_msg['wx_user_name'])
+    save_msg['room_name'] = room_name
+    if save_msg['is_self']:
+        save_msg['sender_name'] = save_msg['wx_user_name']
+    else:
+        save_msg['sender_name'] = get_contact_name(save_msg['source_ip'], save_msg['sender_id'], save_msg['wx_user_name'])
+    
+    print(f"房间信息: {save_msg['room_id']}({room_name}), 发送者: {save_msg['sender_id']}({save_msg['sender_name']})")
+    
+    # 保存消息到DB
+    save_data_to_db(save_msg)   
+
+
 def save_msg_to_db(**context):
     """
     保存消息到CDB
@@ -455,6 +524,13 @@ handler_image_msg_task = PythonOperator(
     provide_context=True,
     dag=dag)
 
+# 创建处理语音消息的任务
+handler_voice_msg_task = PythonOperator(
+    task_id='handler_voice_msg',
+    python_callable=handler_voice_msg,
+    provide_context=True,
+    dag=dag
+)
 
 # 创建保存消息到数据库的任务
 save_message_task = PythonOperator(
@@ -482,7 +558,16 @@ save_image_to_db_task = PythonOperator(
     dag=dag
 )
 
+# 保存语音消息到数据库
+save_voice_to_db_task = PythonOperator(
+    task_id='save_voice_to_db',
+    python_callable=save_voice_to_db,
+    provide_context=True,
+    dag=dag
+)
+
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, save_message_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_message_task]
 handler_text_msg_task >> save_ai_reply_msg_task
 handler_image_msg_task >> save_image_to_db_task
+handler_voice_msg_task >> save_voice_to_db_task
