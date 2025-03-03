@@ -90,9 +90,9 @@ def main_handler(event, context):
                     msg_type,
                     content as msg_content,
                     create_time as msg_datetime,
-                    ROW_NUMBER() OVER (PARTITION BY mp_id, user_id ORDER BY create_time DESC) as rn
+                    ROW_NUMBER() OVER (PARTITION BY from_user_id ORDER BY msg_datetime DESC) as rn
                 FROM wx_mp_chat_records
-                WHERE mp_id = %s
+                WHERE to_user_id = %s OR from_user_id = %s
             )
             SELECT 
                 wx_user_id,
@@ -105,7 +105,7 @@ def main_handler(event, context):
             ORDER BY msg_datetime DESC
             """
             
-            cursor.execute(query, (mp_id,))
+            cursor.execute(query, (wx_user_id, wx_user_id))
             results = cursor.fetchall()
             
             # 格式化日期时间
@@ -127,13 +127,14 @@ def main_handler(event, context):
                 'data': None
             }
         finally:
-            if 'conn' in locals() and conn:
+            if 'cursor' in locals() and cursor:
                 cursor.close()
+            if 'conn' in locals() and conn:
                 conn.close()
     else:
         return {
             'code': -1,
-            'message': 'mp_id is required',
+            'message': 'wx_user_id is required',
             'data': None
         }
 
