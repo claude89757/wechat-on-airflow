@@ -46,6 +46,18 @@ from utils.tts import text_to_speech
 
 DAG_ID = "wx_mp_msg_watcher"
 
+# 添加消息类型常量
+WX_MSG_TYPES = {
+    'text': '文本消息',
+    'image': '图片消息',
+    'voice': '语音消息',
+    'video': '视频消息',
+    'shortvideo': '小视频消息',
+    'location': '地理位置消息',
+    'link': '链接消息',
+    'event': '事件推送',
+}
+
 
 def process_wx_message(**context):
     """
@@ -203,29 +215,26 @@ def save_msg_to_mysql(**context):
         print("[DB_SAVE] 没有收到消息数据")
         return
     
-    # 提取消息信息
-    from_user_name = message_data.get('from_user_name', '')
-    from_user_id = message_data.get('from_user_id', '')
-    to_user_name = message_data.get('to_user_name', '')
-    to_user_id = message_data.get('to_user_id', '')
-    msg_id = message_data.get('id', '')
-    msg_type = message_data.get('type', 0)
-    content = message_data.get('content', '')
-    msg_timestamp = message_data.get('ts', 0)
+    # 提取消息信息 - 使用正确的微信消息字段
+    from_user_name = message_data.get('FromUserName', '')  # 发送者的OpenID
+    to_user_name = message_data.get('ToUserName', '')      # 接收者的OpenID
+    msg_id = message_data.get('MsgId', '')                 # 消息ID
+    msg_type = message_data.get('MsgType', '')             # 消息类型
+    content = message_data.get('Content', '')              # 消息内容
+    create_time = message_data.get('CreateTime', 0)        # 消息时间戳
     
-    # 获取微信账号信息
-    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
-    if not wx_account_info:
-        print("[DB_SAVE] 没有获取到微信公众号账号信息")
-        return
-    
+    # 根据消息类型处理content
+    if msg_type == 'image':
+        content = message_data.get('PicUrl', '')
+    elif msg_type == 'voice':
+        content = f"MediaId: {message_data.get('MediaId', '')}, Format: {message_data.get('Format', '')}"
     
     # 消息类型名称
     msg_type_name = WX_MSG_TYPES.get(msg_type, f"未知类型({msg_type})")
     
     # 转换时间戳为datetime
-    if msg_timestamp:
-        msg_datetime = datetime.fromtimestamp(msg_timestamp)
+    if create_time:
+        msg_datetime = datetime.fromtimestamp(create_time)
     else:
         msg_datetime = datetime.now()
     
@@ -252,15 +261,14 @@ def save_msg_to_mysql(**context):
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信公众号聊天记录';
     """
     
-    # 插入数据SQL
+    # 插入数据SQL - 确保字段名与表结构一致
     insert_sql = """INSERT INTO `wx_mp_chat_records` 
     (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
     msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE 
     content = VALUES(content),
-    from_user_name = VALUES(from_user_name),
-    to_user_name = VALUES(to_user_name),
+    msg_type_name = VALUES(msg_type_name),
     updated_at = CURRENT_TIMESTAMP
     """
     
@@ -268,28 +276,31 @@ def save_msg_to_mysql(**context):
     cursor = None
     try:
         # 使用get_hook函数获取数据库连接
-        db_hook = BaseHook.get_connection("wx_db").get_hook()
-        db_conn = db_hook.get_conn()
+        db_hook = BaseHook.get_connection("wx_db")
+        db_conn = db_hook.get_hook().get_conn()
         cursor = db_conn.cursor()
         
         # 创建表（如果不存在）
         cursor.execute(create_table_sql)
         
-        # 插入数据
+        # 插入数据 - 确保参数顺序与SQL语句一致
         cursor.execute(insert_sql, (
-            msg_id,             
-            from_user_name,
-            to_user_name,
-            msg_type,
-            msg_type_name,
-            content,
-            msg_timestamp,
-            msg_datetime
+            from_user_name,     # from_user_id
+            from_user_name,     # from_user_name
+            to_user_name,       # to_user_id
+            to_user_name,       # to_user_name
+            msg_id,             # msg_id
+            msg_type,           # msg_type
+            msg_type_name,      # msg_type_name
+            content,            # content
+            create_time,        # msg_timestamp
+            msg_datetime        # msg_datetime
         ))
         
         # 提交事务
         db_conn.commit()
         print(f"[DB_SAVE] 成功保存消息到数据库: {msg_id}")
+        
     except Exception as e:
         print(f"[DB_SAVE] 保存消息到数据库失败: {e}")
         if db_conn:
