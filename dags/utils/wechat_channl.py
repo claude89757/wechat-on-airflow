@@ -229,20 +229,20 @@ def forward_wx_msg(wcf_ip: str, id: int, receiver: str) -> bool:
     return True
 
 
-def save_wx_audio(wcf_ip: str, id: int, extra: str) -> str:
+def save_wx_audio(wcf_ip: str, id: int, save_dir: str) -> str:
     """
     保存语音消息
     Args:
         wcf_ip: WCF服务器IP
         id: 消息id
-        extra: 消息extra字段
+        save_dir: 保存目录路径
     Returns:
         str: 保存后的文件路径
     """
     wcf_port = os.getenv("WCF_API_PORT", "9999")
     wcf_api_url = f"http://{wcf_ip}:{wcf_port}/audio"
 
-    payload = {"id": id, "extra": extra}
+    payload = {"id": id, "dir": save_dir}
 
     print(f"[WECHAT_CHANNEL] wcf_api_url: {wcf_api_url}")
     print(f"[WECHAT_CHANNEL] Payload: {payload}")

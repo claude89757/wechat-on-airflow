@@ -272,7 +272,7 @@ def download_image_from_windows_server(source_ip: str, msg_id: str, extra: str, 
     return local_path
 
 
-def download_voice_from_windows_server(source_ip: str, msg_id: str, extra: str, max_retries: int = 2, retry_delay: int = 5):
+def download_voice_from_windows_server(source_ip: str, msg_id: str, max_retries: int = 2, retry_delay: int = 5):
     """从SMB服务器下载语音到服务器本地
     
     Args:
@@ -286,7 +286,7 @@ def download_voice_from_windows_server(source_ip: str, msg_id: str, extra: str, 
 
     # 保存语音到微信客户端侧
     save_dir = f"C:/Users/Administrator/Downloads/"
-    voice_file_path = save_wx_audio(wcf_ip=source_ip, id=msg_id, extra=extra)
+    voice_file_path = save_wx_audio(wcf_ip=source_ip, id=msg_id, save_dir=save_dir)
     remote_voice_file_name = os.path.basename(voice_file_path)
     print(f"voice_file_path: {voice_file_path}")
 
