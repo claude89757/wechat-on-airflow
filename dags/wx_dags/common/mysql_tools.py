@@ -203,7 +203,7 @@ def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = 
     
     Args:
         room_id (str): 聊天室ID
-        wx_user_id (str, optional): 微信用户ID，如果提供则查询特定用户的数据表
+        wx_user_id (str, optional): 微信用户ID，作为筛选条件
         start_time (str, optional): 开始时间，格式：YYYY-MM-DD HH:mm:ss
         end_time (str, optional): 结束时间，格式：YYYY-MM-DD HH:mm:ss
         limit (int, optional): 返回记录数量限制，默认100
@@ -224,6 +224,11 @@ def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = 
         conditions = ["room_id = %s"]
         params = [room_id]
         
+        # 添加 wx_user_id 作为筛选条件
+        if wx_user_id:
+            conditions.append("wx_user_id = %s")
+            params.append(wx_user_id)
+        
         if start_time:
             conditions.append("msg_datetime >= %s")
             params.append(start_time)
@@ -232,8 +237,8 @@ def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = 
             conditions.append("msg_datetime <= %s")
             params.append(end_time)
             
-        # 确定查询的表名
-        table_name = f"{wx_user_id}_wx_chat_records" if wx_user_id else "wx_chat_records"
+        # 设置固定表名为 wx_chat_records
+        table_name = "wx_chat_records"
         
         # 构建查询SQL
         query_sql = f"""
@@ -262,6 +267,12 @@ def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = 
         
         # 添加分页参数
         params.extend([limit, offset])
+        
+        # 打印SQL查询和参数
+        print("===== 调试SQL查询 =====")
+        print(f"SQL: {query_sql}")
+        print(f"参数: {params}")
+        print("======================")
         
         # 执行查询
         cursor.execute(query_sql, params)
