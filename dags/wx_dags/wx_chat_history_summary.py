@@ -101,12 +101,12 @@ def summary_chat_history(**context):
         print("未获取到聊天记录，请检查room_id和wx_user_id是否正确")
         return {"error": "未获取到聊天记录"}
 
-    # 将聊天记录转换为文本形式，只处理文本类型的消息
+    # 将聊天记录转换为文本形式，只处理文本类型的消息并且排除自己发送的消息
     chat_text_list = []
     text_messages = []
     for msg in chat_history:
-        print(msg)
-        if msg['msg_type'] == 1:  # 1表示文本类型消息
+        # print(msg)
+        if msg['msg_type'] == 1 and not msg['is_self']:  # 1表示文本类型消息，排除自己发送的消息
             text_messages.append(msg)
             chat_text_list.append(f"[{msg['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')}] {msg['sender_name']}: {msg['content']}")
     chat_text = "\n".join(chat_text_list)
