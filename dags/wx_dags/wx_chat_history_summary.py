@@ -77,15 +77,29 @@ def summary_chat_history(**context):
     聊天记录总结
     """
     # 获取输入参数
-    input_data = context.get('dag_run').conf
+    input_data = context.get('dag_run').conf or {}
     print(f"输入数据: {input_data}")
 
-    room_id = input_data['room_id']
-    wx_user_id = input_data['wx_user_id']
+    # 参数验证
+    if not input_data:
+        raise ValueError("请提供参数！请使用 'Trigger DAG w/ config' 并输入JSON格式的参数")
+    
+    # 检查必填参数
+    room_id = input_data.get('room_id')
+    wx_user_id = input_data.get('wx_user_id')
+    
+    if not room_id:
+        raise ValueError("缺少必填参数: room_id")
+    if not wx_user_id:
+        raise ValueError("缺少必填参数: wx_user_id")
 
     # 获取聊天记录
     chat_history = get_wx_chat_history(room_id=room_id, wx_user_id=wx_user_id, limit=100)
     print(f"获取到 {len(chat_history)} 条聊天记录")
+    
+    if not chat_history:
+        print("未获取到聊天记录，请检查room_id和wx_user_id是否正确")
+        return {"error": "未获取到聊天记录"}
 
     # 将聊天记录转换为文本形式，只处理文本类型的消息
     chat_text_list = []
@@ -151,20 +165,7 @@ dag = DAG(
     schedule_interval=None,
     catchup=False,
     tags=['个人微信'],
-    description='聊天记录总结',
-    params={
-        'room_id': {
-            'type': 'string',
-            'default': '',
-            'description': '微信会话ID'
-        },
-        'wx_user_id': {
-            'type': 'string',
-            'default': '',
-            'description': '微信用户ID'
-        }
-    },
-    render_template_as_native_obj=True,
+    description='聊天记录总结'
 )
 
 # 为DAG添加文档说明
@@ -172,6 +173,17 @@ dag.doc_md = """
 ## 聊天记录总结DAG
 
 此DAG用于总结微信群聊的聊天记录，并使用AI生成摘要。
+
+### 如何使用:
+1. 点击"Trigger DAG"按钮
+2. 选择"Trigger DAG w/ config"
+3. 在配置框中输入JSON格式的参数:
+```json
+{
+  "room_id": "你的微信会话ID",
+  "wx_user_id": "你的微信用户ID"
+}
+```
 
 ### 必填参数:
 - `room_id`: 微信会话ID
