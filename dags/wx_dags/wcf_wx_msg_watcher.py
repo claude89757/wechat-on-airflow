@@ -172,7 +172,7 @@ def handler_image_msg(**context):
     source_ip = message_data.get('source_ip')
 
     # 下载图片
-    image_file_path = download_file_from_windows_server(source_ip, msg_id, extra=extra)
+    image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
 
     # 将图片本地路径传递到xcom中
     context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
