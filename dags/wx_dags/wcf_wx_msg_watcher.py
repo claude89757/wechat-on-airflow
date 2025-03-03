@@ -462,7 +462,7 @@ def save_voice_to_db(**context):
     save_msg['msg_id'] = message_data.get('id', '')
     save_msg['msg_type'] = message_data.get('type', 0)
     save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], f"未知类型({save_msg['msg_type']})")
-    save_msg['content'] = voice_to_text_result
+    save_msg['content'] = f"[语音]: {voice_to_text_result}"
     save_msg['is_self'] = message_data.get('is_self', False)  # 是否自己发送的消息
     save_msg['is_group'] = message_data.get('is_group', False)  # 是否群聊
     save_msg['msg_timestamp'] = message_data.get('ts', 0)
