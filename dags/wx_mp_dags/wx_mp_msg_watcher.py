@@ -221,7 +221,13 @@ def save_msg_to_mysql(**context):
     msg_id = message_data.get('MsgId', '')                 # 消息ID
     msg_type = message_data.get('MsgType', '')             # 消息类型
     content = message_data.get('Content', '')              # 消息内容
-    create_time = message_data.get('CreateTime', 0)        # 消息时间戳
+    
+    # 确保create_time是整数类型
+    try:
+        create_time = int(message_data.get('CreateTime', 0))  # 消息时间戳
+    except (ValueError, TypeError):
+        create_time = 0
+        print("[DB_SAVE] CreateTime转换为整数失败，使用默认值0")
     
     # 根据消息类型处理content
     if msg_type == 'image':
@@ -233,9 +239,13 @@ def save_msg_to_mysql(**context):
     msg_type_name = WX_MSG_TYPES.get(msg_type, f"未知类型({msg_type})")
     
     # 转换时间戳为datetime
-    if create_time:
-        msg_datetime = datetime.fromtimestamp(create_time)
-    else:
+    try:
+        if create_time > 0:
+            msg_datetime = datetime.fromtimestamp(create_time)
+        else:
+            msg_datetime = datetime.now()
+    except Exception as e:
+        print(f"[DB_SAVE] 时间戳转换失败: {e}，使用当前时间")
         msg_datetime = datetime.now()
     
     # 聊天记录的创建数据包
@@ -246,7 +256,7 @@ def save_msg_to_mysql(**context):
         `to_user_id` varchar(128) DEFAULT NULL COMMENT '接收者ID',
         `to_user_name` varchar(128) DEFAULT NULL COMMENT '接收者名称',
         `msg_id` varchar(64) NOT NULL COMMENT '微信消息ID',        
-        `msg_type` int(11) NOT NULL COMMENT '消息类型',
+        `msg_type` varchar(32) NOT NULL COMMENT '消息类型',  # 改为varchar类型
         `msg_type_name` varchar(64) DEFAULT NULL COMMENT '消息类型名称',
         `content` text COMMENT '消息内容',
         `msg_timestamp` bigint(20) DEFAULT NULL COMMENT '消息时间戳',
@@ -257,7 +267,8 @@ def save_msg_to_mysql(**context):
         UNIQUE KEY `uk_msg_id` (`msg_id`),
         KEY `idx_to_user_id` (`to_user_id`),
         KEY `idx_from_user_id` (`from_user_id`),
-        KEY `idx_msg_datetime` (`msg_datetime`)
+        KEY `idx_msg_datetime` (`msg_datetime`),
+        KEY `idx_msg_type` (`msg_type`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信公众号聊天记录';
     """
     
@@ -280,6 +291,16 @@ def save_msg_to_mysql(**context):
         db_conn = db_hook.get_hook().get_conn()
         cursor = db_conn.cursor()
         
+        # 先尝试修改表结构（如果需要）
+        try:
+            alter_sql = "ALTER TABLE `wx_mp_chat_records` MODIFY COLUMN `msg_type` varchar(32) NOT NULL COMMENT '消息类型';"
+            cursor.execute(alter_sql)
+            db_conn.commit()
+            print("[DB_SAVE] 成功修改表结构")
+        except Exception as e:
+            print(f"[DB_SAVE] 修改表结构失败或表结构已经正确: {e}")
+            db_conn.rollback()
+        
         # 创建表（如果不存在）
         cursor.execute(create_table_sql)
         
@@ -290,7 +311,7 @@ def save_msg_to_mysql(**context):
             to_user_name,       # to_user_id
             to_user_name,       # to_user_name
             msg_id,             # msg_id
-            msg_type,           # msg_type
+            msg_type,           # msg_type (现在是字符串类型)
             msg_type_name,      # msg_type_name
             content,            # content
             create_time,        # msg_timestamp
