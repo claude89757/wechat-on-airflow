@@ -98,7 +98,7 @@ def init_wx_chat_records_table(wx_user_id: str):
     db_conn.close()
 
 
-def save_msg_to_db(msg_data: dict):
+def save_data_to_db(msg_data: dict):
     """
     保存消息到数据库
     """

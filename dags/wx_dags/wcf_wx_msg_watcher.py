@@ -36,7 +36,7 @@ from wx_dags.common.wx_tools import WX_MSG_TYPES
 from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import check_ai_enable
-from wx_dags.common.mysql_tools import save_msg_to_db
+from wx_dags.common.mysql_tools import save_data_to_db
 from wx_dags.common.wx_tools import download_file_from_windows_server
 
 
@@ -116,8 +116,11 @@ def process_wx_message(**context):
     is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
     
     # 分场景分发微信消息
-    next_task_list = ["save_message_to_db"]
+    next_task_list = []
     if WX_MSG_TYPES.get(msg_type) == "文字":
+        # 保存消息
+        next_task_list.append('save_msg_to_db')
+
         # 用户的消息缓存列表
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
@@ -167,7 +170,11 @@ def handler_image_msg(**context):
     # 下载图片
     image_file_path = download_file_from_windows_server(source_ip, msg_id, extra=extra)
 
+    # 将图片本地路径传递到xcom中
+    context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
+
     # # 上传图片到Dify
+
     # dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
     # dify_agent.upload_image(image_file_path)
 
@@ -295,7 +302,48 @@ def handler_text_msg(**context):
     print("-"*50)
 
 
-def save_msg(**context):
+def save_image_to_db(**context):
+    """
+    保存图片消息到DB
+    """
+   # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    
+     # 获取微信账号信息
+    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+    image_local_path = context.get('task_instance').xcom_pull(key='image_local_path')
+
+    save_msg = {}
+    # 提取消息信息
+    save_msg['room_id'] = message_data.get('roomid', '')
+    save_msg['sender_id'] = message_data.get('sender', '')
+    save_msg['msg_id'] = message_data.get('id', '')
+    save_msg['msg_type'] = message_data.get('type', 0)
+    save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], f"未知类型({save_msg['msg_type']})")
+    save_msg['content'] = image_local_path
+    save_msg['is_self'] = message_data.get('is_self', False)  # 是否自己发送的消息
+    save_msg['is_group'] = message_data.get('is_group', False)  # 是否群聊
+    save_msg['msg_timestamp'] = message_data.get('ts', 0)
+    save_msg['msg_datetime'] = datetime.now() if not save_msg['msg_timestamp'] else datetime.fromtimestamp(save_msg['msg_timestamp'])
+    save_msg['source_ip'] = message_data.get('source_ip', '')
+    save_msg['wx_user_name'] = wx_account_info.get('name', '')
+    save_msg['wx_user_id'] = wx_account_info.get('wxid', '')
+    
+    # 获取房间和发送者信息
+    room_name = get_contact_name(save_msg['source_ip'], save_msg['room_id'], save_msg['wx_user_name'])
+    save_msg['room_name'] = room_name
+    if save_msg['is_self']:
+        save_msg['sender_name'] = save_msg['wx_user_name']
+    else:
+        save_msg['sender_name'] = get_contact_name(save_msg['source_ip'], save_msg['sender_id'], save_msg['wx_user_name'])
+    
+    print(f"房间信息: {save_msg['room_id']}({room_name}), 发送者: {save_msg['sender_id']}({save_msg['sender_name']})")
+    
+    # 保存消息到DB
+    save_data_to_db(save_msg)
+
+
+def save_msg_to_db(**context):
     """
     保存消息到CDB
     """
@@ -332,10 +380,10 @@ def save_msg(**context):
     print(f"房间信息: {save_msg['room_id']}({room_name}), 发送者: {save_msg['sender_id']}({save_msg['sender_name']})")
     
     # 保存消息到DB
-    save_msg_to_db(save_msg)
+    save_data_to_db(save_msg)
 
 
-def save_ai_reply_msg(**context):
+def save_ai_reply_msg_to_db(**context):
     """
     保存AI回复的消息到DB
     """
@@ -369,7 +417,7 @@ def save_ai_reply_msg(**context):
     save_msg['sender_name'] = save_msg['wx_user_name']
 
     # 保存消息到DB
-    save_msg_to_db(save_msg)
+    save_data_to_db(save_msg)
 
 
 # 创建DAG
@@ -410,8 +458,8 @@ handler_image_msg_task = PythonOperator(
 
 # 创建保存消息到数据库的任务
 save_message_task = PythonOperator(
-    task_id='save_message_to_db',
-    python_callable=save_msg,
+    task_id='save_msg_to_db',
+    python_callable=save_msg_to_db,
     provide_context=True,
     retries=5,
     retry_delay=timedelta(seconds=1),
@@ -420,13 +468,21 @@ save_message_task = PythonOperator(
 
 # 保存AI回复的消息到数据库
 save_ai_reply_msg_task = PythonOperator(
-    task_id='save_ai_reply_msg',
-    python_callable=save_ai_reply_msg,
+    task_id='save_ai_reply_msg_to_db',
+    python_callable=save_ai_reply_msg_to_db,
     provide_context=True,
     dag=dag
 )
 
+# 保存图片消息到数据库
+save_image_to_db_task = PythonOperator(
+    task_id='save_image_to_db',
+    python_callable=save_image_to_db,
+    provide_context=True,
+    dag=dag
+)
 
 # 设置任务依赖关系
 process_message_task >> [handler_text_msg_task, handler_image_msg_task, save_message_task]
 handler_text_msg_task >> save_ai_reply_msg_task
+handler_image_msg_task >> save_image_to_db_task
