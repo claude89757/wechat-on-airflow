@@ -206,7 +206,7 @@ def handler_voice_msg(**context):
     source_ip = message_data.get('source_ip')
 
     # 下载图片
-    image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
+    voice_file_path = download_voice_from_windows_server(source_ip, msg_id, extra=extra)
 
 
 def handler_text_msg(**context):
