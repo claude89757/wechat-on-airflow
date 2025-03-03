@@ -13,8 +13,6 @@ import pymysql
 import logging
 from datetime import datetime
 
-# 测试主仓库主分支main的代码推送
-
 # 配置日志
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
