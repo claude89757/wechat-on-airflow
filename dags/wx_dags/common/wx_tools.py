@@ -19,6 +19,25 @@ from utils.wechat_channl import get_wx_self_info
 from utils.wechat_channl import get_wx_contact_list
 from wx_dags.common.mysql_tools import init_wx_chat_records_table
 
+# 标准库导入
+import os
+import time
+from datetime import datetime, timedelta
+
+# 第三方库导入
+import requests
+from airflow import DAG
+from airflow.models import Variable
+from airflow.operators.python import PythonOperator
+from airflow.exceptions import AirflowException
+
+# 自定义库导入
+from utils.wechat_channl import save_wx_image
+from utils.wechat_channl import send_wx_image
+
+# 第三方库导入
+from smbclient import register_session, open_file
+
 
 # 微信消息类型定义
 WX_MSG_TYPES = {
@@ -178,3 +197,77 @@ def check_ai_enable(wx_user_name: str, wx_user_id: str, room_id: str, is_group: 
             ai_reply = False
 
     return ai_reply
+
+
+def download_file_from_windows_server(source_ip: str, msg_id: str, extra: str, max_retries: int = 2, retry_delay: int = 5):
+    """从SMB服务器下载文件到服务器本地
+    
+    Args:
+        remote_file_name: 远程文件名
+        local_file_name: 本地文件名
+        max_retries: 最大重试次数，默认3次
+        retry_delay: 重试间隔时间(秒)，默认5秒
+    Returns:
+        str: 本地文件路径
+    """
+    # 保存图片到微信客户端侧
+    save_dir = f"C:/Users/Administrator/Downloads/"
+    image_file_path = save_wx_image(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir=save_dir, timeout=30)
+    remote_image_file_name = os.path.basename(image_file_path)
+    print(f"image_file_path: {image_file_path}")
+
+    # 等待3秒
+    time.sleep(3)
+
+    # 注册SMB会话
+    windows_user_name = "Administrator"
+    windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
+    try:
+        register_session(
+            server=source_ip,
+            username=windows_user_name,
+            password=windows_server_password
+        )
+    except Exception as e:
+        print(f"连接服务器失败: {str(e)}")
+        raise
+
+    # 创建临时目录用于存储下载的文件
+    temp_dir = "/tmp/image_downloads"
+    os.makedirs(temp_dir, exist_ok=True) 
+
+    # 构建远程路径和本地路径
+    local_new_file_name = f"{msg_id}.jpg"
+    remote_path = f"//{source_ip}/Users/{windows_user_name}/Downloads/{remote_image_file_name}"
+    local_path = os.path.join(temp_dir, local_new_file_name)  # 修改为使用临时目录
+    # 执行文件下载
+    for attempt in range(max_retries):
+        try:
+            with open_file(remote_path, mode="rb") as remote_file:
+                with open(local_path, "wb") as local_file:
+                    while True:
+                        data = remote_file.read(8192)  # 分块读取大文件
+                        if not data:
+                            break
+                        local_file.write(data)
+            print(f"文件成功下载到: {os.path.abspath(local_path)}")
+            
+            # 验证文件大小不为0
+            if os.path.getsize(local_path) == 0:
+                raise Exception("下载的文件大小为0字节")
+                
+            return local_path  # 下载成功，返回本地文件路径
+            
+        except Exception as e:
+            if attempt < max_retries - 1:  # 如果不是最后一次尝试
+                print(f"第{attempt + 1}次下载失败: {str(e)}，{retry_delay}秒后重试...")
+                time.sleep(retry_delay)  # 等待一段时间后重试
+            else:
+                print(f"文件下载失败，已重试{max_retries}次: {str(e)}")
+                raise  # 重试次数用完后，抛出异常
+    
+    # 返回本地文件路径
+    print(f"图片已下载到本地: {local_path}")
+    return local_path
+
+

@@ -37,6 +37,7 @@ from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import check_ai_enable
 from wx_dags.common.mysql_tools import save_msg_to_db
+from wx_dags.common.wx_tools import download_file_from_windows_server
 
 
 DAG_ID = "wx_msg_watcher"
@@ -110,52 +111,68 @@ def process_wx_message(**context):
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 更新消息计时器失败: {error}")
-    
-    # 生成run_id
-    now = datetime.now(timezone.utc)
-    execution_date = now + timedelta(microseconds=hash(msg_id) % 1000000)  # 添加随机毫秒延迟
-    run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
 
+    # 检查AI是否开启
+    is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
+    
     # 分场景分发微信消息
+    next_task_list = ["save_message_to_db"]
     if WX_MSG_TYPES.get(msg_type) == "文字":
         # 用户的消息缓存列表
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
         Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
 
+         # 决策下游的任务
+        if is_ai_enable and not is_self:
+            print("[WATCHER] 触发AI聊天流程")
+            next_task_list.append('handler_text_msg')
+        else:
+            print("[WATCHER] 不触发AI聊天流程",is_self, is_ai_enable)
+        
     elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
-        print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
-        trigger_dag(
-            dag_id='ai_tennis_video',
-            conf={"current_message": message_data},
-            run_id=run_id,
-            execution_date=execution_date
-        )
-    elif WX_MSG_TYPES.get(msg_type) == "图片" and not is_group:
-        # 图片消息
-        print(f"[WATCHER] {room_id} 收到图片消息, 触发AI图片处理DAG")
-        trigger_dag(
-            dag_id='image_agent_001',
-            conf={"current_message": message_data},
-            run_id=run_id,
-            execution_date=execution_date
-        )
+        # next_task_list.append('handler_video_msg')
+        pass
+    elif WX_MSG_TYPES.get(msg_type) == "图片":
+        if not is_group:
+            # 图片消息
+            next_task_list.append('handler_image_msg')
+        else:
+            # 群聊图片消息
+            pass    
     else:
         # 其他类型消息暂不处理
         print("[WATCHER] 不触发AI聊天流程")
+ 
+    return next_task_list
 
-    # 检查AI是否开启
-    is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
+def handler_image_msg(**context):
+    """
+    处理图片消息, 通过Dify的AI助手进行聊天, 并回复微信消息
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    room_id = message_data.get('roomid')
+    sender = message_data.get('sender')
+    msg_id = message_data.get('id')
+    msg_type = message_data.get('type')
+    content = message_data.get('content', '')
+    is_self = message_data.get('is_self', False)  # 是否自己发送的消息
+    is_group = message_data.get('is_group', False)  # 是否群聊
+    extra = message_data.get('extra', '')
+    current_msg_timestamp = message_data.get('ts')
+    source_ip = message_data.get('source_ip')
 
-    # 决策下游的任务
-    if is_ai_enable and not is_self:
-        print("[WATCHER] 触发AI聊天流程")
-        return ['handler_text_msg', 'save_message_to_db']
-    else:
-        print("[WATCHER] 不触发AI聊天流程",is_self, is_ai_enable)
-        return ['save_message_to_db']
+    # 下载图片
+    image_file_path = download_file_from_windows_server(source_ip, msg_id, extra=extra)
 
+    # # 上传图片到Dify
+    # dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    # dify_agent.upload_image(image_file_path)
+
+    # # 删除本地图片
+    # os.remove(image_file_path)
 
 def handler_text_msg(**context):
     """
@@ -383,6 +400,14 @@ handler_text_msg_task = PythonOperator(
     dag=dag
 )
 
+# 创建处理图片消息的任务
+handler_image_msg_task = PythonOperator(
+    task_id='handler_image_msg',
+    python_callable=handler_image_msg,
+    provide_context=True,
+    dag=dag)
+
+
 # 创建保存消息到数据库的任务
 save_message_task = PythonOperator(
     task_id='save_message_to_db',
@@ -403,5 +428,5 @@ save_ai_reply_msg_task = PythonOperator(
 
 
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, save_message_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task, save_message_task]
 handler_text_msg_task >> save_ai_reply_msg_task
