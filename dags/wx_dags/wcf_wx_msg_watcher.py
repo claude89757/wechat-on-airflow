@@ -205,8 +205,8 @@ def handler_voice_msg(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
-    # 下载图片
-    voice_file_path = download_voice_from_windows_server(source_ip, msg_id, extra=extra)
+    # 下载语音
+    voice_file_path = download_voice_from_windows_server(source_ip, msg_id)
 
 
 def handler_text_msg(**context):
