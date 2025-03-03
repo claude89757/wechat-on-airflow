@@ -15,7 +15,7 @@ from airflow.models.variable import Variable
 from airflow.operators.python import PythonOperator
 
 # 自定义库导入
-from common.mysql_tools import get_wx_chat_history
+from wx_dags.common.mysql_tools import get_wx_chat_history
 from utils.dify_sdk import DifyAgent
 
 
