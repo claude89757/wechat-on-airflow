@@ -19,7 +19,6 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
-from smbclient import register_session, open_file
 
 # 自定义库导入
 from utils.wechat_channl import send_wx_msg, send_wx_image
@@ -87,4 +86,4 @@ send_image_task = PythonOperator(
     dag=dag,
 )
 
-send_image_task  # 设置任务依赖
+send_image_task
