@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
-from common.wxchat_bot_by_appium import WXAppOperator
+from utils.wx_appium import WeChatOperator
 
 
 def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
@@ -63,7 +63,7 @@ def send_message_to_wx(message: str, receiver: str, aters: str = "") -> bool:
 def get_wx_operator():
     """获取 WXAppOperator 实例的辅助函数"""
     appium_server_url = Variable.get("appium_server_url", default_var="http://localhost:4723")
-    return WXAppOperator(appium_server_url=appium_server_url)
+    return WeChatOperator(appium_server_url=appium_server_url)
 
 # 获取聊天列表并保存到 Airflow Variables
 def monitor_chats(**kwargs):

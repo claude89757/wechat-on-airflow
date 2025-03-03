@@ -88,20 +88,32 @@ def main_handler(event, context):
             WITH room_messages AS (
                 SELECT 
                     room_id,
+                    room_name,
                     wx_user_id,
+                    wx_user_name,
                     sender_id,
+                    sender_name,
+                    msg_id,
                     content as msg_content,
                     msg_datetime,
+                    msg_type,
+                    is_group,
                     ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY msg_datetime DESC) as rn
                 FROM wx_chat_records
                 WHERE wx_user_id = %s
             )
             SELECT 
                 room_id,
+                room_name,
                 wx_user_id,
+                wx_user_name,
                 sender_id,
+                sender_name,
+                msg_id,
                 msg_content,
-                msg_datetime
+                msg_datetime,
+                msg_type,
+                is_group
             FROM room_messages
             WHERE rn = 1
             ORDER BY msg_datetime DESC
