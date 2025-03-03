@@ -32,6 +32,7 @@ from airflow.exceptions import AirflowException
 from airflow.models import DagRun
 from airflow.models.dagrun import DagRun
 from airflow.models.variable import Variable
+from airflow.hooks.base import BaseHook
 from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.utils.session import create_session
 from airflow.utils.state import DagRunState
@@ -170,7 +171,7 @@ def handler_text_msg(**context):
             )
 
         # 保存消息到MySQL
-        # TODO(claude89757): 保存消息到MySQL
+        save_msg_to_mysql(context)
 
     except Exception as error:
         print(f"[WATCHER] 发送消息失败: {error}")
@@ -196,8 +197,118 @@ def save_msg_to_mysql(**context):
     """
     保存消息到MySQL
     """
-    # TODO(claude89757): 保存消息到MySQL
-    pass
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    if not message_data:
+        print("[DB_SAVE] 没有收到消息数据")
+        return
+    
+    # 提取消息信息
+    from_user_name = message_data.get('from_user_name', '')
+    from_user_id = message_data.get('from_user_id', '')
+    to_user_name = message_data.get('to_user_name', '')
+    to_user_id = message_data.get('to_user_id', '')
+    msg_id = message_data.get('id', '')
+    msg_type = message_data.get('type', 0)
+    content = message_data.get('content', '')
+    msg_timestamp = message_data.get('ts', 0)
+    
+    # 获取微信账号信息
+    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+    if not wx_account_info:
+        print("[DB_SAVE] 没有获取到微信公众号账号信息")
+        return
+    
+    
+    # 消息类型名称
+    msg_type_name = WX_MSG_TYPES.get(msg_type, f"未知类型({msg_type})")
+    
+    # 转换时间戳为datetime
+    if msg_timestamp:
+        msg_datetime = datetime.fromtimestamp(msg_timestamp)
+    else:
+        msg_datetime = datetime.now()
+    
+    # 聊天记录的创建数据包
+    create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_mp_chat_records` (
+        `id` bigint(20) NOT NULL AUTO_INCREMENT,
+        `from_user_id` varchar(64) NOT NULL COMMENT '发送者ID',
+        `from_user_name` varchar(128) DEFAULT NULL COMMENT '发送者名称',
+        `to_user_id` varchar(128) DEFAULT NULL COMMENT '接收者ID',
+        `to_user_name` varchar(128) DEFAULT NULL COMMENT '接收者名称',
+        `msg_id` varchar(64) NOT NULL COMMENT '微信消息ID',        
+        `msg_type` int(11) NOT NULL COMMENT '消息类型',
+        `msg_type_name` varchar(64) DEFAULT NULL COMMENT '消息类型名称',
+        `content` text COMMENT '消息内容',
+        `msg_timestamp` bigint(20) DEFAULT NULL COMMENT '消息时间戳',
+        `msg_datetime` datetime DEFAULT NULL COMMENT '消息时间',
+        `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uk_msg_id` (`msg_id`),
+        KEY `idx_to_user_id` (`to_user_id`),
+        KEY `idx_from_user_id` (`from_user_id`),
+        KEY `idx_msg_datetime` (`msg_datetime`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信公众号聊天记录';
+    """
+    
+    # 插入数据SQL
+    insert_sql = """INSERT INTO `wx_mp_chat_records` 
+    (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
+    msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON DUPLICATE KEY UPDATE 
+    content = VALUES(content),
+    from_user_name = VALUES(from_user_name),
+    to_user_name = VALUES(to_user_name),
+    updated_at = CURRENT_TIMESTAMP
+    """
+    
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 创建表（如果不存在）
+        cursor.execute(create_table_sql)
+        
+        # 插入数据
+        cursor.execute(insert_sql, (
+            msg_id,             
+            from_user_name,
+            to_user_name,
+            msg_type,
+            msg_type_name,
+            content,
+            msg_timestamp,
+            msg_datetime
+        ))
+        
+        # 提交事务
+        db_conn.commit()
+        print(f"[DB_SAVE] 成功保存消息到数据库: {msg_id}")
+    except Exception as e:
+        print(f"[DB_SAVE] 保存消息到数据库失败: {e}")
+        if db_conn:
+            try:
+                db_conn.rollback()
+            except:
+                pass
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
 
 
 def handler_image_msg(**context):
