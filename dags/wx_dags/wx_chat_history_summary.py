@@ -105,6 +105,7 @@ def summary_chat_history(**context):
     chat_text_list = []
     text_messages = []
     for msg in chat_history:
+        print(msg)
         if msg['msg_type'] == 1:  # 1表示文本类型消息
             text_messages.append(msg)
             chat_text_list.append(f"[{msg['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')}] {msg['sender_name']}: {msg['content']}")
