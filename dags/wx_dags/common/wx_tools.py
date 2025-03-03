@@ -286,8 +286,14 @@ def download_voice_from_windows_server(source_ip: str, msg_id: str, extra: str, 
 
     # 保存语音到微信客户端侧
     save_dir = f"C:/Users/Administrator/Downloads/"
-    voice_file_path = save_wx_audio(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir=save_dir, timeout=30)
+    voice_file_path = save_wx_audio(wcf_ip=source_ip, id=msg_id, extra=extra)
     remote_voice_file_name = os.path.basename(voice_file_path)
     print(f"voice_file_path: {voice_file_path}")
 
     # 等待3秒
+    time.sleep(3)
+
+    # 注册SMB会话
+    windows_user_name = "Administrator"
+    windows_server_password = Variable.get("WINDOWS_SERVER_PASSWORD")
+    
