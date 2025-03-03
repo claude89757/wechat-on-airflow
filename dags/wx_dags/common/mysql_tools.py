@@ -195,3 +195,104 @@ def save_msg_to_db(msg_data: dict):
                 db_conn.close()
             except:
                 pass
+
+
+def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = None, end_time: str = None, limit: int = 100, offset: int = 0):
+    """
+    获取微信聊天记录
+    
+    Args:
+        room_id (str): 聊天室ID
+        wx_user_id (str, optional): 微信用户ID，如果提供则查询特定用户的数据表
+        start_time (str, optional): 开始时间，格式：YYYY-MM-DD HH:mm:ss
+        end_time (str, optional): 结束时间，格式：YYYY-MM-DD HH:mm:ss
+        limit (int, optional): 返回记录数量限制，默认100
+        offset (int, optional): 分页偏移量，默认0
+        
+    Returns:
+        list: 聊天记录列表
+    """
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 构建查询条件
+        conditions = ["room_id = %s"]
+        params = [room_id]
+        
+        if start_time:
+            conditions.append("msg_datetime >= %s")
+            params.append(start_time)
+            
+        if end_time:
+            conditions.append("msg_datetime <= %s")
+            params.append(end_time)
+            
+        # 确定查询的表名
+        table_name = f"{wx_user_id}_wx_chat_records" if wx_user_id else "wx_chat_records"
+        
+        # 构建查询SQL
+        query_sql = f"""
+            SELECT 
+                msg_id,
+                wx_user_id,
+                wx_user_name,
+                room_id,
+                room_name,
+                sender_id,
+                sender_name,
+                msg_type,
+                msg_type_name,
+                content,
+                is_self,
+                is_group,
+                source_ip,
+                msg_timestamp,
+                msg_datetime,
+                created_at
+            FROM {table_name}
+            WHERE {' AND '.join(conditions)}
+            ORDER BY msg_datetime DESC
+            LIMIT %s OFFSET %s
+        """
+        
+        # 添加分页参数
+        params.extend([limit, offset])
+        
+        # 执行查询
+        cursor.execute(query_sql, params)
+        
+        # 获取列名
+        columns = [desc[0] for desc in cursor.description]
+        
+        # 获取结果
+        results = []
+        for row in cursor.fetchall():
+            result = dict(zip(columns, row))
+            # 转换布尔值
+            result['is_self'] = bool(result['is_self'])
+            result['is_group'] = bool(result['is_group'])
+            results.append(result)
+            
+        return results
+        
+    except Exception as e:
+        print(f"[DB_QUERY] 获取聊天记录失败: {e}")
+        raise Exception(f"[DB_QUERY] 获取聊天记录失败: {e}")
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
+        
