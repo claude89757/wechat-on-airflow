@@ -3,8 +3,8 @@
 """
 获取微信公众号的会话列表和每个会话的最新消息
 
-Author: by cursor
-Date: 2025-03-02
+Author: lys
+Date: 2025-03-03
 """
 
 import json
