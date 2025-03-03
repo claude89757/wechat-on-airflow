@@ -311,7 +311,7 @@ def download_voice_from_windows_server(source_ip: str, msg_id: str, max_retries:
     os.makedirs(temp_dir, exist_ok=True) 
 
     # 构建远程路径和本地路径
-    local_new_file_name = f"{msg_id}.mp3"
+    local_new_file_name = f"{source_ip}_{msg_id}.mp3"
     remote_path = f"//{source_ip}/Users/{windows_user_name}/Downloads/{remote_voice_file_name}"
     local_path = os.path.join(temp_dir, local_new_file_name)  # 修改为使用临时目录
     # 执行文件下载
