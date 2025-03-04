@@ -121,7 +121,7 @@ def load_data_from_variable(filename: str, expire_time: int, using_cached: bool 
         }
         Variable.set(filename, var_data, serialize_json=True)
         
-        return var_data
+        return new_data
     else:
         print(f"data is loaded from Variable {filename}")
         if isinstance(local_data, str):
