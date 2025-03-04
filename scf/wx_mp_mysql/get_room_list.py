@@ -83,13 +83,13 @@ def main_handler(event, context):
                 msg_id,
                 msg_type,
                 content as msg_content,
-                create_time as msg_datetime,
+                msg_datetime,
                 ROW_NUMBER() OVER (PARTITION BY 
                     CASE 
                         WHEN from_user_id LIKE 'gh_%' THEN CONCAT(from_user_id, '_', to_user_id)
                         ELSE CONCAT(to_user_id, '_', from_user_id)
                     END 
-                ORDER BY create_time DESC) as rn
+                ORDER BY msg_datetime DESC) as rn
             FROM wx_mp_chat_records
             WHERE from_user_id LIKE 'gh_%' OR to_user_id LIKE 'gh_%'
         )
