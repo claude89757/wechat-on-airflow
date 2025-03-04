@@ -72,9 +72,27 @@ def main_handler(event, context):
         except:
             pass
     
-    # 提取查询参数
-    wx_user_id = query_params.get('wx_user_id', '')
+    # 提取查询参数，增加更多的参数解析方式
+    wx_user_id = None
     
+    # 1. 直接从event中获取
+    if isinstance(event, dict):
+        wx_user_id = event.get('wx_user_id')
+    
+    # 2. 从queryString中获取
+    if not wx_user_id and isinstance(query_params, dict):
+        wx_user_id = query_params.get('wx_user_id')
+    
+    # 3. 从queryStringParameters中获取（API网关格式）
+    if not wx_user_id and 'queryStringParameters' in event:
+        wx_user_id = event.get('queryStringParameters', {}).get('wx_user_id')
+    
+    # 4. 处理空字符串情况
+    if wx_user_id == '':
+        wx_user_id = None
+    
+    logger.info(f"解析到的wx_user_id: {wx_user_id}")
+
     # 如果是获取聊天室列表请求
     if wx_user_id:
         try:
