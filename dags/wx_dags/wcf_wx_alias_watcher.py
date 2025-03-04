@@ -40,7 +40,8 @@ def save_wx_alias_to_variable(**context):
                 "1. 在Airflow变量中配置 WCF_SERVER_IP\n"
                 "2. 设置环境变量 WCF_SERVER_IP"
             )
-            raise ValueError(error_msg)
+            print(error_msg)  # 打印错误信息
+            return  # 直接返回而不是抛出异常
             
         # 获取WCF服务器端口
         wcf_port = os.getenv("WCF_API_PORT", "9999")
@@ -115,12 +116,13 @@ def save_wx_alias_to_variable(**context):
         
         # 更新Variable中的数据
         Variable.set("WX_ACCOUNT_LIST", updated_account_list, serialize_json=True)
+        print("成功更新微信昵称数据")
         
     except Exception as e:
         error_msg = f"获取微信昵称数据失败: {str(e)}"
         print(error_msg)
-        # 可以考虑发送告警通知
-        raise RuntimeError(error_msg)
+        # 这里我们不再抛出新的异常，而是直接返回
+        return
 
 
 # 创建DAG
