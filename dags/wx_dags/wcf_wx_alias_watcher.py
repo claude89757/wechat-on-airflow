@@ -29,10 +29,18 @@ def save_wx_alias_to_variable(**context):
     print(f"当前已缓存的用户信息数量: {len(wx_account_list)}")
 
     try:
-        # 获取WCF服务器IP,如果未配置则抛出异常
-        wcf_ip = Variable.get("WCF_SERVER_IP", default_var=None)
+        # 获取WCF服务器IP,使用环境变量作为备选
+        wcf_ip = Variable.get(
+            "WCF_SERVER_IP", 
+            default_var=os.getenv("WCF_SERVER_IP")
+        )
         if not wcf_ip:
-            raise ValueError("请先在 Airflow 变量中配置 WCF_SERVER_IP")
+            error_msg = (
+                "未找到WCF服务器IP配置。请执行以下操作之一:\n"
+                "1. 在Airflow变量中配置 WCF_SERVER_IP\n"
+                "2. 设置环境变量 WCF_SERVER_IP"
+            )
+            raise ValueError(error_msg)
             
         # 获取WCF服务器端口
         wcf_port = os.getenv("WCF_API_PORT", "9999")
@@ -44,7 +52,13 @@ def save_wx_alias_to_variable(**context):
             sock.settimeout(3)  # 3秒超时
             result = sock.connect_ex((wcf_ip, int(wcf_port)))
             if result != 0:
-                raise ConnectionError(f"无法连接到WCF服务器 {wcf_ip}:{wcf_port}, 请检查服务器是否启动")
+                raise ConnectionError(
+                    f"无法连接到WCF服务器 {wcf_ip}:{wcf_port}\n"
+                    "请检查:\n"
+                    "1. 服务器IP地址是否正确\n"
+                    "2. 服务器是否已启动\n"
+                    "3. 端口是否开放"
+                )
         except Exception as e:
             raise ConnectionError(f"检查WCF服务器连接失败: {str(e)}")
         finally:
