@@ -16,7 +16,7 @@ from airflow.operators.python import PythonOperator
 from utils.wechat_channl import get_wx_contact_list, get_wx_self_info, check_wx_login
 
 
-DAG_ID = "wx_headers_watcher"
+DAG_ID = "wx_avatars_watcher"
 
 
 def save_wx_avatars_to_variable(**context):
