@@ -30,17 +30,6 @@ from utils.wechat_channl import send_wx_msg
 # 忽略 SSL 警告
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
-# DAG的默认参数
-default_args = {
-    'owner': 'claude89757',
-    'depends_on_past': False,
-    'start_date': datetime.datetime(2024, 1, 1),
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
-}
-
 # 全局常量
 CURRENT_TIME = int(time.time() * 1000)  # 当前时间戳（毫秒）
 APP_VERSION = "3.0.9"
@@ -977,10 +966,11 @@ def check_tennis_courts():
     execution_time = run_end_time - run_start_time
     print_with_timestamp(f"Total cost time：{execution_time} s")
 
+
 # 创建DAG
 dag = DAG(
     dag_id='上海青少体育网球场巡检',
-    default_args=default_args,
+    default_args={'owner': 'claude89757', 'depends_on_past': False, 'start_date': datetime.datetime(2024, 1, 1)},
     description='监控网球场地可用情况',
     schedule_interval='*/5 * * * *',  # 每3分钟执行一次
     max_active_runs=1,
