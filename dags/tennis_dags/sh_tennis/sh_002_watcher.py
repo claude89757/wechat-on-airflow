@@ -54,6 +54,9 @@ CAT_ID = "12"
 RAISE_PACKAGE_ID = 0
 PHONE_ENCODE = "ks/Whad334TXSmRMAqxKvw=="
 
+QYD_SERVERLESS_CLIENT_SECRET = "be2bdfbb78a7c4841da4694dde40a051"
+QYD_SERVERLESS_SPACE_ID = "mp-4137c2dd-581d-4a0f-89c8-16458f996b42"
+
 # 在文件开头添加常量定义
 SERVERLESS_ACCESS_TOKEN = "QYD_SERVERLESS_ACCESS_TOKEN"
 SIGN_INFO = "QYD_SIGN_INFO" 
@@ -184,14 +187,13 @@ def get_serverless_access_token():
     data = {
         "method": "serverless.auth.user.anonymousAuthorize",
         "params": "{}",
-        "spaceId": Variable.get("QYD_SERVERLESS_SPACE_ID"),
+        "spaceId": QYD_SERVERLESS_SPACE_ID,
         "timestamp": CURRENT_TIME
     }
-    serverless_sign = Ae(data, Variable.get("QYD_SERVERLESS_CLIENT_SECRET"))
     headers = {
         "Host": "api.next.bspapp.com",
         "xweb_xhr": "1",
-        "x-serverless-sign": serverless_sign,
+        "x-serverless-sign": QYD_SERVERLESS_CLIENT_SECRET,
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/107.0.0.0 Safari/537.36 MicroMessenger/6.8.0(0x16080000) NetType/"
                       "WIFI MiniProgramEnv/Mac MacWechat/WMPF MacWechat/3.8.8(0x13080812) XWEB/1216",
@@ -314,14 +316,14 @@ def get_sign_info_from_serverless(access_token: str):
                 }
             }
         }),
-        "spaceId": Variable.get("QYD_SERVERLESS_SPACE_ID"),
+        "spaceId": QYD_SERVERLESS_SPACE_ID,
         "timestamp": CURRENT_TIME,
         "token": access_token
     }
-    serverless_sign = Ae(data, Variable.get("QYD_SERVERLESS_CLIENT_SECRET"))
+    serverless_sign = Ae(data, QYD_SERVERLESS_CLIENT_SECRET)
     print(f"serverless_sign: {serverless_sign}")
     print(f"access_token: {access_token}")
-    print(f"spaceId: {Variable.get("QYD_SERVERLESS_SPACE_ID")}")
+    print(f"spaceId: {QYD_SERVERLESS_SPACE_ID}")
     headers = {
         "Host": "api.next.bspapp.com",
         "x-basement-token": access_token,
@@ -601,14 +603,14 @@ def get_api_sign_from_serverless(sign_info: dict, serverless_token: str, api_acc
                 }
             }
         }),
-        "spaceId": Variable.get("QYD_SERVERLESS_SPACE_ID"),
+        "spaceId": QYD_SERVERLESS_SPACE_ID,
         "timestamp": CURRENT_TIME,
         "token": serverless_token
     }
     # print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
     # pprint.pprint(data)
     # print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
-    serverless_sign = Ae(data, Variable.get("QYD_SERVERLESS_CLIENT_SECRET"))
+    serverless_sign = Ae(data, QYD_SERVERLESS_CLIENT_SECRET)
 
     headers = {
         "Host": "api.next.bspapp.com",
@@ -884,8 +886,8 @@ def check_tennis_courts():
     timestamp = time.time()
     print(f"当前系统时间: {current_time}, 时间戳: {timestamp}")
     print("Airflow Variables:")
-    print(f"QYD_SERVERLESS_SPACE_ID: {Variable.get('QYD_SERVERLESS_SPACE_ID')}")
-    print(f"QYD_SERVERLESS_CLIENT_SECRET: {Variable.get('QYD_SERVERLESS_CLIENT_SECRET')}")
+    print(f"QYD_SERVERLESS_SPACE_ID: {QYD_SERVERLESS_SPACE_ID}")
+    print(f"QYD_SERVERLESS_CLIENT_SECRET: {QYD_SERVERLESS_CLIENT_SECRET}")
     print(f"QYD_API_ACCESS_TOKEN: {Variable.get('QYD_API_ACCESS_TOKEN')}")
     print(f"QYD_LOGIN_TOKEN: {Variable.get('QYD_LOGIN_TOKEN')}")
     print(f"QYD_SIGN_INFO: {Variable.get('QYD_SIGN_INFO')}")
