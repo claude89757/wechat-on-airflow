@@ -93,14 +93,18 @@ def load_data_from_variable(filename: str, expire_time: int, using_cached: bool 
     if data_age > expire_time or not local_data or not using_cached:
         print(f"data is expired, getting new data for {filename}")
         if filename == SERVERLESS_ACCESS_TOKEN:
+            print(f"get_serverless_access_token....")
             new_data = get_serverless_access_token()
         elif filename == SIGN_INFO:
+            print(f"get_sign_info_from_serverless....")
             serverless_access_token = get_serverless_access_token()
             new_data = get_sign_info_from_serverless(access_token=serverless_access_token)
         elif filename == API_ACCESS_TOKEN:
+            print(f"get_api_access_token....")
             sign_info = load_sign_info()
             new_data = get_api_access_token(sign_info=sign_info)
         elif filename == LOGIN_TOKEN:
+            print(f"refresh_login_token....")
             sign_info = load_sign_info()
             api_access_token = load_api_access_token()
             new_data = refresh_login_token(sign_info=sign_info,
