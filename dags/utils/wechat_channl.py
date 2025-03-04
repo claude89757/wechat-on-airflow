@@ -3,6 +3,8 @@
 
 import os
 import requests
+from tenacity import retry, stop_after_attempt, wait_exponential
+import socket
 
 
 def send_wx_msg(wcf_ip: str, message: str, receiver: str, aters: str = "") -> bool:
@@ -31,6 +33,7 @@ def send_wx_msg(wcf_ip: str, message: str, receiver: str, aters: str = "") -> bo
     return True
         
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def get_wx_contact_list(wcf_ip: str) -> list:
     """
     获取微信联系人列表
@@ -134,6 +137,7 @@ def send_wx_rich_text(wcf_ip: str, title: str, desc: str, url: str, thumb_url: s
     return True
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def get_wx_self_info(wcf_ip: str) -> dict:
     """
     获取当前登录的微信账号信息
@@ -593,6 +597,7 @@ def refresh_wx_pyq(wcf_ip: str, id: int = 0) -> bool:
     return True
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 def check_wx_login(wcf_ip: str) -> bool:
     """
     检查微信登录状态
@@ -604,15 +609,21 @@ def check_wx_login(wcf_ip: str) -> bool:
     wcf_port = os.getenv("WCF_API_PORT", "9999")
     wcf_api_url = f"http://{wcf_ip}:{wcf_port}/islogin"
 
-    print(f"[WECHAT_CHANNEL] wcf_api_url: {wcf_api_url}")
-    response = requests.get(wcf_api_url, headers={'Content-Type': 'application/json'})
-    print(f"[WECHAT_CHANNEL] response: {response.status_code} - {response.text}")
-    
-    response.raise_for_status()
-    result = response.json()
-    if result.get('status') != 0:
-        raise Exception(f"检查登录状态失败: {result.get('message', '未知错误')}")
-    return result.get('data', False)
+    try:
+        print(f"[WECHAT_CHANNEL] wcf_api_url: {wcf_api_url}")
+        response = requests.get(wcf_api_url, 
+                              headers={'Content-Type': 'application/json'},
+                              timeout=10)  # 添加超时设置
+        print(f"[WECHAT_CHANNEL] response: {response.status_code} - {response.text}")
+        
+        response.raise_for_status()
+        result = response.json()
+        if result.get('status') != 0:
+            raise Exception(f"检查登录状态失败: {result.get('message', '未知错误')}")
+        return result.get('data', False)
+    except requests.exceptions.RequestException as e:
+        print(f"请求失败: {str(e)}")
+        raise
 
 
 def get_wx_self_wxid(wcf_ip: str) -> str:

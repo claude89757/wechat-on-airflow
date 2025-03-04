@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models.variable import Variable
 from airflow.operators.python import PythonOperator
+from airflow.utils.decorators import apply_defaults
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 # 自定义库导入
 from utils.wechat_channl import get_wx_contact_list, get_wx_self_info, check_wx_login
@@ -28,13 +30,29 @@ def save_wx_avatars_to_variable(**context):
     print(f"当前已缓存的用户信息数量: {len(wx_account_list)}")
 
     try:
-        # 获取WCF服务器IP，如果未配置则使用默认值
+        # 获取WCF服务器IP和端口
         wcf_ip = Variable.get("WCF_SERVER_IP", default_var="127.0.0.1")
-        print(f"使用WCF服务器IP: {wcf_ip}")
+        wcf_port = Variable.get("WCF_API_PORT", default_var="9999")
+        print(f"使用WCF服务器: {wcf_ip}:{wcf_port}")
         
+        # 检查WCF服务是否可用
+        try:
+            if not check_wcf_availability(wcf_ip, wcf_port):
+                error_msg = f"WCF服务不可用 ({wcf_ip}:{wcf_port})"
+                print(error_msg)
+                context['task_instance'].xcom_push(key='error', value=error_msg)
+                return
+        except Exception as e:
+            error_msg = f"检查WCF服务可用性失败: {str(e)}"
+            print(error_msg)
+            context['task_instance'].xcom_push(key='error', value=error_msg)
+            return
+            
         # 检查微信登录状态
         if not check_wx_login(wcf_ip):
-            print("微信未登录，跳过头像更新")
+            error_msg = "微信未登录，跳过头像更新"
+            print(error_msg)
+            context['task_instance'].xcom_push(key='error', value=error_msg)
             return
             
         # 获取当前登录账号信息
@@ -80,19 +98,47 @@ def save_wx_avatars_to_variable(**context):
             print("无有效账号信息，跳过更新")
             
     except Exception as e:
-        print(f"获取微信头像数据失败: {str(e)}")
-        # 记录错误但不抛出异常，允许任务继续运行
-        context['task_instance'].xcom_push(key='error', value=str(e))
+        error_msg = f"获取微信头像数据失败: {str(e)}"
+        print(error_msg)
+        context['task_instance'].xcom_push(key='error', value=error_msg)
+
+
+def check_wcf_availability(wcf_ip: str, wcf_port: str, timeout: int = 5) -> bool:
+    """
+    检查WCF服务是否可用
+    
+    Args:
+        wcf_ip: WCF服务器IP
+        wcf_port: WCF服务器端口
+        timeout: 连接超时时间(秒)
+    Returns:
+        bool: 服务是否可用
+    """
+    import socket
+    
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((wcf_ip, int(wcf_port)))
+        sock.close()
+        return result == 0
+    except Exception as e:
+        print(f"检查WCF服务可用性时发生错误: {str(e)}")
+        return False
 
 
 # 创建DAG
 dag = DAG(
     dag_id=DAG_ID,
-    default_args={'owner': 'claude89757'},
+    default_args={
+        'owner': 'claude89757',
+        'retries': 3,  # 增加重试次数
+        'retry_delay': timedelta(minutes=1),  # 重试间隔
+    },
     start_date=datetime(2024, 1, 1),
     schedule_interval=timedelta(minutes=15),
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=1),
+    dagrun_timeout=timedelta(minutes=5),  # 增加超时时间
     catchup=False,
     tags=['个人微信'],
     description='个人微信账号监控',
