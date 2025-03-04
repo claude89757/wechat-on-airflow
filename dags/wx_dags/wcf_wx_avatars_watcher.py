@@ -94,7 +94,7 @@ dag = DAG(
 
 # 创建处理缓存微信头像的任务
 save_wx_avatars_to_variable_task = PythonOperator(
-    task_id='save_wx_headers_to_variable',
+    task_id='save_wx_avatars_to_variable',
     python_callable=save_wx_avatars_to_variable,
     provide_context=True,
     dag=dag
