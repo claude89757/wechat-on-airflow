@@ -29,7 +29,7 @@ from utils.wechat_channl import send_wx_msg
 from wx_dags.common.wx_tools import WX_MSG_TYPES
 from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
-from wx_dags.common.mysql_tools import save_msg_to_db
+from wx_dags.common.mysql_tools import save_data_to_db
 
 
 DAG_ID = "wx_msg_sender"
@@ -89,7 +89,7 @@ def save_msg(**context):
         save_msg['sender_name'] = get_contact_name(save_msg['source_ip'], save_msg['sender_id'], save_msg['wx_user_name'])
     
     # 保存消息到数据库
-    save_msg_to_db(save_msg)
+    save_data_to_db(save_msg)
 
     try:
         # 账号的消息计时器+1
