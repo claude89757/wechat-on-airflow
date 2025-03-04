@@ -215,7 +215,8 @@ def handler_voice_msg(**context):
     voice_file_path = download_voice_from_windows_server(source_ip, msg_id)
 
     # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_name}_dify_api_key", default_var="", serialize_json=True)
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(wx_user_name, room_id)
@@ -318,7 +319,8 @@ def handler_text_msg(**context):
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
     # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_name}_dify_api_key", default_var="", serialize_json=True)
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_room(wx_user_name, room_id)
