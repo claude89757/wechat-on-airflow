@@ -27,10 +27,12 @@ def save_wx_alias_to_variable(**context):
     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
     print(f"当前已缓存的用户信息数量: {len(wx_account_list)}")
 
-    # 获取WCF服务器IP
-    wcf_ip = Variable.get("WCF_SERVER_IP")
-    
     try:
+        # 获取WCF服务器IP,如果未配置则抛出异常
+        wcf_ip = Variable.get("WCF_SERVER_IP", default_var=None)
+        if not wcf_ip:
+            raise ValueError("请先在 Airflow 变量中配置 WCF_SERVER_IP")
+        
         # 检查微信登录状态
         if not check_wx_login(wcf_ip):
             print("微信未登录")
