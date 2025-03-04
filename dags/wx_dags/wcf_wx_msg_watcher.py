@@ -32,6 +32,8 @@ from airflow.operators.python import BranchPythonOperator, PythonOperator
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
+from utils.wechat_channl import send_wx_image
+from utils.wechat_channl import send_wx_image as send_wx_video
 from wx_dags.common.wx_tools import WX_MSG_TYPES
 from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
@@ -381,6 +383,17 @@ def handler_text_msg(**context):
     try:
         for response_part in re.split(r'\\n\\n|\n\n', response):
             response_part = response_part.replace('\\n', '\n')
+            if response_part.strip().endswith('.png'):
+                # 发送图片 TODO(claude89757): 发送图片
+                image_file_path = f"C:/Users/Administrator/Downloads/{response_part.strip()}"
+                # send_wx_image(wcf_ip=source_ip, image_path=image_file_path, receiver=room_id)
+            elif response_part.strip().endswith('.mp4'):
+                # 发送视频 TODO(claude89757): 发送视频
+                image_file_path = f"C:/Users/Administrator/Downloads/{response_part.strip()}"
+                # send_wx_image(wcf_ip=source_ip, image_path=image_file_path, receiver=room_id)
+            else:
+                # 发送文本
+                pass
             send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
         # 记录消息已被成功回复
         dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="like", content="微信自动回复成功")
