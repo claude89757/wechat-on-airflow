@@ -31,7 +31,6 @@ from utils.wechat_channl import send_wx_msg
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 # 全局常量
-CURRENT_TIME = int(time.time() * 1000)  # 当前时间戳（毫秒）
 APP_VERSION = "3.0.9"
 LATITUDE = "21.53092098"
 LONGITUDE = "114.94631578"
@@ -177,7 +176,7 @@ def get_serverless_access_token():
         "method": "serverless.auth.user.anonymousAuthorize",
         "params": "{}",
         "spaceId": QYD_SERVERLESS_SPACE_ID,
-        "timestamp": CURRENT_TIME
+        "timestamp": int(time.time() * 1000)
     }
     headers = {
         "Host": "api.next.bspapp.com",
@@ -226,8 +225,8 @@ def get_sign_info_from_serverless(access_token: str):
         "params": json.dumps({
             "functionTarget": "get-sign-info",
             "functionArgs": {
-                "client_time": CURRENT_TIME,
-                "device_id": CURRENT_TIME,
+                "client_time": int(time.time() * 1000),
+                "device_id": int(time.time() * 1000),
                 "sign_key": "",
                 "noncestr": NONCE,
                 "utm_source": "miniprogram",
@@ -242,7 +241,7 @@ def get_sign_info_from_serverless(access_token: str):
                     "PLATFORM": "mp-weixin",
                     "OS": "mac",
                     "APPID": "__UNI__902073B",
-                    "DEVICEID": CURRENT_TIME,
+                    "DEVICEID": int(time.time() * 1000),   
                     "scene": 1074,
                     "albumAuthorized": True,
                     "benchmarkLevel": -1,
@@ -305,7 +304,7 @@ def get_sign_info_from_serverless(access_token: str):
             }
         }),
         "spaceId": QYD_SERVERLESS_SPACE_ID,
-        "timestamp": CURRENT_TIME,
+        "timestamp": int(time.time() * 1000),
         "token": access_token
     }
     serverless_sign = Ae(data, QYD_SERVERLESS_CLIENT_SECRET)
@@ -378,7 +377,7 @@ def refresh_login_token(sign_info: dict, api_access_token: str, login_token: str
     params = {
         "utm_source": "miniprogram",
         "utm_medium": "wechatapp",
-        "client_time": CURRENT_TIME,
+        "client_time": int(time.time() * 1000),
         "sign_key": sign_info['set_time'],
         "device_id": sign_info['set_device_id'],
         "app_version": "3.0.9",
@@ -439,7 +438,7 @@ def get_api_access_token(sign_info: dict):
     params = {
         "utm_source": "miniprogram",
         "utm_medium": "wechatapp",
-        "client_time": CURRENT_TIME,
+        "client_time": int(time.time() * 1000),
         "sign_key": sign_info['set_time'],
         "device_id": sign_info['set_device_id'],
         "app_version": "3.0.9",
@@ -507,7 +506,7 @@ def get_api_sign_from_serverless(sign_info: dict, serverless_token: str, api_acc
                 "data": {
                     "utm_source": "miniprogram",
                     "utm_medium": "wechatapp",
-                    "client_time": CURRENT_TIME,
+                    "client_time": int(time.time() * 1000),
                     "sign_key": sign_info['set_time'],
                     "device_id": sign_info['set_device_id'],
                     "app_version": APP_VERSION,
@@ -592,7 +591,7 @@ def get_api_sign_from_serverless(sign_info: dict, serverless_token: str, api_acc
             }
         }),
         "spaceId": QYD_SERVERLESS_SPACE_ID,
-        "timestamp": CURRENT_TIME,
+        "timestamp": int(time.time() * 1000),
         "token": serverless_token
     }
     # print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
@@ -676,7 +675,7 @@ def get_tennis_court_data(sign_info: dict, api_access_token: str, login_token: s
     params = {
                 "utm_source": "miniprogram",
                 "utm_medium": "wechatapp",
-                "client_time": CURRENT_TIME,
+                "client_time": int(time.time() * 1000),
                 "sign_key": sign_info['set_time'],
                 "device_id": sign_info['set_device_id'],
                 "app_version": APP_VERSION,
