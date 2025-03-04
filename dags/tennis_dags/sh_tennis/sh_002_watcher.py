@@ -888,9 +888,9 @@ def check_tennis_courts():
     print("Airflow Variables:")
     print(f"QYD_SERVERLESS_SPACE_ID: {QYD_SERVERLESS_SPACE_ID}")
     print(f"QYD_SERVERLESS_CLIENT_SECRET: {QYD_SERVERLESS_CLIENT_SECRET}")
-    print(f"QYD_API_ACCESS_TOKEN: {Variable.get('QYD_API_ACCESS_TOKEN')}")
-    print(f"QYD_LOGIN_TOKEN: {Variable.get('QYD_LOGIN_TOKEN')}")
-    print(f"QYD_SIGN_INFO: {Variable.get('QYD_SIGN_INFO')}")
+    print(f"QYD_API_ACCESS_TOKEN: {Variable.get('QYD_API_ACCESS_TOKEN', default_var='未设置')}")
+    print(f"QYD_LOGIN_TOKEN: {Variable.get('QYD_LOGIN_TOKEN', default_var='未设置')}")
+    print(f"QYD_SIGN_INFO: {Variable.get('QYD_SIGN_INFO', default_var='未设置')}")
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
