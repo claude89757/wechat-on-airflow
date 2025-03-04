@@ -47,13 +47,9 @@ def get_db_connection():
 def main_handler(event, context):
     """
     云函数入口函数，用于查询微信公众号聊天数据并以JSON格式返回
-    
-    Args:
-        event: 触发事件，包含查询参数
-        context: 函数上下文
-        
-    Returns:
-        JSON格式的查询结果
+    支持两种查询方式：
+    1. 通过room_id查询（格式：gh_xxx_userid）
+    2. 通过from_user_id和to_user_id查询
     """
     logger.info(f"收到请求: {json.dumps(event, ensure_ascii=False)}")
     
@@ -70,24 +66,35 @@ def main_handler(event, context):
         except:
             pass
     
-    # 获取房间ID参数
-    room_id = query_params.get('room_id', '')
-    if not room_id:
-        return {
-            "code": -1,
-            "message": "room_id 参数不能为空",
-            "data": None
-        }
+    # 构建查询条件
+    conditions = []
+    params = []
     
-    # 解析room_id (格式: gh_xxx_userid)
-    try:
-        mp_user_id, user_id = room_id.split('_', 1)
-    except:
-        return {
-            "code": -1,
-            "message": "room_id 格式错误",
-            "data": None
-        }
+    # 支持两种查询方式
+    room_id = query_params.get('room_id', '')
+    from_user_id = query_params.get('from_user_id', '')
+    to_user_id = query_params.get('to_user_id', '')
+    
+    if room_id:
+        # 通过room_id查询
+        try:
+            mp_user_id, user_id = room_id.split('_', 1)
+            conditions.append("((from_user_id = %s AND to_user_id = %s) OR (from_user_id = %s AND to_user_id = %s))")
+            params.extend([mp_user_id, user_id, user_id, mp_user_id])
+        except:
+            return {
+                "code": -1,
+                "message": "room_id 格式错误，正确格式为：gh_xxx_userid",
+                "data": None
+            }
+    elif from_user_id or to_user_id:
+        # 通过from_user_id和to_user_id查询
+        if from_user_id:
+            conditions.append("from_user_id = %s")
+            params.append(from_user_id)
+        if to_user_id:
+            conditions.append("to_user_id = %s")
+            params.append(to_user_id)
     
     # 其他查询参数
     msg_type = query_params.get('msg_type', '')
@@ -95,12 +102,6 @@ def main_handler(event, context):
     end_time = query_params.get('end_time', '')
     limit = int(query_params.get('limit', 100))  # 默认限制100条
     offset = int(query_params.get('offset', 0))  # 默认从0开始
-    
-    # 构建查询条件
-    conditions = [
-        "((from_user_id = %s AND to_user_id = %s) OR (from_user_id = %s AND to_user_id = %s))"
-    ]
-    params = [mp_user_id, user_id, user_id, mp_user_id]
 
     if msg_type:
         conditions.append("msg_type = %s")
@@ -113,7 +114,7 @@ def main_handler(event, context):
     if end_time:
         conditions.append("msg_datetime <= %s")
         params.append(end_time)
-    
+
     # 构建SQL查询
     sql = """
         SELECT 
