@@ -50,7 +50,7 @@ def main_handler(event, context):
     云函数入口函数，获取微信公众号的会话列表和最新消息
     
     Args:
-        event: 触发事件，包含查询参数
+        event: 触发事件
         context: 函数上下文
         
     Returns:
@@ -58,118 +58,74 @@ def main_handler(event, context):
     """
     logger.info(f"收到请求: {json.dumps(event, ensure_ascii=False)}")
     
-    # 解析查询参数
-    query_params = {}
-    if 'queryString' in event:
-        query_params = event['queryString']
-    elif 'body' in event:
-        try:
-            # 尝试解析body为JSON
-            if isinstance(event['body'], str):
-                query_params = json.loads(event['body'])
-            else:
-                query_params = event['body']
-        except:
-            pass
-    
-    # 提取查询参数，增加更多的参数解析方式
-    wx_user_id = None
-    
-    # 1. 直接从event中获取
-    if isinstance(event, dict):
-        wx_user_id = event.get('wx_user_id')
-    
-    # 2. 从queryString中获取
-    if not wx_user_id and isinstance(query_params, dict):
-        wx_user_id = query_params.get('wx_user_id')
-    
-    # 3. 从queryStringParameters中获取（API网关格式）
-    if not wx_user_id and 'queryStringParameters' in event:
-        wx_user_id = event.get('queryStringParameters', {}).get('wx_user_id')
-    
-    # 4. 处理空字符串情况
-    if wx_user_id == '':
-        wx_user_id = None
-    
-    logger.info(f"解析到的wx_user_id: {wx_user_id}")
-
-    # 如果是获取聊天室列表请求
-    if wx_user_id:
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            
-            # 使用子查询找到每个用户与公众号的最新消息
-            query = """
-            WITH latest_messages AS (
-                SELECT 
-                    CASE 
-                        WHEN from_user_id = %s THEN to_user_id
-                        ELSE from_user_id 
-                    END as room_id,
-                    wx_user_id,
-                    from_user_id as sender_id,
-                    from_user_name as sender_name,
-                    to_user_id,
-                    to_user_name,
-                    msg_id,
-                    msg_type,
-                    content as msg_content,
-                    create_time as msg_datetime,
-                    ROW_NUMBER() OVER (PARTITION BY 
-                        CASE 
-                            WHEN from_user_id = %s THEN to_user_id
-                            ELSE from_user_id 
-                        END 
-                    ORDER BY create_time DESC) as rn
-                FROM wx_mp_chat_records
-                WHERE wx_user_id = %s
-            )
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 使用子查询找到每个用户与公众号的最新消息
+        query = """
+        WITH latest_messages AS (
             SELECT 
-                room_id,
-                room_id as room_name,
+                CASE 
+                    WHEN from_user_id = to_user_id THEN from_user_id
+                    ELSE CONCAT(from_user_id, '_', to_user_id)
+                END as room_id,
                 wx_user_id,
-                sender_id,
-                sender_name,
+                from_user_id as sender_id,
+                from_user_name as sender_name,
+                to_user_id,
+                to_user_name,
                 msg_id,
                 msg_type,
-                msg_content,
-                msg_datetime,
-                false as is_group
-            FROM latest_messages
-            WHERE rn = 1
-            ORDER BY msg_datetime DESC
-            """
-            
-            cursor.execute(query, (wx_user_id, wx_user_id, wx_user_id))
-            results = cursor.fetchall()
-            
-            # 格式化日期时间
-            for row in results:
-                if row['msg_datetime']:
-                    row['msg_datetime'] = row['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')
-                    
-            return {
-                'code': 0,
-                'message': 'success',
-                'data': results
-            }
-            
-        except Exception as e:
-            logger.error(f"获取公众号会话列表失败: {str(e)}")
-            return {
-                'code': -1,
-                'message': f"获取公众号会话列表失败: {str(e)}",
-                'data': None
-            }
-        finally:
-            if 'cursor' in locals() and cursor:
-                cursor.close()
-            if 'conn' in locals() and conn:
-                conn.close()
-    else:
+                content as msg_content,
+                create_time as msg_datetime,
+                ROW_NUMBER() OVER (PARTITION BY 
+                    CASE 
+                        WHEN from_user_id = to_user_id THEN from_user_id
+                        ELSE CONCAT(from_user_id, '_', to_user_id)
+                    END 
+                ORDER BY create_time DESC) as rn
+            FROM wx_mp_chat_records
+        )
+        SELECT 
+            room_id,
+            room_id as room_name,
+            wx_user_id,
+            sender_id,
+            sender_name,
+            msg_id,
+            msg_type,
+            msg_content,
+            msg_datetime,
+            false as is_group
+        FROM latest_messages
+        WHERE rn = 1
+        ORDER BY msg_datetime DESC
+        """
+        
+        cursor.execute(query)
+        results = cursor.fetchall()
+        
+        # 格式化日期时间
+        for row in results:
+            if row['msg_datetime']:
+                row['msg_datetime'] = row['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')
+                
+        return {
+            'code': 0,
+            'message': 'success',
+            'data': results
+        }
+        
+    except Exception as e:
+        logger.error(f"获取公众号会话列表失败: {str(e)}")
         return {
             'code': -1,
-            'message': 'wx_user_id is required',
+            'message': f"获取公众号会话列表失败: {str(e)}",
             'data': None
         }
+    finally:
+        if 'cursor' in locals() and cursor:
+            cursor.close()
+        if 'conn' in locals() and conn:
+            conn.close()
