@@ -63,7 +63,6 @@ def main_handler(event, context):
         query_params = event['queryString']
     elif 'body' in event:
         try:
-            # 尝试解析body为JSON
             if isinstance(event['body'], str):
                 query_params = json.loads(event['body'])
             else:
@@ -71,9 +70,26 @@ def main_handler(event, context):
         except:
             pass
     
-    # 公众号消息查询参数
-    from_user_id = query_params.get('from_user_id', '')
-    to_user_id = query_params.get('to_user_id', '')
+    # 获取房间ID参数
+    room_id = query_params.get('room_id', '')
+    if not room_id:
+        return {
+            "code": -1,
+            "message": "room_id 参数不能为空",
+            "data": None
+        }
+    
+    # 解析room_id (格式: gh_xxx_userid)
+    try:
+        mp_user_id, user_id = room_id.split('_', 1)
+    except:
+        return {
+            "code": -1,
+            "message": "room_id 格式错误",
+            "data": None
+        }
+    
+    # 其他查询参数
     msg_type = query_params.get('msg_type', '')
     start_time = query_params.get('start_time', '')
     end_time = query_params.get('end_time', '')
@@ -81,36 +97,42 @@ def main_handler(event, context):
     offset = int(query_params.get('offset', 0))  # 默认从0开始
     
     # 构建查询条件
-    conditions = []
-    params = []
-    
-    if from_user_id:
-        conditions.append("from_user_id = %s")
-        params.append(from_user_id)
-    
-    if to_user_id:
-        conditions.append("to_user_id = %s")
-        params.append(to_user_id)
+    conditions = [
+        "((from_user_id = %s AND to_user_id = %s) OR (from_user_id = %s AND to_user_id = %s))"
+    ]
+    params = [mp_user_id, user_id, user_id, mp_user_id]
 
     if msg_type:
         conditions.append("msg_type = %s")
         params.append(msg_type)
     
     if start_time:
-        conditions.append("create_time >= %s")
+        conditions.append("msg_datetime >= %s")
         params.append(start_time)
     
     if end_time:
-        conditions.append("create_time <= %s")
+        conditions.append("msg_datetime <= %s")
         params.append(end_time)
     
     # 构建SQL查询
-    sql = "SELECT * FROM wx_mp_chat_records"
+    sql = """
+        SELECT 
+            msg_id,
+            from_user_id as sender_id,
+            from_user_name as sender_name,
+            to_user_id as receiver_id,
+            msg_type,
+            content as msg_content,
+            msg_datetime,
+            create_time
+        FROM wx_mp_chat_records
+    """
+    
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
     
     # 添加排序和分页
-    sql += " ORDER BY create_time DESC LIMIT %s OFFSET %s"
+    sql += " ORDER BY msg_datetime DESC LIMIT %s OFFSET %s"
     params.extend([limit, offset])
     
     # 查询总记录数
@@ -124,7 +146,7 @@ def main_handler(event, context):
         cursor = conn.cursor()
         
         # 查询总记录数
-        cursor.execute(count_sql, params[:-2] if conditions else [])
+        cursor.execute(count_sql, params[:-2])
         total_count = cursor.fetchone()['total']
         
         # 执行查询
@@ -132,11 +154,12 @@ def main_handler(event, context):
         cursor.execute(sql, params)
         records = cursor.fetchall()
         
-        # 处理日期时间格式，使其可JSON序列化
+        # 处理日期时间格式
         for record in records:
-            for key, value in record.items():
-                if isinstance(value, datetime):
-                    record[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+            if record.get('msg_datetime'):
+                record['msg_datetime'] = record['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')
+            if record.get('create_time'):
+                record['create_time'] = record['create_time'].strftime('%Y-%m-%d %H:%M:%S')
         
         # 构建返回结果
         result = {
@@ -161,7 +184,7 @@ def main_handler(event, context):
         }
     
     finally:
-        # 关闭数据库连接
-        if 'conn' in locals() and conn:
+        if 'cursor' in locals() and cursor:
             cursor.close()
+        if 'conn' in locals() and conn:
             conn.close()
