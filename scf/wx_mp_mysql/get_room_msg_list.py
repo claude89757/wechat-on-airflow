@@ -124,8 +124,7 @@ def main_handler(event, context):
             to_user_id as receiver_id,
             msg_type,
             content as msg_content,
-            msg_datetime,
-            create_time
+            msg_datetime
         FROM wx_mp_chat_records
     """
     
@@ -159,8 +158,6 @@ def main_handler(event, context):
         for record in records:
             if record.get('msg_datetime'):
                 record['msg_datetime'] = record['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')
-            if record.get('create_time'):
-                record['create_time'] = record['create_time'].strftime('%Y-%m-%d %H:%M:%S')
         
         # 构建返回结果
         result = {
