@@ -97,6 +97,10 @@ def update_wx_user_info(source_ip: str) -> dict:
         'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'source_ip': source_ip
     })
+
+    # 查看当前列表中是否存在同账号的，先删除旧的数据
+    wx_account_list = [account for account in wx_account_list if account['wxid'] != new_account['wxid']]
+    
     # 添加新用户
     wx_account_list.append(new_account)
 
