@@ -345,11 +345,16 @@ def handler_text_msg(**context):
     should_pre_stop(message_data, wx_user_name)
 
     # 获取AI回复
+    ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_name}_ui_input_prompt", default_var="", serialize_json=True)
+    if ui_input_prompt:
+        dify_inputs = {"ui_input_prompt": ui_input_prompt}
+    else:
+        dify_inputs = {}
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=wx_user_name,
         conversation_id=conversation_id,
-        inputs={}
+        inputs=dify_inputs
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")

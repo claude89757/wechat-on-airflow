@@ -100,13 +100,14 @@ def update_wx_user_info(source_ip: str) -> dict:
 
     # 查看当前列表中是否存在同账号的，先删除旧的数据
     wx_account_list = [account for account in wx_account_list if account['wxid'] != new_account['wxid']]
-    
+
     # 添加新用户
     wx_account_list.append(new_account)
 
-    # 初始化新用户的 enable_ai_room_ids 和 disable_ai_room_ids
+    # 初始化新用户的一些常用的变量
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_ui_input_prompt", "", serialize_json=True)
 
     # 初始化新用户的聊天记录表
     init_wx_chat_records_table(new_account['wxid'])
