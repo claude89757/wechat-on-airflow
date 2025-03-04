@@ -169,6 +169,9 @@ def Ae(body, secret):
 
 
 def get_serverless_access_token():
+    """
+    获取云函数的访问令牌
+    """
     print(f"get_serverless_access_token....")
     url = "https://api.next.bspapp.com/client"
 
@@ -184,13 +187,13 @@ def get_serverless_access_token():
         "x-serverless-sign": QYD_SERVERLESS_CLIENT_SECRET,
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/107.0.0.0 Safari/537.36 MicroMessenger/6.8.0(0x16080000) NetType/"
-                      "WIFI MiniProgramEnv/Mac MacWechat/WMPF MacWechat/3.8.8(0x13080812) XWEB/1216",
+                      "WIFI MiniProgramEnv/Mac MacWechat/WMPF MacWechat/3.8.10(0x13080a11) XWEB/1227",
         "Content-Type": "application/json",
         "Accept": "*/*",
         "Sec-Fetch-Site": "cross-site",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
-        "Referer": "https://servicewechat.com/wxbb9c3b35727d8ce8/149/page-frame.html",
+        "Referer": "https://servicewechat.com/wxbb9c3b35727d8ce8/193/page-frame.html",
         "Accept-Language": "zh-CN,zh;q=0.9"
     }
     print(url)
