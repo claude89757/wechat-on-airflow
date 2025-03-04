@@ -43,7 +43,7 @@ CAT_ID = "12"
 RAISE_PACKAGE_ID = 0
 PHONE_ENCODE = "ks/Whad334TXSmRMAqxKvw=="
 
-QYD_SERVERLESS_CLIENT_SECRET = "0bf52f7853a337e4e1b846f8a801f3ea"
+QYD_SERVERLESS_CLIENT_SECRET = Variable.get("QYD_SERVERLESS_CLIENT_SECRET")
 QYD_SERVERLESS_SPACE_ID = "mp-4137c2dd-581d-4a0f-89c8-16458f996b42"
 
 # 在文件开头添加常量定义
@@ -121,7 +121,7 @@ def load_data_from_variable(filename: str, expire_time: int, using_cached: bool 
         }
         Variable.set(filename, var_data, serialize_json=True)
         
-        return new_data
+        return var_data
     else:
         print(f"data is loaded from Variable {filename}")
         if isinstance(local_data, str):
