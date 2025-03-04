@@ -210,12 +210,13 @@ def handler_voice_msg(**context):
     # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
     wx_user_name = wx_account_info['name']
+    wx_user_id = wx_account_info['wxid']
 
     # 1. 下载语音
     voice_file_path = download_voice_from_windows_server(source_ip, msg_id)
 
     # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_name}_dify_api_key", deserialize_json=True)
+    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key", deserialize_json=True)
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
@@ -304,6 +305,7 @@ def handler_text_msg(**context):
     # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
     wx_user_name = wx_account_info['name']
+    wx_user_id = wx_account_info['wxid']
 
     # 等待3秒，聚合消息
     time.sleep(3) 
@@ -319,7 +321,7 @@ def handler_text_msg(**context):
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
     # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_name}_dify_api_key", deserialize_json=True)
+    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key", deserialize_json=True)
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
