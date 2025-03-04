@@ -67,30 +67,36 @@ def main_handler(event, context):
         WITH latest_messages AS (
             SELECT 
                 CASE 
-                    WHEN from_user_id = to_user_id THEN from_user_id
-                    ELSE CONCAT(from_user_id, '_', to_user_id)
+                    WHEN from_user_id LIKE 'gh_%' THEN CONCAT(from_user_id, '_', to_user_id)
+                    ELSE CONCAT(to_user_id, '_', from_user_id)
                 END as room_id,
-                wx_user_id,
+                CASE 
+                    WHEN from_user_id LIKE 'gh_%' THEN from_user_id
+                    ELSE to_user_id
+                END as mp_user_id,
+                CASE 
+                    WHEN from_user_id LIKE 'gh_%' THEN to_user_id
+                    ELSE from_user_id
+                END as user_id,
                 from_user_id as sender_id,
                 from_user_name as sender_name,
-                to_user_id,
-                to_user_name,
                 msg_id,
                 msg_type,
                 content as msg_content,
                 create_time as msg_datetime,
                 ROW_NUMBER() OVER (PARTITION BY 
                     CASE 
-                        WHEN from_user_id = to_user_id THEN from_user_id
-                        ELSE CONCAT(from_user_id, '_', to_user_id)
+                        WHEN from_user_id LIKE 'gh_%' THEN CONCAT(from_user_id, '_', to_user_id)
+                        ELSE CONCAT(to_user_id, '_', from_user_id)
                     END 
                 ORDER BY create_time DESC) as rn
             FROM wx_mp_chat_records
+            WHERE from_user_id LIKE 'gh_%' OR to_user_id LIKE 'gh_%'
         )
         SELECT 
             room_id,
-            room_id as room_name,
-            wx_user_id,
+            mp_user_id as room_name,
+            user_id,
             sender_id,
             sender_name,
             msg_id,
