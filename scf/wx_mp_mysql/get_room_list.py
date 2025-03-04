@@ -85,27 +85,45 @@ def main_handler(event, context):
             query = """
             WITH latest_messages AS (
                 SELECT 
+                    CASE 
+                        WHEN from_user_id = %s THEN to_user_id
+                        ELSE from_user_id 
+                    END as room_id,
                     wx_user_id,
-                    from_user_id,
+                    from_user_id as sender_id,
+                    from_user_name as sender_name,
+                    to_user_id,
+                    to_user_name,
+                    msg_id,
                     msg_type,
                     content as msg_content,
                     create_time as msg_datetime,
-                    ROW_NUMBER() OVER (PARTITION BY from_user_id ORDER BY msg_datetime DESC) as rn
+                    ROW_NUMBER() OVER (PARTITION BY 
+                        CASE 
+                            WHEN from_user_id = %s THEN to_user_id
+                            ELSE from_user_id 
+                        END 
+                    ORDER BY create_time DESC) as rn
                 FROM wx_mp_chat_records
-                WHERE to_user_id = %s OR from_user_id = %s
+                WHERE wx_user_id = %s
             )
             SELECT 
+                room_id,
+                room_id as room_name,
                 wx_user_id,
-                from_user_id,
+                sender_id,
+                sender_name,
+                msg_id,
                 msg_type,
                 msg_content,
-                msg_datetime
+                msg_datetime,
+                false as is_group
             FROM latest_messages
             WHERE rn = 1
             ORDER BY msg_datetime DESC
             """
             
-            cursor.execute(query, (wx_user_id, wx_user_id))
+            cursor.execute(query, (wx_user_id, wx_user_id, wx_user_id))
             results = cursor.fetchall()
             
             # 格式化日期时间
@@ -137,5 +155,3 @@ def main_handler(event, context):
             'message': 'wx_user_id is required',
             'data': None
         }
-
-
