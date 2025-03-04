@@ -185,10 +185,12 @@ def get_serverless_access_token():
         "spaceId": QYD_SERVERLESS_SPACE_ID,
         "timestamp": int(time.time() * 1000)
     }
+    serverless_sign = Ae(data, QYD_SERVERLESS_CLIENT_SECRET)
+    # print(f"serverless_sign: {serverless_sign}")
     headers = {
         "Host": "api.next.bspapp.com",
         "xweb_xhr": "1",
-        "x-serverless-sign": QYD_SERVERLESS_CLIENT_SECRET,
+        "x-serverless-sign": serverless_sign,
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/107.0.0.0 Safari/537.36 MicroMessenger/6.8.0(0x16080000) NetType/"
                       "WIFI MiniProgramEnv/Mac MacWechat/WMPF MacWechat/3.8.10(0x13080a11) XWEB/1227",
