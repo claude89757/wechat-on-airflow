@@ -351,7 +351,7 @@ def handler_text_msg(**context):
     should_pre_stop(message_data, wx_user_name)
 
     # 获取AI回复
-    ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_name}_ui_input_prompt", default_var="", serialize_json=True)
+    ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_name}_ui_input_prompt", default_var="", deserialize_json=True)
     if ui_input_prompt:
         dify_inputs = {"ui_input_prompt": ui_input_prompt}
     else:
