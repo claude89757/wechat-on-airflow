@@ -228,7 +228,8 @@ async def trigger_airflow_dag(callback_data, dag_id):
         formatted_roomid = re.sub(r'[^a-zA-Z0-9]', '', str(callback_data.get("roomid", "")))
         msg_id = str(callback_data.get("id", ""))
         source_ip = str(callback_data.get("source_ip", ""))
-        dag_run_id = f"{source_ip}_{formatted_roomid}_{msg_id}"
+        msg_timestamp = str(callback_data.get("ts", ""))
+        dag_run_id = f"{source_ip}_{formatted_roomid}_{msg_id}_{msg_timestamp}"
         airflow_payload = {
             "conf": callback_data,
             "dag_run_id": dag_run_id,
