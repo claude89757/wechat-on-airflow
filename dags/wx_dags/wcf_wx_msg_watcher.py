@@ -242,7 +242,8 @@ def handler_voice_msg(**context):
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
-    conversation_id = dify_agent.get_conversation_id_for_room(wx_user_name, room_id)
+    dify_user_id = f"{room_name}_{sender}"
+    conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
     # 2. 语音转文字
     try:
@@ -265,7 +266,6 @@ def handler_voice_msg(**context):
         print(f"[WATCHER] 删除本地语音失败: {e}")
     
     # 4. 发送转写的文本到Dify
-    dify_user_id = f"{room_name}_{sender}"
     answer, metadata = dify_agent.create_chat_message_stream(
         query=transcribed_text,  # 使用转写的文本
         user_id=dify_user_id,
@@ -348,7 +348,8 @@ def handler_text_msg(**context):
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
-    conversation_id = dify_agent.get_conversation_id_for_room(wx_user_name, room_id)
+    dify_user_id = f"{room_name}_{sender}"
+    conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, wx_user_name)
@@ -385,7 +386,6 @@ def handler_text_msg(**context):
         dify_inputs["ui_input_prompt"] = ui_input_prompt
     
      # 获取AI回复
-    dify_user_id = f"{room_name}_{sender}"
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=dify_user_id,
