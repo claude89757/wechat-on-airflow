@@ -518,3 +518,66 @@ class DifyAgent:
                 return save_path
             else:
                 raise Exception(f"文字转语音失败: [{response.status_code}] {response.text}")
+
+    def upload_file(self, file_path, user_id):
+        """
+        上传文件到 Dify 平台
+        
+        Args:
+            file_path (str): 要上传的本地文件路径
+            user_id (str): 用户标识
+            
+        Returns:
+            dict: 包含上传文件信息的响应数据，格式如下：
+                {
+                    "id": "文件ID",
+                    "name": "文件名",
+                    "size": 文件大小(字节),
+                    "extension": "文件扩展名",
+                    "mime_type": "文件MIME类型",
+                    "created_by": 创建者ID,
+                    "created_at": 创建时间戳
+                }
+            
+        Raises:
+            Exception: 当API调用失败时抛出异常
+        """
+        api_url = f"{self.base_url}/files/upload"
+        
+        # 获取文件MIME类型
+        ext = os.path.splitext(file_path)[1].lower()[1:]  # 去掉点号，获取扩展名
+        mime_type = None
+        
+        # 根据文件扩展名设置MIME类型
+        mime_types = {
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'webp': 'image/webp',
+            'gif': 'image/gif'
+        }
+        mime_type = mime_types.get(ext)
+        
+        if not mime_type:
+            raise ValueError(f"不支持的文件类型: {ext}。仅支持: {', '.join(mime_types.keys())}")
+        
+        print(f"上传文件，路径: {file_path}, MIME类型: {mime_type}")
+        
+        # 准备文件和表单数据
+        with open(file_path, 'rb') as file:
+            files = {
+                'file': (os.path.basename(file_path), file, mime_type)
+            }
+            data = {
+                'user': user_id
+            }
+            
+            # 发送请求
+            headers = {'Authorization': f'Bearer {self.api_key}'}
+            response = requests.post(api_url, headers=headers, files=files, data=data)
+        
+        # 处理响应
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"文件上传失败: [{response.status_code}] {response.text}")
