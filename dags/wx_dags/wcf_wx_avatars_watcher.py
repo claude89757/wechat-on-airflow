@@ -31,7 +31,7 @@ def save_wx_avatars_to_variable(**context):
 
     try:
         # 获取WCF服务器IP和端口
-        wcf_ip = Variable.get("WCF_SERVER_IP", default_var="127.0.0.1")
+        wcf_ip = Variable.get("WCF_IP", default_var="10.1.12.10")
         wcf_port = Variable.get("WCF_API_PORT", default_var="9999")
         print(f"使用WCF服务器: {wcf_ip}:{wcf_port}")
         
