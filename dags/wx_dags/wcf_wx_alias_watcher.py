@@ -31,8 +31,8 @@ def save_wx_alias_to_variable(**context):
     try:
         # 获取WCF服务器IP,使用环境变量作为备选
         wcf_ip = Variable.get(
-            "WCF_SERVER_IP", 
-            default_var=os.getenv("WCF_SERVER_IP")
+            "WCF_IP", 
+            default_var=os.getenv("WCF_IP")
         )
         if not wcf_ip:
             error_msg = (
