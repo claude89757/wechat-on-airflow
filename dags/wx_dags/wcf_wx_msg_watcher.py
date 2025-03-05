@@ -194,7 +194,8 @@ def handler_image_msg(**context):
         dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key", deserialize_json=True)
         dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
         online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
-
+        print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        
         # 这里不发起聊天消息,缓存到Airflow的变量中,等待文字消息来触发
         Variable.set(f"{wx_user_name}_{room_id}_online_img_info", online_img_info, serialize_json=True)
     except Exception as e:
