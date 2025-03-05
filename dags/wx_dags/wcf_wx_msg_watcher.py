@@ -712,14 +712,6 @@ save_ai_reply_msg_task_for_voice = PythonOperator(
     dag=dag
 )
 
-# 保存图片消息到数据库
-save_ai_reply_msg_task_for_image = PythonOperator(
-    task_id='save_ai_reply_msg_to_db_for_image',
-    python_callable=save_ai_reply_msg_to_db,
-    provide_context=True,
-    dag=dag
-)
-
 # 设置任务依赖关系
 process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_message_task]
 
