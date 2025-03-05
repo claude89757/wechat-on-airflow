@@ -173,19 +173,39 @@ def handler_image_msg(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
+    # 获取微信账号信息
+    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+    wx_user_name = wx_account_info['name']
+    wx_user_id = wx_account_info['wxid']
+
+    # 获取房间和发送者信息
+    room_name = get_contact_name(source_ip, room_id, wx_user_name)
+    sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
+
     # 下载图片
     image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
 
     # 将图片本地路径传递到xcom中
     context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
 
-    # # 上传图片到Dify
+    # 上传图片到Dify
+    dify_user_id = f"{room_name}_{sender}"
+    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key", deserialize_json=True)
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
+    online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
 
-    # dify_agent = DifyAgent(api_key=Variable.get("DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
-    # dify_agent.upload_image(image_file_path)
+    # 这里不发起聊天消息,缓存到Airflow的变量中,等待文字消息来触发
+    try:
+        Variable.set(f"{wx_user_name}_{room_id}_online_img_info", online_img_info, serialize_json=True)
+    except Exception as e:
+        print(f"[WATCHER] 保存在线图片信息失败: {e}")
 
-    # # 删除本地图片
-    # os.remove(image_file_path)
+    # 删除本地图片
+    try:
+        os.remove(image_file_path)
+    except Exception as e:
+        print(f"[WATCHER] 删除本地图片失败: {e}")
+
 
 def handler_voice_msg(**context):
     """
@@ -243,9 +263,10 @@ def handler_voice_msg(**context):
         print(f"[WATCHER] 删除本地语音失败: {e}")
     
     # 4. 发送转写的文本到Dify
+    dify_user_id = f"{room_name}_{sender}"
     answer, metadata = dify_agent.create_chat_message_stream(
         query=transcribed_text,  # 使用转写的文本
-        user_id=wx_user_name,
+        user_id=dify_user_id,
         conversation_id=conversation_id,
         inputs={}
     )
@@ -350,15 +371,22 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, wx_user_name)
 
-    # 获取AI回复
+    dify_inputs = {}
+    # 获取在线图片信息
+    online_img_info = Variable.get(f"{wx_user_name}_{room_id}_online_img_info", default_var={}, deserialize_json=True)
+    if online_img_info:
+        dify_inputs["image_name"] = online_img_info.get("name", "")
+
+    # 获取UI输入提示
     ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_name}_ui_input_prompt", default_var="", deserialize_json=True)
     if ui_input_prompt:
-        dify_inputs = {"ui_input_prompt": ui_input_prompt}
-    else:
-        dify_inputs = {}
+        dify_inputs["ui_input_prompt"] = ui_input_prompt
+    
+     # 获取AI回复
+    dify_user_id = f"{room_name}_{sender}"
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
-        user_id=wx_user_name,
+        user_id=dify_user_id,
         conversation_id=conversation_id,
         inputs=dify_inputs
     )
@@ -408,6 +436,12 @@ def handler_text_msg(**context):
             if msg['id'] in up_for_reply_msg_id_list:
                 msg['is_reply'] = True
         Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
+
+        # 删除缓存的在线图片信息
+        try:
+            Variable.delete(f"{wx_user_name}_{room_id}_online_img_info")
+        except Exception as e:
+            print(f"[WATCHER] 删除缓存的在线图片信息失败: {e}")
 
         # response缓存到xcom中
         context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
