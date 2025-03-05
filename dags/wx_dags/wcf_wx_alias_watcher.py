@@ -115,7 +115,7 @@ def save_wx_alias_to_variable(**context):
         print(f"更新后的账号信息数量: {len(updated_account_list)}")
         
         # 更新Variable中的数据
-        Variable.set("WX_ACCOUNT_LIST", updated_account_list, serialize_json=True)
+        Variable.set("WX_CONTACT_LIST", updated_account_list, serialize_json=True)
         print("成功更新微信昵称数据")
         
     except Exception as e:
