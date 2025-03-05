@@ -195,7 +195,7 @@ def handler_image_msg(**context):
         dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
         online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
         print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
-        
+
         # 这里不发起聊天消息,缓存到Airflow的变量中,等待文字消息来触发
         Variable.set(f"{wx_user_name}_{room_id}_online_img_info", online_img_info, serialize_json=True)
     except Exception as e:
@@ -375,12 +375,17 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, wx_user_name)
 
-    dify_inputs = {}
+    dify_files = []
     # 获取在线图片信息
     online_img_info = Variable.get(f"{wx_user_name}_{room_id}_online_img_info", default_var={}, deserialize_json=True)
     if online_img_info:
-        dify_inputs["image_name"] = online_img_info.get("name", "")
+        dify_files.append({
+            "type": "image",
+            "transfer_method": "local_file",
+            "upload_file_id": online_img_info.get("id", "")
+        })
 
+    dify_inputs = {}
     # 获取UI输入提示
     ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_name}_ui_input_prompt", default_var="", deserialize_json=True)
     if ui_input_prompt:
@@ -391,7 +396,8 @@ def handler_text_msg(**context):
         query=question,
         user_id=dify_user_id,
         conversation_id=conversation_id,
-        inputs=dify_inputs
+        inputs=dify_inputs,
+        files=dify_files
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")

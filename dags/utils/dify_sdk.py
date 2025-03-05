@@ -297,7 +297,7 @@ class DifyAgent:
             error_msg = f"状态码: {response.status_code}, 响应内容: {response.text}"
             raise Exception(f"创建消息反馈失败: {error_msg}")
 
-    def create_chat_message_stream(self, query, user_id, conversation_id="", inputs=None):
+    def create_chat_message_stream(self, query, user_id, conversation_id="", inputs=None, files=None):
         """
         创建聊天消息并以流式方式返回结果
         
@@ -306,7 +306,7 @@ class DifyAgent:
             user_id (str): 用户标识
             conversation_id (str, optional): 会话ID
             inputs (dict, optional): 输入参数
-            
+            files (list, optional): 文件列表
         Returns:
             tuple: (完整回答文本, 元数据字典)
                 - 完整回答文本: AI助手的完整回答内容
@@ -315,6 +315,9 @@ class DifyAgent:
         if inputs is None:
             inputs = {}
 
+        if files is None:
+            files = []
+
         url = f"{self.base_url}/chat-messages"
         payload = {
             "inputs": inputs,
@@ -322,7 +325,8 @@ class DifyAgent:
             "response_mode": "streaming",  # 使用流式响应
             "conversation_id": conversation_id,
             "user": user_id,
-            "auto_generate_name": False
+            "auto_generate_name": False,
+            "files": files
         }
 
         full_answer = ""
