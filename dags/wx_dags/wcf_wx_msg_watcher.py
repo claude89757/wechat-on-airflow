@@ -725,6 +725,6 @@ process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_
 
 handler_text_msg_task >> save_ai_reply_msg_task  # 因为消息文本不需要处理，前面的任务先保存了
 
-handler_image_msg_task >> [save_image_to_db_task, save_ai_reply_msg_task_for_image]  
+handler_image_msg_task >> save_image_to_db_task  # 图片消息不会进行单独AI回复
 
 handler_voice_msg_task >> [save_voice_to_db_task, save_ai_reply_msg_task_for_voice]  
