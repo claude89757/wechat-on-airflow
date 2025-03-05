@@ -577,7 +577,7 @@ class DifyAgent:
             response = requests.post(api_url, headers=headers, files=files, data=data)
         
         # 处理响应
-        if response.status_code == 200:
+        if response.status_code in [200, 201]:  # 同时接受200和201状态码
             return response.json()
         else:
             raise Exception(f"文件上传失败: [{response.status_code}] {response.text}")
