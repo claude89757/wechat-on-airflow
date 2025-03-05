@@ -4,7 +4,7 @@
 获取微信公众号每个会话的聊天记录
 
 Author: lys
-Date: 2025-03-03
+Date: 2025-03-04
 """
 import json
 import os
