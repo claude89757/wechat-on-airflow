@@ -285,7 +285,7 @@ def handler_voice_msg(**context):
         conversation_id = metadata.get("conversation_id")
         # 获取房间和发送者信息
         room_name = get_contact_name(source_ip, room_id, wx_user_name)
-        dify_agent.rename_conversation(conversation_id, wx_user_name, room_name)
+        dify_agent.rename_conversation(conversation_id, dify_user_id, room_name)
 
         # 保存会话ID
         conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)
@@ -299,7 +299,7 @@ def handler_voice_msg(**context):
             response_part = response_part.replace('\\n', '\n')
             send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
         # 记录消息已被成功回复
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="like", content="语音消息微信自动回复成功")
+        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="like", content="语音消息微信自动回复成功")
 
         # 将转写文本和回复保存到xcom中
         context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
@@ -307,7 +307,7 @@ def handler_voice_msg(**context):
     except Exception as error:
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息回复失败
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="dislike", content=f"语音消息微信自动回复失败, {error}")
+        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="dislike", content=f"语音消息微信自动回复失败, {error}")
 
 
 def handler_text_msg(**context):
@@ -437,7 +437,7 @@ def handler_text_msg(**context):
                 pass
             send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
         # 记录消息已被成功回复
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="like", content="微信自动回复成功")
+        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="like", content="微信自动回复成功")
 
         # 缓存的消息中，标记消息已回复
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
@@ -458,10 +458,10 @@ def handler_text_msg(**context):
     except Exception as error:
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息已被成功回复
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=wx_user_name, rating="dislike", content=f"微信自动回复失败, {error}")
+        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="dislike", content=f"微信自动回复失败, {error}")
 
     # 打印会话消息
-    messages = dify_agent.get_conversation_messages(conversation_id, wx_user_name)
+    messages = dify_agent.get_conversation_messages(conversation_id, dify_user_id)
     print("-"*50)
     for msg in messages:
         print(msg)
