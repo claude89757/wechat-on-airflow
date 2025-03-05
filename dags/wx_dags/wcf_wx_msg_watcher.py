@@ -287,9 +287,9 @@ def handler_voice_msg(**context):
         dify_agent.rename_conversation(conversation_id, wx_user_name, room_name)
 
         # 保存会话ID
-        conversation_infos = Variable.get(f"{wx_user_name}_conversation_infos", default_var={}, deserialize_json=True)
+        conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)
         conversation_infos[room_id] = conversation_id
-        Variable.set(f"{wx_user_name}_conversation_infos", conversation_infos, serialize_json=True)
+        Variable.set(f"{dify_user_id}_conversation_infos", conversation_infos, serialize_json=True)
     
     # 发送AI回复到微信
     dify_msg_id = metadata.get("message_id")
@@ -399,12 +399,12 @@ def handler_text_msg(**context):
     if not conversation_id:
         # 新会话，重命名会话
         conversation_id = metadata.get("conversation_id")
-        dify_agent.rename_conversation(conversation_id, wx_user_name, room_name)
+        dify_agent.rename_conversation(conversation_id, dify_user_id, room_name)
 
         # 保存会话ID
-        conversation_infos = Variable.get(f"{wx_user_name}_conversation_infos", default_var={}, deserialize_json=True)
+        conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)
         conversation_infos[room_id] = conversation_id
-        Variable.set(f"{wx_user_name}_conversation_infos", conversation_infos, serialize_json=True)
+        Variable.set(f"{dify_user_id}_conversation_infos", conversation_infos, serialize_json=True)
     else:
         # 旧会话，不重命名
         pass
