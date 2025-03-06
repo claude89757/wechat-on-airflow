@@ -292,6 +292,11 @@ def handler_text_msg(**context):
         if len(up_for_reply_msg_content_list) > 3:
             need_split = True
 
+        # 5. 检查最后一段是否包含表情符号或感叹号
+        last_paragraph = response.split('\n\n')[-1]
+        if any(emoji in last_paragraph for emoji in ['😊', '！', '!']) and len(last_paragraph) > 50:
+            need_split = True
+
         if need_split:
             # 分段发送逻辑
             # 1. 首先尝试按问题分割
@@ -321,54 +326,90 @@ def handler_text_msg(**context):
                         segments = []
                         current_segment = []
                         
-                        for line in response.split('\n'):
-                            if any(line.strip().startswith(m) for m in point_markers):
-                                if current_segment:
-                                    segments.append('\n'.join(current_segment))
-                                current_segment = [line]
-                            else:
-                                current_segment.append(line)
+                        # 获取最后一段
+                        paragraphs = response.split('\n\n')
+                        last_paragraph = paragraphs[-1]
                         
-                        if current_segment:
-                            segments.append('\n'.join(current_segment))
-                        
-                        # 发送每个分点
-                        for i, segment in enumerate(segments, 1):
-                            msg = f"{segment.strip()}"
-                            if msg.strip():
-                                mp_bot.send_text_message(from_user_name, msg)
-                                time.sleep(0.2)
-                        break
-                
-                # 3. 如果没有分点，按段落分割
-                if not has_points:
-                    paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
-                    if len(paragraphs) > 1:
-                        for i, paragraph in enumerate(paragraphs, 1):
-                            msg = f"({paragraph.strip()}"
-                            if msg.strip():
-                                mp_bot.send_text_message(from_user_name, msg)
-                                time.sleep(0.2)
-                    else:
-                        # 4. 如果是单个长段落，按句子分割
-                        sentences = re.split(r'([。！？])', response)
-                        current_msg = ""
-                        for i in range(0, len(sentences)-1, 2):
-                            sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
-                            if len(current_msg) + len(sentence) > 300:
-                                if current_msg.strip():
-                                    mp_bot.send_text_message(from_user_name, current_msg.strip())
+                        # 如果最后一段包含表情符号或感叹号，单独处理
+                        if any(emoji in last_paragraph for emoji in ['😊', '！', '!']):
+                            response_without_last = '\n\n'.join(paragraphs[:-1])
+                            
+                            # 处理主要内容
+                            for line in response_without_last.split('\n'):
+                                if any(line.strip().startswith(m) for m in point_markers):
+                                    if current_segment:
+                                        segments.append('\n'.join(current_segment))
+                                    current_segment = [line]
+                                else:
+                                    current_segment.append(line)
+                            
+                            if current_segment:
+                                segments.append('\n'.join(current_segment))
+                            
+                            # 发送主要内容
+                            for segment in segments:
+                                if segment.strip():
+                                    mp_bot.send_text_message(from_user_name, segment.strip())
                                     time.sleep(0.2)
-                                current_msg = sentence
-                            else:
-                                current_msg += sentence
-                        
-                        if current_msg.strip():
-                            mp_bot.send_text_message(from_user_name, current_msg.strip())
-        else:
-            # 内容较短或结构简单，直接发送
-            if response.strip():
-                mp_bot.send_text_message(from_user_name, response.strip())
+                            
+                            # 单独发送最后一段
+                            if last_paragraph.strip():
+                                mp_bot.send_text_message(from_user_name, last_paragraph.strip())
+                        else:
+                            # 原有的分段逻辑
+                            for line in response.split('\n'):
+                                if any(line.strip().startswith(m) for m in point_markers):
+                                    if current_segment:
+                                        segments.append('\n'.join(current_segment))
+                                    current_segment = [line]
+                                else:
+                                    current_segment.append(line)
+                            
+                            if current_segment:
+                                segments.append('\n'.join(current_segment))
+                            
+                            # 发送每个分点
+                            for segment in segments:
+                                if segment.strip():
+                                    mp_bot.send_text_message(from_user_name, segment.strip())
+                                    time.sleep(0.2)
+                        break
+                    
+                    # 3. 如果没有分点，按段落分割
+                    if not has_points:
+                        paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
+                        if len(paragraphs) > 1:
+                            # 发送除最后一段外的内容
+                            for paragraph in paragraphs[:-1]:
+                                msg = paragraph.strip()
+                                if msg:
+                                    mp_bot.send_text_message(from_user_name, msg)
+                                    time.sleep(0.2)
+                            
+                            # 单独发送最后一段
+                            last_msg = paragraphs[-1].strip()
+                            if last_msg:
+                                mp_bot.send_text_message(from_user_name, last_msg)
+                        else:
+                            # 4. 如果是单个长段落，按句子分割
+                            sentences = re.split(r'([。！？])', response)
+                            current_msg = ""
+                            for i in range(0, len(sentences)-1, 2):
+                                sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
+                                if len(current_msg) + len(sentence) > 300:
+                                    if current_msg.strip():
+                                        mp_bot.send_text_message(from_user_name, current_msg.strip())
+                                        time.sleep(0.2)
+                                    current_msg = sentence
+                                else:
+                                    current_msg += sentence
+                            
+                            if current_msg.strip():
+                                mp_bot.send_text_message(from_user_name, current_msg.strip())
+    else:
+        # 内容较短或结构简单，直接发送
+        if response.strip():
+            mp_bot.send_text_message(from_user_name, response.strip())
         
         # 标记消息为已回复状态
         room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
