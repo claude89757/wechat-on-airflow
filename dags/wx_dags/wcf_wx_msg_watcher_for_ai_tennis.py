@@ -29,10 +29,10 @@ from airflow.utils.state import DagRunState
 from airflow.models.variable import Variable
 from airflow.utils.session import create_session
 
-from utils.wechat_channl import send_wx_msg
-from utils.wechat_channl import get_wx_contact_list
-from utils.redis import RedisLock
-from utils.llm_channl import get_llm_response
+from dags.utils.wechat_channl import send_wx_msg
+from dags.utils.wechat_channl import get_wx_contact_list
+from dags.utils.redis import RedisLock
+from dags.utils.llm_channl import get_llm_response
 
 
 # 微信消息类型定义

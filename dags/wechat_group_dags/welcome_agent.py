@@ -13,8 +13,8 @@ from datetime import datetime, timedelta
 import re
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from utils.wechat_channl import send_wx_msg
-from utils.llm_channl import get_llm_response
+from dags.utils.wechat_channl import send_wx_msg
+from dags.utils.llm_channl import get_llm_response
 
 def generate_welcome_message(member_id: str) -> str:
     """使用AI生成个性化的欢迎词"""

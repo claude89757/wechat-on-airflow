@@ -23,11 +23,9 @@ from airflow.models.variable import Variable
 from airflow.operators.python import PythonOperator
 
 # 自定义库导入
-from utils.wechat_channl import get_wx_contact_list, get_wx_self_info, check_wx_login
-
+from dags.utils.wechat_channl import get_wx_self_info
 
 DAG_ID = "wx_account_watcher"
-
 
 def check_wx_account_status(**context):
     """

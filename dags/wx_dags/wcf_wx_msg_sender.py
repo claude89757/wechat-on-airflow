@@ -25,11 +25,11 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 
 # 自定义库导入
-from utils.wechat_channl import send_wx_msg
-from wx_dags.common.wx_tools import WX_MSG_TYPES
-from wx_dags.common.wx_tools import update_wx_user_info
-from wx_dags.common.wx_tools import get_contact_name
-from wx_dags.common.mysql_tools import save_data_to_db
+from dags.utils.wechat_channl import send_wx_msg
+from dags.wx_dags.common.wx_tools import WX_MSG_TYPES
+from dags.wx_dags.common.wx_tools import update_wx_user_info
+from dags.wx_dags.common.wx_tools import get_contact_name
+from dags.wx_dags.common.mysql_tools import save_data_to_db
 
 
 DAG_ID = "wx_msg_sender"
