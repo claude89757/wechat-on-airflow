@@ -24,7 +24,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models.variable import Variable
 
 # 自定义库导入
-from dags.utils.wechat_mp_channl import WeChatMPBot
+from utils.wechat_mp_channl import WeChatMPBot
 
 
 DAG_ID = "wx_mp_msg_sender"

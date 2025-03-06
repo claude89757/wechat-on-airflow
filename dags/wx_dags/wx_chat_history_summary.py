@@ -15,8 +15,8 @@ from airflow.models.variable import Variable
 from airflow.operators.python import PythonOperator
 
 # 自定义库导入
-from dags.wx_dags.common.mysql_tools import get_wx_chat_history
-from dags.utils.dify_sdk import DifyAgent
+from wx_dags.common.mysql_tools import get_wx_chat_history
+from utils.dify_sdk import DifyAgent
 
 
 DAG_ID = "wx_chat_history_summary"

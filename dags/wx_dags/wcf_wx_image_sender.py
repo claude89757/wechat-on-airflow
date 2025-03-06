@@ -21,7 +21,7 @@ from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 
 # 自定义库导入
-from dags.utils.wechat_channl import send_wx_msg, send_wx_image
+from utils.wechat_channl import send_wx_msg, send_wx_image
 
 
 DAG_ID = "wx_image_sender"

@@ -38,10 +38,11 @@ from airflow.utils.session import create_session
 from airflow.utils.state import DagRunState
 
 # 自定义库导入
-from dags.utils.dify_sdk import DifyAgent
-from dags.utils.redis import RedisLock
-from dags.utils.wechat_mp_channl import WeChatMPBot
-from dags.utils.tts import text_to_speech
+from utils.dify_sdk import DifyAgent
+from utils.redis import RedisLock
+from utils.wechat_mp_channl import WeChatMPBot
+from utils.tts import text_to_speech
+
 
 DAG_ID = "wx_mp_msg_watcher"
 

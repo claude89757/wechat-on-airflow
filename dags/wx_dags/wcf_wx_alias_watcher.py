@@ -14,7 +14,7 @@ from airflow.models.variable import Variable
 from airflow.operators.python import PythonOperator
 
 # 自定义库导入
-from dags.utils.wechat_channl import query_wx_sql, get_wx_contact_list, get_wx_self_info, check_wx_login
+from utils.wechat_channl import query_wx_sql, get_wx_contact_list, get_wx_self_info, check_wx_login
 
 
 DAG_ID = "wx_alias_watcher"

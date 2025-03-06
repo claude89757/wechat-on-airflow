@@ -13,13 +13,10 @@ import random
 import hashlib
 import time
 import struct
-
+from Crypto.Cipher import AES
 import xml.etree.cElementTree as ET
 import sys
 import socket
-from Crypto.Cipher import AES
-#from cryptography.hazmat.primitives.ciphers.algorithms import AES
-
 import ierror
 
 try:

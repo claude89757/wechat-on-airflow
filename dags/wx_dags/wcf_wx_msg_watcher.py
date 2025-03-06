@@ -30,17 +30,17 @@ from airflow.models.variable import Variable
 from airflow.operators.python import BranchPythonOperator, PythonOperator
 
 # 自定义库导入
-from dags.utils.dify_sdk import DifyAgent
-from dags.utils.wechat_channl import send_wx_msg
-from dags.utils.wechat_channl import send_wx_image
-from dags.utils.wechat_channl import send_wx_image as send_wx_video
-from dags.wx_dags.common.wx_tools import WX_MSG_TYPES
-from dags.wx_dags.common.wx_tools import update_wx_user_info
-from dags.wx_dags.common.wx_tools import get_contact_name
-from dags.wx_dags.common.wx_tools import check_ai_enable
-from dags.wx_dags.common.mysql_tools import save_data_to_db
-from dags.wx_dags.common.wx_tools import download_image_from_windows_server
-from dags.wx_dags.common.wx_tools import download_voice_from_windows_server
+from utils.dify_sdk import DifyAgent
+from utils.wechat_channl import send_wx_msg
+from utils.wechat_channl import send_wx_image
+from utils.wechat_channl import send_wx_image as send_wx_video
+from wx_dags.common.wx_tools import WX_MSG_TYPES
+from wx_dags.common.wx_tools import update_wx_user_info
+from wx_dags.common.wx_tools import get_contact_name
+from wx_dags.common.wx_tools import check_ai_enable
+from wx_dags.common.mysql_tools import save_data_to_db
+from wx_dags.common.wx_tools import download_image_from_windows_server
+from wx_dags.common.wx_tools import download_voice_from_windows_server
 
 
 DAG_ID = "wx_msg_watcher"
