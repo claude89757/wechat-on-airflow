@@ -133,8 +133,8 @@ def handler_text_msg(**context):
     room_msg_list.append(current_msg)
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
-    # 缩短等待时间到5秒
-    time.sleep(5)
+    # 缩短等待时间到3秒
+    time.sleep(3)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -144,8 +144,8 @@ def handler_text_msg(**context):
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
     
-    # 按时间排序消息
-    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
+    # 按时间排序消息，只看最近5条消息
+    sorted_msgs = sorted(room_msg_list[-5:], key=lambda x: int(x.get('CreateTime', 0)))
     
     # 找到最后一条已回复消息的时间
     last_replied_time = 0
@@ -175,15 +175,13 @@ def handler_text_msg(**context):
                 first_unreplied_time = msg_time
             
             # 优化聚合判断逻辑：
-            # 1. 消息时间在第一条未回复消息5秒内(原来是30秒)
-            # 2. 消息时间在当前时间5秒内
-            # 3. 如果消息包含问号或问题相关词，更倾向于聚合，问题消息给更长的聚合时间(暂时移除)
+            # 1. 消息时间在第一条未回复消息2秒内
+            # 2. 消息时间在当前时间2秒内
             content = msg.get('Content', '').lower()
             is_question = any(q in content for q in ['?', '？', '吗', '什么', '如何', '为什么', '怎么'])
             
-            if ((msg_time - first_unreplied_time) <= 5 or  # 缩短时间窗口
-                (current_time - msg_time) <= 5):  # 缩短最新消息判断时间
-                # or (is_question and (current_time - msg_time) <= 15)):  # 问题消息给更长的聚合时间
+            if ((msg_time - first_unreplied_time) <= 2 or  # 缩短时间窗口到2秒
+                (current_time - msg_time) <= 2):           # 缩短最新消息判断时间到2秒
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
@@ -191,9 +189,9 @@ def handler_text_msg(**context):
         print("[WATCHER] 没有需要回复的消息")
         return
         
-    # 检查当前消息是否是最新的未回复消息
+    # 检查当前消息是否是最新的未回复消息，缩短检查时间到2秒
     current_msg_time = int(message_data.get('CreateTime', 0))
-    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
+    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 2:
         print(f"[WATCHER] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
         return
 
@@ -269,8 +267,7 @@ def handler_text_msg(**context):
         conversation_infos[from_user_name] = conversation_id
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
 
-    # 发送回复消息
-    dify_msg_id = metadata.get("message_id")
+    # 发送回复消息时优化发送间隔
     try:
         # 发送聚合后的回复
         if len(response) > 1000:  # 微信公众号单条消息长度限制
@@ -283,7 +280,7 @@ def handler_text_msg(**context):
                     else:
                         msg = paragraph.strip()
                     mp_bot.send_text_message(from_user_name, msg)
-                    time.sleep(0.5)  # 避免发送过快
+                    time.sleep(0.2)  # 缩短发送间隔到0.2秒
         else:
             # 内容不长，直接发送
             if response.strip():
@@ -301,12 +298,14 @@ def handler_text_msg(**context):
         Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
 
         # 记录消息已被成功回复
-        dify_agent.create_message_feedback(
-            message_id=dify_msg_id,
-            user_id=from_user_name,
-            rating="like",
-            content="微信公众号自动回复成功"
-        )
+        dify_msg_id = metadata.get("message_id")
+        if dify_msg_id:
+            dify_agent.create_message_feedback(
+                message_id=dify_msg_id,
+                user_id=from_user_name,
+                rating="like",
+                content="微信公众号自动回复成功"
+            )
 
         # 将response缓存到xcom中供后续任务使用
         context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
@@ -324,12 +323,14 @@ def handler_text_msg(**context):
             
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息回复失败
-        dify_agent.create_message_feedback(
-            message_id=dify_msg_id,
-            user_id=from_user_name,
-            rating="dislike",
-            content=f"微信公众号自动回复失败, {error}"
-        )
+        dify_msg_id = metadata.get("message_id")
+        if dify_msg_id:
+            dify_agent.create_message_feedback(
+                message_id=dify_msg_id,
+                user_id=from_user_name,
+                rating="dislike",
+                content=f"微信公众号自动回复失败, {error}"
+            )
 
 
 def save_ai_reply_msg_to_db(**context):
