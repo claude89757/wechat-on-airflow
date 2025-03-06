@@ -84,7 +84,7 @@ def save_wx_avatars_to_variable(**context):
             updated_account_list.append(self_account)
         
         # 添加联系人信息
-        for contact in contacts:
+        for contact in contacts_info:
             # if not contact.get("wxid"):  # 跳过无效数据
             #     continue
                 
