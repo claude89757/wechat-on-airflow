@@ -286,6 +286,13 @@ def handler_text_msg(**context):
     
     # 发送回复消息
     try:
+        # 先标记所有要处理的消息为正在处理状态
+        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        for msg in room_msg_list:
+            if msg['MsgId'] in up_for_reply_msg_id_list:
+                msg['processing'] = True
+        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+
         # 处理回复内容
         final_response = ""
         if len(up_for_reply_msg_content_list) > 1:
@@ -308,7 +315,7 @@ def handler_text_msg(**context):
         # 格式化最终回复
         final_response = final_response.replace('\\n', '\n').strip()
         
-        # 如果回复内容过长，按段落拆分发送
+        # 发送聚合后的回复
         if len(final_response) > 1000:  # 微信公众号单条消息长度限制
             paragraphs = re.split(r'\n\n+', final_response)
             for i, paragraph in enumerate(paragraphs):
@@ -335,17 +342,31 @@ def handler_text_msg(**context):
                 content="微信公众号自动回复成功"
             )
             
-        # 缓存的消息中，标记消息已回复
+        # 标记所有处理过的消息为已回复状态
         room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
         for msg in room_msg_list:
             if msg['MsgId'] in up_for_reply_msg_id_list:
                 msg['is_reply'] = True
+                msg['processing'] = False  # 清除处理中状态
+                msg['reply_time'] = int(time.time())  # 记录回复时间
+                msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False  # 标记是否是批量回复
+                msg['reply_content'] = final_response  # 记录回复内容
         Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
         
         # 将response缓存到xcom中供后续任务使用
         context['task_instance'].xcom_push(key='ai_reply_msg', value=final_response)
 
     except Exception as error:
+        # 发生错误时，清除处理中状态
+        try:
+            room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+            for msg in room_msg_list:
+                if msg['MsgId'] in up_for_reply_msg_id_list:
+                    msg['processing'] = False
+            Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+        except:
+            pass
+            
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息回复失败
         dify_msg_id = metadata.get("message_id")
