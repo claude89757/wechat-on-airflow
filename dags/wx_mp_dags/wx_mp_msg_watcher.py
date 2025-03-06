@@ -175,15 +175,15 @@ def handler_text_msg(**context):
                 first_unreplied_time = msg_time
             
             # 优化聚合判断逻辑：
-            # 1. 消息时间在第一条未回复消息15秒内(原来是30秒)
+            # 1. 消息时间在第一条未回复消息5秒内(原来是30秒)
             # 2. 消息时间在当前时间5秒内
-            # 3. 如果消息包含问号或问题相关词，更倾向于聚合
+            # 3. 如果消息包含问号或问题相关词，更倾向于聚合，问题消息给更长的聚合时间(暂时移除)
             content = msg.get('Content', '').lower()
             is_question = any(q in content for q in ['?', '？', '吗', '什么', '如何', '为什么', '怎么'])
             
-            if ((msg_time - first_unreplied_time) <= 15 or  # 缩短时间窗口
-                (current_time - msg_time) <= 5 or           # 缩短最新消息判断时间
-                (is_question and (current_time - msg_time) <= 15)):  # 问题消息给更长的聚合时间
+            if ((msg_time - first_unreplied_time) <= 5 or  # 缩短时间窗口
+                (current_time - msg_time) <= 5):  # 缩短最新消息判断时间
+                # or (is_question and (current_time - msg_time) <= 15)):  # 问题消息给更长的聚合时间
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
