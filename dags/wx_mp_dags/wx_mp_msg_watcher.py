@@ -119,6 +119,12 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
+    # 等待3秒，聚合消息
+    time.sleep(5)
+    
+    # 检查是否需要提前停止流程
+    should_pre_stop(message_data, from_user_name)
+    
     # 获取微信公众号配置
     appid = Variable.get("WX_MP_APP_ID", default_var="")
     appsecret = Variable.get("WX_MP_SECRET", default_var="")
@@ -136,9 +142,35 @@ def handler_text_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     
+    # 检查是否需要提前停止流程
+    should_pre_stop(message_data, from_user_name)
+    
+    # 获取用户的消息缓存列表
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    room_msg_list.append(message_data)
+    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
+    
+    # 遍历近期的消息是否已回复，没有回复，则合并到这次提问
+    up_for_reply_msg_content_list = []
+    up_for_reply_msg_id_list = []
+    for msg in room_msg_list[-10:]:  # 只取最近的10条消息
+        if not msg.get('is_reply'):
+            up_for_reply_msg_content_list.append(msg.get('Content', ''))
+            up_for_reply_msg_id_list.append(msg['MsgId'])
+    
+    # 整合未回复的消息
+    question = "\n\n".join(up_for_reply_msg_content_list)
+    
+    print("-"*50)
+    print(f"question: {question}")
+    print("-"*50)
+    
+    # 检查是否需要提前停止流程
+    should_pre_stop(message_data, from_user_name)
+    
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
-        query=content,
+        query=question,
         user_id=from_user_name,
         conversation_id=conversation_id,
         inputs={
@@ -164,11 +196,11 @@ def handler_text_msg(**context):
         conversation_infos[from_user_name] = conversation_id
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
     
+    # 检查是否需要提前停止流程
+    should_pre_stop(message_data, from_user_name)
+    
     # 发送回复消息
     try:
-        # 将response缓存到xcom中供后续任务使用
-        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
-
         # 将长回复拆分成多条消息发送
         for response_part in re.split(r'\\n\\n|\n\n', response):
             response_part = response_part.replace('\\n', '\n')
@@ -185,6 +217,16 @@ def handler_text_msg(**context):
                 rating="like", 
                 content="微信公众号自动回复成功"
             )
+            
+        # 缓存的消息中，标记消息已回复
+        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        for msg in room_msg_list:
+            if msg['MsgId'] in up_for_reply_msg_id_list:
+                msg['is_reply'] = True
+        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+        
+        # 将response缓存到xcom中供后续任务使用
+        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
 
     except Exception as error:
         print(f"[WATCHER] 发送消息失败: {error}")
@@ -197,13 +239,6 @@ def handler_text_msg(**context):
                 rating="dislike", 
                 content=f"微信公众号自动回复失败, {error}"
             )
-    
-    # 打印会话消息
-    messages = dify_agent.get_conversation_messages(conversation_id, from_user_name)
-    print("-"*50)
-    for msg in messages:
-        print(msg)
-    print("-"*50)
 
 
 def save_ai_reply_msg_to_db(**context):
@@ -773,6 +808,22 @@ def handler_file_msg(**context):
     """
     # TODO(claude89757): 处理文件类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
     pass
+
+
+def should_pre_stop(current_message, from_user_name):
+    """
+    检查是否需要提前停止流程
+    """
+    # 缓存的消息
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    if not room_msg_list:
+        return
+        
+    if current_message['MsgId'] != room_msg_list[-1]['MsgId']:
+        print(f"[PRE_STOP] 最新消息id不一致，停止流程执行")
+        raise AirflowException("检测到提前停止信号，停止流程执行")
+    else:
+        print(f"[PRE_STOP] 最新消息id一致，继续执行")
 
 
 # 创建DAG
