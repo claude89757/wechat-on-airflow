@@ -119,10 +119,24 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
+    # 将当前消息添加到缓存列表
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    current_msg = {
+        'ToUserName': to_user_name,
+        'FromUserName': from_user_name,
+        'CreateTime': create_time,
+        'Content': content,
+        'MsgId': msg_id,
+        'is_reply': False,
+        'processing': False
+    }
+    room_msg_list.append(current_msg)
+    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只保留最近100条消息
+    
     # 等待5秒，用于聚合短时间内的连续消息
     time.sleep(5)
 
-    # 获取用户的消息缓存列表
+    # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     
     # 获取需要处理的消息组
