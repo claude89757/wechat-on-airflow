@@ -672,6 +672,9 @@ def handler_image_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     
+    # 准备问题内容
+    query = "这是一张图片，请描述一下图片内容并给出你的分析"
+    
     # 创建临时目录用于保存下载的图片
     import tempfile
     import os
@@ -698,69 +701,33 @@ def handler_image_msg(**context):
         context['task_instance'].xcom_push(key='image_local_path', value=img_file_path)
         
         # 上传图片到Dify
-        try:
-            online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
-            print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
-            
-            if not online_img_info or 'id' not in online_img_info:
-                raise Exception("上传图片失败：未获取到有效的文件ID")
-                
-            # 准备问题内容
-            query = "请分析这张图片的内容，告诉我你看到了什么，并给出你的分析"
-            
-            # 获取AI回复（带有图片分析）
-            full_answer, metadata = dify_agent.create_chat_message_stream(
-                query=query,
-                user_id=from_user_name,
-                conversation_id=conversation_id,
-                inputs={
-                    "platform": "wechat_mp",
-                    "user_id": from_user_name,
-                    "msg_id": msg_id,
-                    "image_analysis": True  # 标记这是图片分析请求
-                },
-                files=[{
-                    "type": "image",
-                    "transfer_method": "remote_url",  # 改用remote_url方式
-                    "url": pic_url if pic_url else "",  # 如果有直接URL就使用
-                    "upload_file_id": online_img_info.get("id", ""),  # 同时提供上传的文件ID
-                    "format": "jpg"  # 指定图片格式
-                }]
-            )
-            
-            if not full_answer or full_answer.strip() == "":
-                raise Exception("AI未能生成有效的图片分析回复")
-                
-            print(f"full_answer: {full_answer}")
-            print(f"metadata: {metadata}")
-            response = full_answer
-            
-        except Exception as upload_error:
-            print(f"[WATCHER] 图片处理失败: {upload_error}")
-            # 尝试使用图片URL直接分析
-            if pic_url:
-                query = "请分析这张图片的内容，告诉我你看到了什么，并给出你的分析"
-                full_answer, metadata = dify_agent.create_chat_message_stream(
-                    query=query,
-                    user_id=from_user_name,
-                    conversation_id=conversation_id,
-                    inputs={
-                        "platform": "wechat_mp",
-                        "user_id": from_user_name,
-                        "msg_id": msg_id,
-                        "image_analysis": True
-                    },
-                    files=[{
-                        "type": "image",
-                        "transfer_method": "remote_url",
-                        "url": pic_url,
-                        "format": "jpg"
-                    }]
-                )
-                response = full_answer
-            else:
-                raise Exception("无法处理图片：既无法上传也没有可用的URL")
-
+        online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
+        print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        
+        # 准备问题内容
+        query = "这是一张图片，请描述一下图片内容并给出你的分析"
+        
+        # 获取AI回复（带有图片分析）
+        # 注意：这里假设Dify支持图片处理，如果不支持，需要修改为其他图像处理API
+        full_answer, metadata = dify_agent.create_chat_message_stream(
+            query=query,
+            user_id=from_user_name,
+            conversation_id=conversation_id,
+            inputs={
+                "platform": "wechat_mp",
+                "user_id": from_user_name,
+                "msg_id": msg_id,
+            },
+            files=[{
+                "type": "image",
+                "transfer_method": "local_file",
+                "upload_file_id": online_img_info.get("id", "")
+            }]
+        )
+        print(f"full_answer: {full_answer}")
+        print(f"metadata: {metadata}")
+        response = full_answer
+        
         # 处理会话ID相关逻辑
         if not conversation_id:
             # 新会话，重命名会话
@@ -785,8 +752,8 @@ def handler_image_msg(**context):
                     time.sleep(0.5)  # 避免发送过快
             
             # 记录消息已被成功回复
-            if metadata and 'message_id' in metadata:
-                dify_msg_id = metadata.get("message_id")
+            dify_msg_id = metadata.get("message_id")
+            if dify_msg_id:
                 dify_agent.create_message_feedback(
                     message_id=dify_msg_id, 
                     user_id=from_user_name, 
@@ -800,8 +767,8 @@ def handler_image_msg(**context):
         except Exception as error:
             print(f"[WATCHER] 发送消息失败: {error}")
             # 记录消息回复失败
-            if metadata and 'message_id' in metadata:
-                dify_msg_id = metadata.get("message_id")
+            dify_msg_id = metadata.get("message_id")
+            if dify_msg_id:
                 dify_agent.create_message_feedback(
                     message_id=dify_msg_id, 
                     user_id=from_user_name, 
