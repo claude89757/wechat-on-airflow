@@ -125,8 +125,12 @@ def handler_text_msg(**context):
     # 获取用户的消息缓存列表
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     
-    # 添加当前消息到列表
+    # 添加当前消息到列表，确保CreateTime是整数类型
     message_data['is_reply'] = False  # 标记为未回复
+    try:
+        message_data['CreateTime'] = int(message_data.get('CreateTime', 0))
+    except (ValueError, TypeError):
+        message_data['CreateTime'] = int(time.time())
     room_msg_list.append(message_data)
     
     # 只保留最近100条消息
@@ -142,7 +146,13 @@ def handler_text_msg(**context):
     up_for_reply_msg_id_list = []
     
     for msg in room_msg_list[-10:]:  # 只检查最近10条消息
-        msg_time = msg.get('CreateTime', 0)
+        try:
+            msg_time = int(msg.get('CreateTime', 0))
+        except (ValueError, TypeError):
+            msg_time = 0
+            print(f"[WATCHER] 消息时间戳转换失败: {msg.get('CreateTime')}")
+            continue
+            
         # 只聚合30秒内的消息
         if not msg.get('is_reply') and (current_time - msg_time) <= 30:
             up_for_reply_msg_content_list.append(msg.get('Content', ''))
@@ -803,16 +813,6 @@ def handler_file_msg(**context):
 def should_pre_stop(current_message, from_user_name):
     """
     检查是否需要提前停止流程
-    
-    Args:
-        current_message: 当前处理的消息
-        from_user_name: 发送者的OpenID
-        
-    Returns:
-        None
-        
-    Raises:
-        AirflowException: 当检测到需要停止处理时抛出异常
     """
     # 获取用户最近的消息列表
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -820,8 +820,17 @@ def should_pre_stop(current_message, from_user_name):
         return
     
     # 获取最新消息的时间戳
-    latest_msg_time = room_msg_list[-1].get('CreateTime', 0)
-    current_msg_time = current_message.get('CreateTime', 0)
+    try:
+        latest_msg_time = int(room_msg_list[-1].get('CreateTime', 0))
+    except (ValueError, TypeError):
+        latest_msg_time = int(time.time())
+        print(f"[PRE_STOP] 最新消息时间戳转换失败: {room_msg_list[-1].get('CreateTime')}")
+    
+    try:
+        current_msg_time = int(current_message.get('CreateTime', 0))
+    except (ValueError, TypeError):
+        current_msg_time = int(time.time())
+        print(f"[PRE_STOP] 当前消息时间戳转换失败: {current_message.get('CreateTime')}")
     
     # 如果当前消息不是最新消息，且时间差超过5秒，则停止处理
     if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
