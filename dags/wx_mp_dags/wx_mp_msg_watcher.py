@@ -123,26 +123,27 @@ def handler_text_msg(**context):
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     
     # 检查当前消息是否已经被回复过
-    current_msg_time = int(message_data.get('CreateTime', 0))
+    current_msg_id = message_data.get('MsgId')
     for msg in room_msg_list:
-        if msg.get('MsgId') == message_data.get('MsgId'):
-            if msg.get('is_reply'):
-                print("[WATCHER] 当前消息已被回复，跳过处理")
+        if msg.get('MsgId') == current_msg_id:
+            if msg.get('is_reply') or msg.get('processing'):
+                print(f"[WATCHER] 消息 {current_msg_id} 已被回复或正在处理中，跳过处理")
                 return
             break
     
-    # 添加当前消息到列表，确保CreateTime是整数类型
-    message_data['is_reply'] = False  # 标记为未回复
+    # 添加当前消息到列表
+    message_data['is_reply'] = False
+    message_data['processing'] = False
     try:
         message_data['CreateTime'] = int(message_data.get('CreateTime', 0))
     except (ValueError, TypeError):
         message_data['CreateTime'] = int(time.time())
     
-    # 检查是否已存在相同MsgId的消息
+    # 更新或添加消息到列表
     msg_exists = False
     for i, msg in enumerate(room_msg_list):
-        if msg.get('MsgId') == message_data.get('MsgId'):
-            room_msg_list[i] = message_data  # 更新已存在的消息
+        if msg.get('MsgId') == current_msg_id:
+            room_msg_list[i] = message_data
             msg_exists = True
             break
     
@@ -156,57 +157,32 @@ def handler_text_msg(**context):
     # 等待5秒，聚合消息
     time.sleep(5)
     
-    # 检查是否需要提前停止流程
-    should_pre_stop(message_data, from_user_name)
-    
-    # 获取微信公众号配置和初始化客户端
-    appid = Variable.get("WX_MP_APP_ID", default_var="")
-    appsecret = Variable.get("WX_MP_SECRET", default_var="")
-    
-    if not appid or not appsecret:
-        print("[WATCHER] 微信公众号配置缺失")
-        return
-    
-    # 初始化微信公众号机器人
-    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
-    
-    # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
-    
-    # 获取会话ID
-    conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
-    
-    # 聚合最近未回复的消息
+    # 获取需要处理的消息组
+    current_time = int(time.time())
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
-    current_time = int(time.time())
-    
-    # 确保所有消息的CreateTime都是整数类型
-    for msg in room_msg_list[-10:]:
-        try:
-            msg['CreateTime'] = int(msg.get('CreateTime', 0))
-        except (ValueError, TypeError):
-            msg['CreateTime'] = 0
     
     # 按时间排序消息
     sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
     
-    # 获取最早未回复消息的时间
-    first_unreplied_time = None
-    last_replied_time = 0
-    
     # 找到最后一条已回复消息的时间
+    last_replied_time = 0
     for msg in reversed(sorted_msgs):
         if msg.get('is_reply'):
             last_replied_time = int(msg.get('CreateTime', 0))
             break
     
     # 收集需要回复的消息
+    first_unreplied_time = None
     for msg in sorted_msgs:
         msg_time = int(msg.get('CreateTime', 0))
         
         # 只处理最后一条已回复消息之后的消息
         if msg_time <= last_replied_time:
+            continue
+            
+        # 跳过正在处理的消息
+        if msg.get('processing'):
             continue
             
         if not msg.get('is_reply'):
@@ -221,14 +197,16 @@ def handler_text_msg(**context):
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
     
-    # 如果当前消息不是最新的未回复消息，跳过处理
-    if message_data.get('MsgId') != up_for_reply_msg_id_list[-1]:
-        print("[WATCHER] 当前消息不是最新的未回复消息，跳过处理")
-        return
-    
     if not up_for_reply_msg_content_list:
         print("[WATCHER] 没有需要回复的消息")
         return
+    
+    # 标记消息为处理中状态
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    for msg in room_msg_list:
+        if msg['MsgId'] in up_for_reply_msg_id_list:
+            msg['processing'] = True
+    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
     
     # 整合未回复的消息，添加序号
     questions = []
@@ -286,38 +264,9 @@ def handler_text_msg(**context):
     
     # 发送回复消息
     try:
-        # 先标记所有要处理的消息为正在处理状态
-        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
-        for msg in room_msg_list:
-            if msg['MsgId'] in up_for_reply_msg_id_list:
-                msg['processing'] = True
-        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
-
-        # 处理回复内容
-        final_response = ""
-        if len(up_for_reply_msg_content_list) > 1:
-            # 如果是多个问题的回复，尝试分割和格式化答案
-            try:
-                # 尝试按"答案1："、"回答1："等格式分割
-                parts = re.split(r'(?:答案|回答)\d+[:：]', response)
-                if len(parts) > 1:  # 分割成功
-                    answers = [f"答案{i+1}：{part.strip()}" for i, part in enumerate(parts[1:])]
-                    final_response = "\n\n".join(answers)
-                else:
-                    # 如果没有明确的分隔符，保持原样
-                    final_response = response
-            except Exception as e:
-                print(f"[WATCHER] 分割多个回答失败: {e}")
-                final_response = response
-        else:
-            final_response = response
-
-        # 格式化最终回复
-        final_response = final_response.replace('\\n', '\n').strip()
-        
         # 发送聚合后的回复
-        if len(final_response) > 1000:  # 微信公众号单条消息长度限制
-            paragraphs = re.split(r'\n\n+', final_response)
+        if len(response) > 1000:  # 微信公众号单条消息长度限制
+            paragraphs = re.split(r'\n\n+', response)
             for i, paragraph in enumerate(paragraphs):
                 if paragraph.strip():
                     # 如果有多个段落，添加序号
@@ -329,32 +278,22 @@ def handler_text_msg(**context):
                     time.sleep(0.5)  # 避免发送过快
         else:
             # 内容不长，直接发送
-            if final_response.strip():
-                mp_bot.send_text_message(from_user_name, final_response)
-
-        # 记录消息已被成功回复
-        dify_msg_id = metadata.get("message_id")
-        if dify_msg_id:
-            dify_agent.create_message_feedback(
-                message_id=dify_msg_id, 
-                user_id=from_user_name, 
-                rating="like", 
-                content="微信公众号自动回复成功"
-            )
-            
-        # 标记所有处理过的消息为已回复状态
+            if response.strip():
+                mp_bot.send_text_message(from_user_name, response)
+        
+        # 标记消息为已回复状态
         room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
         for msg in room_msg_list:
             if msg['MsgId'] in up_for_reply_msg_id_list:
                 msg['is_reply'] = True
-                msg['processing'] = False  # 清除处理中状态
-                msg['reply_time'] = int(time.time())  # 记录回复时间
-                msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False  # 标记是否是批量回复
-                msg['reply_content'] = final_response  # 记录回复内容
+                msg['processing'] = False
+                msg['reply_time'] = int(time.time())
+                msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False
+                msg['reply_content'] = response
         Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
         
         # 将response缓存到xcom中供后续任务使用
-        context['task_instance'].xcom_push(key='ai_reply_msg', value=final_response)
+        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
 
     except Exception as error:
         # 发生错误时，清除处理中状态
