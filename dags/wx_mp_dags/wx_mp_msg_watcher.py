@@ -140,6 +140,23 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, from_user_name)
     
+    # 获取微信公众号配置
+    appid = Variable.get("WX_MP_APP_ID", default_var="")
+    appsecret = Variable.get("WX_MP_SECRET", default_var="")
+    
+    if not appid or not appsecret:
+        print("[WATCHER] 微信公众号配置缺失")
+        return
+    
+    # 初始化微信公众号机器人
+    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
+    
+    # 初始化dify
+    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    
+    # 获取会话ID
+    conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
+    
     # 聚合最近30秒内的未回复消息
     current_time = int(time.time())
     up_for_reply_msg_content_list = []
