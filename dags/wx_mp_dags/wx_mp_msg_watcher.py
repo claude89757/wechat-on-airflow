@@ -267,24 +267,106 @@ def handler_text_msg(**context):
         conversation_infos[from_user_name] = conversation_id
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
 
-    # 发送回复消息时优化发送间隔
+    # 发送回复消息时的智能处理
     try:
-        # 发送聚合后的回复
-        if len(response) > 1000:  # 微信公众号单条消息长度限制
-            paragraphs = re.split(r'\n\n+', response)
-            for i, paragraph in enumerate(paragraphs):
-                if paragraph.strip():
-                    # 如果有多个段落，添加序号
+        # 判断是否需要分段发送
+        need_split = False
+        
+        # 1. 检查是否有明显的分点标记
+        point_markers = ['1.', '2.', '3.', '①', '②', '③', '一、', '二、', '三、', 
+                        '\n1.', '\n2.', '\n3.', '\n一、', '\n二、', '\n三、']
+        if any(marker in response for marker in point_markers):
+            need_split = True
+            
+        # 2. 检查是否有明显的段落分隔
+        if response.count('\n\n') > 2:  # 有超过2个空行分隔的段落
+            need_split = True
+            
+        # 3. 检查单段长度
+        if len(response) > 500:  # 单段超过500字符
+            need_split = True
+            
+        # 4. 检查是否是多个问题的回答
+        if len(up_for_reply_msg_content_list) > 3:
+            need_split = True
+
+        if need_split:
+            # 分段发送逻辑
+            # 1. 首先尝试按问题分割
+            if len(up_for_reply_msg_content_list) > 1:
+                # 多个问题的情况，查找每个问题的答案
+                segments = []
+                current_question = 1
+                for line in response.split('\n'):
+                    if f"问题{current_question}" in line:
+                        segments.append([line])
+                        current_question += 1
+                    elif segments:
+                        segments[-1].append(line)
+                
+                # 发送每个问题的答案
+                for i, segment in enumerate(segments, 1):
+                    msg = f"问题 {i}/{len(segments)}:\n" + '\n'.join(segment).strip()
+                    if msg.strip():
+                        mp_bot.send_text_message(from_user_name, msg)
+                        time.sleep(0.2)
+            else:
+                # 2. 按分点标记分割
+                has_points = False
+                for marker in ['1.', '一、', '①']:
+                    if marker in response:
+                        has_points = True
+                        segments = []
+                        current_segment = []
+                        
+                        for line in response.split('\n'):
+                            if any(line.strip().startswith(m) for m in point_markers):
+                                if current_segment:
+                                    segments.append('\n'.join(current_segment))
+                                current_segment = [line]
+                            else:
+                                current_segment.append(line)
+                        
+                        if current_segment:
+                            segments.append('\n'.join(current_segment))
+                        
+                        # 发送每个分点
+                        for i, segment in enumerate(segments, 1):
+                            msg = f"({i}/{len(segments)})\n{segment.strip()}"
+                            if msg.strip():
+                                mp_bot.send_text_message(from_user_name, msg)
+                                time.sleep(0.2)
+                        break
+                
+                # 3. 如果没有分点，按段落分割
+                if not has_points:
+                    paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
                     if len(paragraphs) > 1:
-                        msg = f"({i+1}/{len(paragraphs)})\n{paragraph.strip()}"
+                        for i, paragraph in enumerate(paragraphs, 1):
+                            msg = f"({i}/{len(paragraphs)})\n{paragraph.strip()}"
+                            if msg.strip():
+                                mp_bot.send_text_message(from_user_name, msg)
+                                time.sleep(0.2)
                     else:
-                        msg = paragraph.strip()
-                    mp_bot.send_text_message(from_user_name, msg)
-                    time.sleep(0.2)  # 缩短发送间隔到0.2秒
+                        # 4. 如果是单个长段落，按句子分割
+                        sentences = re.split(r'([。！？])', response)
+                        current_msg = ""
+                        for i in range(0, len(sentences)-1, 2):
+                            sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
+                            if len(current_msg) + len(sentence) > 300:
+                                if current_msg.strip():
+                                    mp_bot.send_text_message(from_user_name, current_msg.strip())
+                                    time.sleep(0.2)
+                                current_msg = sentence
+                            else:
+                                current_msg += sentence
+                        
+                        if current_msg.strip():
+                            mp_bot.send_text_message(from_user_name, current_msg.strip())
         else:
-            # 内容不长，直接发送
+            # 内容较短或结构简单，直接发送
             if response.strip():
-                mp_bot.send_text_message(from_user_name, response)
+                mp_bot.send_text_message(from_user_name, response.strip())
         
         # 标记消息为已回复状态
         room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
