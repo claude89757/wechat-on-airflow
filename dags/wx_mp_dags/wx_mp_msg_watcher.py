@@ -122,41 +122,31 @@ def handler_text_msg(**context):
     # 等待3秒，聚合消息
     time.sleep(5)
     
-    # 检查是否需要提前停止流程
-    should_pre_stop(message_data, from_user_name)
-    
-    # 获取微信公众号配置
-    appid = Variable.get("WX_MP_APP_ID", default_var="")
-    appsecret = Variable.get("WX_MP_SECRET", default_var="")
-    
-    if not appid or not appsecret:
-        print("[WATCHER] 微信公众号配置缺失")
-        return
-    
-    # 初始化微信公众号机器人
-    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
-    
-    # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
-    
-    # 获取会话ID
-    conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
-    
-    # 检查是否需要提前停止流程
-    should_pre_stop(message_data, from_user_name)
-    
     # 获取用户的消息缓存列表
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
-    room_msg_list.append(message_data)
-    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
     
-    # 遍历近期的消息是否已回复，没有回复，则合并到这次提问
+    # 添加当前消息到列表
+    message_data['is_reply'] = False  # 标记为未回复
+    room_msg_list.append(message_data)
+    
+    # 只保留最近100条消息
+    room_msg_list = room_msg_list[-100:]
+    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+    
+    # 检查是否需要提前停止流程
+    should_pre_stop(message_data, from_user_name)
+    
+    # 聚合最近30秒内的未回复消息
+    current_time = int(time.time())
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
-    for msg in room_msg_list[-10:]:  # 只取最近的10条消息
-        if not msg.get('is_reply'):
+    
+    for msg in room_msg_list[-10:]:  # 只检查最近10条消息
+        msg_time = msg.get('CreateTime', 0)
+        # 只聚合30秒内的消息
+        if not msg.get('is_reply') and (current_time - msg_time) <= 30:
             up_for_reply_msg_content_list.append(msg.get('Content', ''))
-            up_for_reply_msg_id_list.append(msg['MsgId'])
+            up_for_reply_msg_id_list.append(msg.get('MsgId'))
     
     # 整合未回复的消息
     question = "\n\n".join(up_for_reply_msg_content_list)
@@ -813,17 +803,32 @@ def handler_file_msg(**context):
 def should_pre_stop(current_message, from_user_name):
     """
     检查是否需要提前停止流程
+    
+    Args:
+        current_message: 当前处理的消息
+        from_user_name: 发送者的OpenID
+        
+    Returns:
+        None
+        
+    Raises:
+        AirflowException: 当检测到需要停止处理时抛出异常
     """
-    # 缓存的消息
+    # 获取用户最近的消息列表
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     if not room_msg_list:
         return
-        
-    if current_message['MsgId'] != room_msg_list[-1]['MsgId']:
-        print(f"[PRE_STOP] 最新消息id不一致，停止流程执行")
-        raise AirflowException("检测到提前停止信号，停止流程执行")
-    else:
-        print(f"[PRE_STOP] 最新消息id一致，继续执行")
+    
+    # 获取最新消息的时间戳
+    latest_msg_time = room_msg_list[-1].get('CreateTime', 0)
+    current_msg_time = current_message.get('CreateTime', 0)
+    
+    # 如果当前消息不是最新消息，且时间差超过5秒，则停止处理
+    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
+        print(f"[PRE_STOP] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
+        raise AirflowException("检测到更新消息，停止当前处理")
+    
+    print(f"[PRE_STOP] 消息时间检查通过，继续执行")
 
 
 # 创建DAG
