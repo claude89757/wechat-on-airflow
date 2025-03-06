@@ -273,8 +273,10 @@ def handler_text_msg(**context):
         need_split = False
         
         # 1. 检查是否有明显的分点标记
-        point_markers = ['1.', '2.', '3.', '①', '②', '③', '一、', '二、', '三、', 
-                        '\n1.', '\n2.', '\n3.', '\n一、', '\n二、', '\n三、']
+        point_markers = ['1.', '2.', '3.','4.','5.','6.','7.','8.','9.', '①', '②', '③', 
+                        '一、', '二、', '三、','四、','五、','六、','七、','八、','九、',
+                        '\n1.', '\n2.', '\n3.','\n4.', '\n5.', '\n6.','\n7.', '\n8.', '\n9.',
+                        '\n一、', '\n二、', '\n三、','\n四、','\n五、','\n六、','\n七、','\n八、','\n九、']
         if any(marker in response for marker in point_markers):
             need_split = True
             
@@ -313,7 +315,7 @@ def handler_text_msg(**context):
             else:
                 # 2. 按分点标记分割
                 has_points = False
-                for marker in ['1.', '一、', '①']:
+                for marker in ['1.', '一、', '①','\n\n']:
                     if marker in response:
                         has_points = True
                         segments = []
@@ -332,7 +334,7 @@ def handler_text_msg(**context):
                         
                         # 发送每个分点
                         for i, segment in enumerate(segments, 1):
-                            msg = f"({i}/{len(segments)})\n{segment.strip()}"
+                            msg = f"{segment.strip()}"
                             if msg.strip():
                                 mp_bot.send_text_message(from_user_name, msg)
                                 time.sleep(0.2)
@@ -343,7 +345,7 @@ def handler_text_msg(**context):
                     paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
                     if len(paragraphs) > 1:
                         for i, paragraph in enumerate(paragraphs, 1):
-                            msg = f"({i}/{len(paragraphs)})\n{paragraph.strip()}"
+                            msg = f"({paragraph.strip()}"
                             if msg.strip():
                                 mp_bot.send_text_message(from_user_name, msg)
                                 time.sleep(0.2)
