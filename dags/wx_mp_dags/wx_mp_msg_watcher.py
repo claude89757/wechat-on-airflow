@@ -263,34 +263,44 @@ def handler_text_msg(**context):
     # 发送回复消息
     try:
         # 处理回复内容
-        responses = []
+        final_response = ""
         if len(up_for_reply_msg_content_list) > 1:
-            # 如果是多个问题的回复，尝试分割答案
+            # 如果是多个问题的回复，尝试分割和格式化答案
             try:
                 # 尝试按"答案1："、"回答1："等格式分割
                 parts = re.split(r'(?:答案|回答)\d+[:：]', response)
                 if len(parts) > 1:  # 分割成功
-                    responses = [f"答案{i+1}：{part.strip()}" for i, part in enumerate(parts[1:])]
+                    answers = [f"答案{i+1}：{part.strip()}" for i, part in enumerate(parts[1:])]
+                    final_response = "\n\n".join(answers)
                 else:
-                    # 如果没有明确的分隔符，按照双换行符分割
-                    responses = re.split(r'\n\n+', response)
+                    # 如果没有明确的分隔符，保持原样
+                    final_response = response
             except Exception as e:
                 print(f"[WATCHER] 分割多个回答失败: {e}")
-                responses = [response]  # 分割失败就作为一个整体发送
+                final_response = response
         else:
-            responses = [response]
-            
-        # 发送回复
-        for response_part in responses:
-            if response_part.strip():  # 确保不发送空消息
-                # 将长回复按段落拆分
-                paragraphs = re.split(r'\\n\\n|\n\n', response_part)
-                for paragraph in paragraphs:
-                    paragraph = paragraph.replace('\\n', '\n').strip()
-                    if paragraph:
-                        mp_bot.send_text_message(from_user_name, paragraph)
-                        time.sleep(0.5)  # 避免发送过快
+            final_response = response
+
+        # 格式化最终回复
+        final_response = final_response.replace('\\n', '\n').strip()
         
+        # 如果回复内容过长，按段落拆分发送
+        if len(final_response) > 1000:  # 微信公众号单条消息长度限制
+            paragraphs = re.split(r'\n\n+', final_response)
+            for i, paragraph in enumerate(paragraphs):
+                if paragraph.strip():
+                    # 如果有多个段落，添加序号
+                    if len(paragraphs) > 1:
+                        msg = f"({i+1}/{len(paragraphs)})\n{paragraph.strip()}"
+                    else:
+                        msg = paragraph.strip()
+                    mp_bot.send_text_message(from_user_name, msg)
+                    time.sleep(0.5)  # 避免发送过快
+        else:
+            # 内容不长，直接发送
+            if final_response.strip():
+                mp_bot.send_text_message(from_user_name, final_response)
+
         # 记录消息已被成功回复
         dify_msg_id = metadata.get("message_id")
         if dify_msg_id:
@@ -309,7 +319,7 @@ def handler_text_msg(**context):
         Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
         
         # 将response缓存到xcom中供后续任务使用
-        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+        context['task_instance'].xcom_push(key='ai_reply_msg', value=final_response)
 
     except Exception as error:
         print(f"[WATCHER] 发送消息失败: {error}")
