@@ -122,41 +122,6 @@ def handler_text_msg(**context):
     # 获取用户的消息缓存列表
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     
-    # 检查当前消息是否已经被回复过
-    current_msg_id = message_data.get('MsgId')
-    for msg in room_msg_list:
-        if msg.get('MsgId') == current_msg_id:
-            if msg.get('is_reply') or msg.get('processing'):
-                print(f"[WATCHER] 消息 {current_msg_id} 已被回复或正在处理中，跳过处理")
-                return
-            break
-    
-    # 添加当前消息到列表
-    message_data['is_reply'] = False
-    message_data['processing'] = False
-    try:
-        message_data['CreateTime'] = int(message_data.get('CreateTime', 0))
-    except (ValueError, TypeError):
-        message_data['CreateTime'] = int(time.time())
-    
-    # 更新或添加消息到列表
-    msg_exists = False
-    for i, msg in enumerate(room_msg_list):
-        if msg.get('MsgId') == current_msg_id:
-            room_msg_list[i] = message_data
-            msg_exists = True
-            break
-    
-    if not msg_exists:
-        room_msg_list.append(message_data)
-    
-    # 只保留最近100条消息
-    room_msg_list = room_msg_list[-100:]
-    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
-    
-    # 等待5秒，聚合消息
-    time.sleep(5)
-    
     # 获取需要处理的消息组
     current_time = int(time.time())
     up_for_reply_msg_content_list = []
@@ -174,8 +139,11 @@ def handler_text_msg(**context):
     
     # 收集需要回复的消息
     first_unreplied_time = None
+    latest_msg_time = 0
+    
     for msg in sorted_msgs:
         msg_time = int(msg.get('CreateTime', 0))
+        latest_msg_time = max(latest_msg_time, msg_time)
         
         # 只处理最后一条已回复消息之后的消息
         if msg_time <= last_replied_time:
@@ -199,6 +167,12 @@ def handler_text_msg(**context):
     
     if not up_for_reply_msg_content_list:
         print("[WATCHER] 没有需要回复的消息")
+        return
+        
+    # 检查当前消息是否是最新的未回复消息
+    current_msg_time = int(message_data.get('CreateTime', 0))
+    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
+        print(f"[WATCHER] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
         return
     
     # 标记消息为处理中状态
@@ -243,9 +217,6 @@ def handler_text_msg(**context):
     print(f"合并后的问题:\n{question}")
     print("-"*50)
     
-    # 检查是否需要提前停止流程
-    should_pre_stop(message_data, from_user_name)
-    
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
@@ -275,9 +246,6 @@ def handler_text_msg(**context):
         conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
         conversation_infos[from_user_name] = conversation_id
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
-    
-    # 检查是否需要提前停止流程
-    should_pre_stop(message_data, from_user_name)
     
     # 发送回复消息
     try:
