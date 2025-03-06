@@ -288,9 +288,9 @@ def handler_text_msg(**context):
         if len(response) > 500:  # 单段超过500字符
             need_split = True
             
-        # 4. 检查是否是多个问题的回答
-        if len(up_for_reply_msg_content_list) > 3:
-            need_split = True
+        # # 4. 检查是否是多个问题的回答
+        # if len(up_for_reply_msg_content_list) > 3:
+        #     need_split = True
 
         if need_split:
             # 分段发送逻辑
