@@ -134,7 +134,7 @@ def handler_text_msg(**context):
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
     # 缩短等待时间到3秒
-    time.sleep(3)
+    time.sleep(5)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -144,8 +144,8 @@ def handler_text_msg(**context):
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
     
-    # 按时间排序消息，只看最近5条消息
-    sorted_msgs = sorted(room_msg_list[-5:], key=lambda x: int(x.get('CreateTime', 0)))
+    # 按时间排序消息，只看最近10条消息
+    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
     
     # 找到最后一条已回复消息的时间
     last_replied_time = 0
@@ -175,13 +175,13 @@ def handler_text_msg(**context):
                 first_unreplied_time = msg_time
             
             # 优化聚合判断逻辑：
-            # 1. 消息时间在第一条未回复消息2秒内
-            # 2. 消息时间在当前时间2秒内
+            # 1. 消息时间在第一条未回复消息5秒内
+            # 2. 消息时间在当前时间5秒内
             content = msg.get('Content', '').lower()
             is_question = any(q in content for q in ['?', '？', '吗', '什么', '如何', '为什么', '怎么'])
             
-            if ((msg_time - first_unreplied_time) <= 2 or  # 缩短时间窗口到2秒
-                (current_time - msg_time) <= 2):           # 缩短最新消息判断时间到2秒
+            if ((msg_time - first_unreplied_time) <= 5 or  # 缩短时间窗口到5秒
+                (current_time - msg_time) <= 5):           # 缩短最新消息判断时间到5秒
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
@@ -189,9 +189,9 @@ def handler_text_msg(**context):
         print("[WATCHER] 没有需要回复的消息")
         return
         
-    # 检查当前消息是否是最新的未回复消息，缩短检查时间到2秒
+    # 检查当前消息是否是最新的未回复消息，缩短检查时间到5秒
     current_msg_time = int(message_data.get('CreateTime', 0))
-    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 2:
+    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
         print(f"[WATCHER] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
         return
 
