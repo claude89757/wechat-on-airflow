@@ -162,8 +162,15 @@ def handler_text_msg(**context):
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
     
+    # 确保所有消息的CreateTime都是整数类型
+    for msg in room_msg_list[-10:]:
+        try:
+            msg['CreateTime'] = int(msg.get('CreateTime', 0))
+        except (ValueError, TypeError):
+            msg['CreateTime'] = 0
+    
     # 按时间排序消息
-    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: x.get('CreateTime', 0))
+    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
     
     # 获取最早未回复消息的时间
     first_unreplied_time = None
