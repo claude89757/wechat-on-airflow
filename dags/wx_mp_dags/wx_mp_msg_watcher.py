@@ -132,8 +132,8 @@ def handler_text_msg(**context):
     room_msg_list.append(current_msg)
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
-    # 缩短等待时间到3秒
-    time.sleep(3)
+    # 缩短等待时间到5秒
+    time.sleep(5)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -175,14 +175,14 @@ def handler_text_msg(**context):
             
             # 优化聚合判断逻辑：
             # 1. 消息时间在第一条未回复消息15秒内(原来是30秒)
-            # 2. 消息时间在当前时间3秒内(原来是5秒)
+            # 2. 消息时间在当前时间5秒内
             # 3. 如果消息包含问号或问题相关词，更倾向于聚合
             content = msg.get('Content', '').lower()
             is_question = any(q in content for q in ['?', '？', '吗', '什么', '如何', '为什么', '怎么'])
             
             if ((msg_time - first_unreplied_time) <= 15 or  # 缩短时间窗口
-                (current_time - msg_time) <= 3 or           # 缩短最新消息判断时间
-                (is_question and (current_time - msg_time) <= 20)):  # 问题消息给更长的聚合时间
+                (current_time - msg_time) <= 5 or           # 缩短最新消息判断时间
+                (is_question and (current_time - msg_time) <= 15)):  # 问题消息给更长的聚合时间
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
