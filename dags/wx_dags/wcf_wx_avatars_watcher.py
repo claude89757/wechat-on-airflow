@@ -100,7 +100,7 @@ def save_wx_avatars_to_variable(**context):
         if updated_account_list:  # 只在有数据时更新Variable
             save_variable_name = f"{self_info['name']}_{self_info['wxid']}_CONTACT_LIST"
             Variable.set(save_variable_name, updated_account_list, serialize_json=True)
-            print(f"成功更新微信联系人昵称头像信息到变量: {save_variable_name})
+            print(f"成功更新微信联系人昵称头像信息到变量: {save_variable_name}")
         else:
             print("无有效账号信息，跳过更新")
             
