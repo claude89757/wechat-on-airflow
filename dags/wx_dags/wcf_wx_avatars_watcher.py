@@ -15,7 +15,7 @@ from airflow.utils.decorators import apply_defaults
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # 自定义库导入
-from utils.wechat_channl import get_wx_contact_list, get_wx_self_info, check_wx_login
+from utils.wechat_channl import query_wx_sql, get_wx_contact_list, get_wx_self_info, check_wx_login
 
 
 DAG_ID = "wx_avatars_watcher"
@@ -23,7 +23,7 @@ DAG_ID = "wx_avatars_watcher"
 
 def save_wx_avatars_to_variable(**context):
     """
-    获取并缓存微信头像数据
+    获取并缓存微信昵称和头像数据
     """
     # 获取当前已缓存的用户信息
     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
@@ -59,9 +59,15 @@ def save_wx_avatars_to_variable(**context):
         self_info = get_wx_self_info(wcf_ip)
         print(f"当前登录账号信息: {self_info}")
         
+        # 获取微信联系人的头像和昵称等信息
+        db = "MicroMsg.db"
+        sql = "select * from ContactHeadImgUrl"
+        contacts_info = query_wx_sql(wcf_ip, db, sql)
+        print(f"获取到联系人信息数量: {len(contacts_info)}")        
+
         # 获取联系人列表
-        contacts = get_wx_contact_list(wcf_ip)
-        print(f"获取到联系人数量: {len(contacts)}")
+        # contacts = get_wx_contact_list(wcf_ip)  
+        # print(f"获取到联系人数量: {len(contacts)}")
         
         # 更新账号列表
         updated_account_list = []
@@ -70,21 +76,24 @@ def save_wx_avatars_to_variable(**context):
         if self_info:  # 确保self_info不为空
             self_account = {
                 "wxid": self_info.get("wxid", ""),
-                "nickname": self_info.get("nickname", ""),
-                "avatar": self_info.get("avatar", ""),
+                "name": self_info.get("name", ""),
+                "smallHeadImgUrl": self_info.get("small_head_url", ""),
+                "bigHeadImgUrl": self_info.get("big_head_url", ""),
                 "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             updated_account_list.append(self_account)
         
         # 添加联系人信息
         for contact in contacts:
-            if not contact.get("wxid"):  # 跳过无效数据
-                continue
+            # if not contact.get("wxid"):  # 跳过无效数据
+            #     continue
                 
             account = {
-                "wxid": contact.get("wxid", ""),
-                "nickname": contact.get("nickname", ""),
-                "avatar": contact.get("avatar", ""),
+                # "wxid": contact.get("wxid", ""),
+                "usrName": contact.get("usrName", ""),
+                "headImgMd5": contact.get("headImgMd5",""),
+                "smallHeadImgUrl": contact.get("smallHeadImgUrl",""),            
+                "bigHeadImgUrl": contact.get("bigHeadImgUrl",""),               
                 "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             updated_account_list.append(account)
@@ -92,13 +101,13 @@ def save_wx_avatars_to_variable(**context):
         print(f"更新后的账号信息数量: {len(updated_account_list)}")
         
         if updated_account_list:  # 只在有数据时更新Variable
-            Variable.set("WX_CONTACT_LIST", updated_account_list, serialize_json=True)
-            print("成功更新联系人微信头像信息到Variable")
+            Variable.set(self_account.get("name","")+"_CONTACT_LIST", updated_account_list, serialize_json=True)
+            print("成功更新微信联系人昵称头像信息到Variable")
         else:
             print("无有效账号信息，跳过更新")
             
     except Exception as e:
-        error_msg = f"获取微信头像数据失败: {str(e)}"
+        error_msg = f"获取微信联系人昵称头像等数据失败: {str(e)}"
         print(error_msg)
         context['task_instance'].xcom_push(key='error', value=error_msg)
 
@@ -136,7 +145,7 @@ dag = DAG(
         'retry_delay': timedelta(minutes=1),  # 重试间隔
     },
     start_date=datetime(2024, 1, 1),
-    schedule_interval=timedelta(minutes=15),
+    schedule_interval=timedelta(minutes=2), # 刷新间隔时间
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=5),  # 增加超时时间
     catchup=False,
