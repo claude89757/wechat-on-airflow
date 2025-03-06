@@ -419,6 +419,15 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, wx_user_name)
 
+    # 判断是否转人工
+    if response.strip().lower() == '#转人工#':
+        # 转人工
+        print(f"[WATCHER] 转人工: {response}")
+        human_room_ids = Variable.get(f"{wx_user_name}_{wx_user_id}_human_room_ids", default_var=[], deserialize_json=True)
+        human_room_ids.append(room_id)
+        Variable.set(f"{wx_user_name}_{wx_user_id}_human_room_ids", human_room_ids, serialize_json=True)
+        return
+    
     # 开启AI，且不是自己发送的消息，则自动回复消息
     dify_msg_id = metadata.get("message_id")
     try:
