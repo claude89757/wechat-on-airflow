@@ -119,7 +119,90 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
-    # 获取微信公众号配置
+    # 将当前消息添加到缓存列表
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    current_msg = {
+        'ToUserName': to_user_name,
+        'FromUserName': from_user_name,
+        'CreateTime': create_time,
+        'Content': content,
+        'MsgId': msg_id,
+        'is_reply': False,
+        'processing': False
+    }
+    room_msg_list.append(current_msg)
+    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
+    
+    # 缩短等待时间到5秒
+    time.sleep(5)
+
+    # 重新获取消息列表(可能有新消息加入)
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    
+    # 获取需要处理的消息组
+    current_time = int(time.time())
+    up_for_reply_msg_content_list = []
+    up_for_reply_msg_id_list = []
+    
+    # 按时间排序消息，只看最近10条消息
+    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
+    
+    # 找到最后一条已回复消息的时间
+    last_replied_time = 0
+    for msg in reversed(sorted_msgs):
+        if msg.get('is_reply'):
+            last_replied_time = int(msg.get('CreateTime', 0))
+            break
+    
+    # 收集需要回复的消息
+    first_unreplied_time = None
+    latest_msg_time = 0
+    
+    for msg in sorted_msgs:
+        msg_time = int(msg.get('CreateTime', 0))
+        latest_msg_time = max(latest_msg_time, msg_time)
+        
+        # 只处理最后一条已回复消息之后的消息
+        if msg_time <= last_replied_time:
+            continue
+            
+        # 跳过正在处理的消息
+        if msg.get('processing'):
+            continue
+            
+        if not msg.get('is_reply'):
+            if first_unreplied_time is None:
+                first_unreplied_time = msg_time
+            
+            # 优化聚合判断逻辑：
+            # 1. 消息时间在第一条未回复消息15秒内
+            # 2. 消息时间在当前时间10秒内
+            content = msg.get('Content', '').lower()
+            is_question = any(q in content for q in ['?', '？', '吗', '什么', '如何', '为什么', '怎么'])
+            
+            if ((msg_time - first_unreplied_time) <= 15 or  # 缩短时间窗口到15秒
+                (current_time - msg_time) <= 10):           # 缩短最新消息判断时间到10秒
+                up_for_reply_msg_content_list.append(msg.get('Content', ''))
+                up_for_reply_msg_id_list.append(msg.get('MsgId'))
+
+    if not up_for_reply_msg_content_list:
+        print("[WATCHER] 没有需要回复的消息")
+        return
+        
+    # 检查当前消息是否是最新的未回复消息，缩短检查时间到10秒
+    current_msg_time = int(message_data.get('CreateTime', 0))
+    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 10:
+        print(f"[WATCHER] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
+        return
+
+    # 标记消息为处理中状态
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    for msg in room_msg_list:
+        if msg['MsgId'] in up_for_reply_msg_id_list:
+            msg['processing'] = True
+    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+    
+    # 获取微信公众号配置和初始化客户端
     appid = Variable.get("WX_MP_APP_ID", default_var="")
     appsecret = Variable.get("WX_MP_SECRET", default_var="")
     
@@ -135,22 +218,42 @@ def handler_text_msg(**context):
     
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
+
+    # 整合未回复的消息，添加序号
+    questions = []
+    for i, content in enumerate(up_for_reply_msg_content_list, 1):
+        if len(up_for_reply_msg_content_list) > 1:
+            questions.append(f"问题{i}：{content}")
+        else:
+            questions.append(content)
     
+    question = "\n\n".join(questions)
+    
+    # 如果是多个问题，添加提示语
+    if len(up_for_reply_msg_content_list) > 1:
+        question = f"请帮我回答以下{len(up_for_reply_msg_content_list)}个问题：\n\n{question}"
+
+    print("-"*50)
+    print(f"合并后的问题:\n{question}")
+    print("-"*50)
+
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
-        query=content,
+        query=question,
         user_id=from_user_name,
         conversation_id=conversation_id,
         inputs={
             "platform": "wechat_mp",
             "user_id": from_user_name,
-            "msg_id": msg_id
+            "msg_id": msg_id,
+            "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
+            "question_count": len(up_for_reply_msg_content_list)
         }
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
     response = full_answer
-    
+
     if not conversation_id:
         # 新会话，重命名会话
         try:
@@ -163,47 +266,130 @@ def handler_text_msg(**context):
         conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
         conversation_infos[from_user_name] = conversation_id
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
-    
-    # 发送回复消息
-    try:
-        # 将response缓存到xcom中供后续任务使用
-        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
 
-        # 将长回复拆分成多条消息发送
-        for response_part in re.split(r'\\n\\n|\n\n', response):
-            response_part = response_part.replace('\\n', '\n')
-            if response_part.strip():  # 确保不发送空消息
-                mp_bot.send_text_message(from_user_name, response_part)
-                time.sleep(0.5)  # 避免发送过快
+    # 发送回复消息时的智能处理
+    try:
+        # 判断是否需要分段发送
+        need_split = False
         
+        # 1. 检查是否有明显的分点标记
+        point_markers = ['1.', '2.', '3.','4.','5.','6.','7.','8.','9.', '①', '②', '③', 
+                        '一、', '二、', '三、','四、','五、','六、','七、','八、','九、',
+                        '\n1.', '\n2.', '\n3.','\n4.', '\n5.', '\n6.','\n7.', '\n8.', '\n9.',
+                        '\n一、', '\n二、', '\n三、','\n四、','\n五、','\n六、','\n七、','\n八、','\n九、']
+        if any(marker in response for marker in point_markers):
+            need_split = True
+            
+        # 2. 检查是否有明显的段落分隔
+        if response.count('\n\n') > 10:  # 有超过10个空行分隔的段落
+            need_split = True
+            
+        # 3. 检查单段长度
+        if len(response) > 500:  # 单段超过500字符
+            need_split = True
+
+        if need_split:
+            # 分段发送逻辑
+            # 1. 首先尝试按分点标记分割
+            has_points = False
+            for marker in ['1.', '一、', '①']:
+                if marker in response:
+                    has_points = True
+                    segments = []
+                    current_segment = []
+                    
+                    for line in response.split('\n'):
+                        if any(line.strip().startswith(m) for m in point_markers):
+                            if current_segment:
+                                segments.append('\n'.join(current_segment))
+                            current_segment = [line]
+                        else:
+                            current_segment.append(line)
+                    
+                    if current_segment:
+                        segments.append('\n'.join(current_segment))
+                    
+                    # 发送每个分点
+                    for segment in segments:
+                        if segment.strip():
+                            mp_bot.send_text_message(from_user_name, segment.strip())
+                            time.sleep(0.2)
+                    break
+            
+            # 2. 如果没有分点，按段落分割
+            if not has_points:
+                paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
+                if len(paragraphs) > 1:
+                    for paragraph in paragraphs:
+                        if paragraph.strip():
+                            mp_bot.send_text_message(from_user_name, paragraph.strip())
+                            time.sleep(0.2)
+                else:
+                    # 3. 如果是单个长段落，按句子分割
+                    sentences = re.split(r'([。！？])', response)
+                    current_msg = ""
+                    for i in range(0, len(sentences)-1, 2):
+                        sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
+                        if len(current_msg) + len(sentence) > 300:
+                            if current_msg.strip():
+                                mp_bot.send_text_message(from_user_name, current_msg.strip())
+                                time.sleep(0.2)
+                            current_msg = sentence
+                        else:
+                            current_msg += sentence
+                    
+                    if current_msg.strip():
+                        mp_bot.send_text_message(from_user_name, current_msg.strip())
+        else:
+            # 内容较短或结构简单，直接发送
+            if response.strip():
+                mp_bot.send_text_message(from_user_name, response.strip())
+        
+        # 标记消息为已回复状态
+        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        for msg in room_msg_list:
+            if msg['MsgId'] in up_for_reply_msg_id_list:
+                msg['is_reply'] = True
+                msg['processing'] = False
+                msg['reply_time'] = int(time.time())
+                msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False
+                msg['reply_content'] = response
+        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+
         # 记录消息已被成功回复
         dify_msg_id = metadata.get("message_id")
         if dify_msg_id:
             dify_agent.create_message_feedback(
-                message_id=dify_msg_id, 
-                user_id=from_user_name, 
-                rating="like", 
+                message_id=dify_msg_id,
+                user_id=from_user_name,
+                rating="like",
                 content="微信公众号自动回复成功"
             )
 
+        # 将response缓存到xcom中供后续任务使用
+        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+
     except Exception as error:
+        # 发生错误时，清除处理中状态
+        try:
+            room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+            for msg in room_msg_list:
+                if msg['MsgId'] in up_for_reply_msg_id_list:
+                    msg['processing'] = False
+            Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+        except:
+            pass
+            
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息回复失败
         dify_msg_id = metadata.get("message_id")
         if dify_msg_id:
             dify_agent.create_message_feedback(
-                message_id=dify_msg_id, 
-                user_id=from_user_name, 
-                rating="dislike", 
+                message_id=dify_msg_id,
+                user_id=from_user_name,
+                rating="dislike",
                 content=f"微信公众号自动回复失败, {error}"
             )
-    
-    # 打印会话消息
-    messages = dify_agent.get_conversation_messages(conversation_id, from_user_name)
-    print("-"*50)
-    for msg in messages:
-        print(msg)
-    print("-"*50)
 
 
 def save_ai_reply_msg_to_db(**context):
@@ -773,6 +959,36 @@ def handler_file_msg(**context):
     """
     # TODO(claude89757): 处理文件类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
     pass
+
+
+def should_pre_stop(current_message, from_user_name):
+    """
+    检查是否需要提前停止流程
+    """
+    # 获取用户最近的消息列表
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    if not room_msg_list:
+        return
+    
+    # 获取最新消息的时间戳
+    try:
+        latest_msg_time = int(room_msg_list[-1].get('CreateTime', 0))
+    except (ValueError, TypeError):
+        latest_msg_time = int(time.time())
+        print(f"[PRE_STOP] 最新消息时间戳转换失败: {room_msg_list[-1].get('CreateTime')}")
+    
+    try:
+        current_msg_time = int(current_message.get('CreateTime', 0))
+    except (ValueError, TypeError):
+        current_msg_time = int(time.time())
+        print(f"[PRE_STOP] 当前消息时间戳转换失败: {current_message.get('CreateTime')}")
+    
+    # 如果当前消息不是最新消息，且时间差超过5秒，则停止处理
+    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
+        print(f"[PRE_STOP] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
+        raise AirflowException("检测到更新消息，停止当前处理")
+    
+    print(f"[PRE_STOP] 消息时间检查通过，继续执行")
 
 
 # 创建DAG
