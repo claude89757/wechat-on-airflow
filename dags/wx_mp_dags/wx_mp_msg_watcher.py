@@ -682,7 +682,7 @@ def handler_image_msg(**context):
     
     temp_dir = tempfile.gettempdir()
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    img_file_path = os.path.join(temp_dir, f"wx_img_{from_user_name}_{timestamp}.jpg")
+    img_file_path = os.path.join(temp_dir, f"wx_mp_img_{from_user_name}_{timestamp}.jpg")
     
     try:
         # 下载图片
@@ -697,6 +697,16 @@ def handler_image_msg(**context):
         
         print(f"[WATCHER] 图片已保存到: {img_file_path}")
         
+        # 将图片本地路径传递到xcom中供后续任务使用
+        context['task_instance'].xcom_push(key='image_local_path', value=img_file_path)
+        
+        # 上传图片到Dify
+        online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
+        print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        
+        # 准备问题内容
+        query = "这是一张图片，请描述一下图片内容并给出你的分析"
+        
         # 获取AI回复（带有图片分析）
         # 注意：这里假设Dify支持图片处理，如果不支持，需要修改为其他图像处理API
         full_answer, metadata = dify_agent.create_chat_message_stream(
@@ -707,8 +717,12 @@ def handler_image_msg(**context):
                 "platform": "wechat_mp",
                 "user_id": from_user_name,
                 "msg_id": msg_id,
-                "image_path": img_file_path  # 传递图片路径给Dify
-            }
+            },
+            files=[{
+                "type": "image",
+                "transfer_method": "local_file",
+                "upload_file_id": online_img_info.get("id", "")
+            }]
         )
         print(f"full_answer: {full_answer}")
         print(f"metadata: {metadata}")
@@ -746,6 +760,10 @@ def handler_image_msg(**context):
                     rating="like", 
                     content="微信公众号图片消息自动回复成功"
                 )
+
+            # 将response缓存到xcom中供后续任务使用
+            context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+
         except Exception as error:
             print(f"[WATCHER] 发送消息失败: {error}")
             # 记录消息回复失败
@@ -772,6 +790,88 @@ def handler_image_msg(**context):
                 print(f"[WATCHER] 临时图片文件已删除: {img_file_path}")
         except Exception as e:
             print(f"[WATCHER] 删除临时文件失败: {e}")
+
+
+def save_image_to_db(**context):
+    """
+    保存图片消息到MySQL
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    
+    # 获取图片本地路径
+    image_local_path = context.get('task_instance').xcom_pull(key='image_local_path')
+    
+    # 提取消息信息
+    save_msg = {}
+    save_msg['from_user_id'] = message_data.get('FromUserName', '')  # 发送者的OpenID
+    save_msg['from_user_name'] = message_data.get('FromUserName', '')
+    save_msg['to_user_id'] = message_data.get('ToUserName', '')  # 公众号原始ID
+    save_msg['to_user_name'] = message_data.get('ToUserName', '')
+    save_msg['msg_id'] = message_data.get('MsgId', '')
+    save_msg['msg_type'] = 'image'
+    save_msg['msg_type_name'] = WX_MSG_TYPES.get('image')
+    save_msg['content'] = f"[图片] URL: {message_data.get('PicUrl', '')}\nMediaId: {message_data.get('MediaId', '')}"
+    save_msg['msg_timestamp'] = int(message_data.get('CreateTime', time.time()))
+    save_msg['msg_datetime'] = datetime.fromtimestamp(save_msg['msg_timestamp'])
+    
+    # 使用相同的数据库连接函数保存图片消息
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db")
+        db_conn = db_hook.get_hook().get_conn()
+        cursor = db_conn.cursor()
+        
+        # 插入数据的SQL
+        insert_sql = """INSERT INTO `wx_mp_chat_records` 
+        (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
+        msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE 
+        content = VALUES(content),
+        msg_type_name = VALUES(msg_type_name),
+        updated_at = CURRENT_TIMESTAMP
+        """
+        
+        # 执行插入
+        cursor.execute(insert_sql, (
+            save_msg['from_user_id'],
+            save_msg['from_user_name'],
+            save_msg['to_user_id'],
+            save_msg['to_user_name'],
+            save_msg['msg_id'],
+            save_msg['msg_type'],
+            save_msg['msg_type_name'],
+            save_msg['content'],
+            save_msg['msg_timestamp'],
+            save_msg['msg_datetime']
+        ))
+        
+        # 提交事务
+        db_conn.commit()
+        print(f"[DB_SAVE] 成功保存图片消息到数据库: {save_msg['msg_id']}")
+        
+    except Exception as e:
+        print(f"[DB_SAVE] 保存图片消息到数据库失败: {e}")
+        if db_conn:
+            try:
+                db_conn.rollback()
+            except:
+                pass
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
 
 
 def handler_voice_msg(**context):
@@ -1076,6 +1176,15 @@ save_ai_reply_msg_task = PythonOperator(
     dag=dag
 )
 
+# 保存图片消息到数据库
+save_image_to_db_task = PythonOperator(
+    task_id='save_image_to_db',
+    python_callable=save_image_to_db,
+    provide_context=True,
+    dag=dag
+)
+
 # 设置任务依赖关系
 process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_msg_to_mysql_task]
 handler_text_msg_task >> save_ai_reply_msg_task
+handler_image_msg_task >> [save_image_to_db_task, save_ai_reply_msg_task]
