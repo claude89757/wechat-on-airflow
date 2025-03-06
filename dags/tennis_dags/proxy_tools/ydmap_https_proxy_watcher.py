@@ -227,12 +227,40 @@ def download_file():
         
         response = requests.get(REMOTE_FILENAME, headers=headers)
         if response.status_code == 200:
-            file_content = base64.b64decode(response.json()['content'])
-            
-            # 写入本地文件
-            with open(LOCAL_FILENAME, 'wb') as file:
-                file.write(file_content)
-            print(f"文件已下载并保存到 {LOCAL_FILENAME}")
+            # 解码GitHub返回的base64内容
+            try:
+                file_content = base64.b64decode(response.json()['content']).decode('utf-8')
+                
+                # 检查内容是否是JSON格式（意外情况）
+                if file_content.strip().startswith('{') and '"content":' in file_content:
+                    print("警告: 文件内容似乎是一个JSON对象，尝试提取真正的代理列表")
+                    try:
+                        import json
+                        data = json.loads(file_content)
+                        if 'content' in data and isinstance(data['content'], str):
+                            real_content = base64.b64decode(data['content']).decode('utf-8')
+                            file_content = real_content
+                    except Exception as json_err:
+                        print(f"尝试解析JSON内容失败: {json_err}")
+                
+                # 确保每一行是有效的代理
+                valid_proxies = []
+                for line in file_content.split('\n'):
+                    line = line.strip()
+                    if is_valid_proxy(line):
+                        valid_proxies.append(line)
+                
+                # 写入本地文件，每行一个代理
+                with open(LOCAL_FILENAME, 'w') as file:
+                    for proxy in valid_proxies:
+                        file.write(proxy + '\n')
+                
+                print(f"文件已下载并保存到 {LOCAL_FILENAME}，包含 {len(valid_proxies)} 个有效代理")
+            except Exception as decode_err:
+                print(f"解码文件内容失败: {decode_err}")
+                # 创建空文件
+                with open(LOCAL_FILENAME, 'w') as file:
+                    pass
         else:
             print(f"文件下载失败，创建空文件: {response.status_code}")
             # 创建空文件
