@@ -76,7 +76,7 @@ def save_wx_avatars_to_variable(**context):
         if self_info:  # 确保self_info不为空
             self_account = {
                 "wxid": self_info.get("wxid", ""),
-                "name": self_info.get("name", ""),
+                "usrName": self_info.get("name", ""),
                 "smallHeadImgUrl": self_info.get("small_head_url", ""),
                 "bigHeadImgUrl": self_info.get("big_head_url", ""),
                 "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -146,7 +146,7 @@ dag = DAG(
         'retry_delay': timedelta(minutes=1),  # 重试间隔
     },
     start_date=datetime(2024, 1, 1),
-    schedule_interval=timedelta(minutes=2), # 刷新间隔时间
+    schedule_interval=timedelta(minutes=60), # 刷新间隔时间
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=5),  # 增加超时时间
     catchup=False,
