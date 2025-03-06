@@ -162,24 +162,45 @@ def handler_text_msg(**context):
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
     
-    for msg in room_msg_list[-10:]:  # 只检查最近10条消息
+    # 按时间排序消息
+    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: x.get('CreateTime', 0))
+    
+    # 获取最早未回复消息的时间
+    first_unreplied_time = None
+    for msg in sorted_msgs:
         try:
             msg_time = int(msg.get('CreateTime', 0))
+            if not msg.get('is_reply'):
+                if first_unreplied_time is None:
+                    first_unreplied_time = msg_time
+                # 只聚合从第一条未回复消息开始30秒内的消息
+                if (msg_time - first_unreplied_time) <= 30:
+                    up_for_reply_msg_content_list.append(msg.get('Content', ''))
+                    up_for_reply_msg_id_list.append(msg.get('MsgId'))
         except (ValueError, TypeError):
-            msg_time = 0
             print(f"[WATCHER] 消息时间戳转换失败: {msg.get('CreateTime')}")
             continue
-            
-        # 只聚合30秒内的消息
-        if not msg.get('is_reply') and (current_time - msg_time) <= 30:
-            up_for_reply_msg_content_list.append(msg.get('Content', ''))
-            up_for_reply_msg_id_list.append(msg.get('MsgId'))
     
-    # 整合未回复的消息
-    question = "\n\n".join(up_for_reply_msg_content_list)
+    if not up_for_reply_msg_content_list:
+        print("[WATCHER] 没有需要回复的消息")
+        return
+        
+    # 整合未回复的消息，添加序号
+    questions = []
+    for i, content in enumerate(up_for_reply_msg_content_list, 1):
+        if len(up_for_reply_msg_content_list) > 1:
+            questions.append(f"问题{i}：{content}")
+        else:
+            questions.append(content)
+            
+    question = "\n\n".join(questions)
+    
+    # 如果是多个问题，添加提示语
+    if len(up_for_reply_msg_content_list) > 1:
+        question = f"请帮我回答以下{len(up_for_reply_msg_content_list)}个问题：\n\n{question}"
     
     print("-"*50)
-    print(f"question: {question}")
+    print(f"合并后的问题:\n{question}")
     print("-"*50)
     
     # 检查是否需要提前停止流程
@@ -193,7 +214,9 @@ def handler_text_msg(**context):
         inputs={
             "platform": "wechat_mp",
             "user_id": from_user_name,
-            "msg_id": msg_id
+            "msg_id": msg_id,
+            "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
+            "question_count": len(up_for_reply_msg_content_list)
         }
     )
     print(f"full_answer: {full_answer}")
@@ -218,12 +241,34 @@ def handler_text_msg(**context):
     
     # 发送回复消息
     try:
-        # 将长回复拆分成多条消息发送
-        for response_part in re.split(r'\\n\\n|\n\n', response):
-            response_part = response_part.replace('\\n', '\n')
+        # 处理回复内容
+        responses = []
+        if len(up_for_reply_msg_content_list) > 1:
+            # 如果是多个问题的回复，尝试分割答案
+            try:
+                # 尝试按"答案1："、"回答1："等格式分割
+                parts = re.split(r'(?:答案|回答)\d+[:：]', response)
+                if len(parts) > 1:  # 分割成功
+                    responses = [f"答案{i+1}：{part.strip()}" for i, part in enumerate(parts[1:])]
+                else:
+                    # 如果没有明确的分隔符，按照双换行符分割
+                    responses = re.split(r'\n\n+', response)
+            except Exception as e:
+                print(f"[WATCHER] 分割多个回答失败: {e}")
+                responses = [response]  # 分割失败就作为一个整体发送
+        else:
+            responses = [response]
+            
+        # 发送回复
+        for response_part in responses:
             if response_part.strip():  # 确保不发送空消息
-                mp_bot.send_text_message(from_user_name, response_part)
-                time.sleep(0.5)  # 避免发送过快
+                # 将长回复按段落拆分
+                paragraphs = re.split(r'\\n\\n|\n\n', response_part)
+                for paragraph in paragraphs:
+                    paragraph = paragraph.replace('\\n', '\n').strip()
+                    if paragraph:
+                        mp_bot.send_text_message(from_user_name, paragraph)
+                        time.sleep(0.5)  # 避免发送过快
         
         # 记录消息已被成功回复
         dify_msg_id = metadata.get("message_id")
