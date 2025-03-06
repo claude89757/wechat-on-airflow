@@ -119,7 +119,7 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
-    # 等待3秒，聚合消息
+    # 等待5秒，聚合消息
     time.sleep(5)
     
     # 获取用户的消息缓存列表
@@ -140,7 +140,7 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, from_user_name)
     
-    # 获取微信公众号配置
+    # 获取微信公众号配置和初始化客户端
     appid = Variable.get("WX_MP_APP_ID", default_var="")
     appsecret = Variable.get("WX_MP_SECRET", default_var="")
     
@@ -157,10 +157,10 @@ def handler_text_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     
-    # 聚合最近30秒内的未回复消息
-    current_time = int(time.time())
+    # 聚合最近未回复的消息
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
+    current_time = int(time.time())
     
     # 确保所有消息的CreateTime都是整数类型
     for msg in room_msg_list[-10:]:
@@ -174,24 +174,38 @@ def handler_text_msg(**context):
     
     # 获取最早未回复消息的时间
     first_unreplied_time = None
+    last_replied_time = 0
+    
+    # 找到最后一条已回复消息的时间
+    for msg in reversed(sorted_msgs):
+        if msg.get('is_reply'):
+            last_replied_time = int(msg.get('CreateTime', 0))
+            break
+    
+    # 收集需要回复的消息
     for msg in sorted_msgs:
-        try:
-            msg_time = int(msg.get('CreateTime', 0))
-            if not msg.get('is_reply'):
-                if first_unreplied_time is None:
-                    first_unreplied_time = msg_time
-                # 只聚合从第一条未回复消息开始30秒内的消息
-                if (msg_time - first_unreplied_time) <= 30:
-                    up_for_reply_msg_content_list.append(msg.get('Content', ''))
-                    up_for_reply_msg_id_list.append(msg.get('MsgId'))
-        except (ValueError, TypeError):
-            print(f"[WATCHER] 消息时间戳转换失败: {msg.get('CreateTime')}")
+        msg_time = int(msg.get('CreateTime', 0))
+        
+        # 只处理最后一条已回复消息之后的消息
+        if msg_time <= last_replied_time:
             continue
+            
+        if not msg.get('is_reply'):
+            if first_unreplied_time is None:
+                first_unreplied_time = msg_time
+            
+            # 判断是否需要聚合：
+            # 1. 消息时间在第一条未回复消息30秒内
+            # 2. 消息时间在当前时间5秒内(最新消息)
+            if ((msg_time - first_unreplied_time) <= 30 or 
+                (current_time - msg_time) <= 5):
+                up_for_reply_msg_content_list.append(msg.get('Content', ''))
+                up_for_reply_msg_id_list.append(msg.get('MsgId'))
     
     if not up_for_reply_msg_content_list:
         print("[WATCHER] 没有需要回复的消息")
         return
-        
+    
     # 整合未回复的消息，添加序号
     questions = []
     for i, content in enumerate(up_for_reply_msg_content_list, 1):
@@ -199,7 +213,7 @@ def handler_text_msg(**context):
             questions.append(f"问题{i}：{content}")
         else:
             questions.append(content)
-            
+    
     question = "\n\n".join(questions)
     
     # 如果是多个问题，添加提示语
