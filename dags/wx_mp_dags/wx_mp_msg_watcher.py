@@ -281,7 +281,7 @@ def handler_text_msg(**context):
             need_split = True
             
         # 2. 检查是否有明显的段落分隔
-        if response.count('\n\n') > 2:  # 有超过2个空行分隔的段落
+        if response.count('\n\n') > 10:  # 有超过10个空行分隔的段落
             need_split = True
             
         # 3. 检查单段长度
