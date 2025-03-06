@@ -315,7 +315,7 @@ def handler_text_msg(**context):
             else:
                 # 2. 按分点标记分割
                 has_points = False
-                for marker in ['1.', '一、', '①','\n\n']:
+                for marker in ['1.', '一、', '①','\n']:
                     if marker in response:
                         has_points = True
                         segments = []
