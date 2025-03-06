@@ -308,7 +308,7 @@ def handler_text_msg(**context):
                 
                 # 发送每个问题的答案
                 for i, segment in enumerate(segments, 1):
-                    msg = f"问题 {i}/{len(segments)}:\n" + '\n'.join(segment).strip()
+                    msg = '\n'.join(segment).strip()
                     if msg.strip():
                         mp_bot.send_text_message(from_user_name, msg)
                         time.sleep(0.2)
