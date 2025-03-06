@@ -705,8 +705,13 @@ def handler_image_msg(**context):
             if not online_img_info or 'id' not in online_img_info:
                 raise Exception("上传图片失败：未获取到有效的文件ID")
                 
-            # 准备问题内容
-            query = "请分析这张图片的内容，告诉我你看到了什么，并给出你的分析"
+            # 准备问题内容 - 使用更专业的提示语
+            query = """请分析这张图片，重点关注以下几个方面：
+1. 如果是皮肤相关图片，请分析皮肤状况，包括敏感、泛红、痘痘等问题
+2. 如果是产品图片，请识别产品类型和特点
+3. 如果是其他类型图片，请简要描述内容
+
+请用专业且友好的语气回复，如果无法看清图片或需要更多信息，请礼貌地询问用户。"""
             
             # 获取AI回复（带有图片分析）
             full_answer, metadata = dify_agent.create_chat_message_stream(
@@ -717,49 +722,46 @@ def handler_image_msg(**context):
                     "platform": "wechat_mp",
                     "user_id": from_user_name,
                     "msg_id": msg_id,
-                    "image_analysis": True  # 标记这是图片分析请求
+                    "image_analysis": True,
+                    "analysis_type": "beauty_consultation"  # 添加分析类型标记
                 },
                 files=[{
                     "type": "image",
-                    "transfer_method": "remote_url",  # 改用remote_url方式
-                    "url": pic_url if pic_url else "",  # 如果有直接URL就使用
+                    "transfer_method": "remote_url",  # 使用remote_url方式
+                    "url": pic_url if pic_url else "",  # 优先使用直接URL
                     "upload_file_id": online_img_info.get("id", ""),  # 同时提供上传的文件ID
-                    "format": "jpg"  # 指定图片格式
+                    "format": "png"
                 }]
             )
             
             if not full_answer or full_answer.strip() == "":
-                raise Exception("AI未能生成有效的图片分析回复")
+                # 如果AI无法生成有效回复，使用默认的友好回复
+                response = """感谢您发送的图片~
+                
+我需要更多信息来为您提供专业的建议呢。您可以告诉我：
+
+1. 您目前遇到的具体问题（比如敏感、泛红等）
+2. 想要改善的方面（如提亮肤色、改善痘痘等）
+3. 是否有特殊的肤质情况
+
+这样我就能为您推荐最适合的护理方案和产品啦！😊"""
+            else:
+                response = full_answer
                 
             print(f"full_answer: {full_answer}")
             print(f"metadata: {metadata}")
-            response = full_answer
             
         except Exception as upload_error:
             print(f"[WATCHER] 图片处理失败: {upload_error}")
-            # 尝试使用图片URL直接分析
-            if pic_url:
-                query = "请分析这张图片的内容，告诉我你看到了什么，并给出你的分析"
-                full_answer, metadata = dify_agent.create_chat_message_stream(
-                    query=query,
-                    user_id=from_user_name,
-                    conversation_id=conversation_id,
-                    inputs={
-                        "platform": "wechat_mp",
-                        "user_id": from_user_name,
-                        "msg_id": msg_id,
-                        "image_analysis": True
-                    },
-                    files=[{
-                        "type": "image",
-                        "transfer_method": "remote_url",
-                        "url": pic_url,
-                        "format": "jpg"
-                    }]
-                )
-                response = full_answer
-            else:
-                raise Exception("无法处理图片：既无法上传也没有可用的URL")
+            # 当图片处理失败时，返回友好的提示信息
+            response = """抱歉没能看清图片呢~ 
+
+您可以重新发送图片，或者直接告诉我：
+1. 您的肤质类型
+2. 目前遇到的护肤困扰
+3. 想要改善的问题
+
+我会根据您的描述提供专业的护理建议！💝"""
 
         # 处理会话ID相关逻辑
         if not conversation_id:
@@ -777,10 +779,14 @@ def handler_image_msg(**context):
         
         # 发送回复消息
         try:
-            # 将长回复拆分成多条消息发送
-            for response_part in re.split(r'\\n\\n|\n\n', response):
-                response_part = response_part.replace('\\n', '\n')
-                if response_part.strip():  # 确保不发送空消息
+            # 将长回复拆分成多条消息发送，保持格式美观
+            response_parts = re.split(r'\\n\\n|\n\n', response)
+            for i, response_part in enumerate(response_parts):
+                response_part = response_part.replace('\\n', '\n').strip()
+                if response_part:
+                    # 为第一条消息添加问候语
+                    if i == 0:
+                        response_part = f"亲爱的，{response_part}"
                     mp_bot.send_text_message(from_user_name, response_part)
                     time.sleep(0.5)  # 避免发送过快
             
@@ -799,7 +805,6 @@ def handler_image_msg(**context):
 
         except Exception as error:
             print(f"[WATCHER] 发送消息失败: {error}")
-            # 记录消息回复失败
             if metadata and 'message_id' in metadata:
                 dify_msg_id = metadata.get("message_id")
                 dify_agent.create_message_feedback(
@@ -810,9 +815,16 @@ def handler_image_msg(**context):
                 )
     except Exception as e:
         print(f"[WATCHER] 处理图片消息失败: {e}")
-        # 发送错误提示给用户
+        # 发送友好的错误提示
         try:
-            mp_bot.send_text_message(from_user_name, f"很抱歉，无法处理您的图片，发生了以下错误：{str(e)}")
+            mp_bot.send_text_message(from_user_name, """抱歉出现了一点小问题呢~ 
+
+您可以：
+1. 稍后重新发送图片
+2. 直接描述您的护肤需求
+3. 告诉我想要改善的问题
+
+我会竭诚为您服务！🌟""")
         except Exception as send_error:
             print(f"[WATCHER] 发送错误提示失败: {send_error}")
     finally:
