@@ -119,11 +119,17 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
-    # 等待5秒，聚合消息
-    time.sleep(5)
-    
     # 获取用户的消息缓存列表
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    
+    # 检查当前消息是否已经被回复过
+    current_msg_time = int(message_data.get('CreateTime', 0))
+    for msg in room_msg_list:
+        if msg.get('MsgId') == message_data.get('MsgId'):
+            if msg.get('is_reply'):
+                print("[WATCHER] 当前消息已被回复，跳过处理")
+                return
+            break
     
     # 添加当前消息到列表，确保CreateTime是整数类型
     message_data['is_reply'] = False  # 标记为未回复
@@ -131,11 +137,24 @@ def handler_text_msg(**context):
         message_data['CreateTime'] = int(message_data.get('CreateTime', 0))
     except (ValueError, TypeError):
         message_data['CreateTime'] = int(time.time())
-    room_msg_list.append(message_data)
+    
+    # 检查是否已存在相同MsgId的消息
+    msg_exists = False
+    for i, msg in enumerate(room_msg_list):
+        if msg.get('MsgId') == message_data.get('MsgId'):
+            room_msg_list[i] = message_data  # 更新已存在的消息
+            msg_exists = True
+            break
+    
+    if not msg_exists:
+        room_msg_list.append(message_data)
     
     # 只保留最近100条消息
     room_msg_list = room_msg_list[-100:]
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+    
+    # 等待5秒，聚合消息
+    time.sleep(5)
     
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, from_user_name)
@@ -201,6 +220,11 @@ def handler_text_msg(**context):
                 (current_time - msg_time) <= 5):
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
+    
+    # 如果当前消息不是最新的未回复消息，跳过处理
+    if message_data.get('MsgId') != up_for_reply_msg_id_list[-1]:
+        print("[WATCHER] 当前消息不是最新的未回复消息，跳过处理")
+        return
     
     if not up_for_reply_msg_content_list:
         print("[WATCHER] 没有需要回复的消息")
