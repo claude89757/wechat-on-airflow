@@ -75,8 +75,8 @@ def save_wx_avatars_to_variable(**context):
         # 添加自己的信息
         if self_info:  # 确保self_info不为空
             self_account = {
+                # "usrName": self_info.get("name", ""),
                 "wxid": self_info.get("wxid", ""),
-                "usrName": self_info.get("name", ""),
                 "smallHeadImgUrl": self_info.get("small_head_url", ""),
                 "bigHeadImgUrl": self_info.get("big_head_url", ""),
                 "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -85,13 +85,10 @@ def save_wx_avatars_to_variable(**context):
         
         # 添加联系人信息
         for contact in contacts_info:
-            # if not contact.get("wxid"):  # 跳过无效数据
-            #     continue
                 
             account = {
                 # "wxid": contact.get("wxid", ""),
-                "usrName": contact.get("usrName", ""),
-                "headImgMd5": contact.get("headImgMd5",""),
+                "wxid": contact.get("usrName", ""),
                 "smallHeadImgUrl": contact.get("smallHeadImgUrl",""),            
                 "bigHeadImgUrl": contact.get("bigHeadImgUrl",""),               
                 "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -101,8 +98,8 @@ def save_wx_avatars_to_variable(**context):
         print(f"更新后的账号信息数量: {len(updated_account_list)}")
         
         if updated_account_list:  # 只在有数据时更新Variable
-            save_variable_name = self_account.get("name","")+"_CONTACT_LIST"
-            Variable.set(save_variable_name, updated_account_list, serialize_json=True)
+            # save_variable_name = self_account.get("name","")+"_CONTACT_LIST"
+            Variable.set(f"{self_info['name']}_{self_info['wxid']}_CONTACT_LIST", updated_account_list, serialize_json=True)
             print(f"成功更新微信联系人昵称头像信息到变量: {save_variable_name}")
         else:
             print("无有效账号信息，跳过更新")
@@ -146,7 +143,7 @@ dag = DAG(
         'retry_delay': timedelta(minutes=1),  # 重试间隔
     },
     start_date=datetime(2024, 1, 1),
-    schedule_interval=timedelta(minutes=60), # 刷新间隔时间
+    schedule_interval=timedelta(minutes=2), # 刷新间隔时间
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=5),  # 增加超时时间
     catchup=False,
