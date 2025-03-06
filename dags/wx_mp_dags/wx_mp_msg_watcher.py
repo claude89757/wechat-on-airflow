@@ -133,7 +133,7 @@ def handler_text_msg(**context):
     room_msg_list.append(current_msg)
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
-    # 缩短等待时间到3秒
+    # 缩短等待时间到5秒
     time.sleep(5)
 
     # 重新获取消息列表(可能有新消息加入)
@@ -175,13 +175,13 @@ def handler_text_msg(**context):
                 first_unreplied_time = msg_time
             
             # 优化聚合判断逻辑：
-            # 1. 消息时间在第一条未回复消息5秒内
-            # 2. 消息时间在当前时间5秒内
+            # 1. 消息时间在第一条未回复消息15秒内
+            # 2. 消息时间在当前时间10秒内
             content = msg.get('Content', '').lower()
             is_question = any(q in content for q in ['?', '？', '吗', '什么', '如何', '为什么', '怎么'])
             
-            if ((msg_time - first_unreplied_time) <= 5 or  # 缩短时间窗口到5秒
-                (current_time - msg_time) <= 5):           # 缩短最新消息判断时间到5秒
+            if ((msg_time - first_unreplied_time) <= 15 or  # 缩短时间窗口到15秒
+                (current_time - msg_time) <= 10):           # 缩短最新消息判断时间到10秒
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
@@ -189,9 +189,9 @@ def handler_text_msg(**context):
         print("[WATCHER] 没有需要回复的消息")
         return
         
-    # 检查当前消息是否是最新的未回复消息，缩短检查时间到5秒
+    # 检查当前消息是否是最新的未回复消息，缩短检查时间到10秒
     current_msg_time = int(message_data.get('CreateTime', 0))
-    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
+    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 10:
         print(f"[WATCHER] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
         return
 
