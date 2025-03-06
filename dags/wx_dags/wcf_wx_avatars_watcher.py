@@ -143,7 +143,7 @@ dag = DAG(
         'retry_delay': timedelta(minutes=1),  # 重试间隔
     },
     start_date=datetime(2024, 1, 1),
-    schedule_interval=timedelta(minutes=2), # 刷新间隔时间
+    schedule_interval=timedelta(minutes=60), # 刷新间隔时间
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=5),  # 增加超时时间
     catchup=False,
