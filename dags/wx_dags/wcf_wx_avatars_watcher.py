@@ -100,7 +100,7 @@ def save_wx_avatars_to_variable(**context):
         if updated_account_list:  # 只在有数据时更新Variable
             save_variable_name = f"{self_info['name']}_{self_info['wxid']}_CONTACT_LIST"
             Variable.set(save_variable_name, updated_account_list, serialize_json=True)
-            print(f"成功更新微信联系人昵称头像信息到变量: {save_variable_name})
+            print(f"成功更新微信联系人昵称头像信息到变量: {save_variable_name}")
         else:
             print("无有效账号信息，跳过更新")
             
@@ -143,7 +143,7 @@ dag = DAG(
         'retry_delay': timedelta(minutes=1),  # 重试间隔
     },
     start_date=datetime(2024, 1, 1),
-    schedule_interval=timedelta(minutes=2), # 刷新间隔时间
+    schedule_interval=timedelta(minutes=60), # 刷新间隔时间
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=5),  # 增加超时时间
     catchup=False,
