@@ -179,8 +179,6 @@ services:
       AIRFLOW_COMPONENT_TYPE: triggerer
 
   # Nginx 服务
-  # 使用nginx反向代理，将请求转发给airflow
-  # 使用nginx+OpenResty, 实现接收github webhook请求，并本地git fetch和git reset
   nginx:
     <<: *common
     image: openresty/openresty:1.21.4.1-6-alpine-fat
@@ -191,7 +189,6 @@ services:
       - ./nginx/conf.d/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
       - ./nginx/lua:/usr/local/openresty/nginx/lua
       - ./nginx/start.sh:/start.sh
-      - .:/app  # 挂载整个应用目录，用于git操作
     # 日志配置 - 使用json-file驱动收集日志，方便通过docker logs命令查看
     logging:
       driver: "json-file"
@@ -200,7 +197,7 @@ services:
         max-file: "3"
     environment:
       - TZ=Asia/Shanghai
-      - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL:-http://web:8080}
+      - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL}
       - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
       - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
       - WX_MSG_WATCHER_DAG_ID=${WX_MSG_WATCHER_DAG_ID:-wx_msg_watcher}
@@ -208,9 +205,6 @@ services:
     user: root
     # 自定义启动命令
     command: /start.sh
-    # 添加依赖
-    depends_on:
-      - web
     # 健康检查
     healthcheck:
       test: ["CMD", "nginx", "-t"]

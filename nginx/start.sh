@@ -49,29 +49,6 @@ if [ ! -d "/app/.git" ]; then
     echo "警告: /app目录下没有.git目录，可能不是有效的Git仓库"
 fi
 
-# Git配置
-cd /app
-echo "配置Git..."
-git config --global --add safe.directory /app
-
-# 如果存在PROXY_URL环境变量，则配置Git代理
-if [ ! -z "$PROXY_URL" ]; then
-    echo "检测到代理环境变量，配置Git使用代理: $PROXY_URL"
-    git config --global http.proxy "$PROXY_URL"
-    git config --global https.proxy "$PROXY_URL"
-else
-    echo "未检测到代理环境变量，Git将直接连接"
-fi
-
-# 测试Git连接
-echo "测试Git连接..."
-git status
-if [ $? -ne 0 ]; then
-    echo "Git仓库状态异常，请检查权限和配置"
-else
-    echo "Git仓库状态正常"
-fi
-
 # 启动Nginx
 echo "启动Nginx服务..."
 exec nginx -g "daemon off;" 
