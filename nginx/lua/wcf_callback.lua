@@ -1,6 +1,7 @@
 -- 导入所需模块
 local cjson = require "cjson"
 local http = require "resty.http"
+local socket = require "socket"
 
 -- 配置信息
 local AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL") or "http://web:8080"
@@ -25,6 +26,41 @@ local function debug_log(msg, obj)
             log("无法序列化详细数据: " .. tostring(obj), ngx.DEBUG)
         end
     end
+end
+
+-- 测试到Airflow的网络连接
+local function test_airflow_connection()
+    local url_module = require("socket.url")
+    local parsed_url = url_module.parse(AIRFLOW_BASE_URL)
+    if not parsed_url then
+        log("无法解析Airflow URL: " .. AIRFLOW_BASE_URL, ngx.ERR)
+        return false
+    end
+    
+    local host = parsed_url.host
+    local port = parsed_url.port or (parsed_url.scheme == "https" and 443 or 80)
+    
+    log("测试网络连接到Airflow服务: " .. host .. ":" .. port, ngx.INFO)
+    
+    -- 尝试TCP连接
+    local tcp = socket.tcp()
+    tcp:settimeout(5000)  -- 5秒超时
+    local ok, err = tcp:connect(host, port)
+    
+    if not ok then
+        log("无法连接到Airflow服务: " .. host .. ":" .. port .. " - " .. (err or "未知错误"), ngx.ERR)
+        return false, err
+    end
+    
+    log("成功连接到Airflow服务: " .. host .. ":" .. port, ngx.INFO)
+    tcp:close()
+    return true
+end
+
+-- 在脚本加载时测试连接
+local connection_ok, connection_err = test_airflow_connection()
+if not connection_ok then
+    log("启动时Airflow连接测试失败: " .. (connection_err or "未知错误"), ngx.WARN)
 end
 
 -- 主处理函数
@@ -100,7 +136,16 @@ local function process_wcf_callback()
     
     -- 尝试进行错误捕获
     local ok, res_or_err = pcall(function()
-        return httpc:request_uri(airflow_api_url, {
+        -- 先尝试解析主机名
+        local parsed_url, err = require("socket.url").parse(airflow_api_url)
+        if not parsed_url then
+            return nil, "无法解析URL: " .. (err or "未知错误")
+        end
+        
+        log("尝试连接到 " .. parsed_url.host .. ":" .. (parsed_url.port or "80"), ngx.INFO)
+        
+        -- 使用更详细的错误处理进行连接
+        local res, err = httpc:request_uri(airflow_api_url, {
             method = "POST",
             body = cjson.encode(airflow_payload),
             headers = {
@@ -108,6 +153,13 @@ local function process_wcf_callback()
                 ["Authorization"] = "Basic " .. ngx.encode_base64(AIRFLOW_USERNAME .. ":" .. AIRFLOW_PASSWORD)
             }
         })
+        
+        if not res then
+            log("连接错误详情: " .. (err or "未知错误"), ngx.ERR)
+            return nil, err
+        end
+        
+        return res
     end)
     
     -- 检查pcall结果
@@ -123,7 +175,11 @@ local function process_wcf_callback()
     end
     
     -- 正常处理HTTP请求结果
-    local res = res_or_err
+    local res, err = res_or_err, nil
+    if type(res_or_err) == "string" then
+        res, err = nil, res_or_err
+    end
+    
     if not res then
         log("调用Airflow API失败: " .. (err or "未知错误"), ngx.ERR)
         ngx.status = 500
