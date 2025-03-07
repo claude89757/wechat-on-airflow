@@ -693,10 +693,13 @@ def handler_image_msg(**context):
             with open(img_file_path, 'wb') as img_file:
                 img_file.write(img_response.content)
             print(f"[WATCHER] 从URL下载图片成功: {pic_url}")
+            # 保存原始URL
+            original_url = pic_url
         else:
             # 否则使用media_id获取临时素材
             mp_bot.download_temporary_media(media_id, img_file_path)
             print(f"[WATCHER] 从MediaId下载图片成功: {media_id}")
+            original_url = ""  # MediaId方式没有原始URL
         
         print(f"[WATCHER] 图片已保存到: {img_file_path}")
         
@@ -710,11 +713,14 @@ def handler_image_msg(**context):
             file_size = os.path.getsize(img_file_path)
             print(f"[WATCHER] 准备上传图片，文件大小: {file_size} bytes")
             
-            # 上传文件到Dify - 使用简单的调用方式
+            # 上传文件到Dify
             online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
             
             if not online_img_info or not online_img_info.get("id"):
                 raise Exception("上传图片到Dify失败，未获取到有效的图片ID")
+
+            # 添加原始URL到图片信息中
+            online_img_info["original_url"] = original_url
             print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
         except Exception as upload_error:
             raise Exception(f"上传图片到Dify失败: {str(upload_error)}")
@@ -763,11 +769,11 @@ def handler_image_msg(**context):
             if not online_img_info or not online_img_info.get("id"):
                 raise Exception("图片信息无效，无法进行分析")
             
-            # 构建文件信息
+            # 构建文件信息，优先使用原始URL
             dify_files = [{
                 "type": "image",
-                "transfer_method": "remote_url",  # 修改为remote_url
-                "url": online_img_info.get("url", ""),  # 使用Dify返回的URL
+                "transfer_method": "remote_url",  # 使用remote_url
+                "url": online_img_info.get("original_url") or online_img_info.get("url", ""),  # 优先使用原始URL
                 "upload_file_id": online_img_info.get("id", "")
             }]
             print(f"[WATCHER] 准备发送到Dify的文件信息: {dify_files}")
@@ -783,7 +789,7 @@ def handler_image_msg(**context):
                     "msg_id": msg_id,
                     "has_image": True,
                     "image_id": online_img_info.get("id", ""),
-                    "image_url": online_img_info.get("url", "")  # 添加图片URL
+                    "image_url": online_img_info.get("original_url") or online_img_info.get("url", "")  # 优先使用原始URL
                 },
                 files=dify_files
             )
