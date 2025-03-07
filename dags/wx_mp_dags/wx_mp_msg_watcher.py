@@ -237,14 +237,29 @@ def handler_text_msg(**context):
     # 检查是否有缓存的图片信息
     dify_files = []
     online_img_info = Variable.get(f"mp_{from_user_name}_online_img_info", default_var={}, deserialize_json=True)
-    if online_img_info:
+    if online_img_info and online_img_info.get("id"):
+        print(f"[WATCHER] 发现缓存的图片信息: {online_img_info}")
         dify_files.append({
             "type": "image",
             "transfer_method": "local_file",
             "upload_file_id": online_img_info.get("id", "")
         })
+        # 如果有图片，修改问题内容
+        if len(up_for_reply_msg_content_list) == 1 and up_for_reply_msg_content_list[0].strip() == "":
+            # 如果只有一条空消息，使用默认的图片分析提示语
+            question = "这是一张图片，请描述一下图片内容并给出你的分析"
+        else:
+            # 如果有具体问题，在问题前添加图片提示
+            question = "这是一张图片。" + question
+            
+        print(f"[WATCHER] 发现图片，修改后的问题: {question}")
+        
         # 使用完图片信息后清除缓存
-        Variable.delete(f"mp_{from_user_name}_online_img_info")
+        try:
+            Variable.delete(f"mp_{from_user_name}_online_img_info")
+            print("[WATCHER] 已清除图片缓存")
+        except Exception as e:
+            print(f"[WATCHER] 清除图片缓存失败: {e}")
 
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
@@ -256,7 +271,8 @@ def handler_text_msg(**context):
             "user_id": from_user_name,
             "msg_id": msg_id,
             "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
-            "question_count": len(up_for_reply_msg_content_list)
+            "question_count": len(up_for_reply_msg_content_list),
+            "has_image": bool(dify_files)  # 添加图片标记
         },
         files=dify_files
     )
