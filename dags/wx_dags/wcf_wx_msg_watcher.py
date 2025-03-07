@@ -190,7 +190,7 @@ def handler_image_msg(**context):
         context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
 
         # 上传图片到Dify
-        dify_user_id = f"{room_name}_{sender}"
+        dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
         dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
         dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
         online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
@@ -349,7 +349,7 @@ def handler_text_msg(**context):
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
-    dify_user_id = f"{room_name}_{sender}"
+    dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
     conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
     # 检查是否需要提前停止流程
