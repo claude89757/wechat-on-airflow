@@ -177,9 +177,6 @@ def handler_text_msg(**context):
             # 优化聚合判断逻辑：
             # 1. 消息时间在第一条未回复消息15秒内
             # 2. 消息时间在当前时间10秒内
-            content = msg.get('Content', '').lower()
-            is_question = any(q in content for q in ['?', '？', '吗', '什么', '如何', '为什么', '怎么'])
-            
             if ((msg_time - first_unreplied_time) <= 15 or  # 缩短时间窗口到15秒
                 (current_time - msg_time) <= 10):           # 缩短最新消息判断时间到10秒
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
@@ -237,6 +234,18 @@ def handler_text_msg(**context):
     print(f"合并后的问题:\n{question}")
     print("-"*50)
 
+    # 检查是否有缓存的图片信息
+    dify_files = []
+    online_img_info = Variable.get(f"mp_{from_user_name}_online_img_info", default_var={}, deserialize_json=True)
+    if online_img_info:
+        dify_files.append({
+            "type": "image",
+            "transfer_method": "local_file",
+            "upload_file_id": online_img_info.get("id", "")
+        })
+        # 使用完图片信息后清除缓存
+        Variable.delete(f"mp_{from_user_name}_online_img_info")
+
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
@@ -248,7 +257,8 @@ def handler_text_msg(**context):
             "msg_id": msg_id,
             "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
             "question_count": len(up_for_reply_msg_content_list)
-        }
+        },
+        files=dify_files
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
