@@ -55,13 +55,18 @@ def log_message(message):
 
 def run_command(command):
     """运行命令并返回输出"""
+    cmd_str = ' '.join(command)
     try:
-        result = subprocess.run(command, check=True, cwd=REPO_PATH, 
-                               capture_output=True, text=True)
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        log_message(f"命令执行失败: {' '.join(command)}")
-        log_message(f"错误输出: {e.stderr}")
+        # 使用 os.popen 执行命令
+        cmd = f"cd {REPO_PATH} && {cmd_str}"
+        log_message(f"执行命令: {cmd}")
+        output = os.popen(cmd).read()
+        if not output:
+            log_message("命令执行成功，但没有输出")
+        return output.strip()
+    except Exception as e:
+        log_message(f"命令执行失败: {cmd_str}")
+        log_message(f"错误: {str(e)}")
         raise
 
 @app.route('/update', methods=['POST'])
@@ -69,18 +74,15 @@ def update_repo():
     try:
         log_message("接收到GitHub webhook请求，开始更新代码...")
         
-        # 执行git命令并捕获输出
-        fetch_output = run_command(['git', 'fetch', '--all'])
-        log_message(f"Git fetch 输出:\n{fetch_output}")
-        
-        reset_output = run_command(['git', 'reset', '--hard', 'origin/main'])
-        log_message(f"Git reset 输出:\n{reset_output}")
+        # 执行git命令
+        run_command(['git', 'fetch', '--all'])
+        run_command(['git', 'reset', '--hard', 'origin/main'])
         
         # 获取最新提交信息
         commit_info = run_command(['git', 'log', '-1', '--pretty=format:%h %s (%an)'])
         
         # 返回成功信息
-        update_info = f"更新成功！\n最新提交: {commit_info}"
+        update_info = f"更新成功！最新提交: {commit_info}"
         log_message(update_info)
         return Response(update_info, status=200, mimetype='text/plain; charset=utf-8')
         
