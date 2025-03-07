@@ -27,6 +27,7 @@ echo "AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL}"
 echo "AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}"
 echo "AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}"
 echo "WX_MSG_WATCHER_DAG_ID: ${WX_MSG_WATCHER_DAG_ID}"
+echo "PROXY_URL: ${PROXY_URL}"
 
 # 将环境变量导出到一个临时文件，供Nginx使用
 # 使用更明确的方式导出关键环境变量
@@ -34,6 +35,7 @@ echo "AIRFLOW_BASE_URL=$AIRFLOW_BASE_URL" > /tmp/env.txt
 echo "AIRFLOW_USERNAME=$AIRFLOW_USERNAME" >> /tmp/env.txt
 echo "AIRFLOW_PASSWORD=$AIRFLOW_PASSWORD" >> /tmp/env.txt
 echo "WX_MSG_WATCHER_DAG_ID=$WX_MSG_WATCHER_DAG_ID" >> /tmp/env.txt
+echo "PROXY_URL=$PROXY_URL" >> /tmp/env.txt
 
 # 显示导出的环境变量内容进行验证
 echo "已导出以下环境变量到/tmp/env.txt文件:"
@@ -42,6 +44,19 @@ cat /tmp/env.txt
 # Git配置
 cd /app
 git config --global --add safe.directory /app
+# 配置Git超时和连接设置
+git config --global http.lowSpeedLimit 1000
+git config --global http.lowSpeedTime 30
+git config --global http.postBuffer 524288000
+
+# 如果存在PROXY_URL环境变量，则配置Git代理
+if [ ! -z "$PROXY_URL" ]; then
+    echo "检测到代理环境变量，配置Git使用代理: $PROXY_URL"
+    git config --global http.proxy "$PROXY_URL"
+    git config --global https.proxy "$PROXY_URL"
+else
+    echo "未检测到代理环境变量，Git将直接连接"
+fi
 
 # 启动Nginx
 echo "启动Nginx服务..."
