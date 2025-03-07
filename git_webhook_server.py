@@ -27,47 +27,56 @@ import os
 import subprocess
 import http.server
 import socketserver
+import sys
 from datetime import datetime
 
 # 配置
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
 PORT = 5000
 
+# 确保所有输出都被刷新，不被缓存
+sys.stdout.reconfigure(line_buffering=True)
+
+def log_message(message):
+    """打印带时间戳的日志消息"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}")
+
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        # 获取当前时间
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         if self.path != "/update":
-            self._send_response(404, f"[{timestamp}] 未找到")
+            log_message(f"收到无效请求: {self.path}")
+            self._send_response(404, "未找到")
             return
             
         try:
-            print(f"[{timestamp}] 接收到GitHub webhook请求，开始更新代码...")
+            log_message("接收到GitHub webhook请求，开始更新代码...")
             
-            # 执行git命令
-            self._run_git_update()
+            # 执行git命令并捕获输出
+            fetch_output = self._run_command(['git', 'fetch', '--all'])
+            log_message(f"Git fetch 输出:\n{fetch_output}")
+            
+            reset_output = self._run_command(['git', 'reset', '--hard', 'origin/main'])
+            log_message(f"Git reset 输出:\n{reset_output}")
             
             # 获取最新提交信息
-            commit_info = subprocess.run(
-                ['git', 'log', '-1', '--pretty=format:%h %s (%an)'], 
-                check=True, cwd=REPO_PATH, capture_output=True, text=True
-            ).stdout
+            commit_info = self._run_command(['git', 'log', '-1', '--pretty=format:%h %s (%an)'])
             
             # 返回成功信息
-            update_info = f"[{timestamp}] 更新成功！\n最新提交: {commit_info}"
-            print(update_info)
+            update_info = f"更新成功！\n最新提交: {commit_info}"
+            log_message(update_info)
             self._send_response(200, update_info)
             
         except Exception as e:
-            error_message = f"[{timestamp}] 更新失败: {str(e)}"
-            print(error_message)
+            error_message = f"更新失败: {str(e)}"
+            log_message(error_message)
             self._send_response(500, error_message)
     
-    def _run_git_update(self):
-        """执行git更新命令"""
-        subprocess.run(['git', 'fetch', '--all'], check=True, cwd=REPO_PATH)
-        subprocess.run(['git', 'reset', '--hard', 'origin/main'], check=True, cwd=REPO_PATH)
+    def _run_command(self, command):
+        """运行命令并返回输出"""
+        result = subprocess.run(command, check=True, cwd=REPO_PATH, 
+                               capture_output=True, text=True)
+        return result.stdout.strip()
     
     def _send_response(self, status_code, message):
         """发送HTTP响应"""
@@ -77,8 +86,7 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(message.encode('utf-8'))
 
 if __name__ == "__main__":
-    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{start_time}] Git Webhook 服务器启动，监听端口 {PORT}...")
+    log_message(f"Git Webhook 服务器启动，监听端口 {PORT}...")
     with socketserver.TCPServer(("", PORT), WebhookHandler) as httpd:
-        print(f"[{start_time}] 等待 GitHub webhook 请求...")
+        log_message("等待 GitHub webhook 请求...")
         httpd.serve_forever()
