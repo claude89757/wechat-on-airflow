@@ -191,7 +191,7 @@ def handler_image_msg(**context):
 
         # 上传图片到Dify
         dify_user_id = f"{room_name}_{sender}"
-        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key", deserialize_json=True)
+        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
         dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
         online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
         print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
@@ -239,7 +239,7 @@ def handler_voice_msg(**context):
     voice_file_path = download_voice_from_windows_server(source_ip, msg_id)
 
     # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key", deserialize_json=True)
+    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
@@ -345,7 +345,7 @@ def handler_text_msg(**context):
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
     # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key", deserialize_json=True)
+    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
