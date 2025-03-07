@@ -7,7 +7,19 @@ mkdir -p /usr/local/openresty/nginx/conf /usr/local/openresty/lualib/resty /etc/
 sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositories
 
 # 安装依赖
+echo "正在安装依赖..."
 apk update && apk add --no-cache git curl luarocks
+
+# 验证git安装
+echo "验证git安装..."
+which git
+if [ $? -ne 0 ]; then
+    echo "Git安装失败，尝试重新安装..."
+    apk add --no-cache --update git
+    which git || echo "Git安装仍然失败!"
+else
+    echo "Git安装成功: $(git --version)"
+fi
 
 # 安装lua-resty-http库
 luarocks install lua-resty-http
@@ -41,8 +53,16 @@ echo "PROXY_URL=$PROXY_URL" >> /tmp/env.txt
 echo "已导出以下环境变量到/tmp/env.txt文件:"
 cat /tmp/env.txt
 
+# 检查/app目录
+echo "检查/app目录..."
+ls -la /app
+if [ ! -d "/app/.git" ]; then
+    echo "警告: /app目录下没有.git目录，可能不是有效的Git仓库"
+fi
+
 # Git配置
 cd /app
+echo "配置Git..."
 git config --global --add safe.directory /app
 
 # 如果存在PROXY_URL环境变量，则配置Git代理
@@ -52,6 +72,15 @@ if [ ! -z "$PROXY_URL" ]; then
     git config --global https.proxy "$PROXY_URL"
 else
     echo "未检测到代理环境变量，Git将直接连接"
+fi
+
+# 测试Git连接
+echo "测试Git连接..."
+git status
+if [ $? -ne 0 ]; then
+    echo "Git仓库状态异常，请检查权限和配置"
+else
+    echo "Git仓库状态正常"
 fi
 
 # 启动Nginx
