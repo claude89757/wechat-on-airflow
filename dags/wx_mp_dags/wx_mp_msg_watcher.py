@@ -241,7 +241,8 @@ def handler_text_msg(**context):
         print(f"[WATCHER] 发现缓存的图片信息: {online_img_info}")
         dify_files.append({
             "type": "image",
-            "transfer_method": "local_file",
+            "transfer_method": "remote_url",  # 修改为remote_url
+            "url": online_img_info.get("url", ""),  # 使用Dify返回的URL
             "upload_file_id": online_img_info.get("id", "")
         })
         # 如果有图片，修改问题内容
@@ -272,7 +273,9 @@ def handler_text_msg(**context):
             "msg_id": msg_id,
             "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
             "question_count": len(up_for_reply_msg_content_list),
-            "has_image": bool(dify_files)  # 添加图片标记
+            "has_image": bool(dify_files),  # 添加图片标记
+            "image_id": online_img_info.get("id", "") if online_img_info else "",  # 添加图片ID
+            "image_url": online_img_info.get("url", "") if online_img_info else ""  # 添加图片URL
         },
         files=dify_files
     )
@@ -707,7 +710,7 @@ def handler_image_msg(**context):
             file_size = os.path.getsize(img_file_path)
             print(f"[WATCHER] 准备上传图片，文件大小: {file_size} bytes")
             
-            # 上传文件到Dify
+            # 上传文件到Dify - 使用简单的调用方式
             online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
             
             if not online_img_info or not online_img_info.get("id"):
