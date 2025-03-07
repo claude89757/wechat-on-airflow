@@ -3,6 +3,10 @@
 # 创建必要目录
 mkdir -p /usr/local/openresty/nginx/{logs,conf} /usr/local/openresty/lualib/resty /etc/nginx
 
+# 设置国内Alpine镜像源
+echo "设置腾讯云Alpine镜像源..."
+sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositories
+
 # 安装依赖
 apk update && apk add --no-cache git curl openssl openssh-client bash
 
