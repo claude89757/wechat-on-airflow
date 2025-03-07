@@ -6,7 +6,6 @@ Git Webhook 微服务 (Flask版)
 
 功能：
 - 接收GitHub的webhook请求，自动更新代码
-- 支持简单的安全验证
 
 使用方法：
 1. 安装依赖:
@@ -27,17 +26,12 @@ Git Webhook 微服务 (Flask版)
 
 import os
 import subprocess
-import hmac
-import hashlib
 from datetime import datetime
-from flask import Flask, request, Response, abort
+from flask import Flask, request, Response
 
 # 配置
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
 PORT = 5000
-# 可选：设置 GitHub Webhook 密钥进行验证
-# 如果不需要验证，设置为 None
-SECRET_TOKEN = os.environ.get('WEBHOOK_SECRET', None)
 
 app = Flask(__name__)
 
@@ -57,32 +51,8 @@ def run_command(command):
         log_message(f"错误输出: {e.stderr}")
         raise
 
-def verify_signature(request_data, signature_header):
-    """验证 GitHub webhook 签名"""
-    if not SECRET_TOKEN:
-        return True  # 如果没有设置密钥，跳过验证
-        
-    if not signature_header:
-        return False
-        
-    # 获取签名
-    sha_name, signature = signature_header.split('=')
-    if sha_name != 'sha1':
-        return False
-        
-    # 计算 HMAC
-    mac = hmac.new(SECRET_TOKEN.encode(), msg=request_data, digestmod=hashlib.sha1)
-    return hmac.compare_digest(mac.hexdigest(), signature)
-
 @app.route('/update', methods=['POST'])
 def update_repo():
-    # 验证请求
-    if SECRET_TOKEN:
-        signature = request.headers.get('X-Hub-Signature')
-        if not verify_signature(request.data, signature):
-            log_message("签名验证失败，拒绝请求")
-            abort(403)
-    
     try:
         log_message("接收到GitHub webhook请求，开始更新代码...")
         
@@ -112,9 +82,5 @@ def home():
 
 if __name__ == "__main__":
     log_message(f"Git Webhook 服务器启动，监听端口 {PORT}...")
-    if SECRET_TOKEN:
-        log_message("已启用 Webhook 签名验证")
-    else:
-        log_message("警告: 未设置 Webhook 密钥，任何请求都将被接受")
     log_message("等待 GitHub webhook 请求...")
     app.run(host='0.0.0.0', port=PORT, debug=False)
