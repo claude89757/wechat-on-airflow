@@ -1,5 +1,6 @@
 -- 导入所需模块
-local shell = require "resty.shell"
+-- 不再使用 resty.shell，改用 os.execute
+-- local shell = require "resty.shell"
 
 -- 简单日志函数
 local function log(msg)
@@ -12,10 +13,10 @@ local function execute_cmd(cmd)
     local command = "cd /app && " .. cmd
     log("执行命令: " .. command)
     
-    local status, output, err = shell.execute(command)
+    local status = os.execute(command)
     
     if status ~= 0 then
-        log("命令执行失败: " .. (err or "未知错误"))
+        log("命令执行失败: 返回状态码 " .. tostring(status))
         return false
     end
     
@@ -48,8 +49,11 @@ local function process_webhook()
     execute_cmd("git clean -fd")
     
     -- 获取当前提交信息
-    local status, commit_info, _ = shell.execute("cd /app && git log -1 --pretty=format:'%h - %an, %ar : %s'")
-    if status == 0 then
+    local handle = io.popen("cd /app && git log -1 --pretty=format:'%h - %an, %ar : %s'")
+    local commit_info = handle:read("*a")
+    handle:close()
+    
+    if commit_info and commit_info ~= "" then
         log("当前代码版本: " .. commit_info)
     end
     
