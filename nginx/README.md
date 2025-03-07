@@ -1,9 +1,8 @@
 # Nginx + OpenResty 配置
 
 本配置实现了三个主要功能：
-1. 处理GitHub Webhook请求，自动执行git fetch和git reset命令
-2. 处理微信回调请求，并通过Airflow API触发相应的DAG
-3. 提供健康检查端点
+1. 处理微信回调请求，并通过Airflow API触发相应的DAG
+2. 提供健康检查端点
 
 ## 目录结构
 
@@ -24,19 +23,11 @@ nginx/
 ### 访问控制策略
 
 - 本服务只开放三个特定的API端点:
-  - `/update`: GitHub Webhook处理
   - `/wcf_callback`: 微信回调处理
   - `/health`: 健康检查端点
 - 所有其他未明确定义的路径请求将返回404错误
 - 不转发任何其他流量到Airflow后端
 
-### GitHub Webhook 处理
-
-- `/update` 路径专门用于接收GitHub Webhook请求
-- 使用Lua脚本处理请求并执行git命令
-- 脚本会自动执行：
-  1. `git fetch --all`
-  2. `git reset --hard origin/main`
 
 ### 微信回调处理
 
@@ -72,12 +63,6 @@ Nginx容器会处理和Airflow的鉴权，通过以下方式：
 3. 将整个应用目录挂载到容器内的`/app`路径
 
 ## 测试 API
-
-### 测试GitHub Webhook
-
-```bash
-curl -X POST http://your-server/update
-```
 
 ### 测试微信回调
 
