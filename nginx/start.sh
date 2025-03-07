@@ -6,7 +6,18 @@ chmod 755 /usr/local/openresty/nginx/logs
 
 # 安装git和其他依赖（如果未安装）
 echo "正在安装必要的依赖..."
-apk update && apk add --no-cache git curl openssl
+apk update && apk add --no-cache git curl openssl openssh-client bash
+
+# 确保LuaJIT库能被找到
+echo "配置LuaJIT库路径..."
+if [ ! -d "/usr/local/openresty/luajit" ]; then
+    mkdir -p /usr/local/openresty/luajit/lib
+    ln -sf /usr/local/openresty/lualib/* /usr/local/openresty/luajit/lib/ 2>/dev/null || true
+fi
+
+# 检查并创建目录结构
+mkdir -p /usr/local/openresty/lualib/resty
+mkdir -p /usr/local/openresty/nginx/conf
 
 # 确保git可以在/app目录下运行
 cd /app

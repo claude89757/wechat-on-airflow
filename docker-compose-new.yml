@@ -183,7 +183,7 @@ services:
   # 使用nginx+OpenResty, 实现接收github webhook请求，并本地git fetch和git reset
   nginx:
     <<: *common
-    image: openresty/openresty:alpine
+    image: openresty/openresty:1.21.4.1-6-alpine-fat
     ports:
       - "80:80"
     volumes:
