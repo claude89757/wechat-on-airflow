@@ -1,0 +1,215 @@
+#===============================================================================
+# 基础配置
+#===============================================================================
+x-common: &common
+  restart: unless-stopped
+  networks:
+    - airflow-network
+
+networks:
+  airflow-network:
+    driver: bridge
+
+#===============================================================================
+# Airflow 基础配置
+#===============================================================================
+x-airflow-common: &airflow-common
+  <<: *common
+  image: bitnami/airflow:latest
+  volumes: &airflow-volumes
+    - ./dags:/opt/bitnami/airflow/dags
+    - ./logs:/opt/bitnami/airflow/logs
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgresql:
+      condition: service_healthy
+
+#===============================================================================
+# Airflow 环境变量
+#===============================================================================
+x-airflow-env: &airflow-env
+  # 密钥配置
+  AIRFLOW_FERNET_KEY: &fernet_key 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+  AIRFLOW_SECRET_KEY: &secret_key a25mQ1FHTUh3MnFRSk5KMEIyVVU2YmN0VGRyYTVXY08=
+  AIRFLOW_EXECUTOR: CeleryExecutor
+  AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}
+  AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}
+  AIRFLOW_EMAIL: ${AIRFLOW_EMAIL}
+
+  # 数据库配置
+  AIRFLOW_DATABASE_NAME: &db_name ${AIRFLOW_DATABASE_NAME}
+  AIRFLOW_DATABASE_USERNAME: &db_user ${AIRFLOW_DATABASE_USERNAME}
+  AIRFLOW_DATABASE_PASSWORD: &db_pass ${AIRFLOW_DATABASE_PASSWORD}
+
+  # 核心配置
+  AIRFLOW__CORE__PARALLELISM: 32
+  AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: 16
+  AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 8
+  AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Shanghai
+  # 这里使用了环境变量 AIRFLOW_DAGS_FOLDER 来配置 DAG 文件夹路径
+  AIRFLOW__CORE__DAGS_FOLDER: ${AIRFLOW_DAGS_FOLDER:-/opt/bitnami/airflow/dags}
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  AIRFLOW__CORE__IGNORE_DAGS_ON_LOAD_ERROR: "True"
+  AIRFLOW__CORE__DAGS_FOLDER_SKIP_PATTERNS: "example_*.py,examples/*.py"
+
+  # Webserver 配置
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+  AIRFLOW__WEBSERVER__ALLOW_CONFIG_TRIGGER: "True"
+  AIRFLOW__WEBSERVER__SHOW_TRIGGER_FORM_IF_NO_PARAMS: "True"
+  AIRFLOW__WEBSERVER__EXPOSE_TRIGGER_ENDPOINT: "True"
+
+  # Scheduler 配置
+  AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: "True"
+  AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: 30
+
+  # API 配置
+  AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+  AIRFLOW__API__ACCESS_CONTROL_ALLOW_HEADERS: "*"
+  AIRFLOW__API__ACCESS_CONTROL_ALLOW_METHODS: "*"
+  AIRFLOW__API__ACCESS_CONTROL_ALLOW_ORIGINS: "*"
+
+  # Worker 配置
+  AIRFLOW__CELERY__WORKER_CONCURRENCY: 16
+  AIRFLOW__CELERY__WORKER_AUTOSCALE: "16,4"
+  AIRFLOW__CELERY__WORKER_MAX_MEMORY_PER_CHILD: "512000"
+  AIRFLOW__CELERY__OPERATION_TIMEOUT: 1800
+  AIRFLOW__CELERY__BROKER_CONNECTION_RETRY_ON_STARTUP: "True"
+
+  # DB 配置
+  AIRFLOW__DATABASE__LOAD_DEFAULT_CONNECTIONS: "False"
+
+  # 系统配置
+  TZ: Asia/Shanghai
+  PIP_INDEX_URL: https://mirrors.cloud.tencent.com/pypi/simple/
+  PIP_TRUSTED_HOST: mirrors.cloud.tencent.com
+
+#===============================================================================
+# 服务定义
+#===============================================================================
+services:
+  # 数据库服务
+  postgresql:
+    <<: *common
+    image: bitnami/postgresql:latest
+    environment: 
+      POSTGRESQL_DATABASE: *db_name
+      POSTGRESQL_USERNAME: *db_user
+      POSTGRESQL_PASSWORD: *db_pass
+    volumes:
+      - ./database/postgresql:/bitnami/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+
+  # Redis 服务
+  redis:
+    <<: *common
+    image: bitnami/redis:latest
+    environment:
+      ALLOW_EMPTY_PASSWORD: yes
+    volumes:
+      - ./database/redis:/bitnami
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  # Airflow Web 服务
+  web:
+    <<: *airflow-common
+    ports:
+      - '8080:8080'
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: webserver
+
+  # Airflow Scheduler 服务
+  scheduler:
+    <<: *airflow-common
+    deploy:
+      replicas: 2  # 运行2个调度器实例
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: scheduler
+
+  # Airflow Worker 服务
+  worker:
+    <<: *airflow-common
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - ./requirements.txt:/bitnami/python/requirements.txt
+      - /tmp:/tmp
+    # 设置为 root 用户, 用于安装相关系统依赖
+    user: root
+    command: >
+      bash -c "
+        sed -i 's/deb.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
+        sed -i 's/security.debian.org/mirrors.cloud.tencent.com/g' /etc/apt/sources.list &&
+        apt-get update && 
+        apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev ffmpeg &&
+        chown -R root:root /opt/bitnami &&
+        chmod -R 777 /opt/bitnami &&
+        /opt/bitnami/scripts/airflow/run.sh
+      "
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: worker
+
+  # Airflow DAG Processor 服务
+  dag-processor:
+    <<: *airflow-common
+    volumes:
+      - ./dags:/opt/bitnami/airflow/dags
+      - ./logs:/opt/bitnami/airflow/logs
+      - ./requirements.txt:/bitnami/python/requirements.txt
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: dag-processor
+
+  # Airflow Triggerer 服务
+  triggerer:
+    <<: *airflow-common
+    environment:
+      <<: *airflow-env
+      AIRFLOW_COMPONENT_TYPE: triggerer
+
+  # Nginx 服务
+  # 使用nginx反向代理，将请求转发给airflow
+  # 使用nginx+OpenResty, 实现接收github webhook请求，并本地git fetch和git reset
+  nginx:
+    <<: *common
+    image: openresty/openresty:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/conf.d/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+      - ./nginx/lua:/usr/local/openresty/nginx/lua
+      - ./nginx/logs:/usr/local/openresty/nginx/logs
+      - ./nginx/start.sh:/start.sh
+      - .:/app  # 挂载整个应用目录，用于git操作
+      - ./.env:/app/.env  # 挂载.env文件以获取环境变量
+    environment:
+      - TZ=Asia/Shanghai
+      - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL:-http://web:8080}
+      - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
+      - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
+      - WX_MSG_WATCHER_DAG_ID=${WX_MSG_WATCHER_DAG_ID:-wx_msg_watcher}
+    # 使用root用户运行，确保有权限执行git命令
+    user: root
+    # 自定义启动命令
+    command: /start.sh
+    # 添加依赖
+    depends_on:
+      - web
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
