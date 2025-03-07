@@ -111,7 +111,10 @@ def update_wx_user_info(source_ip: str) -> dict:
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_dify_api_key", "app-qKIPKEM5uzaGW0AFzAobz2Td")
 
     # 初始化新用户的聊天记录表
-    init_wx_chat_records_table(new_account['wxid'])
+    try:
+        init_wx_chat_records_table(new_account['wxid'])
+    except Exception as error:
+        print(f"[WATCHER] 初始化新用户聊天记录表失败: {error}")
 
     print(f"新用户, 更新用户信息: {new_account}")
     Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
