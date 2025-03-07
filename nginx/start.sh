@@ -10,17 +10,6 @@ sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositor
 echo "正在安装依赖..."
 apk update && apk add --no-cache git curl luarocks
 
-# 验证git安装
-echo "验证git安装..."
-which git
-if [ $? -ne 0 ]; then
-    echo "Git安装失败，尝试重新安装..."
-    apk add --no-cache --update git
-    which git || echo "Git安装仍然失败!"
-else
-    echo "Git安装成功: $(git --version)"
-fi
-
 # 安装lua-resty-http库
 luarocks install lua-resty-http
 # 安装lua-resty-openssl库 (解决mTLS支持问题)
