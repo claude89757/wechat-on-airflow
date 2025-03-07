@@ -1,6 +1,5 @@
 -- 导入所需模块
--- 不再使用 resty.shell，改用 os.execute
--- local shell = require "resty.shell"
+local ngx_pipe = require "ngx.pipe"
 
 -- 简单日志函数
 local function log(msg)
@@ -13,14 +12,21 @@ local function execute_cmd(cmd)
     local command = "cd /app && " .. cmd
     log("执行命令: " .. command)
     
-    local status = os.execute(command)
-    
-    if status ~= 0 then
-        log("命令执行失败: 返回状态码 " .. tostring(status))
+    local proc = ngx_pipe.spawn({"sh", "-c", command})
+    if not proc then
+        log("创建进程失败")
         return false
     end
     
-    log("命令执行成功")
+    local stdout, stderr, reason, status = proc:stdout_read_all()
+    proc:wait()
+    
+    if status ~= 0 then
+        log("命令执行失败: " .. (stderr or reason or "未知错误"))
+        return false
+    end
+    
+    log("命令执行成功: " .. (stdout or ""))
     return true
 end
 
@@ -49,9 +55,12 @@ local function process_webhook()
     execute_cmd("git clean -fd")
     
     -- 获取当前提交信息
-    local handle = io.popen("cd /app && git log -1 --pretty=format:'%h - %an, %ar : %s'")
-    local commit_info = handle:read("*a")
-    handle:close()
+    local proc = ngx_pipe.spawn({"sh", "-c", "cd /app && git log -1 --pretty=format:'%h - %an, %ar : %s'"})
+    local commit_info = ""
+    if proc then
+        commit_info = proc:stdout_read_all() or ""
+        proc:wait()
+    end
     
     if commit_info and commit_info ~= "" then
         log("当前代码版本: " .. commit_info)

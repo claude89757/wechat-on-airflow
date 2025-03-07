@@ -15,7 +15,8 @@ luarocks install lua-resty-http
 luarocks install lua-resty-openssl
 # 安装luasocket库 (URL解析和网络功能)
 luarocks install luasocket
-
+# 安装cjson库 (JSON处理)
+luarocks install lua-cjson
 
 # 配置LuaJIT库
 if [ ! -d "/usr/local/openresty/luajit" ]; then
