@@ -9,31 +9,51 @@ local AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD") or "airflow"
 local WX_MSG_WATCHER_DAG_ID = os.getenv("WX_MSG_WATCHER_DAG_ID") or "wx_msg_watcher"
 
 -- 日志函数
-local function log(msg)
-    ngx.log(ngx.INFO, "[WCF Callback] ", msg)
+local function log(msg, level)
+    level = level or ngx.INFO
+    ngx.log(level, "[WCF Callback] ", msg)
+end
+
+-- 调试日志函数，输出更详细的信息
+local function debug_log(msg, obj)
+    log(msg, ngx.DEBUG)
+    if obj then
+        local success, json_str = pcall(cjson.encode, obj)
+        if success then
+            log("详细数据: " .. json_str, ngx.DEBUG)
+        else
+            log("无法序列化详细数据: " .. tostring(obj), ngx.DEBUG)
+        end
+    end
 end
 
 -- 主处理函数
 local function process_wcf_callback()
+    -- 记录开始处理请求
+    log("开始处理微信回调请求", ngx.INFO)
+    
     -- 获取请求体数据
     ngx.req.read_body()
     local request_body = ngx.req.get_body_data()
     
     if not request_body then
-        log("请求体为空")
+        log("请求体为空", ngx.ERR)
         ngx.status = 400
         ngx.header.content_type = "application/json"
         ngx.say(cjson.encode({message = "无效的数据"}))
         return ngx.exit(400)
     end
     
+    -- 记录原始请求体用于调试
+    debug_log("收到原始请求体", {body = request_body})
+    
     -- 解析JSON请求体
     local success, callback_data = pcall(cjson.decode, request_body)
     if not success then
-        log("解析请求体失败: " .. callback_data)
+        log("解析请求体失败: " .. callback_data, ngx.ERR)
         ngx.status = 400
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({message = "无效的JSON数据"}))
+        ngx.say(cjson.encode({message = "无效的JSON数据", error = callback_data}))
         return ngx.exit(400)
     end
     
@@ -43,6 +63,9 @@ local function process_wcf_callback()
     
     -- 将源IP添加到callback_data中
     callback_data["source_ip"] = client_ip
+    
+    -- 记录解析后的请求数据
+    debug_log("解析后的请求数据", callback_data)
     
     -- 创建唯一的dag_run_id
     local formatted_roomid = string.gsub(tostring(callback_data["roomid"] or ""), "[^a-zA-Z0-9]", "")
@@ -59,6 +82,8 @@ local function process_wcf_callback()
     }
     
     log("准备触发Airflow DAG, dag_run_id: " .. dag_run_id)
+    debug_log("Airflow API载荷", airflow_payload)
+    debug_log("Airflow连接信息", {url = AIRFLOW_BASE_URL, username = AIRFLOW_USERNAME, dag_id = WX_MSG_WATCHER_DAG_ID})
     
     -- 使用HTTP客户端触发Airflow DAG
     local httpc = http.new()
@@ -68,19 +93,39 @@ local function process_wcf_callback()
     
     -- 构建API URL
     local airflow_api_url = AIRFLOW_BASE_URL .. "/api/v1/dags/" .. WX_MSG_WATCHER_DAG_ID .. "/dagRuns"
+    log("调用Airflow API URL: " .. airflow_api_url, ngx.INFO)
     
-    -- 发送请求到Airflow API
-    local res, err = httpc:request_uri(airflow_api_url, {
-        method = "POST",
-        body = cjson.encode(airflow_payload),
-        headers = {
-            ["Content-Type"] = "application/json",
-            ["Authorization"] = "Basic " .. ngx.encode_base64(AIRFLOW_USERNAME .. ":" .. AIRFLOW_PASSWORD)
-        }
-    })
+    -- 发送请求到Airflow API之前记录
+    log("开始发送请求到Airflow API", ngx.INFO)
     
+    -- 尝试进行错误捕获
+    local ok, res_or_err = pcall(function()
+        return httpc:request_uri(airflow_api_url, {
+            method = "POST",
+            body = cjson.encode(airflow_payload),
+            headers = {
+                ["Content-Type"] = "application/json",
+                ["Authorization"] = "Basic " .. ngx.encode_base64(AIRFLOW_USERNAME .. ":" .. AIRFLOW_PASSWORD)
+            }
+        })
+    end)
+    
+    -- 检查pcall结果
+    if not ok then
+        log("调用Airflow API发生Lua错误: " .. tostring(res_or_err), ngx.ERR)
+        ngx.status = 500
+        ngx.header.content_type = "application/json"
+        ngx.say(cjson.encode({
+            message = "Airflow API请求过程中发生Lua错误", 
+            error = tostring(res_or_err)
+        }))
+        return ngx.exit(500)
+    end
+    
+    -- 正常处理HTTP请求结果
+    local res = res_or_err
     if not res then
-        log("调用Airflow API失败: " .. (err or "未知错误"))
+        log("调用Airflow API失败: " .. (err or "未知错误"), ngx.ERR)
         ngx.status = 500
         ngx.header.content_type = "application/json"
         ngx.say(cjson.encode({
@@ -91,6 +136,9 @@ local function process_wcf_callback()
     end
     
     -- 检查响应状态
+    log("收到Airflow API响应, 状态码: " .. res.status, ngx.INFO)
+    debug_log("Airflow API响应详情", {status = res.status, body = res.body, headers = res.headers})
+    
     if res.status == 200 or res.status == 201 then
         log("成功触发Airflow DAG: " .. WX_MSG_WATCHER_DAG_ID .. ", dag_run_id: " .. dag_run_id)
         ngx.status = 200
@@ -100,7 +148,7 @@ local function process_wcf_callback()
             dag_run_id = dag_run_id
         }))
     else
-        log("触发Airflow DAG失败: " .. res.status .. " - " .. res.body)
+        log("触发Airflow DAG失败: " .. res.status .. " - " .. res.body, ngx.ERR)
         ngx.status = res.status
         ngx.header.content_type = "application/json"
         ngx.say(cjson.encode({
@@ -111,5 +159,19 @@ local function process_wcf_callback()
     end
 end
 
+-- 错误处理包装器
+local function error_handler()
+    local ok, err = pcall(process_wcf_callback)
+    if not ok then
+        log("处理WCF回调时发生未捕获的错误: " .. tostring(err), ngx.ERR)
+        ngx.status = 500
+        ngx.header.content_type = "application/json"
+        ngx.say(cjson.encode({
+            message = "处理请求时发生内部服务器错误", 
+            error = tostring(err)
+        }))
+    end
+end
+
 -- 执行处理函数
-process_wcf_callback() 
+error_handler() 
