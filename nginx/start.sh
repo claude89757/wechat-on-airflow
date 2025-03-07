@@ -44,10 +44,6 @@ cat /tmp/env.txt
 # Git配置
 cd /app
 git config --global --add safe.directory /app
-# 配置Git超时和连接设置
-git config --global http.lowSpeedLimit 1000
-git config --global http.lowSpeedTime 30
-git config --global http.postBuffer 524288000
 
 # 如果存在PROXY_URL环境变量，则配置Git代理
 if [ ! -z "$PROXY_URL" ]; then
