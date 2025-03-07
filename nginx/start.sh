@@ -1,17 +1,15 @@
 #!/bin/sh
 
 # 创建必要目录
-mkdir -p /usr/local/openresty/nginx/{logs,conf} /usr/local/openresty/lualib/resty /etc/nginx
+mkdir -p /usr/local/openresty/nginx/conf /usr/local/openresty/lualib/resty /etc/nginx
 
 # 设置国内Alpine镜像源
-echo "设置腾讯云Alpine镜像源..."
 sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositories
 
 # 安装依赖
-apk update && apk add --no-cache git curl openssl openssh-client bash luarocks
+apk update && apk add --no-cache git curl luarocks
 
 # 安装lua-resty-http库
-echo "安装lua-resty-http库..."
 luarocks install lua-resty-http
 
 # 配置LuaJIT库
@@ -31,16 +29,5 @@ export AIRFLOW_USERNAME="${AIRFLOW_USERNAME:-airflow}"
 export AIRFLOW_PASSWORD="${AIRFLOW_PASSWORD:-airflow}"
 export WX_MSG_WATCHER_DAG_ID="${WX_MSG_WATCHER_DAG_ID:-wx_msg_watcher}"
 
-# 保存环境变量
-cat > /usr/local/openresty/nginx/conf/nginx.env <<EOF
-export AIRFLOW_BASE_URL="${AIRFLOW_BASE_URL}"
-export AIRFLOW_USERNAME="${AIRFLOW_USERNAME}"
-export AIRFLOW_PASSWORD="${AIRFLOW_PASSWORD}"
-export WX_MSG_WATCHER_DAG_ID="${WX_MSG_WATCHER_DAG_ID}"
-EOF
-
-# 验证并启动Nginx
-nginx -t && {
-    source /usr/local/openresty/nginx/conf/nginx.env
-    nginx -g "daemon off;"
-} || exit 1 
+# 启动Nginx
+nginx -g "daemon off;" 
