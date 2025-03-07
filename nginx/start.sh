@@ -11,6 +11,8 @@ apk update && apk add --no-cache git curl luarocks
 
 # 安装lua-resty-http库
 luarocks install lua-resty-http
+# 安装lua-resty-openssl库 (解决mTLS支持问题)
+luarocks install lua-resty-openssl
 
 # 配置LuaJIT库
 if [ ! -d "/usr/local/openresty/luajit" ]; then
