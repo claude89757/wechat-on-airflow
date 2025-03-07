@@ -25,7 +25,6 @@ Git Webhook 微服务 (Flask版)
 """
 
 import os
-import subprocess
 import logging
 from datetime import datetime
 from flask import Flask, request, Response
@@ -56,6 +55,7 @@ def log_message(message):
 def run_command(command):
     """运行命令并返回输出"""
     cmd_str = ' '.join(command)
+    
     try:
         # 使用 os.popen 执行命令
         cmd = f"cd {REPO_PATH} && {cmd_str}"
@@ -78,11 +78,12 @@ def update_repo():
         run_command(['git', 'fetch', '--all'])
         run_command(['git', 'reset', '--hard', 'origin/main'])
         
-        # 获取最新提交信息
-        commit_info = run_command(['git', 'log', '-1', '--pretty=format:%h %s (%an)'])
+        # 获取最新提交信息 - 一次性获取所需信息
+        commit_hash = run_command(['git', 'rev-parse', '--short', 'HEAD'])
+        commit_msg = run_command(['git', 'show', '-s', '--format=%s'])
         
         # 返回成功信息
-        update_info = f"更新成功！最新提交: {commit_info}"
+        update_info = f"更新成功！最新提交: {commit_hash} {commit_msg}"
         log_message(update_info)
         return Response(update_info, status=200, mimetype='text/plain; charset=utf-8')
         
