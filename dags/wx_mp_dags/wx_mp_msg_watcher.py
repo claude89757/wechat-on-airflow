@@ -730,7 +730,7 @@ def handler_image_msg(**context):
             dify_files = [{
                 "type": "image",
                 "transfer_method": "remote_url",  # 改为使用remote_url
-                "url": online_img_info.get("url"),  # 使用上传后的URL
+                "url": online_img_info.get("original_url"),  # 使用原始URL
                 "upload_file_id": online_img_info.get("id"),  # 保留文件ID
                 "name": os.path.basename(img_file_path)  # 添加文件名
             }]
@@ -747,10 +747,9 @@ def handler_image_msg(**context):
                     "msg_id": msg_id,
                     "has_image": True,
                     "image_id": online_img_info.get("id"),
-                    "image_url": online_img_info.get("url")
+                    "image_url": online_img_info.get("original_url")  # 使用原始URL
                 },
-                files=dify_files,  # 添加文件信息
-                stream=False  # 禁用流式响应以确保完整响应
+                files=dify_files  # 添加文件信息
             )
             print(f"[WATCHER] Dify返回结果: {full_answer}")
             print(f"[WATCHER] Dify元数据: {metadata}")
