@@ -190,9 +190,14 @@ services:
       - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf
       - ./nginx/conf.d/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
       - ./nginx/lua:/usr/local/openresty/nginx/lua
-      - ./nginx/logs:/usr/local/openresty/nginx/logs
       - ./nginx/start.sh:/start.sh
       - .:/app  # 挂载整个应用目录，用于git操作
+    # 日志配置 - 使用json-file驱动收集日志，方便通过docker logs命令查看
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - TZ=Asia/Shanghai
       - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL:-http://web:8080}
