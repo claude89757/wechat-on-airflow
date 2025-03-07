@@ -673,7 +673,7 @@ def handler_image_msg(**context):
     # 初始化dify
     dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
     
-    # 获取会话ID
+    # 获取会话ID - 只在这里获取一次
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     
     # 创建临时目录用于保存下载的图片
@@ -729,20 +729,17 @@ def handler_image_msg(**context):
             # 构建文件信息
             dify_files = [{
                 "type": "image",
-                "transfer_method": "local_file",  # 修改为local_file
+                "transfer_method": "local_file",  # 使用local_file
                 "upload_file_id": online_img_info.get("id", ""),  # 使用上传后的文件ID
                 "url": online_img_info.get("url", "")  # 添加URL信息
             }]
             print(f"[WATCHER] 准备发送到Dify的文件信息: {dify_files}")
             
-            # 获取会话ID
-            conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
-            
-            # 获取AI回复（带有图片分析）
+            # 获取AI回复（带有图片分析）- 使用之前获取的conversation_id
             full_answer, metadata = dify_agent.create_chat_message_stream(
                 query=query,
                 user_id=from_user_name,
-                conversation_id=conversation_id,
+                conversation_id=conversation_id,  # 使用之前获取的conversation_id
                 inputs={
                     "platform": "wechat_mp",
                     "user_id": from_user_name,
@@ -758,15 +755,16 @@ def handler_image_msg(**context):
             response = full_answer
 
             # 处理会话ID相关逻辑
-            if not conversation_id:
+            if not conversation_id:  # 只在没有现有会话ID时处理
                 # 新会话，重命名会话
                 conversation_id = metadata.get("conversation_id")
-                dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号图片对话")
-                
-                # 保存会话ID
-                conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
-                conversation_infos[from_user_name] = conversation_id
-                Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
+                if conversation_id:  # 确保获取到了新的会话ID
+                    dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号图片对话")
+                    
+                    # 保存会话ID
+                    conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
+                    conversation_infos[from_user_name] = conversation_id
+                    Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
 
             # 发送回复消息
             try:
