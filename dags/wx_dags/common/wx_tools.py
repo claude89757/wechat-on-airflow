@@ -107,8 +107,8 @@ def update_wx_user_info(source_ip: str) -> dict:
     # 初始化新用户的一些常用的变量
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_ui_input_prompt", "", serialize_json=True)
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_dify_api_key", "app-qKIPKEM5uzaGW0AFzAobz2Td", serialize_json=True)
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_ui_input_prompt", "")
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_dify_api_key", "app-qKIPKEM5uzaGW0AFzAobz2Td")
 
     # 初始化新用户的聊天记录表
     init_wx_chat_records_table(new_account['wxid'])
