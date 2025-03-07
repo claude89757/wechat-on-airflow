@@ -26,19 +26,32 @@ Git Webhook 微服务 (Flask版)
 
 import os
 import subprocess
+import logging
 from datetime import datetime
 from flask import Flask, request, Response
 
 # 配置
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
 PORT = 5000
+LOG_FILE = os.path.join(REPO_PATH, "git_webhook.log")
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()  # 同时输出到控制台
+    ]
+)
+logger = logging.getLogger("git_webhook")
 
 app = Flask(__name__)
 
 def log_message(message):
-    """打印带时间戳的日志消息"""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {message}")
+    """记录日志消息到文件和控制台"""
+    logger.info(message)
 
 def run_command(command):
     """运行命令并返回输出"""
