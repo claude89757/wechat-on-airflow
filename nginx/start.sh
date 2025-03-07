@@ -37,7 +37,15 @@ echo "AIRFLOW_USERNAME: $AIRFLOW_USERNAME"
 echo "WX_MSG_WATCHER_DAG_ID: $WX_MSG_WATCHER_DAG_ID"
 
 # 将环境变量导出到一个临时文件，供Nginx使用
-env | grep "AIRFLOW\|WX_MSG" > /tmp/env.txt
+# 使用更明确的方式导出关键环境变量
+echo "AIRFLOW_BASE_URL=$AIRFLOW_BASE_URL" > /tmp/env.txt
+echo "AIRFLOW_USERNAME=$AIRFLOW_USERNAME" >> /tmp/env.txt
+echo "AIRFLOW_PASSWORD=$AIRFLOW_PASSWORD" >> /tmp/env.txt
+echo "WX_MSG_WATCHER_DAG_ID=$WX_MSG_WATCHER_DAG_ID" >> /tmp/env.txt
+
+# 显示导出的环境变量内容进行验证
+echo "已导出以下环境变量到/tmp/env.txt文件:"
+cat /tmp/env.txt
 
 # Git配置
 cd /app

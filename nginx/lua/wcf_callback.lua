@@ -22,10 +22,27 @@ local function debug_log(msg, obj)
     end
 end
 
--- 读取环境变量并提供更详细的日志
+-- 从/tmp/env.txt文件中读取环境变量
 local function get_env_var(name, default_value, description)
+    -- 首先尝试从OS环境变量获取
     local value = os.getenv(name)
     
+    -- 如果OS环境变量中没有，尝试从/tmp/env.txt文件中读取
+    if not value or value == "" then
+        local env_file = io.open("/tmp/env.txt", "r")
+        if env_file then
+            for line in env_file:lines() do
+                local env_name, env_value = line:match("^([^=]+)=(.*)$")
+                if env_name and env_name == name then
+                    value = env_value
+                    break
+                end
+            end
+            env_file:close()
+        end
+    end
+    
+    -- 如果仍然没有找到，使用默认值
     if not value or value == "" then
         log("警告: 环境变量 " .. name .. " 未设置，将使用默认值: " .. default_value, ngx.WARN)
         return default_value
