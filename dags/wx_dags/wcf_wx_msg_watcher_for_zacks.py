@@ -99,9 +99,6 @@ def process_wx_message(**context):
     # 分场景分发微信消息
     next_task_list = []
     if WX_MSG_TYPES.get(msg_type) == "文字":
-        # 保存消息
-        next_task_list.append('save_msg_to_db')
-
         # 用户的消息缓存列表
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
