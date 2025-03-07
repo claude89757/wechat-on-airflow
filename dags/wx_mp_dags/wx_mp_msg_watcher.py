@@ -709,6 +709,7 @@ def handler_image_msg(**context):
 
         # 将图片上传到Dify
         try:
+            # 打开文件并获取文件信息
             file_size = os.path.getsize(img_file_path)
             print(f"[WATCHER] 准备上传图片，文件大小: {file_size} bytes")
             
@@ -721,23 +722,58 @@ def handler_image_msg(**context):
             # 添加原始URL到图片信息中
             online_img_info["original_url"] = original_url
             print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        except Exception as upload_error:
+            raise Exception(f"上传图片到Dify失败: {str(upload_error)}")
 
-            # 缓存图片信息
+        # 缓存图片信息到Airflow变量中
+        try:
             Variable.set(f"mp_{from_user_name}_online_img_info", online_img_info, serialize_json=True)
             print(f"[WATCHER] 缓存图片信息成功: {online_img_info}")
+        except Exception as cache_error:
+            raise Exception(f"缓存图片信息失败: {str(cache_error)}")
 
-            # 检查是否有后续文字消息
-            if has_text_msg:
-                # 如果有后续文字消息，等待文字消息处理
-                print("[WATCHER] 检测到后续文字消息，等待文字消息处理")
-                mp_bot.send_text_message(from_user_name, "收到您的图片，请告诉我您想了解什么？")
-                return
+        # 将当前消息添加到缓存列表
+        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        current_msg = {
+            'ToUserName': to_user_name,
+            'FromUserName': from_user_name,
+            'CreateTime': create_time,
+            'MsgType': 'image',
+            'MediaId': media_id,
+            'PicUrl': pic_url,
+            'MsgId': msg_id,
+            'is_reply': False,
+            'processing': False
+        }
+        room_msg_list.append(current_msg)
+        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
 
+        # 等待5秒，看用户是否会发送后续文字消息
+        time.sleep(5)
+
+        # 重新获取消息列表，检查是否有新的文字消息
+        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        latest_msgs = room_msg_list[-5:]  # 只看最近的5条消息
+        has_follow_up_text = any(
+            msg.get('MsgType') == 'text' and 
+            int(msg.get('CreateTime', 0)) > int(create_time) and
+            (int(msg.get('CreateTime', 0)) - int(create_time)) <= 5  # 5秒内的文字消息
+            for msg in latest_msgs
+        )
+
+        if not has_follow_up_text:
+            # 如果没有后续文字消息，自动进行图片分析
+            query = "这是一张图片，请描述一下图片内容并给出你的分析"
+            
+            # 再次检查图片信息是否有效
+            if not online_img_info or not online_img_info.get("id"):
+                raise Exception("图片信息无效，无法进行分析")
+            
             # 构建文件信息，优先使用原始URL
             dify_files = [{
                 "type": "image",
                 "transfer_method": "remote_url",  # 使用remote_url
-                "url": original_url or online_img_info.get("url", ""),  # 优先使用原始URL
+                "url": online_img_info.get("original_url") or online_img_info.get("url", ""),  # 优先使用原始URL
                 "upload_file_id": online_img_info.get("id", "")
             }]
             print(f"[WATCHER] 准备发送到Dify的文件信息: {dify_files}")
@@ -753,10 +789,13 @@ def handler_image_msg(**context):
                     "msg_id": msg_id,
                     "has_image": True,
                     "image_id": online_img_info.get("id", ""),
-                    "image_url": original_url or online_img_info.get("url", "")  # 优先使用原始URL
+                    "image_url": online_img_info.get("original_url") or online_img_info.get("url", "")  # 优先使用原始URL
                 },
                 files=dify_files
             )
+            print(f"[WATCHER] Dify返回结果: {full_answer}")
+            print(f"[WATCHER] Dify元数据: {metadata}")
+            response = full_answer
 
             # 处理会话ID相关逻辑
             if not conversation_id:
@@ -775,7 +814,7 @@ def handler_image_msg(**context):
             # 发送回复消息
             try:
                 # 将长回复拆分成多条消息发送
-                for response_part in re.split(r'\\n\\n|\n\n', full_answer):
+                for response_part in re.split(r'\\n\\n|\n\n', response):
                     response_part = response_part.replace('\\n', '\n')
                     if response_part.strip():  # 确保不发送空消息
                         mp_bot.send_text_message(from_user_name, response_part)
@@ -792,13 +831,12 @@ def handler_image_msg(**context):
                     )
 
                 # 更新消息状态
-                room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
                 for msg in room_msg_list:
                     if msg['MsgId'] == msg_id:
                         msg['is_reply'] = True
                         msg['processing'] = False
                         msg['reply_time'] = int(time.time())
-                        msg['reply_content'] = full_answer
+                        msg['reply_content'] = response
                 Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
 
             except Exception as error:
