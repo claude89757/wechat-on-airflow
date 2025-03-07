@@ -22,12 +22,24 @@ local function debug_log(msg, obj)
     end
 end
 
--- 配置信息
--- 默认使用IP地址而不是主机名 (web → 127.0.0.1 或实际Airflow服务器IP)
-local AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL") or "http://127.0.0.1:8080"
-local AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME") or "airflow"
-local AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD") or "airflow"
-local WX_MSG_WATCHER_DAG_ID = os.getenv("WX_MSG_WATCHER_DAG_ID") or "wx_msg_watcher"
+-- 读取环境变量并提供更详细的日志
+local function get_env_var(name, default_value, description)
+    local value = os.getenv(name)
+    
+    if not value or value == "" then
+        log("警告: 环境变量 " .. name .. " 未设置，将使用默认值: " .. default_value, ngx.WARN)
+        return default_value
+    else
+        log("成功加载环境变量 " .. name .. ": " .. value, ngx.INFO)
+        return value
+    end
+end
+
+-- 配置信息 - 使用增强的环境变量获取函数
+local AIRFLOW_BASE_URL = get_env_var("AIRFLOW_BASE_URL", "http://web:8080", "Airflow Web UI URL")
+local AIRFLOW_USERNAME = get_env_var("AIRFLOW_USERNAME", "airflow", "Airflow 用户名")
+local AIRFLOW_PASSWORD = get_env_var("AIRFLOW_PASSWORD", "airflow", "Airflow 密码")
+local WX_MSG_WATCHER_DAG_ID = get_env_var("WX_MSG_WATCHER_DAG_ID", "wx_msg_watcher", "处理微信消息的DAG ID")
 
 -- 打印环境变量值，用于调试
 log("当前环境变量设置:", ngx.INFO)

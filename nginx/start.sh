@@ -22,6 +22,23 @@ if [ ! -d "/usr/local/openresty/luajit" ]; then
     ln -sf /usr/local/openresty/lualib/* /usr/local/openresty/luajit/lib/ 2>/dev/null || true
 fi
 
+# 设置和验证Airflow相关环境变量
+echo "检查Airflow环境变量设置:"
+# 确保AIRFLOW_BASE_URL设置正确
+if [ -z "$AIRFLOW_BASE_URL" ]; then
+    echo "警告: AIRFLOW_BASE_URL 环境变量未设置，将使用默认值 'http://web:8080'"
+    export AIRFLOW_BASE_URL="http://web:8080"
+else
+    echo "使用 AIRFLOW_BASE_URL: $AIRFLOW_BASE_URL"
+fi
+
+# 确保其他重要环境变量也设置正确
+echo "AIRFLOW_USERNAME: $AIRFLOW_USERNAME"
+echo "WX_MSG_WATCHER_DAG_ID: $WX_MSG_WATCHER_DAG_ID"
+
+# 将环境变量导出到一个临时文件，供Nginx使用
+env | grep "AIRFLOW\|WX_MSG" > /tmp/env.txt
+
 # Git配置
 cd /app
 git config --global --add safe.directory /app
