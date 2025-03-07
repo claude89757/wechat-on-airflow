@@ -27,6 +27,7 @@ import os
 import subprocess
 import http.server
 import socketserver
+from datetime import datetime
 
 # 配置
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -34,11 +35,16 @@ PORT = 5000
 
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
+        # 获取当前时间
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         if self.path != "/update":
-            self._send_response(404, "未找到")
+            self._send_response(404, f"[{timestamp}] 未找到")
             return
             
         try:
+            print(f"[{timestamp}] 接收到GitHub webhook请求，开始更新代码...")
+            
             # 执行git命令
             self._run_git_update()
             
@@ -49,12 +55,12 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
             ).stdout
             
             # 返回成功信息
-            update_info = f"更新成功！\n最新提交: {commit_info}"
+            update_info = f"[{timestamp}] 更新成功！\n最新提交: {commit_info}"
             print(update_info)
             self._send_response(200, update_info)
             
         except Exception as e:
-            error_message = f"更新失败: {str(e)}"
+            error_message = f"[{timestamp}] 更新失败: {str(e)}"
             print(error_message)
             self._send_response(500, error_message)
     
@@ -71,7 +77,8 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(message.encode('utf-8'))
 
 if __name__ == "__main__":
-    print(f"Git Webhook 服务器启动，监听端口 {PORT}...")
+    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{start_time}] Git Webhook 服务器启动，监听端口 {PORT}...")
     with socketserver.TCPServer(("", PORT), WebhookHandler) as httpd:
-        print(f"等待 GitHub webhook 请求...")
+        print(f"[{start_time}] 等待 GitHub webhook 请求...")
         httpd.serve_forever()
