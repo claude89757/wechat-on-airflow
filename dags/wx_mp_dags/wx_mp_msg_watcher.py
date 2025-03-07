@@ -704,18 +704,12 @@ def handler_image_msg(**context):
         # 将图片上传到Dify
         try:
             # 打开文件并获取文件信息
-            with open(img_file_path, 'rb') as img_file:
-                file_size = os.path.getsize(img_file_path)
-                print(f"[WATCHER] 准备上传图片，文件大小: {file_size} bytes")
-                
-                # 上传文件到Dify
-                online_img_info = dify_agent.upload_file(
-                    file_path=img_file_path,
-                    user_id=from_user_name,
-                    file_name=f"wx_mp_img_{timestamp}.jpg",
-                    content_type="image/jpeg"
-                )
-                
+            file_size = os.path.getsize(img_file_path)
+            print(f"[WATCHER] 准备上传图片，文件大小: {file_size} bytes")
+            
+            # 上传文件到Dify
+            online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
+            
             if not online_img_info or not online_img_info.get("id"):
                 raise Exception("上传图片到Dify失败，未获取到有效的图片ID")
             print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
