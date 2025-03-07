@@ -13,8 +13,6 @@ apk update && apk add --no-cache git curl luarocks
 luarocks install lua-resty-http
 # 安装lua-resty-openssl库 (解决mTLS支持问题)
 luarocks install lua-resty-openssl
-# 安装luasocket库 (URL解析和网络功能)
-luarocks install luasocket
 # 安装cjson库 (JSON处理)
 luarocks install lua-cjson
 

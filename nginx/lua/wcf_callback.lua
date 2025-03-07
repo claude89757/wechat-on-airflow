@@ -1,7 +1,6 @@
 -- 导入所需模块
 local cjson = require "cjson"
 local http = require "resty.http"
-local socket = require "socket"
 
 -- 日志函数
 local function log(msg, level)
