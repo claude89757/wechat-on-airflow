@@ -642,12 +642,6 @@ def save_msg_to_mysql(**context):
 def handler_image_msg(**context):
     """
     处理图片类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
-    
-    处理流程:
-    1. 接收用户发送的图片消息
-    2. 下载图片并上传到Dify
-    3. 缓存图片信息，等待用户发送文字消息
-    4. 如果用户没有跟随文字消息，则自动进行图片分析
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
@@ -695,18 +689,33 @@ def handler_image_msg(**context):
             img_response = requests.get(pic_url)
             with open(img_file_path, 'wb') as img_file:
                 img_file.write(img_response.content)
+            print(f"[WATCHER] 从URL下载图片成功: {pic_url}")
         else:
             # 否则使用media_id获取临时素材
             mp_bot.download_temporary_media(media_id, img_file_path)
+            print(f"[WATCHER] 从MediaId下载图片成功: {media_id}")
         
         print(f"[WATCHER] 图片已保存到: {img_file_path}")
+        
+        # 检查图片文件是否存在且有效
+        if not os.path.exists(img_file_path) or os.path.getsize(img_file_path) == 0:
+            raise Exception("图片文件无效或为空")
 
         # 将图片上传到Dify
-        online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
-        print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        try:
+            online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
+            if not online_img_info or not online_img_info.get("id"):
+                raise Exception("上传图片到Dify失败，未获取到有效的图片ID")
+            print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        except Exception as upload_error:
+            raise Exception(f"上传图片到Dify失败: {str(upload_error)}")
 
         # 缓存图片信息到Airflow变量中
-        Variable.set(f"mp_{from_user_name}_online_img_info", online_img_info, serialize_json=True)
+        try:
+            Variable.set(f"mp_{from_user_name}_online_img_info", online_img_info, serialize_json=True)
+            print(f"[WATCHER] 缓存图片信息成功: {online_img_info}")
+        except Exception as cache_error:
+            raise Exception(f"缓存图片信息失败: {str(cache_error)}")
 
         # 将当前消息添加到缓存列表
         room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -741,6 +750,18 @@ def handler_image_msg(**context):
             # 如果没有后续文字消息，自动进行图片分析
             query = "这是一张图片，请描述一下图片内容并给出你的分析"
             
+            # 再次检查图片信息是否有效
+            if not online_img_info or not online_img_info.get("id"):
+                raise Exception("图片信息无效，无法进行分析")
+            
+            # 构建文件信息
+            dify_files = [{
+                "type": "image",
+                "transfer_method": "local_file",
+                "upload_file_id": online_img_info.get("id", "")
+            }]
+            print(f"[WATCHER] 准备发送到Dify的文件信息: {dify_files}")
+            
             # 获取AI回复（带有图片分析）
             full_answer, metadata = dify_agent.create_chat_message_stream(
                 query=query,
@@ -749,18 +770,16 @@ def handler_image_msg(**context):
                 inputs={
                     "platform": "wechat_mp",
                     "user_id": from_user_name,
-                    "msg_id": msg_id
+                    "msg_id": msg_id,
+                    "has_image": True,
+                    "image_id": online_img_info.get("id", "")
                 },
-                files=[{
-                    "type": "image",
-                    "transfer_method": "local_file",
-                    "upload_file_id": online_img_info.get("id", "")
-                }]
+                files=dify_files
             )
-            print(f"full_answer: {full_answer}")
-            print(f"metadata: {metadata}")
+            print(f"[WATCHER] Dify返回结果: {full_answer}")
+            print(f"[WATCHER] Dify元数据: {metadata}")
             response = full_answer
-            
+
             # 处理会话ID相关逻辑
             if not conversation_id:
                 # 新会话，重命名会话
@@ -823,7 +842,12 @@ def handler_image_msg(**context):
         print(f"[WATCHER] 处理图片消息失败: {e}")
         # 发送错误提示给用户
         try:
-            mp_bot.send_text_message(from_user_name, "抱歉，图片处理出现了一些问题，请稍后重试~")
+            error_msg = "抱歉，图片处理出现了一些问题，请稍后重试~"
+            if "上传图片到Dify失败" in str(e):
+                error_msg = "抱歉，图片上传失败，请稍后重试~"
+            elif "图片文件无效" in str(e):
+                error_msg = "抱歉，图片文件无效，请重新发送~"
+            mp_bot.send_text_message(from_user_name, error_msg)
         except Exception as send_error:
             print(f"[WATCHER] 发送错误提示失败: {send_error}")
     finally:
