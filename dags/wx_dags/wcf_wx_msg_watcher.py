@@ -387,7 +387,7 @@ def handler_text_msg(**context):
 
     dify_inputs = {}
     # 获取UI输入提示
-    ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_id}_ui_input_prompt", default_var="", deserialize_json=True)
+    ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_id}_ui_input_prompt")
     if ui_input_prompt:
         dify_inputs["ui_input_prompt"] = ui_input_prompt
     
