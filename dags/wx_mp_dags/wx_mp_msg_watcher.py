@@ -723,37 +723,42 @@ def handler_image_msg(**context):
             online_img_info["original_url"] = original_url
             print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
 
-            # 修改这里：直接进行图片分析，不等待用户输入
-            query = "这是一张图片，请描述一下图片内容并给出你的分析"
+            # 构建查询语句
+            query = """请仔细观察这张图片，并完成以下任务：
+1. 详细描述图片中的主要内容和场景
+2. 识别图片中的关键元素和特征
+3. 分析图片的整体风格和氛围
+4. 如果有文字，请帮我读出来
+5. 给出你对这张图片的专业见解
+
+请用通俗易懂的语言回答，让我能更好地理解图片的内容。"""
             
-            # 构建文件信息 - 修改传输方式
+            # 构建文件信息
             dify_files = [{
                 "type": "image",
-                "transfer_method": "remote_url",  # 改为使用remote_url
-                "url": online_img_info.get("original_url"),  # 使用原始URL
-                "upload_file_id": online_img_info.get("id"),  # 保留文件ID
-                "name": os.path.basename(img_file_path)  # 添加文件名
+                "transfer_method": "remote_url",  # 使用remote_url
+                "url": online_img_info.get("original_url") or pic_url,  # 优先使用原始URL
+                "upload_file_id": online_img_info.get("id"),
+                "name": os.path.basename(img_file_path)
             }]
             print(f"[WATCHER] 准备发送到Dify的文件信息: {dify_files}")
             
-            # 获取AI回复（带有图片分析）- 使用之前获取的conversation_id
+            # 获取AI回复
             full_answer, metadata = dify_agent.create_chat_message_stream(
                 query=query,
                 user_id=from_user_name,
-                conversation_id=conversation_id,  # 使用之前获取的conversation_id
+                conversation_id=conversation_id,
                 inputs={
                     "platform": "wechat_mp",
                     "user_id": from_user_name,
                     "msg_id": msg_id,
                     "has_image": True,
                     "image_id": online_img_info.get("id"),
-                    "image_url": online_img_info.get("original_url")  # 使用原始URL
+                    "image_url": online_img_info.get("original_url") or pic_url,
+                    "image_name": os.path.basename(img_file_path)
                 },
-                files=dify_files  # 添加文件信息
+                files=dify_files
             )
-            print(f"[WATCHER] Dify返回结果: {full_answer}")
-            print(f"[WATCHER] Dify元数据: {metadata}")
-            response = full_answer
 
             # 处理会话ID相关逻辑
             if not conversation_id:  # 只在没有现有会话ID时处理
@@ -770,7 +775,7 @@ def handler_image_msg(**context):
             # 发送回复消息
             try:
                 # 将长回复拆分成多条消息发送
-                for response_part in re.split(r'\\n\\n|\n\n', response):
+                for response_part in re.split(r'\\n\\n|\n\n', full_answer):
                     response_part = response_part.replace('\\n', '\n')
                     if response_part.strip():  # 确保不发送空消息
                         mp_bot.send_text_message(from_user_name, response_part)
