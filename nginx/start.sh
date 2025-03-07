@@ -15,8 +15,7 @@ luarocks install lua-resty-http
 luarocks install lua-resty-openssl
 # 安装luasocket库 (URL解析和网络功能)
 luarocks install luasocket
-# 安装lua-resty-shell库 (用于执行shell命令) - 不再需要，使用os.execute替代
-# luarocks install lua-resty-shell
+
 
 # 配置LuaJIT库
 if [ ! -d "/usr/local/openresty/luajit" ]; then
