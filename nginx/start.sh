@@ -22,12 +22,6 @@ fi
 cd /app
 git config --global --add safe.directory /app
 
-# 环境变量设置
-[ -f /app/.env ] && export $(grep -v '^#' /app/.env | xargs)
-export AIRFLOW_BASE_URL="${AIRFLOW_BASE_URL:-http://web:8080}"
-export AIRFLOW_USERNAME="${AIRFLOW_USERNAME:-airflow}"
-export AIRFLOW_PASSWORD="${AIRFLOW_PASSWORD:-airflow}"
-export WX_MSG_WATCHER_DAG_ID="${WX_MSG_WATCHER_DAG_ID:-wx_msg_watcher}"
-
 # 启动Nginx
-nginx -g "daemon off;" 
+echo "启动Nginx服务..."
+exec nginx -g "daemon off;" 
