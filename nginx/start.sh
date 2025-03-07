@@ -8,7 +8,11 @@ echo "设置腾讯云Alpine镜像源..."
 sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositories
 
 # 安装依赖
-apk update && apk add --no-cache git curl openssl openssh-client bash
+apk update && apk add --no-cache git curl openssl openssh-client bash luarocks
+
+# 安装lua-resty-http库
+echo "安装lua-resty-http库..."
+luarocks install lua-resty-http
 
 # 配置LuaJIT库
 if [ ! -d "/usr/local/openresty/luajit" ]; then
