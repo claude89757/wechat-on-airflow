@@ -3,12 +3,6 @@ local cjson = require "cjson"
 local http = require "resty.http"
 local socket = require "socket"
 
--- 配置信息
-local AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL") or "http://web:8080"
-local AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME") or "airflow"
-local AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD") or "airflow"
-local WX_MSG_WATCHER_DAG_ID = os.getenv("WX_MSG_WATCHER_DAG_ID") or "wx_msg_watcher"
-
 -- 日志函数
 local function log(msg, level)
     level = level or ngx.INFO
@@ -27,6 +21,19 @@ local function debug_log(msg, obj)
         end
     end
 end
+
+-- 配置信息
+-- 默认使用IP地址而不是主机名 (web → 127.0.0.1 或实际Airflow服务器IP)
+local AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL") or "http://127.0.0.1:8080"
+local AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME") or "airflow"
+local AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD") or "airflow"
+local WX_MSG_WATCHER_DAG_ID = os.getenv("WX_MSG_WATCHER_DAG_ID") or "wx_msg_watcher"
+
+-- 打印环境变量值，用于调试
+log("当前环境变量设置:", ngx.INFO)
+log("AIRFLOW_BASE_URL = " .. AIRFLOW_BASE_URL, ngx.INFO)
+log("AIRFLOW_USERNAME = " .. AIRFLOW_USERNAME, ngx.INFO)
+log("WX_MSG_WATCHER_DAG_ID = " .. WX_MSG_WATCHER_DAG_ID, ngx.INFO)
 
 -- 测试到Airflow的网络连接
 local function test_airflow_connection()
