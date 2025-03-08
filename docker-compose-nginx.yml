@@ -58,6 +58,8 @@ x-airflow-env: &airflow-env
   AIRFLOW__WEBSERVER__ALLOW_CONFIG_TRIGGER: "True"
   AIRFLOW__WEBSERVER__SHOW_TRIGGER_FORM_IF_NO_PARAMS: "True"
   AIRFLOW__WEBSERVER__EXPOSE_TRIGGER_ENDPOINT: "True"
+  # 设置base_url，使用完整的URL格式，包含/airflow路径, 确保与Nginx的路径一致
+  AIRFLOW__WEBSERVER__BASE_URL: ${AIRFLOW_BASE_URL}/airflow
 
   # Scheduler 配置
   AIRFLOW__SCHEDULER__STANDALONE_DAG_PROCESSOR: "True"
