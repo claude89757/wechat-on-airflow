@@ -8,7 +8,7 @@ sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositor
 
 # 安装依赖
 echo "正在安装依赖..."
-apk update && apk add --no-cache git curl luarocks
+apk update && apk add --no-cache curl luarocks
 
 # 安装lua-resty-http库
 luarocks install lua-resty-http
@@ -23,31 +23,29 @@ if [ ! -d "/usr/local/openresty/luajit" ]; then
     ln -sf /usr/local/openresty/lualib/* /usr/local/openresty/luajit/lib/ 2>/dev/null || true
 fi
 
-# 设置和验证Airflow相关环境变量
-echo "AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL}"
-echo "AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}"
-echo "AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}"
-echo "WX_MSG_WATCHER_DAG_ID: ${WX_MSG_WATCHER_DAG_ID}"
-echo "PROXY_URL: ${PROXY_URL}"
+# 验证必需的环境变量
+echo "验证环境变量配置..."
 
-# 将环境变量导出到一个临时文件，供Nginx使用
-# 使用更明确的方式导出关键环境变量
-echo "AIRFLOW_BASE_URL=$AIRFLOW_BASE_URL" > /tmp/env.txt
-echo "AIRFLOW_USERNAME=$AIRFLOW_USERNAME" >> /tmp/env.txt
-echo "AIRFLOW_PASSWORD=$AIRFLOW_PASSWORD" >> /tmp/env.txt
-echo "WX_MSG_WATCHER_DAG_ID=$WX_MSG_WATCHER_DAG_ID" >> /tmp/env.txt
-echo "PROXY_URL=$PROXY_URL" >> /tmp/env.txt
+# 检查必需的环境变量
+check_env_var() {
+    if [ -z "${!1}" ]; then
+        echo "错误: 必需的环境变量 $1 未设置"
+        exit 1
+    else
+        if [ "$1" = "AIRFLOW_PASSWORD" ]; then
+            echo "$1: ******"
+        else
+            echo "$1: ${!1}"
+        fi
+    fi
+}
 
-# 显示导出的环境变量内容进行验证
-echo "已导出以下环境变量到/tmp/env.txt文件:"
-cat /tmp/env.txt
+# 验证所有必需的环境变量
+check_env_var AIRFLOW_BASE_URL
+check_env_var AIRFLOW_USERNAME
+check_env_var AIRFLOW_PASSWORD
+check_env_var WX_MSG_WATCHER_DAG_ID
 
-# 检查/app目录
-echo "检查/app目录..."
-ls -la /app
-if [ ! -d "/app/.git" ]; then
-    echo "警告: /app目录下没有.git目录，可能不是有效的Git仓库"
-fi
 
 # 启动Nginx
 echo "启动Nginx服务..."

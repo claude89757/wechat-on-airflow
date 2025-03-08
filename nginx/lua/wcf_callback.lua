@@ -21,43 +21,29 @@ local function debug_log(msg, obj)
     end
 end
 
--- 从/tmp/env.txt文件中读取环境变量
-local function get_env_var(name, default_value, description)
-    -- 首先尝试从OS环境变量获取
-    local value = os.getenv(name)
-    
-    -- 如果OS环境变量中没有，尝试从/tmp/env.txt文件中读取
-    if not value or value == "" then
-        local env_file = io.open("/tmp/env.txt", "r")
-        if env_file then
-            for line in env_file:lines() do
-                local env_name, env_value = line:match("^([^=]+)=(.*)$")
-                if env_name and env_name == name then
-                    value = env_value
-                    break
-                end
-            end
-            env_file:close()
-        end
+-- 主函数，包含配置初始化和请求处理
+local function main()
+    -- 配置信息 - 直接获取环境变量
+    local AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL")
+    if not AIRFLOW_BASE_URL or AIRFLOW_BASE_URL == "" then
+        error("错误: 必需的环境变量 AIRFLOW_BASE_URL 未设置")
     end
     
-    -- 如果仍然没有找到，使用默认值
-    if not value or value == "" then
-        log("警告: 环境变量 " .. name .. " 未设置，将使用默认值: " .. default_value, ngx.WARN)
-        return default_value
-    else
-        return value
+    local AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME")
+    if not AIRFLOW_USERNAME or AIRFLOW_USERNAME == "" then
+        error("错误: 必需的环境变量 AIRFLOW_USERNAME 未设置")
     end
-end
-
--- 配置信息 - 使用增强的环境变量获取函数
-local AIRFLOW_BASE_URL = get_env_var("AIRFLOW_BASE_URL", "http://web:8080", "Airflow Web UI URL")
-local AIRFLOW_USERNAME = get_env_var("AIRFLOW_USERNAME", "airflow", "Airflow 用户名")
-local AIRFLOW_PASSWORD = get_env_var("AIRFLOW_PASSWORD", "airflow", "Airflow 密码")
-local WX_MSG_WATCHER_DAG_ID = get_env_var("WX_MSG_WATCHER_DAG_ID", "wx_msg_watcher", "处理微信消息的DAG ID")
-
--- 主处理函数
-local function process_wcf_callback()
+    
+    local AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD")
+    if not AIRFLOW_PASSWORD or AIRFLOW_PASSWORD == "" then
+        error("错误: 必需的环境变量 AIRFLOW_PASSWORD 未设置")
+    end
+    
+    local WX_MSG_WATCHER_DAG_ID = os.getenv("WX_MSG_WATCHER_DAG_ID")
+    if not WX_MSG_WATCHER_DAG_ID or WX_MSG_WATCHER_DAG_ID == "" then
+        error("错误: 必需的环境变量 WX_MSG_WATCHER_DAG_ID 未设置")
+    end
+    
     -- 获取请求体数据
     ngx.req.read_body()
     local request_body = ngx.req.get_body_data()
@@ -187,13 +173,13 @@ end
 
 -- 错误处理包装器
 local function error_handler()
-    local ok, err = pcall(process_wcf_callback)
+    local ok, err = pcall(main)
     if not ok then
-        log("处理WCF回调时发生未捕获的错误: " .. tostring(err), ngx.ERR)
+        log("处理WCF回调时发生错误: " .. tostring(err), ngx.ERR)
         ngx.status = 500
         ngx.header.content_type = "application/json"
         ngx.say(cjson.encode({
-            message = "处理请求时发生内部服务器错误", 
+            message = "处理请求时发生错误", 
             error = tostring(err)
         }))
     end
