@@ -8,7 +8,7 @@ sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositor
 
 # 安装依赖
 echo "正在安装依赖..."
-apk update && apk add --no-cache git curl luarocks
+apk update && apk add --no-cache curl luarocks
 
 # 安装lua-resty-http库
 luarocks install lua-resty-http
@@ -23,31 +23,55 @@ if [ ! -d "/usr/local/openresty/luajit" ]; then
     ln -sf /usr/local/openresty/lualib/* /usr/local/openresty/luajit/lib/ 2>/dev/null || true
 fi
 
-# 设置和验证Airflow相关环境变量
-echo "AIRFLOW_BASE_URL: ${AIRFLOW_BASE_URL}"
-echo "AIRFLOW_USERNAME: ${AIRFLOW_USERNAME}"
-echo "AIRFLOW_PASSWORD: ${AIRFLOW_PASSWORD}"
-echo "WX_MSG_WATCHER_DAG_ID: ${WX_MSG_WATCHER_DAG_ID}"
-echo "PROXY_URL: ${PROXY_URL}"
+# 处理配置文件中的环境变量
+echo "处理配置文件中的环境变量..."
 
-# 将环境变量导出到一个临时文件，供Nginx使用
-# 使用更明确的方式导出关键环境变量
-echo "AIRFLOW_BASE_URL=$AIRFLOW_BASE_URL" > /tmp/env.txt
-echo "AIRFLOW_USERNAME=$AIRFLOW_USERNAME" >> /tmp/env.txt
-echo "AIRFLOW_PASSWORD=$AIRFLOW_PASSWORD" >> /tmp/env.txt
-echo "WX_MSG_WATCHER_DAG_ID=$WX_MSG_WATCHER_DAG_ID" >> /tmp/env.txt
-echo "PROXY_URL=$PROXY_URL" >> /tmp/env.txt
+# 备份原始配置文件
+cp /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak
 
-# 显示导出的环境变量内容进行验证
-echo "已导出以下环境变量到/tmp/env.txt文件:"
-cat /tmp/env.txt
-
-# 检查/app目录
-echo "检查/app目录..."
-ls -la /app
-if [ ! -d "/app/.git" ]; then
-    echo "警告: /app目录下没有.git目录，可能不是有效的Git仓库"
+# 处理 WEB_UI_URL
+if [ -z "$WEB_UI_URL" ]; then
+    echo "WEB_UI_URL 为空，删除相关配置..."
+    # 删除 upstream web_ui_backend {...} 块
+    sed -i '/upstream web_ui_backend/,/}/d' /etc/nginx/conf.d/default.conf
+    # 删除 location / {...} 块
+    sed -i '/location \/ {/,/}/d' /etc/nginx/conf.d/default.conf
+else
+    echo "替换 WEB_UI_URL: $WEB_UI_URL"
+    sed -i "s|\${WEB_UI_URL}|$WEB_UI_URL|g" /etc/nginx/conf.d/default.conf
 fi
+
+# 处理 AIRFLOW_BASE_URL
+if [ -z "$AIRFLOW_BASE_URL" ]; then
+    echo "AIRFLOW_BASE_URL 为空，删除相关配置..."
+    # 删除 upstream airflow_backend {...} 块
+    sed -i '/upstream airflow_backend/,/}/d' /etc/nginx/conf.d/default.conf
+    # 删除 location /airflow {...} 块
+    sed -i '/location \/airflow {/,/}/d' /etc/nginx/conf.d/default.conf
+else
+    echo "替换 AIRFLOW_BASE_URL: $AIRFLOW_BASE_URL"
+    sed -i "s|\${AIRFLOW_BASE_URL}|$AIRFLOW_BASE_URL|g" /etc/nginx/conf.d/default.conf
+fi
+
+# 处理 DIFY_URL
+if [ -z "$DIFY_URL" ]; then
+    echo "DIFY_URL 为空，删除相关配置..."
+    # 删除 upstream dify_backend {...} 块
+    sed -i '/upstream dify_backend/,/}/d' /etc/nginx/conf.d/default.conf
+    # 删除 location /dify {...} 块
+    sed -i '/location \/dify {/,/}/d' /etc/nginx/conf.d/default.conf
+else
+    echo "替换 DIFY_URL: $DIFY_URL"
+    sed -i "s|\${DIFY_URL}|$DIFY_URL|g" /etc/nginx/conf.d/default.conf
+fi
+
+# 打印当前的全部环境变量
+echo "当前的全部环境变量:"
+env
+
+# 打印替换后的配置文件
+echo "替换后的配置文件内容:"
+cat /etc/nginx/conf.d/default.conf
 
 # 启动Nginx
 echo "启动Nginx服务..."
