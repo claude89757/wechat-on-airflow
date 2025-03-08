@@ -261,37 +261,72 @@ def handler_text_msg(**context):
 
     # 添加重试逻辑
     max_retries = 3
-    retry_delay = 2
+    retry_delay = 5  # 增加初始重试延迟
     response = None
     metadata = None
     
     for attempt in range(max_retries):
         try:
-            # 获取AI回复
-            full_answer, metadata = dify_agent.create_chat_message_stream(
-                query=question,
-                user_id=from_user_name,
-                conversation_id=conversation_id,
-                inputs={
-                    "platform": "wechat_mp",
-                    "user_id": from_user_name,
-                    "msg_id": msg_id,
-                    "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
-                    "question_count": len(up_for_reply_msg_content_list),
-                    "has_image": bool(dify_files),
-                    "image_id": online_img_info.get("id", "") if online_img_info else "",
-                    "image_url": online_img_info.get("url", "") if online_img_info else ""
-                },
-                files=dify_files
-            )
-            response = full_answer
-            break  # 如果成功获取响应，跳出重试循环
+            # 尝试使用流式响应
+            if attempt < 2:  # 前两次尝试使用流式响应
+                try:
+                    full_answer, metadata = dify_agent.create_chat_message_stream(
+                        query=question,
+                        user_id=from_user_name,
+                        conversation_id=conversation_id,
+                        inputs={
+                            "platform": "wechat_mp",
+                            "user_id": from_user_name,
+                            "msg_id": msg_id,
+                            "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
+                            "question_count": len(up_for_reply_msg_content_list),
+                            "has_image": bool(dify_files),
+                            "image_id": online_img_info.get("id", "") if online_img_info else "",
+                            "image_url": online_img_info.get("url", "") if online_img_info else ""
+                        },
+                        files=dify_files
+                    )
+                    response = full_answer
+                    break  # 如果成功获取响应，跳出重试循环
+                except Exception as stream_error:
+                    print(f"[WATCHER] 流式响应失败: {str(stream_error)}")
+                    if "can't start new thread" in str(stream_error):
+                        # 如果是线程资源问题，立即尝试非流式响应
+                        raise Exception("切换到非流式响应")
+                    raise  # 其他错误则重新抛出
+            else:
+                # 最后一次尝试使用非流式响应
+                print("[WATCHER] 尝试使用非流式响应")
+                response_data = dify_agent.create_chat_message(
+                    query=question,
+                    user_id=from_user_name,
+                    conversation_id=conversation_id,
+                    inputs={
+                        "platform": "wechat_mp",
+                        "user_id": from_user_name,
+                        "msg_id": msg_id,
+                        "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
+                        "question_count": len(up_for_reply_msg_content_list),
+                        "has_image": bool(dify_files),
+                        "image_id": online_img_info.get("id", "") if online_img_info else "",
+                        "image_url": online_img_info.get("url", "") if online_img_info else ""
+                    },
+                    files=dify_files
+                )
+                response = response_data.get('answer', '')
+                metadata = {
+                    'conversation_id': response_data.get('conversation_id'),
+                    'message_id': response_data.get('id')
+                }
+                if response:
+                    break
             
         except Exception as e:
             print(f"[WATCHER] 第{attempt + 1}次尝试获取AI回复失败: {str(e)}")
             if attempt < max_retries - 1:  # 如果不是最后一次尝试
-                time.sleep(retry_delay)  # 等待一段时间后重试
-                retry_delay *= 2  # 指数退避
+                wait_time = retry_delay * (2 ** attempt)  # 指数退避
+                print(f"[WATCHER] 等待{wait_time}秒后重试...")
+                time.sleep(wait_time)
             else:
                 # 所有重试都失败了，发送错误提示给用户
                 error_msg = "抱歉，AI助手暂时无法回复，请稍后再试。"
