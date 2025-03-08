@@ -23,9 +23,19 @@ if [ ! -d "/usr/local/openresty/luajit" ]; then
     ln -sf /usr/local/openresty/lualib/* /usr/local/openresty/luajit/lib/ 2>/dev/null || true
 fi
 
+# 替换配置文件中的环境变量
+echo "替换配置文件中的环境变量..."
+sed -i "s|\${WEB_UI_URL}|$WEB_UI_URL|g" /etc/nginx/conf.d/default.conf
+sed -i "s|\${AIRFLOW_BASE_URL}|$AIRFLOW_BASE_URL|g" /etc/nginx/conf.d/default.conf
+sed -i "s|\${DIFY_URL}|$DIFY_URL|g" /etc/nginx/conf.d/default.conf
+
 # 打印当前的全部环境变量
 echo "当前的全部环境变量:"
 env
+
+# 打印替换后的配置文件
+echo "替换后的配置文件内容:"
+cat /etc/nginx/conf.d/default.conf
 
 # 启动Nginx
 echo "启动Nginx服务..."
