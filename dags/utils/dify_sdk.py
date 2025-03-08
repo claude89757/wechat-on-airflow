@@ -18,12 +18,15 @@ class DifyAgent:
             'Content-Type': 'application/json'
         }
 
-    def create_chat_message(self, query, user_id, conversation_id="", inputs=None):
+    def create_chat_message(self, query, user_id, conversation_id="", inputs=None, files=None):
         """
         创建聊天消息
         """
         if inputs is None:
             inputs = {}
+
+        if files is None:
+            files = []
 
         url = f"{self.base_url}/chat-messages"
         payload = {
@@ -32,7 +35,8 @@ class DifyAgent:
             "response_mode": "blocking",  # 改为非流式响应
             "conversation_id": conversation_id,
             "user": user_id,
-            "auto_generate_name": False
+            "auto_generate_name": False,
+            "files": files
         }
         print("="*50)
         print(f"url: {url}")
@@ -58,6 +62,10 @@ class DifyAgent:
         
         response = requests.get(url, headers=self.headers, params=params)
         if response.status_code == 200:
+            print(f"获取会话列表成功: {response.json()}")  
+            print("="*50)
+            print(f"response.json(): {response.json()}")
+            print("="*50)
             return response.json()
         else:
             raise Exception(f"获取会话列表失败: {response.text}")
