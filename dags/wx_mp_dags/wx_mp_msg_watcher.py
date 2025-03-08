@@ -105,7 +105,7 @@ def process_wx_message(**context):
 
 def handler_text_msg(**context):
     """
-    处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息（测试）
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
