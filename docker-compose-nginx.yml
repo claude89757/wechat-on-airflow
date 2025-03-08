@@ -196,8 +196,8 @@ services:
         max-file: "3"
     environment:
       - TZ=Asia/Shanghai
-      - WEB_UI_URL=${WEB_UI_URL:-http://localhost}
-      - DIFY_URL=${DIFY_URL:-http://localhost}
+      - WEB_UI_URL=${WEB_UI_URL:-http://127.0.0.1:8080}
+      - DIFY_URL=${DIFY_URL:-http://127.0.0.1:8000}
       - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL}
       - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
       - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
