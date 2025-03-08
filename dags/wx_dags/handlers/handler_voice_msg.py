@@ -27,6 +27,9 @@ def handler_voice_msg(**context):
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
     room_id = message_data.get('roomid')
+    
+    message_data = context.get('dag_run').conf
+    room_id = message_data.get('roomid')
     sender = message_data.get('sender')
     msg_id = message_data.get('id')
     msg_type = message_data.get('type')
@@ -49,12 +52,8 @@ def handler_voice_msg(**context):
     dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
-    # 获取房间和发送者信息
-    room_name = get_contact_name(source_ip, room_id, wx_user_name)
-    sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
-    
     # 获取会话ID
-    dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
+    dify_user_id = f"{room_name}_{sender}"
     conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
     # 2. 语音转文字
@@ -94,6 +93,8 @@ def handler_voice_msg(**context):
     if not conversation_id:
         # 新会话，重命名会话
         conversation_id = metadata.get("conversation_id")
+        # 获取房间和发送者信息
+        room_name = get_contact_name(source_ip, room_id, wx_user_name)
         dify_agent.rename_conversation(conversation_id, dify_user_id, room_name)
 
         # 保存会话ID
@@ -116,4 +117,4 @@ def handler_voice_msg(**context):
     except Exception as error:
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息回复失败
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="dislike", content=f"语音消息微信自动回复失败, {error}") 
+        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="dislike", content=f"语音消息微信自动回复失败, {error}")

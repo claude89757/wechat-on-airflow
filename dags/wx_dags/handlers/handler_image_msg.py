@@ -71,4 +71,4 @@ def handler_image_msg(**context):
     # try:
     #     os.remove(image_file_path)
     # except Exception as e:
-    #     print(f"[WATCHER] 删除本地图片失败: {e}") 
+    #     print(f"[WATCHER] 删除本地图片失败: {e}")
