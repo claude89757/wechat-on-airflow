@@ -216,19 +216,16 @@ def handler_text_msg(**context):
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
 
-    # 整合未回复的消息，添加序号
+    # 整合未回复的消息
     questions = []
-    for i, content in enumerate(up_for_reply_msg_content_list, 1):
-        if len(up_for_reply_msg_content_list) > 1:
-            questions.append(f"问题{i}：{content}")
-        else:
-            questions.append(content)
+    for content in up_for_reply_msg_content_list:
+        questions.append(content)
     
     question = "\n\n".join(questions)
     
     # 如果是多个问题，添加提示语
     if len(up_for_reply_msg_content_list) > 1:
-        question = f"请帮我回答以下{len(up_for_reply_msg_content_list)}个问题：\n\n{question}"
+        question = f"请回答以下问题：\n\n{question}"
 
     print("-"*50)
     print(f"合并后的问题:\n{question}")
