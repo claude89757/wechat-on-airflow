@@ -303,69 +303,99 @@ def handler_text_msg(**context):
                         '一、', '二、', '三、','四、','五、','六、','七、','八、','九、',
                         '\n1.', '\n2.', '\n3.','\n4.', '\n5.', '\n6.','\n7.', '\n8.', '\n9.',
                         '\n一、', '\n二、', '\n三、','\n四、','\n五、','\n六、','\n七、','\n八、','\n九、']
+        
+        # 2. 优化分段判断逻辑
         if any(marker in response for marker in point_markers):
             need_split = True
-            
-        # 2. 检查是否有明显的段落分隔
-        if response.count('\n\n') > 10:  # 有超过10个空行分隔的段落
+        elif len(response) > 500:  # 单段超过500字符
             need_split = True
-            
-        # 3. 检查单段长度
-        if len(response) > 500:  # 单段超过500字符
+        elif response.count('\n') > 5:  # 有超过5个换行
             need_split = True
 
         if need_split:
             # 分段发送逻辑
-            # 1. 首先尝试按分点标记分割
-            has_points = False
-            for marker in ['1.', '一、', '①']:
-                if marker in response:
-                    has_points = True
-                    segments = []
-                    current_segment = []
-                    
-                    for line in response.split('\n'):
-                        if any(line.strip().startswith(m) for m in point_markers):
-                            if current_segment:
-                                segments.append('\n'.join(current_segment))
-                            current_segment = [line]
-                        else:
-                            current_segment.append(line)
-                    
-                    if current_segment:
-                        segments.append('\n'.join(current_segment))
-                    
-                    # 发送每个分点
-                    for segment in segments:
-                        if segment.strip():
-                            mp_bot.send_text_message(from_user_name, segment.strip())
-                            time.sleep(0.2)
-                    break
+            segments = []
             
-            # 2. 如果没有分点，按段落分割
-            if not has_points:
-                paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
-                if len(paragraphs) > 1:
-                    for paragraph in paragraphs:
-                        if paragraph.strip():
-                            mp_bot.send_text_message(from_user_name, paragraph.strip())
-                            time.sleep(0.2)
-                else:
-                    # 3. 如果是单个长段落，按句子分割
-                    sentences = re.split(r'([。！？])', response)
-                    current_msg = ""
-                    for i in range(0, len(sentences)-1, 2):
-                        sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
-                        if len(current_msg) + len(sentence) > 300:
-                            if current_msg.strip():
-                                mp_bot.send_text_message(from_user_name, current_msg.strip())
-                                time.sleep(0.2)
-                            current_msg = sentence
-                        else: 
-                            current_msg += sentence
-                    
-                    if current_msg.strip():
-                        mp_bot.send_text_message(from_user_name, current_msg.strip())
+            # 1. 首先尝试按分点标记分割
+            if any(marker in response for marker in point_markers):
+                current_segment = []
+                lines = response.split('\n')
+                
+                for line in lines:
+                    if any(line.strip().startswith(m) for m in point_markers):
+                        if current_segment:
+                            segments.append('\n'.join(current_segment))
+                        current_segment = [line]
+                    else:
+                        current_segment.append(line)
+                
+                if current_segment:
+                    segments.append('\n'.join(current_segment))
+            
+            # 2. 如果没有分点或分段结果为空，按段落分割
+            if not segments:
+                # 使用更智能的段落分割
+                paragraphs = []
+                current_para = []
+                
+                for line in response.split('\n'):
+                    if not line.strip():  # 空行表示段落结束
+                        if current_para:
+                            paragraphs.append('\n'.join(current_para))
+                            current_para = []
+                    else:
+                        current_para.append(line)
+                
+                if current_para:  # 添加最后一个段落
+                    paragraphs.append('\n'.join(current_para))
+                
+                # 合并过短的段落
+                segments = []
+                current_segment = ""
+                
+                for para in paragraphs:
+                    if len(current_segment) + len(para) <= 600:  # 增加单段长度限制
+                        current_segment = (current_segment + "\n\n" + para).strip()
+                    else:
+                        if current_segment:
+                            segments.append(current_segment)
+                        current_segment = para
+                
+                if current_segment:
+                    segments.append(current_segment)
+            
+            # 3. 如果段落太少，尝试保持更多内容
+            if len(segments) <= 1:
+                # 按句子分割，使用更多的分隔符
+                separators = r'([。！？；.!?;])'  # 增加更多标点符号
+                sentences = re.split(separators, response)
+                current_segment = ""
+                
+                for i in range(0, len(sentences)-1, 2):
+                    sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
+                    if len(current_segment) + len(sentence) > 600:  # 增加长度限制
+                        if current_segment.strip():
+                            segments.append(current_segment.strip())
+                        current_segment = sentence
+                    else:
+                        current_segment += sentence
+                
+                if current_segment.strip():
+                    segments.append(current_segment.strip())
+            
+            # 确保所有段落都被发送
+            print(f"[WATCHER] 总共分段数量: {len(segments)}")
+            for i, segment in enumerate(segments, 1):
+                if segment.strip():
+                    try:
+                        mp_bot.send_text_message(from_user_name, segment.strip())
+                        print(f"[WATCHER] 成功发送第{i}/{len(segments)}段")
+                        time.sleep(0.5)  # 增加发送间隔，避免频率限制
+                    except Exception as e:
+                        print(f"[WATCHER] 发送第{i}段消息失败: {e}")
+                        # 如果发送失败，等待更长时间后重试
+                        time.sleep(2)
+                        mp_bot.send_text_message(from_user_name, segment.strip())
         else:
             # 内容较短或结构简单，直接发送
             if response.strip():
