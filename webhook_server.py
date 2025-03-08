@@ -59,10 +59,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Airflow Configuration
-AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL")
-AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME")
-AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD")
-WX_MSG_WATCHER_DAG_ID = os.getenv("WX_MSG_WATCHER_DAG_ID", "wx_msg_watcher")
+AIRFLOW_BASE_URL = os.environ["AIRFLOW_BASE_URL"]
+AIRFLOW_USERNAME = os.environ["AIRFLOW_USERNAME"]
+AIRFLOW_PASSWORD = os.environ["AIRFLOW_PASSWORD"]
+WX_MSG_WATCHER_DAG_ID = os.environ["WX_MSG_WATCHER_DAG_ID"]
 
 # Repository Path
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
