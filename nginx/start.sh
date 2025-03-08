@@ -23,6 +23,10 @@ if [ ! -d "/usr/local/openresty/luajit" ]; then
     ln -sf /usr/local/openresty/lualib/* /usr/local/openresty/luajit/lib/ 2>/dev/null || true
 fi
 
+# 打印当前的全部环境变量
+echo "当前的全部环境变量:"
+env
+
 # 处理配置文件中的环境变量
 echo "处理配置文件中的环境变量..."
 
@@ -30,44 +34,16 @@ echo "处理配置文件中的环境变量..."
 cp /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak
 
 # 处理 WEB_UI_URL
-if [ -z "$WEB_UI_URL" ]; then
-    echo "WEB_UI_URL 为空，删除相关配置..."
-    # 删除 upstream web_ui_backend {...} 块
-    sed -i '/upstream web_ui_backend/,/}/d' /etc/nginx/conf.d/default.conf
-    # 删除 location / {...} 块
-    sed -i '/location \/ {/,/}/d' /etc/nginx/conf.d/default.conf
-else
-    echo "替换 WEB_UI_URL: $WEB_UI_URL"
-    sed -i "s|\${WEB_UI_URL}|$WEB_UI_URL|g" /etc/nginx/conf.d/default.conf
-fi
+echo "替换 WEB_UI_URL: $WEB_UI_URL"
+sed -i "s|\${WEB_UI_URL}|$WEB_UI_URL|g" /etc/nginx/conf.d/default.conf
 
 # 处理 AIRFLOW_BASE_URL
-if [ -z "$AIRFLOW_BASE_URL" ]; then
-    echo "AIRFLOW_BASE_URL 为空，删除相关配置..."
-    # 删除 upstream airflow_backend {...} 块
-    sed -i '/upstream airflow_backend/,/}/d' /etc/nginx/conf.d/default.conf
-    # 删除 location /airflow {...} 块
-    sed -i '/location \/airflow {/,/}/d' /etc/nginx/conf.d/default.conf
-else
-    echo "替换 AIRFLOW_BASE_URL: $AIRFLOW_BASE_URL"
-    sed -i "s|\${AIRFLOW_BASE_URL}|$AIRFLOW_BASE_URL|g" /etc/nginx/conf.d/default.conf
-fi
+echo "替换 AIRFLOW_BASE_URL: $AIRFLOW_BASE_URL"
+sed -i "s|\${AIRFLOW_BASE_URL}|$AIRFLOW_BASE_URL|g" /etc/nginx/conf.d/default.conf
 
 # 处理 DIFY_URL
-if [ -z "$DIFY_URL" ]; then
-    echo "DIFY_URL 为空，删除相关配置..."
-    # 删除 upstream dify_backend {...} 块
-    sed -i '/upstream dify_backend/,/}/d' /etc/nginx/conf.d/default.conf
-    # 删除 location /dify {...} 块
-    sed -i '/location \/dify {/,/}/d' /etc/nginx/conf.d/default.conf
-else
-    echo "替换 DIFY_URL: $DIFY_URL"
-    sed -i "s|\${DIFY_URL}|$DIFY_URL|g" /etc/nginx/conf.d/default.conf
-fi
-
-# 打印当前的全部环境变量
-echo "当前的全部环境变量:"
-env
+echo "替换 DIFY_URL: $DIFY_URL"
+sed -i "s|\${DIFY_URL}|$DIFY_URL|g" /etc/nginx/conf.d/default.conf
 
 # 打印替换后的配置文件
 echo "替换后的配置文件内容:"
