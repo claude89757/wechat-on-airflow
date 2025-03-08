@@ -133,8 +133,8 @@ def handler_text_msg(**context):
     room_msg_list.append(current_msg)
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
-    # 缩短等待时间到5秒
-    time.sleep(5)
+    # 缩短等待时间到10秒
+    time.sleep(10)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
