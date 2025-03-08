@@ -84,3 +84,69 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 <a href="https://github.com/claude89757/wechat-on-airflow/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=claude89757/wechat-on-airflow" />
 </a>
+
+# Git Webhook 服务器
+
+这是一个简单的 Git Webhook 服务器，用于自动更新代码仓库。当 GitHub 发送 webhook 请求时，服务器会自动拉取最新代码。
+
+## 功能特点
+
+- 使用 Flask 框架构建，代码简洁易维护
+- 详细的日志记录（同时输出到控制台和日志文件）
+- 轻量级，易于部署
+
+## 安装
+
+1. 确保已安装 Python 3.6+
+2. 安装依赖：
+
+```bash
+pip install flask
+```
+
+## 配置
+
+在 `git_webhook_server.py` 中可以配置以下参数：
+
+- `PORT`：服务器监听端口（默认：5000）
+- `LOG_FILE`：日志文件路径（默认：与脚本同目录下的 git_webhook.log）
+
+## 使用方法
+
+### 启动服务器
+
+```bash
+python git_webhook_server.py
+```
+
+### 后台运行
+
+```bash
+nohup python git_webhook_server.py &
+```
+
+### 查看日志
+
+```bash
+tail -f git_webhook.log
+```
+
+### 查看运行状态
+
+```bash
+ps aux | grep git_webhook_server.py
+```
+
+### 停止服务器
+
+```bash
+pkill -f git_webhook_server.py
+```
+
+## 在 GitHub 上配置 Webhook
+
+1. 在 GitHub 仓库中，进入 Settings > Webhooks > Add webhook
+2. 设置 Payload URL 为 `http://你的服务器IP:5000/update`
+3. 选择 Content type 为 `application/json`
+4. 选择触发事件（通常是 `push` 事件）
+5. 点击 Add webhook 保存
