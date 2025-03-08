@@ -308,6 +308,7 @@ def check_tennis_courts():
         # 获取微信发送配置
         wcf_ip = Variable.get("WCF_IP", default_var="")
         for chat_room_id in ["38763452635@chatroom", "1234567890@chatroom"]:
+            print(f"sending to {chat_room_id}")
             for msg in up_for_send_msg_list:
                 send_wx_msg(
                     wcf_ip=wcf_ip,
