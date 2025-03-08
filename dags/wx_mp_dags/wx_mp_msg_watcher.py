@@ -157,10 +157,15 @@ def handler_text_msg(**context):
     # 收集需要回复的消息
     first_unreplied_time = None
     latest_msg_time = 0
+    latest_msg = None
     
     for msg in sorted_msgs:
         msg_time = int(msg.get('CreateTime', 0))
-        latest_msg_time = max(latest_msg_time, msg_time)
+        
+        # 更新最新消息时间和消息对象
+        if msg_time > latest_msg_time:
+            latest_msg_time = msg_time
+            latest_msg = msg
         
         # 只处理最后一条已回复消息之后的消息
         if msg_time <= last_replied_time:
@@ -175,28 +180,23 @@ def handler_text_msg(**context):
                 first_unreplied_time = msg_time
             
             # 优化聚合判断逻辑：
-            # 1. 消息时间在第一条未回复消息15秒内
-            # 2. 消息时间在当前时间10秒内
-            if ((msg_time - first_unreplied_time) <= 15 or  # 缩短时间窗口到15秒
-                (current_time - msg_time) <= 10):           # 缩短最新消息判断时间到10秒
+            # 1. 消息时间在第一条未回复消息5秒内
+            # 2. 消息时间在当前时间5秒内
+            if ((msg_time - first_unreplied_time) <= 5 or  # 缩短时间窗口到5秒
+                (current_time - msg_time) <= 5):           # 缩短最新消息判断时间到5秒
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
     if not up_for_reply_msg_content_list:
         print("[WATCHER] 没有需要回复的消息")
         return
-        
-    # 检查当前消息是否是最新的未回复消息，缩短检查时间到10秒
-    current_msg_time = int(message_data.get('CreateTime', 0))
-    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 10:
-        print(f"[WATCHER] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
-        return
 
-    # 标记消息为处理中状态
+    # 标记所有待处理消息为处理中状态，并关联到最新消息
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     for msg in room_msg_list:
         if msg['MsgId'] in up_for_reply_msg_id_list:
             msg['processing'] = True
+            msg['batch_reply_to'] = latest_msg.get('MsgId')  # 关联到最新消息
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
     
     # 获取微信公众号配置和初始化客户端
@@ -371,7 +371,7 @@ def handler_text_msg(**context):
             if response.strip():
                 mp_bot.send_text_message(from_user_name, response.strip())
         
-        # 标记消息为已回复状态
+        # 更新消息状态：标记所有消息为已回复，并记录回复内容
         room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
         for msg in room_msg_list:
             if msg['MsgId'] in up_for_reply_msg_id_list:
@@ -380,6 +380,9 @@ def handler_text_msg(**context):
                 msg['reply_time'] = int(time.time())
                 msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False
                 msg['reply_content'] = response
+                # 如果不是最新消息，标记为已合并回复
+                if msg['MsgId'] != latest_msg.get('MsgId'):
+                    msg['merged_to'] = latest_msg.get('MsgId')
         Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
 
         # 记录消息已被成功回复
@@ -396,12 +399,14 @@ def handler_text_msg(**context):
         context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
 
     except Exception as error:
-        # 发生错误时，清除处理中状态
+        # 发生错误时，清除处理中状态和合并标记
         try:
             room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
             for msg in room_msg_list:
                 if msg['MsgId'] in up_for_reply_msg_id_list:
                     msg['processing'] = False
+                    if 'batch_reply_to' in msg:
+                        del msg['batch_reply_to']
             Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
         except:
             pass
