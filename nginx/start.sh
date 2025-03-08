@@ -30,24 +30,13 @@ env
 # 处理配置模板
 echo "开始处理配置模板..."
 
-# 预处理URL变量，去掉协议部分
-echo "预处理URL变量，去掉协议部分..."
-WEB_UI_URL_CLEAN=$(echo "$WEB_UI_URL" | sed -e 's#^https\?://##g')
-AIRFLOW_BASE_URL_CLEAN=$(echo "$AIRFLOW_BASE_URL" | sed -e 's#^https\?://##g')
-DIFY_URL_CLEAN=$(echo "$DIFY_URL" | sed -e 's#^https\?://##g')
-
-echo "预处理后的URL变量:"
-echo "WEB_UI_URL_CLEAN: $WEB_UI_URL_CLEAN"
-echo "AIRFLOW_BASE_URL_CLEAN: $AIRFLOW_BASE_URL_CLEAN"
-echo "DIFY_URL_CLEAN: $DIFY_URL_CLEAN"
-
 # 渲染 default.conf 模板
 echo "渲染 default.conf 模板..."
 if [ -f "/etc/nginx/templates/default.conf.template" ]; then
     # 替换模板中的变量（使用处理后的无协议URL）
-    sed -e "s#\${WEB_UI_URL}#$WEB_UI_URL_CLEAN#g" \
-        -e "s#\${AIRFLOW_BASE_URL}#$AIRFLOW_BASE_URL_CLEAN#g" \
-        -e "s#\${DIFY_URL}#$DIFY_URL_CLEAN#g" \
+    sed -e "s#\${WEB_UI_URL}#$WEB_UI_URL#g" \
+        -e "s#\${AIRFLOW_BASE_URL}#$AIRFLOW_BASE_URL#g" \
+        -e "s#\${DIFY_URL}#$DIFY_URL#g" \
         /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
     
     echo "default.conf 模板渲染完成"
