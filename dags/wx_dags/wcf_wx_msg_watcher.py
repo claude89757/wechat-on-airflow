@@ -346,6 +346,7 @@ def handler_text_msg(**context):
 
     # 初始化dify
     dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    print(f"[WATCHER] dify_api_key: {dify_api_key}")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
