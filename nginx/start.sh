@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # 创建必要目录
-mkdir -p /usr/local/openresty/nginx/conf /usr/local/openresty/lualib/resty /etc/nginx
+mkdir -p /usr/local/openresty/nginx/conf /usr/local/openresty/lualib/resty /etc/nginx/conf.d
 
 # 设置国内Alpine镜像源
 sed -i 's/dl-cdn.alpinelinux.org/mirrors.cloud.tencent.com/g' /etc/apk/repositories
@@ -23,36 +23,54 @@ if [ ! -d "/usr/local/openresty/luajit" ]; then
     ln -sf /usr/local/openresty/lualib/* /usr/local/openresty/luajit/lib/ 2>/dev/null || true
 fi
 
-# 打印当前的全部环境变量
-echo "当前的全部环境变量:"
+# 打印环境变量
+echo "当前的环境变量:"
 env
 
-# 处理配置文件中的环境变量
-echo "处理配置文件中的环境变量..."
+# 处理配置模板
+echo "开始处理配置模板..."
 
-# 创建配置文件的临时副本（因为挂载的文件可能是只读的）
-echo "创建配置文件的临时副本..."
-cp /etc/nginx/conf.d/default.conf /tmp/default.conf
+# 渲染 default.conf 模板
+echo "渲染 default.conf 模板..."
+if [ -f "/etc/nginx/templates/default.conf.template" ]; then
+    # 替换模板中的变量
+    sed -e "s#\${WEB_UI_URL}#$WEB_UI_URL#g" \
+        -e "s#\${AIRFLOW_BASE_URL}#$AIRFLOW_BASE_URL#g" \
+        -e "s#\${DIFY_URL}#$DIFY_URL#g" \
+        /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+    
+    echo "default.conf 模板渲染完成"
+    echo "default.conf 模板内容:"
+    cat /etc/nginx/conf.d/default.conf
+else
+    echo "警告: default.conf 模板文件不存在!"
+fi
 
-# 处理 WEB_UI_URL
-echo "替换 WEB_UI_URL: $WEB_UI_URL"
-sed -i "s#\${WEB_UI_URL}#$WEB_UI_URL#g" /tmp/default.conf
+# 渲染 nginx.conf 模板
+echo "渲染 nginx.conf 模板..."
+if [ -f "/etc/nginx/templates/nginx.conf.template" ]; then
+    cp /etc/nginx/templates/nginx.conf.template /usr/local/openresty/nginx/conf/nginx.conf
+    echo "nginx.conf 模板渲染完成"
+    echo "nginx.conf 模板内容:"
+    cat /usr/local/openresty/nginx/conf/nginx.conf
+else
+    echo "警告: nginx.conf 模板文件不存在!"
+fi
 
-# 处理 AIRFLOW_BASE_URL
-echo "替换 AIRFLOW_BASE_URL: $AIRFLOW_BASE_URL"
-sed -i "s#\${AIRFLOW_BASE_URL}#$AIRFLOW_BASE_URL#g" /tmp/default.conf
+# 渲染 proxy_settings.conf 模板
+echo "渲染 proxy_settings.conf 模板..."
+if [ -f "/etc/nginx/templates/proxy_settings.conf.template" ]; then
+    cp /etc/nginx/templates/proxy_settings.conf.template /etc/nginx/conf.d/proxy_settings.conf
+    echo "proxy_settings.conf 模板渲染完成"
+    echo "proxy_settings.conf 模板内容:"
+    cat /etc/nginx/conf.d/proxy_settings.conf
+else
+    echo "警告: proxy_settings.conf 模板文件不存在!"
+fi
 
-# 处理 DIFY_URL
-echo "替换 DIFY_URL: $DIFY_URL"
-sed -i "s#\${DIFY_URL}#$DIFY_URL#g" /tmp/default.conf
-
-# 将处理后的配置文件复制回原位置
-echo "将处理后的配置文件复制回原位置..."
-cat /tmp/default.conf > /etc/nginx/conf.d/default.conf
-
-# 打印替换后的配置文件
-echo "替换后的配置文件内容:"
-cat /etc/nginx/conf.d/default.conf
+# 检查配置文件是否有效
+echo "检查Nginx配置是否有效..."
+nginx -t
 
 # 启动Nginx
 echo "启动Nginx服务..."

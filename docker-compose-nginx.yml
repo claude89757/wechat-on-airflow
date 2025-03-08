@@ -184,8 +184,9 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf
-      - ./nginx/conf.d/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+      - ./nginx/conf.d/default.conf:/etc/nginx/templates/default.conf.template
+      - ./nginx/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
+      - ./nginx/conf.d/proxy_settings.conf:/etc/nginx/templates/proxy_settings.conf.template
       - ./nginx/lua:/usr/local/openresty/nginx/lua
       - ./nginx/start.sh:/start.sh
     # 日志配置 - 使用json-file驱动收集日志，方便通过docker logs命令查看
