@@ -30,20 +30,25 @@ env
 # 处理配置文件中的环境变量
 echo "处理配置文件中的环境变量..."
 
-# 备份原始配置文件
-cp /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak
+# 创建配置文件的临时副本（因为挂载的文件可能是只读的）
+echo "创建配置文件的临时副本..."
+cp /etc/nginx/conf.d/default.conf /tmp/default.conf
 
 # 处理 WEB_UI_URL
 echo "替换 WEB_UI_URL: $WEB_UI_URL"
-sed -i "s|\${WEB_UI_URL}|$WEB_UI_URL|g" /etc/nginx/conf.d/default.conf
+sed -i "s#\${WEB_UI_URL}#$WEB_UI_URL#g" /tmp/default.conf
 
 # 处理 AIRFLOW_BASE_URL
 echo "替换 AIRFLOW_BASE_URL: $AIRFLOW_BASE_URL"
-sed -i "s|\${AIRFLOW_BASE_URL}|$AIRFLOW_BASE_URL|g" /etc/nginx/conf.d/default.conf
+sed -i "s#\${AIRFLOW_BASE_URL}#$AIRFLOW_BASE_URL#g" /tmp/default.conf
 
 # 处理 DIFY_URL
 echo "替换 DIFY_URL: $DIFY_URL"
-sed -i "s|\${DIFY_URL}|$DIFY_URL|g" /etc/nginx/conf.d/default.conf
+sed -i "s#\${DIFY_URL}#$DIFY_URL#g" /tmp/default.conf
+
+# 将处理后的配置文件复制回原位置
+echo "将处理后的配置文件复制回原位置..."
+cat /tmp/default.conf > /etc/nginx/conf.d/default.conf
 
 # 打印替换后的配置文件
 echo "替换后的配置文件内容:"
