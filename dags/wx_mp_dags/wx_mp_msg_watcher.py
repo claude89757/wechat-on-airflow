@@ -133,8 +133,8 @@ def handler_text_msg(**context):
     room_msg_list.append(current_msg)
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
-    # 延长等待时间到10秒
-    time.sleep(10)
+    # 缩短等待时间到5秒
+    time.sleep(5)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -180,10 +180,10 @@ def handler_text_msg(**context):
                 first_unreplied_time = msg_time
             
             # 优化聚合判断逻辑：
-            # 1. 消息时间在第一条未回复消息10秒内
-            # 2. 消息时间在当前时间10秒内
-            if ((msg_time - first_unreplied_time) <= 10 or  # 延长时间窗口到10秒
-                (current_time - msg_time) <= 10):           # 延长最新消息判断时间到10秒
+            # 1. 消息时间在第一条未回复消息5秒内
+            # 2. 消息时间在当前时间5秒内
+            if ((msg_time - first_unreplied_time) <= 5 or  # 缩短时间窗口到5秒
+                (current_time - msg_time) <= 5):           # 缩短最新消息判断时间到5秒
                 up_for_reply_msg_content_list.append(msg.get('Content', ''))
                 up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
@@ -259,99 +259,39 @@ def handler_text_msg(**context):
         except Exception as e:
             print(f"[WATCHER] 清除图片缓存失败: {e}")
 
-    # 添加重试逻辑
-    max_retries = 3
-    retry_delay = 5  # 增加初始重试延迟
-    response = None
-    metadata = None
-    
-    for attempt in range(max_retries):
-        try:
-            # 尝试使用流式响应
-            if attempt < 2:  # 前两次尝试使用流式响应
-                try:
-                    full_answer, metadata = dify_agent.create_chat_message_stream(
-                        query=question,
-                        user_id=from_user_name,
-                        conversation_id=conversation_id,
-                        inputs={
-                            "platform": "wechat_mp",
-                            "user_id": from_user_name,
-                            "msg_id": msg_id,
-                            "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
-                            "question_count": len(up_for_reply_msg_content_list),
-                            "has_image": bool(dify_files),
-                            "image_id": online_img_info.get("id", "") if online_img_info else "",
-                            "image_url": online_img_info.get("url", "") if online_img_info else ""
-                        },
-                        files=dify_files
-                    )
-                    response = full_answer
-                    break  # 如果成功获取响应，跳出重试循环
-                except Exception as stream_error:
-                    print(f"[WATCHER] 流式响应失败: {str(stream_error)}")
-                    if "can't start new thread" in str(stream_error):
-                        # 如果是线程资源问题，立即尝试非流式响应
-                        raise Exception("切换到非流式响应")
-                    raise  # 其他错误则重新抛出
-            else:
-                # 最后一次尝试使用非流式响应
-                print("[WATCHER] 尝试使用非流式响应")
-                response_data = dify_agent.create_chat_message(
-                    query=question,
-                    user_id=from_user_name,
-                    conversation_id=conversation_id,
-                    inputs={
-                        "platform": "wechat_mp",
-                        "user_id": from_user_name,
-                        "msg_id": msg_id,
-                        "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
-                        "question_count": len(up_for_reply_msg_content_list),
-                        "has_image": bool(dify_files),
-                        "image_id": online_img_info.get("id", "") if online_img_info else "",
-                        "image_url": online_img_info.get("url", "") if online_img_info else ""
-                    },
-                    files=dify_files
-                )
-                response = response_data.get('answer', '')
-                metadata = {
-                    'conversation_id': response_data.get('conversation_id'),
-                    'message_id': response_data.get('id')
-                }
-                if response:
-                    break
-            
-        except Exception as e:
-            print(f"[WATCHER] 第{attempt + 1}次尝试获取AI回复失败: {str(e)}")
-            if attempt < max_retries - 1:  # 如果不是最后一次尝试
-                wait_time = retry_delay * (2 ** attempt)  # 指数退避
-                print(f"[WATCHER] 等待{wait_time}秒后重试...")
-                time.sleep(wait_time)
-            else:
-                # 所有重试都失败了，发送错误提示给用户
-                error_msg = "抱歉，AI助手暂时无法回复，请稍后再试。"
-                try:
-                    mp_bot.send_text_message(from_user_name, error_msg)
-                except Exception as send_error:
-                    print(f"[WATCHER] 发送错误提示失败: {send_error}")
-                raise  # 重新抛出异常
-    
-    if not response:
-        print("[WATCHER] 无法获取AI回复")
-        return
+    # 获取AI回复
+    full_answer, metadata = dify_agent.create_chat_message_stream(
+        query=question,
+        user_id=from_user_name,
+        conversation_id=conversation_id,
+        inputs={
+            "platform": "wechat_mp",
+            "user_id": from_user_name,
+            "msg_id": msg_id,
+            "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
+            "question_count": len(up_for_reply_msg_content_list),
+            "has_image": bool(dify_files),  # 添加图片标记
+            "image_id": online_img_info.get("id", "") if online_img_info else "",  # 添加图片ID
+            "image_url": online_img_info.get("url", "") if online_img_info else ""  # 添加图片URL
+        },
+        files=dify_files
+    )
+    print(f"full_answer: {full_answer}")
+    print(f"metadata: {metadata}")
+    response = full_answer
 
-    # 处理会话ID相关逻辑
-    if not conversation_id and metadata:  # 确保metadata不为空
+    if not conversation_id:
+        # 新会话，重命名会话
         try:
             conversation_id = metadata.get("conversation_id")
-            if conversation_id:  # 确保获取到了conversation_id
-                dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号对话")
-                # 保存会话ID
-                conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
-                conversation_infos[from_user_name] = conversation_id
-                Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
+            dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号对话")
         except Exception as e:
             print(f"[WATCHER] 重命名会话失败: {e}")
+        
+        # 保存会话ID
+        conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
+        conversation_infos[from_user_name] = conversation_id
+        Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
 
     # 发送回复消息时的智能处理
     try:
@@ -363,99 +303,69 @@ def handler_text_msg(**context):
                         '一、', '二、', '三、','四、','五、','六、','七、','八、','九、',
                         '\n1.', '\n2.', '\n3.','\n4.', '\n5.', '\n6.','\n7.', '\n8.', '\n9.',
                         '\n一、', '\n二、', '\n三、','\n四、','\n五、','\n六、','\n七、','\n八、','\n九、']
-        
-        # 2. 优化分段判断逻辑
         if any(marker in response for marker in point_markers):
             need_split = True
-        elif len(response) > 500:  # 单段超过500字符
+            
+        # 2. 检查是否有明显的段落分隔
+        if response.count('\n\n') > 10:  # 有超过10个空行分隔的段落
             need_split = True
-        elif response.count('\n') > 5:  # 有超过5个换行
+            
+        # 3. 检查单段长度
+        if len(response) > 500:  # 单段超过500字符
             need_split = True
 
         if need_split:
             # 分段发送逻辑
-            segments = []
-            
             # 1. 首先尝试按分点标记分割
-            if any(marker in response for marker in point_markers):
-                current_segment = []
-                lines = response.split('\n')
-                
-                for line in lines:
-                    if any(line.strip().startswith(m) for m in point_markers):
-                        if current_segment:
-                            segments.append('\n'.join(current_segment))
-                        current_segment = [line]
-                    else:
-                        current_segment.append(line)
-                
-                if current_segment:
-                    segments.append('\n'.join(current_segment))
+            has_points = False
+            for marker in ['1.', '一、', '①']:
+                if marker in response:
+                    has_points = True
+                    segments = []
+                    current_segment = []
+                    
+                    for line in response.split('\n'):
+                        if any(line.strip().startswith(m) for m in point_markers):
+                            if current_segment:
+                                segments.append('\n'.join(current_segment))
+                            current_segment = [line]
+                        else:
+                            current_segment.append(line)
+                    
+                    if current_segment:
+                        segments.append('\n'.join(current_segment))
+                    
+                    # 发送每个分点
+                    for segment in segments:
+                        if segment.strip():
+                            mp_bot.send_text_message(from_user_name, segment.strip())
+                            time.sleep(0.2)
+                    break
             
-            # 2. 如果没有分点或分段结果为空，按段落分割
-            if not segments:
-                # 使用更智能的段落分割
-                paragraphs = []
-                current_para = []
-                
-                for line in response.split('\n'):
-                    if not line.strip():  # 空行表示段落结束
-                        if current_para:
-                            paragraphs.append('\n'.join(current_para))
-                            current_para = []
-                    else:
-                        current_para.append(line)
-                
-                if current_para:  # 添加最后一个段落
-                    paragraphs.append('\n'.join(current_para))
-                
-                # 合并过短的段落
-                segments = []
-                current_segment = ""
-                
-                for para in paragraphs:
-                    if len(current_segment) + len(para) <= 600:  # 增加单段长度限制
-                        current_segment = (current_segment + "\n\n" + para).strip()
-                    else:
-                        if current_segment:
-                            segments.append(current_segment)
-                        current_segment = para
-                
-                if current_segment:
-                    segments.append(current_segment)
-            
-            # 3. 如果段落太少，尝试保持更多内容
-            if len(segments) <= 1:
-                # 按句子分割，使用更多的分隔符
-                separators = r'([。！？；.!?;])'  # 增加更多标点符号
-                sentences = re.split(separators, response)
-                current_segment = ""
-                
-                for i in range(0, len(sentences)-1, 2):
-                    sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
-                    if len(current_segment) + len(sentence) > 600:  # 增加长度限制
-                        if current_segment.strip():
-                            segments.append(current_segment.strip())
-                        current_segment = sentence
-                    else:
-                        current_segment += sentence
-                
-                if current_segment.strip():
-                    segments.append(current_segment.strip())
-            
-            # 确保所有段落都被发送
-            print(f"[WATCHER] 总共分段数量: {len(segments)}")
-            for i, segment in enumerate(segments, 1):
-                if segment.strip():
-                    try:
-                        mp_bot.send_text_message(from_user_name, segment.strip())
-                        print(f"[WATCHER] 成功发送第{i}/{len(segments)}段")
-                        time.sleep(0.5)  # 增加发送间隔，避免频率限制
-                    except Exception as e:
-                        print(f"[WATCHER] 发送第{i}段消息失败: {e}")
-                        # 如果发送失败，等待更长时间后重试
-                        time.sleep(2)
-                        mp_bot.send_text_message(from_user_name, segment.strip())
+            # 2. 如果没有分点，按段落分割
+            if not has_points:
+                paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
+                if len(paragraphs) > 1:
+                    for paragraph in paragraphs:
+                        if paragraph.strip():
+                            mp_bot.send_text_message(from_user_name, paragraph.strip())
+                            time.sleep(0.2)
+                else:
+                    # 3. 如果是单个长段落，按句子分割
+                    sentences = re.split(r'([。！？])', response)
+                    current_msg = ""
+                    for i in range(0, len(sentences)-1, 2):
+                        sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
+                        if len(current_msg) + len(sentence) > 300:
+                            if current_msg.strip():
+                                mp_bot.send_text_message(from_user_name, current_msg.strip())
+                                time.sleep(0.2)
+                            current_msg = sentence
+                        else:
+                            current_msg += sentence
+                    
+                    if current_msg.strip():
+                        mp_bot.send_text_message(from_user_name, current_msg.strip())
         else:
             # 内容较短或结构简单，直接发送
             if response.strip():
