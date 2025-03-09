@@ -50,7 +50,9 @@ def check_wx_account_status(**context):
             # 获取当前微信账号信息
             new_wx_account_info = get_wx_self_info(source_ip)
         except Exception as e:
-            print(f"获取微信账号信息失败: {e}")
+            print("="*50)
+            print(f"账号异常:{account['wx_user_name']} {e}")
+            print("="*50)
             continue
 
         # 检查微信登录状态
