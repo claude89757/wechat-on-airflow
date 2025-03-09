@@ -106,8 +106,8 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, wx_user_name)
 
-    dify_files = []
     # 获取在线图片信息
+    dify_files = []
     online_img_info = Variable.get(f"{wx_user_name}_{room_id}_online_img_info", default_var={}, deserialize_json=True)
     if online_img_info:
         dify_files.append({
@@ -116,13 +116,13 @@ def handler_text_msg(**context):
             "upload_file_id": online_img_info.get("id", "")
         })
 
-    dify_inputs = {}
     # 获取UI输入提示
+    dify_inputs = {}
     ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_id}_ui_input_prompt")
     if ui_input_prompt:
         dify_inputs["ui_input_prompt"] = ui_input_prompt
     
-     # 获取AI回复
+    # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=dify_user_id,
@@ -151,57 +151,55 @@ def handler_text_msg(**context):
     should_pre_stop(message_data, wx_user_name)
 
     # 判断是否转人工
-    if response.strip().lower() == '#转人工#':
-        # 转人工
+    if "#转人工#" in response.strip().lower():
         print(f"[WATCHER] 转人工: {response}")
+        # 记录转人工的房间ID
         human_room_ids = Variable.get(f"{wx_user_name}_{wx_user_id}_human_room_ids", default_var=[], deserialize_json=True)
         human_room_ids.append(room_id)
+        human_room_ids = list(set(human_room_ids))  # 去重
         Variable.set(f"{wx_user_name}_{wx_user_id}_human_room_ids", human_room_ids, serialize_json=True)
-        return
+
+        # 删除标签
+        response = response.replace("#转人工#", "")
     
     # 开启AI，且不是自己发送的消息，则自动回复消息
-    dify_msg_id = metadata.get("message_id")
-    try:
-        for response_part in re.split(r'\\n\\n|\n\n', response):
-            response_part = response_part.replace('\\n', '\n')
-            if response_part.strip().endswith('.png'):
-                # 发送图片 TODO(claude89757): 发送图片
-                image_file_path = f"C:/Users/Administrator/Desktop/files/{response_part.strip()}"
-                send_wx_image(wcf_ip=source_ip, image_path=image_file_path, receiver=room_id)
-            elif response_part.strip().endswith('.mp4'):
-                # 发送视频 TODO(claude89757): 发送视频
-                image_file_path = f"C:/Users/Administrator/Desktop/files/{response_part.strip()}"
-                send_wx_image(wcf_ip=source_ip, image_path=image_file_path, receiver=room_id)
-            else:
-                # 发送文本
-                send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
-        # 记录消息已被成功回复
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="like", content="微信自动回复成功")
-
-        # 缓存的消息中，标记消息已回复
-        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-        for msg in room_msg_list:
-            if msg['id'] in up_for_reply_msg_id_list:
-                msg['is_reply'] = True
-        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
-
-        # 删除缓存的在线图片信息
+    if response.strip():
+        dify_msg_id = metadata.get("message_id")
         try:
-            Variable.delete(f"{wx_user_name}_{room_id}_online_img_info")
-        except Exception as e:
-            print(f"[WATCHER] 删除缓存的在线图片信息失败: {e}")
+            for response_part in re.split(r'\\n\\n|\n\n', response):
+                response_part = response_part.replace('\\n', '\n')
+                if response_part.strip().endswith('.png'):
+                    # 发送图片
+                    image_file_path = f"C:/Users/Administrator/Desktop/files/{response_part.strip()}"
+                    send_wx_image(wcf_ip=source_ip, image_path=image_file_path, receiver=room_id)
+                elif response_part.strip().endswith('.mp4'):
+                    # 发送视频
+                    image_file_path = f"C:/Users/Administrator/Desktop/files/{response_part.strip()}"
+                    send_wx_image(wcf_ip=source_ip, image_path=image_file_path, receiver=room_id)
+                else:
+                    # 发送文本
+                    send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
+            
+            # 记录消息已被成功回复
+            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="like", content="微信自动回复成功")
 
-        # response缓存到xcom中
-        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+            # 缓存的消息中，标记消息已回复
+            room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+            for msg in room_msg_list:
+                if msg['id'] in up_for_reply_msg_id_list:
+                    msg['is_reply'] = True
+            Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
 
-    except Exception as error:
-        print(f"[WATCHER] 发送消息失败: {error}")
-        # 记录消息已被成功回复
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="dislike", content=f"微信自动回复失败, {error}")
+            # 删除缓存的在线图片信息
+            try:
+                Variable.delete(f"{wx_user_name}_{room_id}_online_img_info")
+            except Exception as e:
+                print(f"[WATCHER] 删除缓存的在线图片信息失败: {e}")
 
-    # 打印会话消息
-    messages = dify_agent.get_conversation_messages(conversation_id, dify_user_id)
-    print("-"*50)
-    for msg in messages:
-        print(msg)
-    print("-"*50)
+            # response缓存到xcom中
+            context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+
+        except Exception as error:
+            print(f"[WATCHER] 发送消息失败: {error}")
+            # 记录消息已被成功回复
+            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="dislike", content=f"微信自动回复失败, {error}")

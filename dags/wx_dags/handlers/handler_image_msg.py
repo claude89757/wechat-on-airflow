@@ -67,6 +67,8 @@ def handler_image_msg(**context):
         # 回复客户说网络不好，图片接受异常，口气要委婉
         send_wx_msg(wcf_ip=source_ip, message="亲，网络有点问题，图片没收到，稍后再试试哦~", receiver=room_id)
 
+    # TODO(claude89757): 上传到COS存储
+    # TODO(claude89757): 删除本地图片
     # 删除本地图片
     # try:
     #     os.remove(image_file_path)

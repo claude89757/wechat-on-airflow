@@ -296,6 +296,14 @@ def save_ai_reply_msg_to_db(**context):
     # 保存消息到DB
     save_data_to_db(save_msg)
 
+    try:
+        # 账号的消息计时器+1
+        msg_count = Variable.get(f"{wx_account_info['name']}_msg_count", default_var=0, deserialize_json=True)
+        Variable.set(f"{wx_account_info['name']}_msg_count", msg_count+1, serialize_json=True)
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 更新消息计时器失败: {error}")
+
 
 # 创建DAG
 dag = DAG(
