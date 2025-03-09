@@ -231,6 +231,17 @@ def handler_text_msg(**context):
             msg['batch_reply_to'] = latest_msg.get('MsgId')  # 关联到最新消息
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
     
+    # 整合未回复的消息
+    questions = []
+    for content in up_for_reply_msg_content_list:
+        questions.append(content)
+    
+    question = "\n\n".join(questions)
+    
+    # 如果是多个问题，添加提示语
+    if len(up_for_reply_msg_content_list) > 1:
+        question = f"请回答以下问题：\n\n{question}"
+    
     # 在发送到Dify之前再次检查是否需要提前停止
     should_pre_stop(message_data, from_user_name)
     
