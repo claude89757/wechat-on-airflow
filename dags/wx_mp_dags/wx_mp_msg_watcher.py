@@ -105,7 +105,7 @@ def process_wx_message(**context):
 
 def handler_text_msg(**context):
     """
-    处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
+    处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息（测试）
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
@@ -132,9 +132,6 @@ def handler_text_msg(**context):
             msg['processing'] = False
             unhandled_msgs.append(msg)
     
-    # 检查是否需要提前停止流程 
-    should_pre_stop(message_data, wx_user_name)
-
     # 添加当前消息
     current_msg = {
         'ToUserName': to_user_name,
@@ -150,11 +147,8 @@ def handler_text_msg(**context):
     # 更新消息列表
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
-    # 缩短等待时间到3秒，给更多消息合并的机会
-    time.sleep(3)
-
-    # 检查是否需要提前停止流程 
-    should_pre_stop(message_data, wx_user_name)
+    # 缩短等待时间到5秒
+    time.sleep(5)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -196,11 +190,12 @@ def handler_text_msg(**context):
                     first_unreplied_time = msg_time
                 
                 # 优化聚合判断逻辑：
-                # 1. 消息时间在第一条未回复消息5秒内
-                # 2. 消息时间在当前时间5秒内
-                # 3. 消息内容不为空
-                if ((msg_time - first_unreplied_time) <= 5 or 
-                    (current_time - msg_time) <= 5) and msg.get('Content', '').strip():
+                # 1. 消息时间在第一条未回复消息7秒内
+                # 2. 消息时间在当前时间7秒内
+                # 3. 或者是之前未处理的消息
+                if ((msg_time - first_unreplied_time) <= 7 or
+                    (current_time - msg_time) <= 7 or
+                    msg.get('MsgId') in [m.get('MsgId') for m in unhandled_msgs]):
                     up_for_reply_msg_content_list.append(msg.get('Content', ''))
                     up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
@@ -232,9 +227,6 @@ def handler_text_msg(**context):
     
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
-
-    # 检查是否需要提前停止流程 
-    should_pre_stop(message_data, wx_user_name)
 
     # 整合未回复的消息
     questions = []
