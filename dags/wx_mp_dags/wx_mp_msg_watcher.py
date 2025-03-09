@@ -119,6 +119,20 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
+    # 获取微信公众号配置和初始化客户端
+    appid = Variable.get("WX_MP_APP_ID", default_var="")
+    appsecret = Variable.get("WX_MP_SECRET", default_var="")
+    
+    if not appid or not appsecret:
+        print("[WATCHER] 微信公众号配置缺失")
+        return
+    
+    # 初始化微信公众号机器人
+    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
+    
+    # 初始化dify
+    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    
     # 获取会话ID - 只在这里获取一次
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     print(f"[WATCHER] 获取到会话ID: {conversation_id}")
