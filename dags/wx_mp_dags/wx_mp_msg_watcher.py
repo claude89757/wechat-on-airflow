@@ -119,6 +119,10 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
+    # 获取会话ID - 只在这里获取一次
+    conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
+    print(f"[WATCHER] 获取到会话ID: {conversation_id}")
+    
     # 将当前消息添加到缓存列表之前，先检查之前的消息状态
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     
@@ -150,9 +154,9 @@ def handler_text_msg(**context):
     # 缩短等待时间到3秒，给更多消息合并的机会
     time.sleep(3)
 
-    # 检查是否需要提前停止流程 
+    # 重新获取消息列表前先检查是否需要提前停止
     should_pre_stop(message_data, from_user_name)
-
+    
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     
@@ -213,39 +217,12 @@ def handler_text_msg(**context):
             msg['batch_reply_to'] = latest_msg.get('MsgId')  # 关联到最新消息
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
     
-    # 获取微信公众号配置和初始化客户端
-    appid = Variable.get("WX_MP_APP_ID", default_var="")
-    appsecret = Variable.get("WX_MP_SECRET", default_var="")
-    
-    if not appid or not appsecret:
-        print("[WATCHER] 微信公众号配置缺失")
-        return
-    
-    # 初始化微信公众号机器人
-    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
-    
-    # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
-    
-    # 获取会话ID
-    conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
-
-    # 检查是否需要提前停止流程 
+    # 在发送到Dify之前再次检查是否需要提前停止
     should_pre_stop(message_data, from_user_name)
-
-    # 整合未回复的消息
-    questions = []
-    for content in up_for_reply_msg_content_list:
-        questions.append(content)
     
-    question = "\n\n".join(questions)
-    
-    # 如果是多个问题，添加提示语
-    if len(up_for_reply_msg_content_list) > 1:
-        question = f"请回答以下问题：\n\n{question}"
-
     print("-"*50)
-    print(f"合并后的问题:\n{question}")
+    print(f"[WATCHER] 准备发送到Dify的问题:\n{question}")
+    print(f"[WATCHER] 消息ID列表: {up_for_reply_msg_id_list}")
     print("-"*50)
 
     # 检查是否有缓存的图片信息
@@ -280,18 +257,14 @@ def handler_text_msg(**context):
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=from_user_name,
-        conversation_id=conversation_id,
+        conversation_id=conversation_id,  # 使用之前获取的会话ID
         inputs={
             "platform": "wechat_mp",
             "user_id": from_user_name,
             "msg_id": msg_id,
             "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
-            "question_count": len(up_for_reply_msg_content_list),
-            "has_image": bool(dify_files),  # 添加图片标记
-            "image_id": online_img_info.get("id", "") if online_img_info else "",  # 添加图片ID
-            "image_url": online_img_info.get("url", "") if online_img_info else ""  # 添加图片URL
-        },
-        files=dify_files
+            "question_count": len(up_for_reply_msg_content_list)
+        }
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
