@@ -178,6 +178,7 @@ def handler_text_msg(**context):
     current_time = int(time.time())
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
+    all_pending_msg_ids = []  # 新增：记录所有待处理的消息ID
     
     # 按时间排序消息，只看最近10条消息
     sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
@@ -202,11 +203,13 @@ def handler_text_msg(**context):
             latest_msg_time = msg_time
             latest_msg = msg
         
-        # 处理未回复的消息，包括：
-        # 1. 最后一条已回复消息之后的新消息
-        # 2. 之前未处理或处理失败的消息
-        if msg_time > last_replied_time or msg.get('MsgId') in [m.get('MsgId') for m in unhandled_msgs]:
-            if not msg.get('is_reply') and not msg.get('processing'):
+        # 处理所有未回复的消息
+        if not msg.get('is_reply'):
+            # 记录所有未处理消息的ID
+            all_pending_msg_ids.append(msg.get('MsgId'))
+            
+            # 只处理未在处理中的消息
+            if not msg.get('processing'):
                 if first_unreplied_time is None:
                     first_unreplied_time = msg_time
                 
@@ -386,10 +389,10 @@ def handler_text_msg(**context):
             if response.strip():
                 mp_bot.send_text_message(from_user_name, response.strip())
         
-        # 更新消息状态：标记所有消息为已回复，并记录回复内容
+        # 更新所有未处理消息的状态
         room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
         for msg in room_msg_list:
-            if msg['MsgId'] in up_for_reply_msg_id_list:
+            if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids而不是up_for_reply_msg_id_list
                 msg['is_reply'] = True
                 msg['processing'] = False
                 msg['reply_time'] = int(time.time())
@@ -418,7 +421,7 @@ def handler_text_msg(**context):
         try:
             room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
             for msg in room_msg_list:
-                if msg['MsgId'] in up_for_reply_msg_id_list:
+                if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids清除所有待处理消息的状态
                     msg['processing'] = False
                     if 'batch_reply_to' in msg:
                         del msg['batch_reply_to']
