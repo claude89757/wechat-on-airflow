@@ -75,7 +75,7 @@ dag = DAG(
     dag_id=DAG_ID,
     default_args={'owner': 'claude89757'},
     start_date=datetime(2024, 1, 1),
-    schedule_interval=timedelta(minutes=5),
+    schedule_interval=timedelta(minutes=2),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=1),
     catchup=False,
