@@ -140,7 +140,7 @@ def handler_text_msg(**context):
         'ToUserName': to_user_name,
         'FromUserName': from_user_name,
         'CreateTime': create_time,
-        'Content': content,
+        'Content': content,  # 确保使用原始content
         'MsgId': msg_id,
         'is_reply': False,
         'processing': False
@@ -197,9 +197,10 @@ def handler_text_msg(**context):
                 # 1. 消息时间在第一条未回复消息3秒内
                 # 2. 消息时间在当前时间3秒内
                 # 3. 消息内容不为空
+                msg_content = msg.get('Content', '').strip()  # 获取消息内容并去除空格
                 if ((msg_time - first_unreplied_time) <= 3 or 
-                    (current_time - msg_time) <= 3) and msg.get('Content', '').strip():
-                    up_for_reply_msg_content_list.append(msg.get('Content', ''))
+                    (current_time - msg_time) <= 3) and msg_content:
+                    up_for_reply_msg_content_list.append(msg_content)  # 使用去除空格后的内容
                     up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
     if not up_for_reply_msg_content_list:
