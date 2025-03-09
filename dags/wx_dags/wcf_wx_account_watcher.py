@@ -51,8 +51,12 @@ def check_wx_account_status(**context):
             new_wx_account_info = get_wx_self_info(source_ip)
         except Exception as e:
             print("="*50)
-            print(f"账号异常:{account['wx_user_name']} {e}")
+            print(f"账号异常:{account} {e}")
             print("="*50)
+            continue
+
+        if account['name'] != new_wx_account_info['name']:
+            print(f"账号更换名称: {account['name']} {new_wx_account_info['name']}, 先删除缓存")
             continue
 
         # 检查微信登录状态
