@@ -166,7 +166,7 @@ def handler_text_msg(**context):
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
     # 缩短等待时间到3秒，给更多消息合并的机会
-    time.sleep(3)
+    time.sleep(5)
 
     # 重新获取消息列表前先检查是否需要提前停止
     should_pre_stop(message_data, from_user_name)
@@ -719,7 +719,7 @@ def handler_image_msg(**context):
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
     # 缩短等待时间到3秒，给更多消息合并的机会
-    time.sleep(3)
+    time.sleep(5)
     
     # 重新获取消息列表前先检查是否需要提前停止
     should_pre_stop(message_data, from_user_name)
@@ -870,6 +870,20 @@ def handler_image_msg(**context):
                 mp_bot.send_text_message(from_user_name, response_part)
                 time.sleep(0.5)  # 避免发送过快
         
+        # 更新所有未处理消息的状态
+        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        for msg in room_msg_list:
+            if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids标记所有相关消息
+                msg['is_reply'] = True
+                msg['processing'] = False
+                msg['reply_time'] = int(time.time())
+                msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False
+                msg['reply_content'] = response
+                # 如果不是最新消息，标记为已合并回复
+                if msg['MsgId'] != latest_msg.get('MsgId'):
+                    msg['merged_to'] = latest_msg.get('MsgId')
+        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+        
         # 记录消息已被成功回复
         dify_msg_id = metadata.get("message_id")
         if dify_msg_id:
@@ -881,6 +895,18 @@ def handler_image_msg(**context):
             )
 
     except Exception as error:
+        # 发生错误时，清除处理中状态和合并标记
+        try:
+            room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+            for msg in room_msg_list:
+                if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids清除所有待处理消息的状态
+                    msg['processing'] = False
+                    if 'batch_reply_to' in msg:
+                        del msg['batch_reply_to']
+            Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+        except:
+            pass
+            
         print(f"[WATCHER] 发送消息失败: {error}")
         # 记录消息回复失败
         dify_msg_id = metadata.get("message_id")
