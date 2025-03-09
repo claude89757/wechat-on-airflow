@@ -179,19 +179,16 @@ services:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: triggerer
 
-  # Nginx 服务
-  nginx:
+  # Nginx 服务, 用于接收WCF回调
+  nginx_for_wcf:
     <<: *common
     image: openresty/openresty:1.21.4.1-6-alpine-fat
     ports:
       - "80:80"
     volumes:
-      - ./nginx/conf.d/default.conf:/etc/nginx/templates/default.conf.template
-      - ./nginx/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
-      - ./nginx/conf.d/proxy_settings.conf:/etc/nginx/templates/proxy_settings.conf.template
-      - ./nginx/lua:/usr/local/openresty/nginx/lua
-      - ./nginx/start.sh:/start.sh
-    # 日志配置 - 使用json-file驱动收集日志，方便通过docker logs命令查看
+      - ./nginx_for_wcf/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
+      - ./nginx_for_wcf/lua:/usr/local/openresty/nginx/lua
+      - ./nginx_for_wcf/start.sh:/start.sh
     logging:
       driver: "json-file"
       options:
@@ -199,17 +196,12 @@ services:
         max-file: "3"
     environment:
       - TZ=Asia/Shanghai
-      - WEB_UI_URL=${WEB_UI_URL:-http://127.0.0.1:8080}
-      - DIFY_URL=${DIFY_URL:-http://127.0.0.1:8000}
       - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL}
       - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
       - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
       - WX_MSG_WATCHER_DAG_ID=${WX_MSG_WATCHER_DAG_ID:-wx_msg_watcher}
-    # 使用root用户运行，确保有权限执行git命令
     user: root
-    # 自定义启动命令
     command: /start.sh
-    # 健康检查
     healthcheck:
       test: ["CMD", "nginx", "-t"]
       interval: 30s
