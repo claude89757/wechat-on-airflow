@@ -105,7 +105,7 @@ def process_wx_message(**context):
 
 def handler_text_msg(**context):
     """
-    处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息（测试）
+    处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息（测）
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
@@ -132,12 +132,13 @@ def handler_text_msg(**context):
             msg['processing'] = False
             unhandled_msgs.append(msg)
     
+
     # 添加当前消息
     current_msg = {
         'ToUserName': to_user_name,
         'FromUserName': from_user_name,
         'CreateTime': create_time,
-        'Content': content,
+        'Content': content,  # 确保使用原始content
         'MsgId': msg_id,
         'is_reply': False,
         'processing': False
@@ -147,8 +148,11 @@ def handler_text_msg(**context):
     # 更新消息列表
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
-    # 缩短等待时间到5秒
-    time.sleep(5)
+    # 缩短等待时间到3秒，给更多消息合并的机会
+    time.sleep(3)
+
+    # 检查是否需要提前停止流程 
+    should_pre_stop(message_data, from_user_name)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -181,29 +185,27 @@ def handler_text_msg(**context):
             latest_msg_time = msg_time
             latest_msg = msg
         
-        # 处理未回复的消息，包括：
-        # 1. 最后一条已回复消息之后的新消息
-        # 2. 之前未处理或处理失败的消息
-        if msg_time > last_replied_time or msg.get('MsgId') in [m.get('MsgId') for m in unhandled_msgs]:
+        # 处理未回复的消息
+        if msg_time > last_replied_time:
             if not msg.get('is_reply') and not msg.get('processing'):
                 if first_unreplied_time is None:
                     first_unreplied_time = msg_time
                 
-                # 优化聚合判断逻辑：
-                # 1. 消息时间在第一条未回复消息7秒内
-                # 2. 消息时间在当前时间7秒内
-                # 3. 或者是之前未处理的消息
-                if ((msg_time - first_unreplied_time) <= 7 or
-                    (current_time - msg_time) <= 7 or
-                    msg.get('MsgId') in [m.get('MsgId') for m in unhandled_msgs]):
-                    up_for_reply_msg_content_list.append(msg.get('Content', ''))
+                # 优化聚合判断逻辑:
+                # 1. 消息时间在第一条未回复消息3秒内
+                # 2. 消息时间在当前时间3秒内
+                # 3. 消息内容不为空
+                msg_content = msg.get('Content', '').strip()  # 获取消息内容并去除空格
+                if ((msg_time - first_unreplied_time) <= 3 or 
+                    (current_time - msg_time) <= 3) and msg_content:
+                    up_for_reply_msg_content_list.append(msg_content)  # 使用去除空格后的内容
                     up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
     if not up_for_reply_msg_content_list:
         print("[WATCHER] 没有需要回复的消息")
         return
 
-    # 标记所有待处理消息为处理中状态，并关联到最新消息
+    # 标记所有待处理消息为处理中状态
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     for msg in room_msg_list:
         if msg['MsgId'] in up_for_reply_msg_id_list:
@@ -225,8 +227,12 @@ def handler_text_msg(**context):
     # 初始化dify
     dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
     
-    # 获取会话ID
+    # 优化会话ID获取逻辑，避免重复检查
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
+    print(f"[WATCHER] 用户 {from_user_name} 的会话ID: {conversation_id}")
+
+    # 检查是否需要提前停止流程 
+    should_pre_stop(message_data, from_user_name)
 
     # 整合未回复的消息
     questions = []
