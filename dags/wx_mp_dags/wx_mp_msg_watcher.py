@@ -133,7 +133,7 @@ def handler_text_msg(**context):
             unhandled_msgs.append(msg)
     
     # 检查是否需要提前停止流程 
-    should_pre_stop(message_data, wx_user_name)
+    should_pre_stop(message_data, from_user_name)
 
     # 添加当前消息
     current_msg = {
@@ -154,7 +154,7 @@ def handler_text_msg(**context):
     time.sleep(3)
 
     # 检查是否需要提前停止流程 
-    should_pre_stop(message_data, wx_user_name)
+    should_pre_stop(message_data, from_user_name)
 
     # 重新获取消息列表(可能有新消息加入)
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
@@ -234,7 +234,7 @@ def handler_text_msg(**context):
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
 
     # 检查是否需要提前停止流程 
-    should_pre_stop(message_data, wx_user_name)
+    should_pre_stop(message_data, from_user_name)
 
     # 整合未回复的消息
     questions = []
