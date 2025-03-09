@@ -695,157 +695,202 @@ def handler_image_msg(**context):
     
     # 获取会话ID - 只在这里获取一次
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
+    print(f"[WATCHER] 获取到会话ID: {conversation_id}")
     
-    # 创建临时目录用于保存下载的图片
-    import tempfile
-    import os
-    from datetime import datetime
+    # 将当前图片消息添加到缓存列表
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
     
-    temp_dir = tempfile.gettempdir()
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    img_file_path = os.path.join(temp_dir, f"wx_mp_img_{from_user_name}_{timestamp}.jpg")
+    # 添加当前图片消息
+    current_msg = {
+        'ToUserName': to_user_name,
+        'FromUserName': from_user_name,
+        'CreateTime': create_time,
+        'Content': '',  # 图片消息内容为空
+        'MsgType': 'image',
+        'PicUrl': pic_url,
+        'MediaId': media_id,
+        'MsgId': msg_id,
+        'is_reply': False,
+        'processing': False
+    }
+    room_msg_list.append(current_msg)
     
-    try:
-        # 下载图片
-        if pic_url:
-            # 如果有直接的图片URL，使用URL下载
-            img_response = requests.get(pic_url)
-            with open(img_file_path, 'wb') as img_file:
-                img_file.write(img_response.content)
-            print(f"[WATCHER] 从URL下载图片成功: {pic_url}")
-            # 保存原始URL
-            original_url = pic_url
-        else:
-            # 否则使用media_id获取临时素材
-            mp_bot.download_temporary_media(media_id, img_file_path)
-            print(f"[WATCHER] 从MediaId下载图片成功: {media_id}")
-            original_url = ""  # MediaId方式没有原始URL
+    # 更新消息列表
+    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
+    
+    # 缩短等待时间到3秒，给更多消息合并的机会
+    time.sleep(3)
+    
+    # 重新获取消息列表前先检查是否需要提前停止
+    should_pre_stop(message_data, from_user_name)
+    
+    # 重新获取消息列表(可能有新消息加入)
+    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    
+    # 获取需要处理的消息组
+    current_time = int(time.time())
+    up_for_reply_msg_content_list = []
+    up_for_reply_msg_id_list = []
+    all_pending_msg_ids = []
+    has_text_question = False  # 标记是否有文字问题
+    
+    # 按时间排序消息，只看最近10条消息
+    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
+    
+    # 找到最后一条已回复消息的时间
+    last_replied_time = 0
+    for msg in reversed(sorted_msgs):
+        if msg.get('is_reply'):
+            last_replied_time = int(msg.get('CreateTime', 0))
+            break
+    
+    # 收集需要回复的消息
+    first_unreplied_time = None
+    latest_msg_time = 0
+    latest_msg = None
+    
+    for msg in sorted_msgs:
+        msg_time = int(msg.get('CreateTime', 0))
         
-        print(f"[WATCHER] 图片已保存到: {img_file_path}")
+        # 更新最新消息时间和消息对象
+        if msg_time > latest_msg_time:
+            latest_msg_time = msg_time
+            latest_msg = msg
         
-        # 检查图片文件是否存在且有效
-        if not os.path.exists(img_file_path) or os.path.getsize(img_file_path) == 0:
-            raise Exception("图片文件无效或为空")
-
-        # 将图片上传到Dify
-        try:
-            # 打开文件并获取文件信息
-            file_size = os.path.getsize(img_file_path)
-            print(f"[WATCHER] 准备上传图片，文件大小: {file_size} bytes")
+        # 处理所有未回复的消息
+        if not msg.get('is_reply'):
+            # 记录所有未处理消息的ID
+            all_pending_msg_ids.append(msg.get('MsgId'))
             
-            # 上传文件到Dify
-            online_img_info = dify_agent.upload_file(img_file_path, from_user_name)
-            
-            if not online_img_info or not online_img_info.get("id"):
-                raise Exception("上传图片到Dify失败，未获取到有效的图片ID")
+            # 只处理未在处理中的消息
+            if not msg.get('processing'):
+                if first_unreplied_time is None:
+                    first_unreplied_time = msg_time
+                
+                # 判断是否在5秒时间窗口内
+                if (msg_time - first_unreplied_time) <= 5 or (current_time - msg_time) <= 5:
+                    # 如果是文本消息且有内容
+                    if msg.get('MsgType') == 'text' and msg.get('Content', '').strip():
+                        has_text_question = True
+                        up_for_reply_msg_content_list.append(msg.get('Content', ''))
+                        up_for_reply_msg_id_list.append(msg.get('MsgId'))
+                    # 如果是当前的图片消息
+                    elif msg.get('MsgType') == 'image' and msg.get('MsgId') == msg_id:
+                        up_for_reply_msg_id_list.append(msg.get('MsgId'))
+    
+    # 构建查询语句
+    if has_text_question:
+        # 如果有文字问题，将图片分析和问题结合
+        text_questions = "\n\n".join(up_for_reply_msg_content_list)
+        query = f"""这是一张图片，请先分析图片内容，然后回答以下问题：
 
-            # 添加原始URL到图片信息中
-            online_img_info["original_url"] = original_url
-            print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+{text_questions}
 
-            # 构建查询语句
-            query = """请仔细观察这张图片，并完成以下任务：
+请在回答时：
+1. 先描述图片的主要内容
+2. 然后针对性地回答上述问题
+3. 如果问题与图片内容相关，请结合图片进行回答
+4. 如果问题与图片无关，也请给出合适的回答"""
+    else:
+        # 如果只有图片，使用默认的分析提示语
+        query = """请仔细观察这张图片，并完成以下任务：
 1. 详细描述图片中的主要内容和场景
 2. 识别图片中的关键元素和特征
 3. 分析图片的整体风格和氛围
 4. 如果有文字，请帮我读出来
-5. 给出你对这张图片的专业见解
+5. 给出你对这张图片的专业见解"""
 
-请用通俗易懂的语言回答，让我能更好地理解图片的内容。"""
+    # 检查是否有缓存的图片信息
+    dify_files = []
+    online_img_info = Variable.get(f"mp_{from_user_name}_online_img_info", default_var={}, deserialize_json=True)
+    if online_img_info and online_img_info.get("id"):
+        print(f"[WATCHER] 发现缓存的图片信息: {online_img_info}")
+        dify_files.append({
+            "type": "image",
+            "transfer_method": "remote_url",  # 修改为remote_url
+            "url": online_img_info.get("url", ""),  # 使用Dify返回的URL
+            "upload_file_id": online_img_info.get("id", "")
+        })
+        # 如果有图片，修改问题内容
+        if len(up_for_reply_msg_content_list) == 1 and up_for_reply_msg_content_list[0].strip() == "":
+            # 如果只有一条空消息，使用默认的图片分析提示语
+            query = "这是一张图片，请描述一下图片内容并给出你的分析"
+        else:
+            # 如果有具体问题，在问题前添加图片提示
+            query = "这是一张图片。" + query
             
-            # 构建文件信息
-            dify_files = [{
-                "type": "image",
-                "transfer_method": "remote_url",  # 使用remote_url
-                "url": online_img_info.get("original_url") or pic_url,  # 优先使用原始URL
-                "upload_file_id": online_img_info.get("id"),
-                "name": os.path.basename(img_file_path)
-            }]
-            print(f"[WATCHER] 准备发送到Dify的文件信息: {dify_files}")
-            
-            # 获取AI回复
-            full_answer, metadata = dify_agent.create_chat_message_stream(
-                query=query,
+        print(f"[WATCHER] 发现图片，修改后的问题: {query}")
+        
+        # 使用完图片信息后清除缓存
+        try:
+            Variable.delete(f"mp_{from_user_name}_online_img_info")
+            print("[WATCHER] 已清除图片缓存")
+        except Exception as e:
+            print(f"[WATCHER] 清除图片缓存失败: {e}")
+
+    # 获取AI回复
+    full_answer, metadata = dify_agent.create_chat_message_stream(
+        query=query,
+        user_id=from_user_name,
+        conversation_id=conversation_id,
+        inputs={
+            "platform": "wechat_mp",
+            "user_id": from_user_name,
+            "msg_id": msg_id,
+            "has_image": True,
+            "image_id": online_img_info.get("id"),
+            "image_url": online_img_info.get("original_url") or pic_url,
+            "image_name": os.path.basename(pic_url)
+        },
+        files=dify_files
+    )
+    print(f"full_answer: {full_answer}")
+    print(f"metadata: {metadata}")
+    response = full_answer
+
+    if not conversation_id:
+        # 新会话，重命名会话
+        try:
+            conversation_id = metadata.get("conversation_id")
+            dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号图片对话")
+        except Exception as e:
+            print(f"[WATCHER] 重命名会话失败: {e}")
+        
+        # 保存会话ID
+        conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
+        conversation_infos[from_user_name] = conversation_id
+        Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
+
+    # 发送回复消息
+    try:
+        # 将长回复拆分成多条消息发送
+        for response_part in re.split(r'\\n\\n|\n\n', response):
+            response_part = response_part.replace('\\n', '\n')
+            if response_part.strip():  # 确保不发送空消息
+                mp_bot.send_text_message(from_user_name, response_part)
+                time.sleep(0.5)  # 避免发送过快
+        
+        # 记录消息已被成功回复
+        dify_msg_id = metadata.get("message_id")
+        if dify_msg_id:
+            dify_agent.create_message_feedback(
+                message_id=dify_msg_id,
                 user_id=from_user_name,
-                conversation_id=conversation_id,
-                inputs={
-                    "platform": "wechat_mp",
-                    "user_id": from_user_name,
-                    "msg_id": msg_id,
-                    "has_image": True,
-                    "image_id": online_img_info.get("id"),
-                    "image_url": online_img_info.get("original_url") or pic_url,
-                    "image_name": os.path.basename(img_file_path)
-                },
-                files=dify_files
+                rating="like",
+                content="微信公众号图片消息自动回复成功"
             )
 
-            # 处理会话ID相关逻辑
-            if not conversation_id:  # 只在没有现有会话ID时处理
-                # 新会话，重命名会话
-                conversation_id = metadata.get("conversation_id")
-                if conversation_id:  # 确保获取到了新的会话ID
-                    dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号图片对话")
-                    
-                    # 保存会话ID
-                    conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
-                    conversation_infos[from_user_name] = conversation_id
-                    Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
-
-            # 发送回复消息
-            try:
-                # 将长回复拆分成多条消息发送
-                for response_part in re.split(r'\\n\\n|\n\n', full_answer):
-                    response_part = response_part.replace('\\n', '\n')
-                    if response_part.strip():  # 确保不发送空消息
-                        mp_bot.send_text_message(from_user_name, response_part)
-                        time.sleep(0.5)  # 避免发送过快
-                
-                # 记录消息已被成功回复
-                dify_msg_id = metadata.get("message_id")
-                if dify_msg_id:
-                    dify_agent.create_message_feedback(
-                        message_id=dify_msg_id,
-                        user_id=from_user_name,
-                        rating="like",
-                        content="微信公众号图片消息自动回复成功"
-                    )
-
-            except Exception as error:
-                print(f"[WATCHER] 发送消息失败: {error}")
-                # 记录消息回复失败
-                dify_msg_id = metadata.get("message_id")
-                if dify_msg_id:
-                    dify_agent.create_message_feedback(
-                        message_id=dify_msg_id,
-                        user_id=from_user_name,
-                        rating="dislike",
-                        content=f"微信公众号图片消息自动回复失败, {error}"
-                    )
-
-        except Exception as upload_error:
-            raise Exception(f"上传图片到Dify失败: {str(upload_error)}")
-
-    except Exception as e:
-        print(f"[WATCHER] 处理图片消息失败: {e}")
-        # 发送错误提示给用户
-        try:
-            error_msg = "抱歉，图片处理出现了一些问题，请稍后重试~"
-            if "上传图片到Dify失败" in str(e):
-                error_msg = "抱歉，图片上传失败，请稍后重试~"
-            elif "图片文件无效" in str(e):
-                error_msg = "抱歉，图片文件无效，请重新发送~"
-            mp_bot.send_text_message(from_user_name, error_msg)
-        except Exception as send_error:
-            print(f"[WATCHER] 发送错误提示失败: {send_error}")
-    finally:
-        # 清理临时文件
-        try:
-            if os.path.exists(img_file_path):
-                os.remove(img_file_path)
-                print(f"[WATCHER] 临时图片文件已删除: {img_file_path}")
-        except Exception as e:
-            print(f"[WATCHER] 删除临时文件失败: {e}")
+    except Exception as error:
+        print(f"[WATCHER] 发送消息失败: {error}")
+        # 记录消息回复失败
+        dify_msg_id = metadata.get("message_id")
+        if dify_msg_id:
+            dify_agent.create_message_feedback(
+                message_id=dify_msg_id,
+                user_id=from_user_name,
+                rating="dislike",
+                content=f"微信公众号图片消息自动回复失败, {error}"
+            )
 
 
 def handler_voice_msg(**context):
