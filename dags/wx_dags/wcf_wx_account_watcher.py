@@ -46,8 +46,12 @@ def check_wx_account_status(**context):
         print(f"checking account: {account}")
         source_ip = account['source_ip']
         
-        # 获取当前微信账号信息
-        new_wx_account_info = get_wx_self_info(source_ip)
+        try:
+            # 获取当前微信账号信息
+            new_wx_account_info = get_wx_self_info(source_ip)
+        except Exception as e:
+            print(f"获取微信账号信息失败: {e}")
+            continue
 
         # 检查微信登录状态
         new_wx_account_info['source_ip'] = source_ip
@@ -65,7 +69,7 @@ dag = DAG(
     dag_id=DAG_ID,
     default_args={'owner': 'claude89757'},
     start_date=datetime(2024, 1, 1),
-    schedule_interval=timedelta(minutes=15),
+    schedule_interval=timedelta(minutes=5),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=1),
     catchup=False,
