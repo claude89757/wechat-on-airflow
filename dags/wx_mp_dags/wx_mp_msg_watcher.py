@@ -119,8 +119,20 @@ def handler_text_msg(**context):
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
     
-    # 将当前消息添加到缓存列表
+    # 将当前消息添加到缓存列表之前，先检查之前的消息状态
     room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    
+    # 检查最近10条消息中未处理或处理失败的消息
+    unhandled_msgs = []
+    for msg in room_msg_list[-10:]:
+        # 如果消息未回复且不在处理中，或者处理失败（processing=True但超过5分钟）
+        if (not msg.get('is_reply') and not msg.get('processing')) or \
+           (msg.get('processing') and int(time.time()) - int(msg.get('CreateTime', 0)) > 300):
+            # 重置处理状态
+            msg['processing'] = False
+            unhandled_msgs.append(msg)
+    
+    # 添加当前消息
     current_msg = {
         'ToUserName': to_user_name,
         'FromUserName': from_user_name,
@@ -131,6 +143,8 @@ def handler_text_msg(**context):
         'processing': False
     }
     room_msg_list.append(current_msg)
+    
+    # 更新消息列表
     Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
     
     # 缩短等待时间到5秒
@@ -154,7 +168,7 @@ def handler_text_msg(**context):
             last_replied_time = int(msg.get('CreateTime', 0))
             break
     
-    # 收集需要回复的消息
+    # 收集需要回复的消息，包括之前未处理的消息
     first_unreplied_time = None
     latest_msg_time = 0
     latest_msg = None
@@ -167,25 +181,23 @@ def handler_text_msg(**context):
             latest_msg_time = msg_time
             latest_msg = msg
         
-        # 只处理最后一条已回复消息之后的消息
-        if msg_time <= last_replied_time:
-            continue
-            
-        # 跳过正在处理的消息
-        if msg.get('processing'):
-            continue
-            
-        if not msg.get('is_reply'):
-            if first_unreplied_time is None:
-                first_unreplied_time = msg_time
-            
-            # 优化聚合判断逻辑：
-            # 1. 消息时间在第一条未回复消息10秒内
-            # 2. 消息时间在当前时间10秒内
-            if ((msg_time - first_unreplied_time) <= 7 or  # 缩短时间窗口到7秒
-                (current_time - msg_time) <= 7):           # 缩短最新消息判断时间到7秒
-                up_for_reply_msg_content_list.append(msg.get('Content', ''))
-                up_for_reply_msg_id_list.append(msg.get('MsgId'))
+        # 处理未回复的消息，包括：
+        # 1. 最后一条已回复消息之后的新消息
+        # 2. 之前未处理或处理失败的消息
+        if msg_time > last_replied_time or msg.get('MsgId') in [m.get('MsgId') for m in unhandled_msgs]:
+            if not msg.get('is_reply') and not msg.get('processing'):
+                if first_unreplied_time is None:
+                    first_unreplied_time = msg_time
+                
+                # 优化聚合判断逻辑：
+                # 1. 消息时间在第一条未回复消息7秒内
+                # 2. 消息时间在当前时间7秒内
+                # 3. 或者是之前未处理的消息
+                if ((msg_time - first_unreplied_time) <= 7 or
+                    (current_time - msg_time) <= 7 or
+                    msg.get('MsgId') in [m.get('MsgId') for m in unhandled_msgs]):
+                    up_for_reply_msg_content_list.append(msg.get('Content', ''))
+                    up_for_reply_msg_id_list.append(msg.get('MsgId'))
 
     if not up_for_reply_msg_content_list:
         print("[WATCHER] 没有需要回复的消息")
