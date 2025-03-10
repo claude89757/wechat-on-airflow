@@ -9,3 +9,4 @@
 *.pyw
 *.pyz
 test_*.py
+/.idea
