@@ -109,6 +109,7 @@ def update_wx_user_info(source_ip: str) -> dict:
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_ui_input_prompt", "")
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_dify_api_key", "app-qKIPKEM5uzaGW0AFzAobz2Td")
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_human_room_ids", [], serialize_json=True)
 
     # 初始化新用户的聊天记录表
     try:
