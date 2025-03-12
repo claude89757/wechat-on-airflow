@@ -207,3 +207,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # 使用 oznu/guacamole 一键部署版本(用于远程桌面)
+  guacamole:
+    image: oznu/guacamole:latest
+    container_name: guacamole
+    restart: always
+    volumes:
+      - ./database/guacamole:/config  

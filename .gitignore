@@ -2,7 +2,9 @@
 /.venv
 /logs
 *.log
-/database
+
+/database/postgresql
+/database/redis/
 *.pyc
 *.pyo
 *.pyd
