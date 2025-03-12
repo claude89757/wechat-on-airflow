@@ -186,9 +186,9 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx_for_wcf/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
-      - ./nginx_for_wcf/lua:/usr/local/openresty/nginx/lua
-      - ./nginx_for_wcf/start.sh:/start.sh
+      - ./wcf_nginx/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
+      - ./wcf_nginx/lua:/usr/local/openresty/nginx/lua
+      - ./wcf_nginx/start.sh:/start.sh
     logging:
       driver: "json-file"
       options:
