@@ -186,9 +186,9 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./nginx/internal/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
-      - ./nginx/internal/lua:/usr/local/openresty/nginx/lua
-      - ./nginx/internal/start.sh:/start.sh
+      - ./nginx/internal/wcf/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
+      - ./nginx/internal/wcf/lua:/usr/local/openresty/nginx/lua
+      - ./nginx/internal/wcf/start.sh:/start.sh
     logging:
       driver: "json-file"
       options:
