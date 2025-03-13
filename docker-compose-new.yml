@@ -184,7 +184,7 @@ services:
     <<: *common
     image: openresty/openresty:1.21.4.1-6-alpine-fat
     ports:
-      - "80:80"
+      - "5000:5000"
     volumes:
       - ./nginx/internal/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
       - ./nginx/internal/lua:/usr/local/openresty/nginx/lua
