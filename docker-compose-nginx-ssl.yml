@@ -23,7 +23,6 @@ services:
     ports:
       - 80:80
       - 443:443
-      - 3000:3000
     volumes:
       - ./nginx/public:/etc/nginx/conf.d
       - /etc/letsencrypt/live/lucyai.sale:/etc/letsencrypt/live/lucyai.sale:ro
