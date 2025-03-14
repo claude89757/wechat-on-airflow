@@ -12,10 +12,6 @@ services:
       - GUACD_HOSTNAME=localhost
       - GUACAMOLE_HOME=/config
       - WEBAPP_CONTEXT=/guacamole
-      - http_proxy=https://lucyai:lucyai@proxy.lucyai.ai
-      - https_proxy=https://lucyai:lucyai@proxy.lucyai.ai
-      - ftp_proxy=https://lucyai:lucyai@proxy.lucyai.ai
-      - no_proxy=localhost,127.0.0.1,.local
     volumes:
       - ./database/guacamole:/config
 
@@ -27,11 +23,6 @@ services:
     ports:
       - 80:80
       - 443:443
-    environment:
-      - http_proxy=https://lucyai:lucyai@proxy.lucyai.ai
-      - https_proxy=https://lucyai:lucyai@proxy.lucyai.ai
-      - ftp_proxy=https://lucyai:lucyai@proxy.lucyai.ai
-      - no_proxy=localhost,127.0.0.1,.local
     volumes:
       - ./nginx/public_sg:/etc/nginx/conf.d
       - /etc/letsencrypt/live/lucyai.ai:/etc/letsencrypt/live/lucyai.ai:ro
