@@ -1,0 +1,29 @@
+#===============================================================================
+# 服务定义
+#===============================================================================
+services:
+  # 使用 oznu/guacamole 一键部署版本(用于远程桌面)
+  guacamole:
+    image: oznu/guacamole:latest
+    container_name: guacamole
+    restart: always
+    environment:
+      - EXTENSIONS=auth-header
+      - GUACD_HOSTNAME=localhost
+      - GUACAMOLE_HOME=/config
+      - WEBAPP_CONTEXT=/guacamole
+    volumes:
+      - ./database/guacamole:/config
+
+  # 使用 nginx 代理 guacamole
+  nginx-ssl:
+    image: nginx:latest
+    container_name: nginx
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./nginx/public:/etc/nginx/conf.d
+      - /etc/letsencrypt/live/lucyai.ai:/etc/letsencrypt/live/lucyai.ai:ro
+      - /etc/letsencrypt/archive/lucyai.ai:/etc/letsencrypt/archive/lucyai.ai:ro
