@@ -24,6 +24,6 @@ services:
       - 80:80
       - 443:443
     volumes:
-      - ./nginx/public:/etc/nginx/conf.d
+      - ./nginx/public_sg:/etc/nginx/conf.d
       - /etc/letsencrypt/live/lucyai.ai:/etc/letsencrypt/live/lucyai.ai:ro
       - /etc/letsencrypt/archive/lucyai.ai:/etc/letsencrypt/archive/lucyai.ai:ro
