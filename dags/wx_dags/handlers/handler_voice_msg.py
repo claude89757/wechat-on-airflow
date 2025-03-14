@@ -48,12 +48,16 @@ def handler_voice_msg(**context):
     # 1. 下载语音
     voice_file_path = download_voice_from_windows_server(source_ip, msg_id)
 
+    # 获取房间和发送者信息
+    room_name = get_contact_name(source_ip, room_id, wx_user_name)
+    sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
+
     # 初始化dify
     dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
-    dify_user_id = f"{room_name}_{sender}"
+    dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
     conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
     # 2. 语音转文字
