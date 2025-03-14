@@ -25,3 +25,5 @@ services:
       - 443:443
     volumes:
       - ./nginx/public:/etc/nginx/conf.d
+      - /etc/letsencrypt/live/lucyai.sale:/etc/letsencrypt/live/lucyai.sale:ro
+      - /etc/letsencrypt/archive/lucyai.sale:/etc/letsencrypt/archive/lucyai.sale:ro
