@@ -7,6 +7,11 @@ services:
     image: oznu/guacamole:latest
     container_name: guacamole
     restart: always
+    environment:
+      - EXTENSIONS=auth-header
+      - GUACD_HOSTNAME=localhost
+      - GUACAMOLE_HOME=/config
+      - WEBAPP_CONTEXT=/guacamole
     volumes:
       - ./database/guacamole:/config
 
@@ -16,7 +21,6 @@ services:
     container_name: nginx
     restart: always
     ports:
-      - 8088:8088
       - 80:80
       - 443:443
     volumes:
