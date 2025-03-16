@@ -7,11 +7,8 @@ services:
     image: oznu/guacamole:latest
     container_name: guacamole
     restart: always
-    environment:
-      - EXTENSIONS=auth-header
-      - GUACD_HOSTNAME=localhost
-      - GUACAMOLE_HOME=/config
-      - WEBAPP_CONTEXT=/guacamole
+    ports:
+      - 8080:8080
     volumes:
       - ./database/guacamole:/config
 
