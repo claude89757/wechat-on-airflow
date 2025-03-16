@@ -3,9 +3,6 @@ local cjson = require "cjson"
 local cjson_safe = require "cjson.safe"
 local http = require "resty.http"
 
--- 配置cjson处理大整数
-cjson.decode_number_precision(20) -- 提高数字精度，20位足以处理微信消息ID
-cjson.encode_number_precision(20)
 
 -- 使用cjson_safe库以避免精度问题
 local safe_decode = cjson_safe.decode
