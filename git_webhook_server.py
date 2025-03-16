@@ -32,7 +32,7 @@ from flask import Flask, request, Response
 
 # 配置
 REPO_PATH = os.path.dirname(os.path.abspath(__file__))
-PORT = 5000
+PORT = 6666
 LOG_FILE = os.path.join(REPO_PATH, "git_webhook.log")
 
 # 配置日志
