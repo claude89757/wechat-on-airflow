@@ -1,6 +1,15 @@
 -- 导入所需模块
 local cjson = require "cjson"
+local cjson_safe = require "cjson.safe"
 local http = require "resty.http"
+
+-- 配置cjson处理大整数
+cjson.decode_number_precision(20) -- 提高数字精度，20位足以处理微信消息ID
+cjson.encode_number_precision(20)
+
+-- 使用cjson_safe库以避免精度问题
+local safe_decode = cjson_safe.decode
+local safe_encode = cjson_safe.encode
 
 -- 日志函数
 local function log(msg, level)
@@ -12,7 +21,7 @@ end
 local function debug_log(msg, obj)
     log(msg, ngx.DEBUG)
     if obj then
-        local success, json_str = pcall(cjson.encode, obj)
+        local success, json_str = pcall(safe_encode, obj)
         if success then
             log("详细数据: " .. json_str, ngx.DEBUG)
         else
@@ -52,18 +61,38 @@ local function main()
         log("请求体为空", ngx.ERR)
         ngx.status = 400
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({message = "无效的数据"}))
+        ngx.say(safe_encode({message = "无效的数据"}))
         return ngx.exit(400)
     end
     
-    -- 解析JSON请求体
-    local success, callback_data = pcall(cjson.decode, request_body)
-    if not success then
-        log("解析请求体失败: " .. callback_data, ngx.ERR)
+    -- 记录原始收到的消息
+    log("接收到原始微信消息: " .. request_body, ngx.INFO)
+    
+    -- 预处理大整数ID为字符串 - 强制转换方式
+    request_body = string.gsub(request_body, '"id"%s*:%s*(%d+)', function(id)
+        return '"id":"' .. id .. '"'  -- 强制将所有ID转为字符串格式
+    end)
+    
+    -- 记录预处理后的消息
+    log("预处理后的消息体: " .. request_body, ngx.INFO)
+    
+    -- 解析JSON请求体，使用cjson_safe以避免精度问题
+    local callback_data, err = safe_decode(request_body)
+    if not callback_data then
+        log("解析请求体失败: " .. (err or "未知错误"), ngx.ERR)
         ngx.status = 400
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({message = "无效的JSON数据", error = callback_data}))
+        ngx.say(safe_encode({message = "无效的JSON数据", error = err}))
         return ngx.exit(400)
+    end
+    
+    -- 确保ID字段是字符串类型
+    if callback_data.id and type(callback_data.id) ~= "string" then
+        log("ID类型转换前: 类型=" .. type(callback_data.id) .. ", 值=" .. tostring(callback_data.id), ngx.INFO)
+        callback_data.id = tostring(callback_data.id)
+        log("ID类型转换后: 类型=" .. type(callback_data.id) .. ", 值=" .. callback_data.id, ngx.INFO)
+    else
+        log("ID字段当前类型: " .. type(callback_data.id) .. ", 值=" .. tostring(callback_data.id), ngx.INFO)
     end
     
     -- 获取客户端IP
@@ -89,8 +118,14 @@ local function main()
         note = "Triggered by WCF callback via Nginx"
     }
     
+    -- 详细记录转发到Airflow的内容
+    log("转发到Airflow的消息格式:", ngx.INFO)
+    log("1. ID字段: 类型=" .. type(callback_data.id) .. ", 值=" .. tostring(callback_data.id), ngx.INFO)
+    log("2. 完整载荷: " .. safe_encode(airflow_payload), ngx.INFO)
+    log("3. 原始JSON(验证): " .. safe_encode(callback_data), ngx.INFO)
+    
     -- 记录触发Airflow的参数
-    log("触发Airflow参数: " .. cjson.encode(airflow_payload), ngx.INFO)
+    log("触发Airflow参数: " .. safe_encode(airflow_payload), ngx.INFO)
     
     -- 使用HTTP客户端触发Airflow DAG
     local httpc = http.new()
@@ -106,7 +141,7 @@ local function main()
         -- 使用更详细的错误处理进行连接
         local res, err = httpc:request_uri(airflow_api_url, {
             method = "POST",
-            body = cjson.encode(airflow_payload),
+            body = safe_encode(airflow_payload),
             headers = {
                 ["Content-Type"] = "application/json",
                 ["Authorization"] = "Basic " .. ngx.encode_base64(AIRFLOW_USERNAME .. ":" .. AIRFLOW_PASSWORD)
@@ -126,7 +161,7 @@ local function main()
         log("调用Airflow API发生Lua错误: " .. tostring(res_or_err), ngx.ERR)
         ngx.status = 500
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({
+        ngx.say(safe_encode({
             message = "Airflow API请求过程中发生Lua错误", 
             error = tostring(res_or_err)
         }))
@@ -143,7 +178,7 @@ local function main()
         log("调用Airflow API失败: " .. (err or "未知错误"), ngx.ERR)
         ngx.status = 500
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({
+        ngx.say(safe_encode({
             message = "Airflow API请求失败", 
             error = err or "未知错误"
         }))
@@ -155,7 +190,7 @@ local function main()
         log("触发结果: 成功 - DAG: " .. WX_MSG_WATCHER_DAG_ID .. ", dag_run_id: " .. dag_run_id, ngx.INFO)
         ngx.status = 200
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({
+        ngx.say(safe_encode({
             message = "DAG触发成功", 
             dag_run_id = dag_run_id
         }))
@@ -163,7 +198,7 @@ local function main()
         log("触发结果: 失败 - 状态码: " .. res.status .. " - 错误: " .. res.body, ngx.ERR)
         ngx.status = res.status
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({
+        ngx.say(safe_encode({
             message = "DAG触发失败", 
             status = res.status,
             error = res.body
@@ -178,7 +213,7 @@ local function error_handler()
         log("处理WCF回调时发生错误: " .. tostring(err), ngx.ERR)
         ngx.status = 500
         ngx.header.content_type = "application/json"
-        ngx.say(cjson.encode({
+        ngx.say(safe_encode({
             message = "处理请求时发生错误", 
             error = tostring(err)
         }))
