@@ -57,7 +57,7 @@ def run_command(command):
     """运行命令并返回输出"""
     try:
         result = subprocess.run(command, check=True, cwd=REPO_PATH, 
-                               capture_output=True, text=True)
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         log_message(f"命令执行失败: {' '.join(command)}")
