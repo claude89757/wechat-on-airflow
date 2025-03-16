@@ -64,7 +64,7 @@ def run_command(command):
         log_message(f"错误输出: {e.stderr}")
         raise
 
-@app.route('/update', methods=['POST'])
+@app.route('/trigger_git_pull', methods=['POST'])
 def update_repo():
     try:
         log_message("接收到GitHub webhook请求，开始更新代码...")
@@ -88,10 +88,6 @@ def update_repo():
         error_message = f"更新失败: {str(e)}"
         log_message(error_message)
         return Response(error_message, status=500, mimetype='text/plain; charset=utf-8')
-
-@app.route('/', methods=['GET'])
-def home():
-    return Response("Git Webhook 服务器正在运行", status=200, mimetype='text/plain; charset=utf-8')
 
 if __name__ == "__main__":
     log_message(f"Git Webhook 服务器启动，监听端口 {PORT}...")
