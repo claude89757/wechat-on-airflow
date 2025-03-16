@@ -18,6 +18,7 @@ services:
     container_name: nginx
     restart: always
     ports:
+      - 8081:8081
       - 80:80
       - 443:443
     volumes:
