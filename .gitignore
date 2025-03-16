@@ -4,7 +4,6 @@
 *.log
 /database/postgresql
 /database/redis/
-/database/guacamole
 *.pyc
 *.pyo
 *.pyd
