@@ -59,6 +59,7 @@ def process_wx_message(**context):
         return
         
     message_data = dag_run.conf
+    message_data['id'] = int(message_data['id'])
     print("[WATCHER] 收到微信消息:")
     print("[WATCHER] 消息类型:", message_data.get('type'))
     print("[WATCHER] 消息内容:", message_data.get('content'))
