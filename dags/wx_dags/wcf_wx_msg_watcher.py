@@ -231,6 +231,8 @@ def save_msg_to_db(**context):
      # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
 
+    print(f"这里有新消息——test")
+
     save_msg = {}
     # 提取消息信息
     save_msg['room_id'] = message_data.get('roomid', '')
