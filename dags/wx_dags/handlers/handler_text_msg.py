@@ -56,6 +56,7 @@ def handler_text_msg(**context):
     is_group = message_data.get('is_group', False)  # 是否群聊
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
+    print(f"[TEXT_MSG] 接收到消息-------是不是群聊: {is_group}")
 
     # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
@@ -75,8 +76,18 @@ def handler_text_msg(**context):
     # 打印调试信息
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
-    # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    # 如果是群聊，先检查是否有群聊专用的API key
+    if is_group:
+        try:
+            # 尝试获取群聊专用API key
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
+        except:
+            # 如果不存在群聊专用API key，则使用默认API key
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    else:
+        # 不是群聊，使用默认API key
+        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+        
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
@@ -168,6 +179,18 @@ def handler_text_msg(**context):
 
         # 删除标签
         response = response.replace("#转人工#", "")
+    
+    if "#沉默#" in response.strip().lower():
+        # 缓存的消息中，标记消息已回复
+        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+        for msg in room_msg_list:
+            if msg['id'] in up_for_reply_msg_id_list:
+                msg['is_reply'] = True
+        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
+        
+        # 删除标签
+        response = response.replace("#沉默#", "")
+        print(f"[WATCHER] 沉默: {response}")
     
     # 开启AI，且不是自己发送的消息，则自动回复消息
     if response.strip():
