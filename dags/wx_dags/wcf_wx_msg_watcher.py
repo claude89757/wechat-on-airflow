@@ -273,6 +273,10 @@ def save_ai_reply_msg_to_db(**context):
     # 获取AI回复的消息
     ai_reply_msg = context.get('task_instance').xcom_pull(key='ai_reply_msg')
 
+    if not ai_reply_msg:
+        print("[WATCHER] 没有收到AI回复的消息")
+        return
+
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
 
     # 提取消息信息
