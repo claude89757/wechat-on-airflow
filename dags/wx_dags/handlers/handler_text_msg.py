@@ -56,6 +56,7 @@ def handler_text_msg(**context):
     is_group = message_data.get('is_group', False)  # 是否群聊
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
+    print(f"[TEXT_MSG] 接收到消息-------是不是群聊: {is_group}")
 
     # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
@@ -76,7 +77,18 @@ def handler_text_msg(**context):
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
     # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    # 如果是群聊，先检查是否有群聊专用的API key
+    if room_id != "":
+        try:
+            # 尝试获取群聊专用API key
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
+        except:
+            # 如果不存在群聊专用API key，则使用默认API key
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    else:
+        # 不是群聊，使用默认API key
+        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+        
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
 
     # 获取会话ID
