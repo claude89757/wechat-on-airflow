@@ -180,6 +180,9 @@ def handler_text_msg(**context):
         # 删除标签
         response = response.replace("#转人工#", "")
     
+    if "#沉默#" in response.strip().lower():
+        print(f"[WATCHER] 沉默: {response}")
+    
     # 开启AI，且不是自己发送的消息，则自动回复消息
     if response.strip():
         dify_msg_id = metadata.get("message_id")
