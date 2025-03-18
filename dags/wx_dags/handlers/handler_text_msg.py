@@ -181,6 +181,15 @@ def handler_text_msg(**context):
         response = response.replace("#转人工#", "")
     
     if "#沉默#" in response.strip().lower():
+        # 缓存的消息中，标记消息已回复
+        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+        for msg in room_msg_list:
+            if msg['id'] in up_for_reply_msg_id_list:
+                msg['is_reply'] = True
+        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
+        
+        # 删除标签
+        response = response.replace("#沉默#", "")
         print(f"[WATCHER] 沉默: {response}")
     
     # 开启AI，且不是自己发送的消息，则自动回复消息
