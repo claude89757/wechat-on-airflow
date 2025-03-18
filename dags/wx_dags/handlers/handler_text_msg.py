@@ -76,9 +76,8 @@ def handler_text_msg(**context):
     # 打印调试信息
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
-    # 初始化dify
     # 如果是群聊，先检查是否有群聊专用的API key
-    if room_id != "":
+    if is_group:
         try:
             # 尝试获取群聊专用API key
             dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
