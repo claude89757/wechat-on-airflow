@@ -39,7 +39,6 @@ from airflow.utils.state import DagRunState
 
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
-from utils.redis import RedisLock
 from utils.wechat_mp_channl import WeChatMPBot
 from utils.tts import text_to_speech
 
