@@ -106,6 +106,10 @@ class RedisHandler:
                 except json.JSONDecodeError:
                     # 如果不是JSON格式，保持原样
                     result.append(item)
+            print("--------------------------------")
+            print(f"当前缓存消息数量: {len(result)}")
+            print(f"最新的3条缓存消息: {result[-3:]}")
+            print("--------------------------------")
             return result
             
         except Exception as e:
