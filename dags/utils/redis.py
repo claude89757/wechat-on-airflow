@@ -8,7 +8,7 @@ from airflow.hooks.base import BaseHook
 
 
 class RedisHandler:
-    def __init__(self, conn_id: str = 'redis_default'):
+    def __init__(self, conn_id: str = 'wx_redis'):
         """
         初始化Redis处理器
         Args:
