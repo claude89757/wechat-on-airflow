@@ -112,13 +112,13 @@ class RedisHandler:
             print(f"读取消息列表数据失败: {str(e)}")
             return []
 
-    def update_msg_list(self, key: str, value: Union[Dict, str], max_length: int = 100, expire_days: int = 30) -> bool:
+    def update_msg_list(self, key: str, values: List[Union[Dict, str]], max_length: int = 100, expire_days: int = 30) -> bool:
         """
         更新消息列表：完全替换当前列表内容
         自动处理字典类型的数据（转换为JSON存储）
         Args:
             key: Redis键名
-            value: 新的值（支持字典或字符串）
+            values: 新的值列表（列表中的元素支持字典或字符串）
             max_length: 列表最大长度，超过时仅保留最新的N个值
             expire_days: 过期时间（天），默认30天
         Returns:
@@ -127,15 +127,20 @@ class RedisHandler:
         try:
             pipe = self.client.pipeline()
             
-            # 如果是字典类型，转换为JSON字符串
-            if isinstance(value, dict):
-                value = json.dumps(value, ensure_ascii=False)
-            
             # 删除原有列表
             pipe.delete(key)
             
-            # 添加新值到列表
-            pipe.rpush(key, value)
+            # 处理列表中的每个元素
+            for item in values:
+                # 如果是字典类型，转换为JSON字符串
+                if isinstance(item, dict):
+                    item = json.dumps(item, ensure_ascii=False)
+                # 添加到列表
+                pipe.rpush(key, item)
+            
+            # 如果设置了最大长度，保留最新的N个值
+            if max_length is not None and len(values) > max_length:
+                pipe.ltrim(key, 0, max_length - 1)
             
             # 设置过期时间（秒）
             expire_seconds = expire_days * 24 * 60 * 60
