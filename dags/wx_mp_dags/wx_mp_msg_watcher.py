@@ -131,7 +131,9 @@ def handler_text_msg(**context):
     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
     
     # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={})[appid]
+    dify_base_url = Variable.get("DIFY_BASE_URL")
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID - 只在这里获取一次
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
