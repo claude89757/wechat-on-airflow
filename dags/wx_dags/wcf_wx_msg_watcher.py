@@ -103,8 +103,11 @@ def process_wx_message(**context):
     
     # 分场景分发微信消息
     next_task_list = []
-    if WX_MSG_TYPES.get(msg_type) == "文字":
-        # 保存消息
+    if is_self:
+        # 自己发送的消息，不进行处理
+        next_task_list.append('save_msg_to_db')
+    elif not is_self and WX_MSG_TYPES.get(msg_type) == "文字":
+        # 非自己发送的消息，进行处理
         next_task_list.append('save_msg_to_db')
 
         # 用户的消息缓存列表
@@ -113,19 +116,20 @@ def process_wx_message(**context):
         Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
 
          # 决策下游的任务
-        if is_ai_enable and not is_self:
+        if is_ai_enable:
             print("[WATCHER] 触发AI聊天流程")
             next_task_list.append('handler_text_msg')
         else:
             print("[WATCHER] 不触发AI聊天流程",is_self, is_ai_enable)
-    elif WX_MSG_TYPES.get(msg_type) == "语音":
-        # 语音消息
+    elif not is_self and WX_MSG_TYPES.get(msg_type) == "语音":
+        # 非自己发送的语音消息，进行处理
+        next_task_list.append('save_msg_to_db')
         next_task_list.append('handler_voice_msg')
-    elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
+    elif not is_self and WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
         # next_task_list.append('handler_video_msg')
         pass
-    elif WX_MSG_TYPES.get(msg_type) == "图片":
+    elif not is_self and WX_MSG_TYPES.get(msg_type) == "图片":
         if not is_group:
             # 图片消息
             next_task_list.append('handler_image_msg')
