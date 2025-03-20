@@ -110,6 +110,8 @@ def update_wx_user_info(source_ip: str) -> dict:
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_ui_input_prompt", "")
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_dify_api_key", "app-qKIPKEM5uzaGW0AFzAobz2Td")
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_human_room_ids", [], serialize_json=True)
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_single_chat_ai_global", "off")
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_group_chat_ai_global", "off")
 
     # 初始化新用户的聊天记录表
     try:
@@ -188,26 +190,45 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
 def check_ai_enable(wx_user_name: str, wx_user_id: str, room_id: str, is_group: bool) -> bool:
     """
     检查AI是否开启
+    
+    四种全局方向:
+    1. 单聊全部开启
+    2. 单聊全部关闭
+    3. 群聊全部开启
+    4. 群聊全部关闭
+    
+    单个会话的开关优先级高于全局设置
     """
-    # 检查房间是否开启AI - 使用用户专属的配置
+    # 获取单个会话设置
     enable_rooms = Variable.get(f"{wx_user_name}_{wx_user_id}_enable_ai_room_ids", default_var=[], deserialize_json=True)
     disable_rooms = Variable.get(f"{wx_user_name}_{wx_user_id}_disable_ai_room_ids", default_var=[], deserialize_json=True)
-    print(f"enable_rooms: {enable_rooms}")
-    print(f"disable_rooms: {disable_rooms}")
+    
+    # 获取全局设置
+    single_chat_global = Variable.get(f"{wx_user_name}_{wx_user_id}_single_chat_ai_global", default_var="off")
+    group_chat_global = Variable.get(f"{wx_user_name}_{wx_user_id}_group_chat_ai_global", default_var="off")
+    
+    print(f"个人会话全局设置: {single_chat_global}, 群聊全局设置: {group_chat_global}")
+    print(f"显式开启AI的会话: {enable_rooms}")
+    print(f"显式关闭AI的会话: {disable_rooms}")
+    
+    # 检查是否有单个会话的特殊设置 (优先级最高)
+    if room_id in enable_rooms:
+        print(f"会话 {room_id} 被显式设置为开启AI")
+        return True
+    
+    if room_id in disable_rooms:
+        print(f"会话 {room_id} 被显式设置为关闭AI")
+        return False
+    
+    # 如果没有单个会话设置，则使用全局设置
     if is_group:
-        print(f"群聊消息, 需要同时满足在开启列表中，且不在禁用列表中")
-        if room_id in enable_rooms and room_id not in disable_rooms:
-            ai_reply = True
-        else:
-            ai_reply = False
+        # 群聊使用群聊全局设置
+        print(f"群聊消息，使用全局设置: {group_chat_global}")
+        return group_chat_global == "on"
     else:
-        print(f"单聊消息, 默认开启AI")
-        if room_id in enable_rooms:
-            ai_reply = True
-        else:
-            ai_reply = False
-
-    return ai_reply
+        # 单聊使用单聊全局设置
+        print(f"单聊消息，使用全局设置: {single_chat_global}")
+        return single_chat_global == "on"
 
 
 def download_image_from_windows_server(source_ip: str, msg_id: str, extra: str, max_retries: int = 2, retry_delay: int = 5):
