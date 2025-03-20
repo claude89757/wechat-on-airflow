@@ -33,15 +33,15 @@ import xml.etree.cElementTree as ET
 from WXBizMsgCrypt import WXBizMsgCrypt
 
 # 微信公众号配置信息
-TOKEN = os.getenv("TOKEN")
-ENCODING_AES_KEY = os.getenv("ENCODING_AES_KEY")
-APPID = os.getenv("APPID")
+TOKEN = os.getenv("WX_MP_TOKEN")
+ENCODING_AES_KEY = os.getenv("WX_MP_ENCODING_AES_KEY")
+APPID = os.getenv("WX_MP_APPID")
 
 # 从环境变量获取Airflow配置
 AIRFLOW_BASE_URL = os.getenv("AIRFLOW_BASE_URL")
 AIRFLOW_USERNAME = os.getenv("AIRFLOW_USERNAME")
 AIRFLOW_PASSWORD = os.getenv("AIRFLOW_PASSWORD")
-AIRFLOW_DAG_ID = os.getenv("AIRFLOW_DAG_ID", "wx_msg_watcher")
+AIRFLOW_DAG_ID = os.getenv("AIRFLOW_DAG_ID", "wx_mp_msg_watcher")
 
 
 def json_to_xml(json_data):

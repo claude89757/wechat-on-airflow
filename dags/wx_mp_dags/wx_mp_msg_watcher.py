@@ -39,9 +39,9 @@ from airflow.utils.state import DagRunState
 
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
-from utils.redis import RedisLock
 from utils.wechat_mp_channl import WeChatMPBot
 from utils.tts import text_to_speech
+from utils.redis import RedisHandler
 
 
 DAG_ID = "wx_mp_msg_watcher"
@@ -127,18 +127,23 @@ def handler_text_msg(**context):
         print("[WATCHER] 微信公众号配置缺失")
         return
     
+    # 初始化redis
+    redis_handler = RedisHandler()
+
     # 初始化微信公众号机器人
     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
     
     # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={}, deserialize_json=True)[appid]
+    dify_base_url = Variable.get("DIFY_BASE_URL")
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID - 只在这里获取一次
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     print(f"[WATCHER] 获取到会话ID: {conversation_id}")
     
     # 将当前消息添加到缓存列表之前，先检查之前的消息状态
-    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
     
     # 检查最近10条消息中未处理或处理失败的消息
     unhandled_msgs = []
@@ -160,10 +165,9 @@ def handler_text_msg(**context):
         'is_reply': False,
         'processing': False
     }
-    room_msg_list.append(current_msg)
     
     # 更新消息列表
-    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
+    redis_handler.msg_list_append(f'mp_{from_user_name}_msg_list', current_msg)
     
     # 缩短等待时间到3秒，给更多消息合并的机会
     time.sleep(5)
@@ -172,7 +176,7 @@ def handler_text_msg(**context):
     should_pre_stop(message_data, from_user_name)
     
     # 重新获取消息列表(可能有新消息加入)
-    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
     
     # 获取需要处理的消息组
     current_time = int(time.time())
@@ -227,12 +231,12 @@ def handler_text_msg(**context):
         return
 
     # 标记所有待处理消息为处理中状态，并关联到最新消息
-    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
     for msg in room_msg_list:
         if msg['MsgId'] in up_for_reply_msg_id_list:
             msg['processing'] = True
             msg['batch_reply_to'] = latest_msg.get('MsgId')  # 关联到最新消息
-    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+    redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
     
     # 整合未回复的消息
     questions = []
@@ -390,7 +394,7 @@ def handler_text_msg(**context):
                 mp_bot.send_text_message(from_user_name, response.strip())
         
         # 更新所有未处理消息的状态
-        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
         for msg in room_msg_list:
             if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids而不是up_for_reply_msg_id_list
                 msg['is_reply'] = True
@@ -401,7 +405,7 @@ def handler_text_msg(**context):
                 # 如果不是最新消息，标记为已合并回复
                 if msg['MsgId'] != latest_msg.get('MsgId'):
                     msg['merged_to'] = latest_msg.get('MsgId')
-        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+        redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
 
         # 记录消息已被成功回复
         dify_msg_id = metadata.get("message_id")
@@ -419,13 +423,13 @@ def handler_text_msg(**context):
     except Exception as error:
         # 发生错误时，清除处理中状态和合并标记
         try:
-            room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+            room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
             for msg in room_msg_list:
                 if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids清除所有待处理消息的状态
                     msg['processing'] = False
                     if 'batch_reply_to' in msg:
                         del msg['batch_reply_to']
-            Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+            redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
         except:
             pass
             
@@ -690,15 +694,20 @@ def handler_image_msg(**context):
     # 初始化微信公众号机器人
     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
     
+    # 初始化redis
+    redis_handler = RedisHandler()
+
     # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={}, deserialize_json=True)[appid]
+    dify_base_url = Variable.get("DIFY_BASE_URL")
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID - 只在这里获取一次
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     print(f"[WATCHER] 获取到会话ID: {conversation_id}")
     
     # 将当前图片消息添加到缓存列表
-    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
     
     # 添加当前图片消息
     current_msg = {
@@ -713,10 +722,7 @@ def handler_image_msg(**context):
         'is_reply': False,
         'processing': False
     }
-    room_msg_list.append(current_msg)
-    
-    # 更新消息列表
-    Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list[-100:], serialize_json=True)
+    redis_handler.msg_list_append(f'mp_{from_user_name}_msg_list', current_msg)
     
     # 缩短等待时间到3秒，给更多消息合并的机会
     time.sleep(5)
@@ -725,7 +731,7 @@ def handler_image_msg(**context):
     should_pre_stop(message_data, from_user_name)
     
     # 重新获取消息列表(可能有新消息加入)
-    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
     
     # 获取需要处理的消息组
     current_time = int(time.time())
@@ -871,7 +877,7 @@ def handler_image_msg(**context):
                 time.sleep(0.5)  # 避免发送过快
         
         # 更新所有未处理消息的状态
-        room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+        room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
         for msg in room_msg_list:
             if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids标记所有相关消息
                 msg['is_reply'] = True
@@ -882,7 +888,7 @@ def handler_image_msg(**context):
                 # 如果不是最新消息，标记为已合并回复
                 if msg['MsgId'] != latest_msg.get('MsgId'):
                     msg['merged_to'] = latest_msg.get('MsgId')
-        Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+        redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
         
         # 记录消息已被成功回复
         dify_msg_id = metadata.get("message_id")
@@ -897,13 +903,13 @@ def handler_image_msg(**context):
     except Exception as error:
         # 发生错误时，清除处理中状态和合并标记
         try:
-            room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+            room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
             for msg in room_msg_list:
                 if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids清除所有待处理消息的状态
                     msg['processing'] = False
                     if 'batch_reply_to' in msg:
                         del msg['batch_reply_to']
-            Variable.set(f'mp_{from_user_name}_msg_list', room_msg_list, serialize_json=True)
+            redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
         except:
             pass
             
@@ -959,7 +965,9 @@ def handler_voice_msg(**context):
     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
     
     # 初始化dify
-    dify_agent = DifyAgent(api_key=Variable.get("LUCYAI_DIFY_API_KEY"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={}, deserialize_json=True)[appid]
+    dify_base_url = Variable.get("DIFY_BASE_URL")
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
@@ -1136,7 +1144,8 @@ def should_pre_stop(current_message, from_user_name):
     检查是否需要提前停止流程
     """
     # 获取用户最近的消息列表
-    room_msg_list = Variable.get(f'mp_{from_user_name}_msg_list', default_var=[], deserialize_json=True)
+    redis_handler = RedisHandler()
+    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
     if not room_msg_list:
         return
     

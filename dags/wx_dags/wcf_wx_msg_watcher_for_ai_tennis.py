@@ -31,7 +31,6 @@ from airflow.utils.session import create_session
 
 from utils.wechat_channl import send_wx_msg
 from utils.wechat_channl import get_wx_contact_list
-from utils.redis import RedisLock
 from utils.llm_channl import get_llm_response
 
 
