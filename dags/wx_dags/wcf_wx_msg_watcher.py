@@ -43,12 +43,11 @@ from wx_dags.handlers.handler_voice_msg import handler_voice_msg
 DAG_ID = "wx_msg_watcher"
 
 
-def check_admin_command(**context):
+def check_admin_command(message_data, wx_account_info):
     """
     检查是否收到管理员命令
     """
     # 获取传入的消息数据
-    message_data = context.get('dag_run').conf
     room_id = message_data.get('roomid')
     sender = message_data.get('sender')
     source_ip = message_data.get('source_ip')
@@ -57,9 +56,9 @@ def check_admin_command(**context):
     # 检查是否收到管理员命令
     if content.lower().endswith('clearlove'):
         # 获取微信账号信息
-        wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
         wx_user_name = wx_account_info['name']
         wx_user_id = wx_account_info['wxid']
+        
         # 获取房间和发送者信息
         room_name = get_contact_name(source_ip, room_id, wx_user_name)
 
@@ -97,22 +96,6 @@ def process_wx_message(**context):
         print("[WATCHER] 没有收到消息数据")
         return
     
-    try:
-        # 检查是否收到管理员命令
-        print(f"[WATCHER] 检查管理员命令")
-        is_admin_command = check_admin_command(context)
-        if is_admin_command:
-            return []
-    except Exception as error:
-        # 不影响主流程
-        print(f"[WATCHER] 检查管理员命令失败, 详细错误信息:")
-        print(f"错误类型: {type(error).__name__}")
-        print(f"错误信息: {str(error)}")
-        print(f"错误堆栈:")
-        import traceback
-        print(traceback.format_exc())
-        print(f"[WATCHER] 检查管理员命令失败: {error}")
-        
     message_data = dag_run.conf
     message_data['id'] = int(message_data['id'])
     print("[WATCHER] 收到微信消息:")
@@ -152,6 +135,22 @@ def process_wx_message(**context):
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 更新消息计时器失败: {error}")
+
+    try:
+        # 检查是否收到管理员命令
+        print(f"[WATCHER] 检查管理员命令")
+        is_admin_command = check_admin_command(message_data, wx_account_info)
+        if is_admin_command:
+            return []
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 检查管理员命令失败, 详细错误信息:")
+        print(f"错误类型: {type(error).__name__}")
+        print(f"错误信息: {str(error)}")
+        print(f"错误堆栈:")
+        import traceback
+        print(traceback.format_exc())
+        print(f"[WATCHER] 检查管理员命令失败: {error}")
 
     # 检查AI是否开启
     is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
