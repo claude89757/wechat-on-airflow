@@ -96,6 +96,16 @@ def process_wx_message(**context):
     if not (dag_run and dag_run.conf):
         print("[WATCHER] 没有收到消息数据")
         return
+    
+    try:
+        # 检查是否收到管理员命令
+        print(f"[WATCHER] 检查管理员命令")
+        is_admin_command = check_admin_command(context)
+        if is_admin_command:
+            return []
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 检查管理员命令失败: {error}")
         
     message_data = dag_run.conf
     message_data['id'] = int(message_data['id'])
@@ -136,16 +146,6 @@ def process_wx_message(**context):
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 更新消息计时器失败: {error}")
-
-    try:
-        # 检查是否收到管理员命令
-        print(f"[WATCHER] 检查管理员命令")
-        is_admin_command = check_admin_command(message_data)
-        if is_admin_command:
-            return []
-    except Exception as error:
-        # 不影响主流程
-        print(f"[WATCHER] 检查管理员命令失败: {error}")
 
     # 检查AI是否开启
     is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
