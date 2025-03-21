@@ -55,7 +55,16 @@ def handler_image_msg(**context):
 
         # 上传图片到Dify
         dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
-        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+
+        # 如果是群聊，先检查是否有群聊专用的API key
+        if is_group:
+            try:
+                dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
+            except:
+                dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+        else:
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+            
         dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
         online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
         print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
