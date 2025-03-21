@@ -19,7 +19,8 @@ from smbclient import register_session, open_file
 from utils.wechat_channl import (
     save_wx_file,
     send_wx_msg, 
-    send_wx_image
+    send_wx_image,
+    save_wx_image
 )
 
 DAG_ID = "tennis_racket_speed_trajectory"
@@ -473,8 +474,17 @@ def process_ai_video(**context):
     extra = current_message_data.get('extra', '')  # 消息extra字段
 
     # 保存视频到微信客户端侧
-    save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.mp4"
-    video_file_path = save_wx_file(wcf_ip=source_ip, id=msg_id, save_file_path=save_dir)
+    try:
+        save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.mp4"
+        video_file_path = save_wx_file(wcf_ip=source_ip, id=str(msg_id), save_file_path=save_dir)
+    except Exception as e:
+        print(f"保存视频失败: {str(e)}")
+        raise
+    try:
+        video_file_path = save_wx_image(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir="C:/Users/Administrator/Downloads/")
+    except Exception as e:
+        print(f"保存视频失败: {str(e)}")
+        raise
     print(f"video_file_path: {video_file_path}")
 
     # 等待3秒
