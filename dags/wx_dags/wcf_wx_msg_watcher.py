@@ -105,6 +105,12 @@ def process_wx_message(**context):
             return []
     except Exception as error:
         # 不影响主流程
+        print(f"[WATCHER] 检查管理员命令失败, 详细错误信息:")
+        print(f"错误类型: {type(error).__name__}")
+        print(f"错误信息: {str(error)}")
+        print(f"错误堆栈:")
+        import traceback
+        print(traceback.format_exc())
         print(f"[WATCHER] 检查管理员命令失败: {error}")
         
     message_data = dag_run.conf
