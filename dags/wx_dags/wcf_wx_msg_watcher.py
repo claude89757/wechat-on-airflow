@@ -52,9 +52,10 @@ def check_admin_command(**context):
     room_id = message_data.get('roomid')
     sender = message_data.get('sender')
     source_ip = message_data.get('source_ip')
+    content = message_data.get('content')
 
     # 检查是否收到管理员命令
-    if message_data.get('content').endswith('clearlove'):
+    if content.lower().endswith('clearlove'):
         # 获取微信账号信息
         wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
         wx_user_name = wx_account_info['name']
@@ -136,8 +137,9 @@ def process_wx_message(**context):
         # 不影响主流程
         print(f"[WATCHER] 更新消息计时器失败: {error}")
 
-    # 检查是否收到管理员命令
     try:
+        # 检查是否收到管理员命令
+        print(f"[WATCHER] 检查管理员命令")
         is_admin_command = check_admin_command(message_data)
         if is_admin_command:
             return []
