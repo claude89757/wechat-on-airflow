@@ -476,15 +476,13 @@ def process_ai_video(**context):
     # 保存视频到微信客户端侧
     try:
         save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.mp4"
-        video_file_path = save_wx_file(wcf_ip=source_ip, id=str(msg_id), save_file_path=save_dir)
+        video_file_path = save_wx_file(wcf_ip=source_ip, id=msg_id, save_file_path=save_dir)
     except Exception as e:
         print(f"保存视频失败: {str(e)}")
-        raise
     try:
         video_file_path = save_wx_image(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir="C:/Users/Administrator/Downloads/")
     except Exception as e:
         print(f"保存视频失败: {str(e)}")
-        raise
     print(f"video_file_path: {video_file_path}")
 
     # 等待3秒
