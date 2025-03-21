@@ -473,7 +473,7 @@ def process_ai_video(**context):
     extra = current_message_data.get('extra', '')  # 消息extra字段
 
     # 保存视频到微信客户端侧
-    save_dir = f"C:/Users/Administrator/Downloads/"
+    save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.mp4"
     video_file_path = save_wx_file(wcf_ip=source_ip, id=msg_id, save_file_path=save_dir)
     print(f"video_file_path: {video_file_path}")
 
