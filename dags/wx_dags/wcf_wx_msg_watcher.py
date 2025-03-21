@@ -32,6 +32,7 @@ from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import check_ai_enable
 from wx_dags.common.mysql_tools import save_data_to_db
+from wx_dags.common.wx_tools import send_wx_msg
 
 # 导入消息处理器
 from wx_dags.handlers.handler_text_msg import handler_text_msg
@@ -40,6 +41,41 @@ from wx_dags.handlers.handler_voice_msg import handler_voice_msg
 
 
 DAG_ID = "wx_msg_watcher"
+
+
+def check_admin_command(**context):
+    """
+    检查是否收到管理员命令
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    room_id = message_data.get('roomid')
+    sender = message_data.get('sender')
+    source_ip = message_data.get('source_ip')
+
+    # 检查是否收到管理员命令
+    if message_data.get('content').endswith('clearlove'):
+        # 获取微信账号信息
+        wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
+        wx_user_name = wx_account_info['name']
+        wx_user_id = wx_account_info['wxid']
+        # 获取房间和发送者信息
+        room_name = get_contact_name(source_ip, room_id, wx_user_name)
+
+        # 获取会话ID
+        dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
+
+        # 从本地存储中移除该映射关系
+        conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)
+        if room_id in conversation_infos:
+            del conversation_infos[room_id]
+            Variable.set(f"{dify_user_id}_conversation_infos", conversation_infos, serialize_json=True)
+        print(f"已清除用户 {dify_user_id} 在房间 {room_id} 的会话记录")
+        
+        # 发送消息给管理员
+        send_wx_msg(wcf_ip=source_ip, message=f"😭", receiver=sender)
+    else:
+        pass
 
 
 def process_wx_message(**context):
@@ -97,6 +133,13 @@ def process_wx_message(**context):
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 更新消息计时器失败: {error}")
+
+    # 检查是否收到管理员命令
+    try:
+        check_admin_command(message_data)
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 检查管理员命令失败: {error}")
 
     # 检查AI是否开启
     is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
