@@ -137,6 +137,7 @@ def process_wx_message(**context):
     # 检查是否收到管理员命令
     try:
         check_admin_command(message_data)
+        return [save_msg_to_db]
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 检查管理员命令失败: {error}")
