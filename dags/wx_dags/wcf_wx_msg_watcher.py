@@ -32,7 +32,7 @@ from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import check_ai_enable
 from wx_dags.common.mysql_tools import save_data_to_db
-from wx_dags.common.wx_tools import send_wx_msg
+from utils.wechat_channl import send_wx_msg
 
 # 导入消息处理器
 from wx_dags.handlers.handler_text_msg import handler_text_msg
@@ -140,7 +140,7 @@ def process_wx_message(**context):
     try:
         is_admin_command = check_admin_command(message_data)
         if is_admin_command:
-            return []
+            return []c
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 检查管理员命令失败: {error}")
