@@ -74,8 +74,10 @@ def check_admin_command(**context):
         
         # 发送消息给管理员
         send_wx_msg(wcf_ip=source_ip, message=f"😭", receiver=sender)
+
+        return True
     else:
-        pass
+        return False
 
 
 def process_wx_message(**context):
@@ -136,8 +138,9 @@ def process_wx_message(**context):
 
     # 检查是否收到管理员命令
     try:
-        check_admin_command(message_data)
-        return [save_msg_to_db]
+        is_admin_command = check_admin_command(message_data)
+        if is_admin_command:
+            return []
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 检查管理员命令失败: {error}")
