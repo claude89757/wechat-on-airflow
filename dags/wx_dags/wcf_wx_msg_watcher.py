@@ -140,7 +140,7 @@ def process_wx_message(**context):
     try:
         is_admin_command = check_admin_command(message_data)
         if is_admin_command:
-            return []c
+            return []
     except Exception as error:
         # 不影响主流程
         print(f"[WATCHER] 检查管理员命令失败: {error}")
