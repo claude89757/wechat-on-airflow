@@ -10,6 +10,7 @@ def handler_video_msg(**context):
     """
     # 视频消息
     message_data = context.get('dag_run').conf
+    message_data['id'] = int(message_data['id'])
     room_id = message_data.get('roomid')
     sender = message_data.get('sender')
     msg_id = message_data.get('id')
