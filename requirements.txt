@@ -17,3 +17,4 @@ opencv-python-headless>=4.11.0
 pydub
 ffmpeg-python
 dashscope
+vision_agent

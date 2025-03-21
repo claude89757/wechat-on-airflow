@@ -17,12 +17,13 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # Airflow相关导入
 from airflow import DAG
 from airflow.models.variable import Variable
 from airflow.operators.python import BranchPythonOperator, PythonOperator
+from airflow.api.common.trigger_dag import trigger_dag
 
 # 自定义库导入
 from wx_dags.common.wx_tools import WX_MSG_TYPES
@@ -33,6 +34,7 @@ from wx_dags.common.wx_tools import check_ai_enable
 from wx_dags.handlers.handler_text_msg import handler_text_msg
 from wx_dags.handlers.handler_image_msg import handler_image_msg
 from wx_dags.handlers.handler_voice_msg import handler_voice_msg
+from wx_dags.handlers.handler_video_msg_for_ai_tennis import handler_video_msg
 
 
 DAG_ID = "zacks_wx_msg_watcher"
@@ -115,8 +117,7 @@ def process_wx_message(**context):
         next_task_list.append('handler_voice_msg')
     elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
-        # next_task_list.append('handler_video_msg')
-        pass
+        next_task_list.append('handler_video_msg')
     elif WX_MSG_TYPES.get(msg_type) == "图片":
         if not is_group:
             # 图片消息
@@ -174,5 +175,12 @@ handler_voice_msg_task = PythonOperator(
     dag=dag
 )
 
+# 创建处理视频消息的任务
+handler_video_msg_task = PythonOperator(
+    task_id='handler_video_msg',
+    python_callable=handler_video_msg,
+    provide_context=True,
+    dag=dag
+)
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, handler_video_msg_task]
