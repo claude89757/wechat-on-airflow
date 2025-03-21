@@ -9,15 +9,11 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 # 第三方库导入
-import cv2
-import numpy as np
 import requests
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
-from airflow.exceptions import AirflowException
 from smbclient import register_session, open_file
-from pillow_heif import register_heif_opener
 
 # 自定义库导入
 from utils.wechat_channl import (
@@ -25,18 +21,6 @@ from utils.wechat_channl import (
     send_wx_msg, 
     send_wx_image
 )
-from utils.llm_channl import get_llm_response_with_image
-from vision_agent.tools import (
-    extract_frames_and_timestamps,
-    florence2_sam2_video_tracking,
-    overlay_bounding_boxes,
-    save_video,
-    register_tool
-)
-from vision_agent.tools.planner_tools import judge_od_results
-
-# 注册HEIF图像格式支持
-register_heif_opener()
 
 DAG_ID = "tennis_racket_speed_trajectory"
 
@@ -57,6 +41,21 @@ def track_racket_speed_trajectory(video_uri: str, output_video_path: str) -> str
     str
         The path to the saved output video.
     """
+    from pillow_heif import register_heif_opener
+    import cv2
+    import numpy as np
+    from utils.llm_channl import get_llm_response_with_image
+    from vision_agent.tools import (
+        extract_frames_and_timestamps,
+        florence2_sam2_video_tracking,
+        overlay_bounding_boxes,
+        save_video,
+        register_tool
+    )
+    from vision_agent.tools.planner_tools import judge_od_results
+
+    # 注册HEIF图像格式支持
+    register_heif_opener()
 
     print(f"开始处理视频: {video_uri}")
     # 1) Extract frames from the video (default fps=5).
