@@ -58,7 +58,7 @@ def check_admin_command(message_data, wx_account_info):
         # 获取微信账号信息
         wx_user_name = wx_account_info['name']
         wx_user_id = wx_account_info['wxid']
-        
+
         # 获取房间和发送者信息
         room_name = get_contact_name(source_ip, room_id, wx_user_name)
 
@@ -73,7 +73,7 @@ def check_admin_command(message_data, wx_account_info):
         print(f"已清除用户 {dify_user_id} 在房间 {room_id} 的会话记录")
         
         # 发送消息给管理员
-        send_wx_msg(wcf_ip=source_ip, message=f"😭", receiver=sender)
+        send_wx_msg(wcf_ip=source_ip, message=f"😊", receiver=sender)
 
         return True
     else:
