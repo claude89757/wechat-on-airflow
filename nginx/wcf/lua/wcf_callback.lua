@@ -4,8 +4,8 @@ local cjson_safe = require "cjson.safe"
 local http = require "resty.http"
 
 -- 设置cjson配置，确保大整数精度
-cjson.encode_number_precision(16)  -- 设置数字编码精度
-cjson_safe.encode_number_precision(16)  -- 同样设置安全模式的精度
+cjson.encode_number_precision(30)  -- 增加数字编码精度到30
+cjson_safe.encode_number_precision(30)  -- 同样设置安全模式的精度
 
 -- 使用cjson_safe库以避免精度问题
 local safe_decode = cjson_safe.decode
@@ -57,16 +57,22 @@ local function main()
         return ngx.exit(400)
     end
     
-    -- 移除预处理代码，保留整数类型的ID
-    -- 解析JSON请求体，使用cjson_safe以避免精度问题
-    local callback_data, err = safe_decode(request_body)
-    if not callback_data then
-        log("解析请求体失败: " .. (err or "未知错误"), ngx.ERR)
+    -- 直接使用原始JSON字符串，跳过Lua解析
+    -- 这样可以保留原始数值，避免精度损失
+    local callback_data = {}
+    
+    -- 使用pcall避免错误导致崩溃
+    local ok, parsed_data = pcall(function() return safe_decode(request_body) end)
+    if not ok or not parsed_data then
+        log("解析请求体失败", ngx.ERR)
         ngx.status = 400
         ngx.header.content_type = "application/json"
-        ngx.say(safe_encode({message = "无效的JSON数据", error = err}))
+        ngx.say(safe_encode({message = "无效的JSON数据"}))
         return ngx.exit(400)
     end
+    
+    -- 将解析后的数据赋值给callback_data
+    callback_data = parsed_data
     
     -- 记录解析后的回调数据(使用WARN级别确保显示)
     log("解析后的回调数据: " .. safe_encode(callback_data), ngx.WARN)
