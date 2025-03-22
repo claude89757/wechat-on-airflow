@@ -54,7 +54,7 @@ def handler_image_msg(**context):
         context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
 
         # 上传图片到Dify
-        dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
+        dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}"
 
         # 如果是群聊，先检查是否有群聊专用的API key
         if is_group:

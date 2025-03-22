@@ -57,7 +57,7 @@ def handler_voice_msg(**context):
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
-    dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
+    dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}"
     conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
     # 2. 语音转文字

@@ -64,7 +64,7 @@ def check_admin_command(message_data, wx_account_info):
         room_name = get_contact_name(source_ip, room_id, wx_user_name)
 
         # 获取会话ID
-        dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}_{sender}"
+        dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}"
 
         # 从本地存储中移除该映射关系
         conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)
