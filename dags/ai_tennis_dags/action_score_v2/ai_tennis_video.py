@@ -474,22 +474,15 @@ def process_ai_video(**context):
     extra = current_message_data.get('extra', '')  # 消息extra字段
 
     # 保存视频到微信客户端侧
-    try:
-        save_dir = f"C:/Users/Administrator/Downloads/{msg_id}.mp4"
-        video_file_path = save_wx_file(wcf_ip=source_ip, id=msg_id, save_file_path=save_dir)
-    except Exception as e:
-        print(f"保存视频失败: {str(e)}")
-    try:
-        video_file_path = save_wx_image(wcf_ip=source_ip, id=msg_id, extra=extra, save_dir="C:/Users/Administrator/Downloads/")
-    except Exception as e:
-        print(f"保存视频失败: {str(e)}")
-    print(f"video_file_path: {video_file_path}")
+    download_video_file = f"C:/Users/Administrator/Downloads/{msg_id}.mp4"
+    result = save_wx_file(wcf_ip=source_ip, id=msg_id, save_file_path=download_video_file)
+    print(f"result: {result}")
 
     # 等待3秒
     time.sleep(3)
 
     # 下载视频到本地临时目录
-    remote_file_name = os.path.basename(video_file_path)  # 使用os.path.basename获取文件名
+    remote_file_name = os.path.basename(download_video_file)  # 使用os.path.basename获取文件名
     local_file_name = f"{msg_id}.mp4"
     local_file_path = download_file_from_windows_server(server_ip=source_ip, remote_file_name=remote_file_name, local_file_name=local_file_name)
     print(f"视频已下载到本地: {local_file_path}")
