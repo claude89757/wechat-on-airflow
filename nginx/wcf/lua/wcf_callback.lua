@@ -46,6 +46,15 @@ local function get_required_env(name)
     return value
 end
 
+-- 截断长字符串用于日志记录
+local function truncate_for_log(str, max_length)
+    max_length = max_length or 200
+    if #str > max_length then
+        return string.sub(str, 1, max_length) .. "..."
+    end
+    return str
+end
+
 -- =====================================================
 -- 业务逻辑函数
 -- =====================================================
@@ -67,9 +76,9 @@ local function process_request()
     ngx.req.read_body()
     local request_body = ngx.req.get_body_data()
     
-    -- 记录原始请求体(使用WARN级别确保显示)
+    -- 仅记录有消息到达，不记录具体内容
     if request_body then
-        log("收到原始请求体: " .. request_body, ngx.WARN)
+        log("收到微信消息回调", ngx.INFO)
     end
     
     if not request_body then
@@ -79,7 +88,6 @@ local function process_request()
     
     -- 预处理JSON字符串，将ID字段转为字符串格式
     local processed_body = preserve_id_as_string(request_body)
-    log("预处理后的请求体: " .. processed_body, ngx.WARN)
     
     -- 解析JSON请求体
     local callback_data, err = safe_decode(processed_body)
@@ -88,8 +96,10 @@ local function process_request()
         return nil, "解析JSON失败: " .. (err or "未知错误")
     end
     
-    -- 记录解析后的回调数据
-    log("解析后的回调数据: " .. safe_encode(callback_data), ngx.WARN)
+    -- 记录关键信息
+    if callback_data.id and callback_data.roomid then
+        log("处理消息: ID=" .. tostring(callback_data.id) .. ", 群组=" .. tostring(callback_data.roomid), ngx.WARN)
+    end
     
     -- 添加客户端IP
     local client_ip = ngx.var.remote_addr
@@ -106,7 +116,6 @@ local function create_dag_run_id(callback_data)
     local msg_timestamp = tostring(callback_data["ts"] or "")
     local dag_run_id = source_ip .. "_" .. formatted_roomid .. "_" .. msg_id .. "_" .. msg_timestamp
     
-    log("生成的dag_run_id: " .. dag_run_id, ngx.INFO)
     return dag_run_id
 end
 
@@ -119,11 +128,17 @@ local function trigger_airflow_dag(config, callback_data, dag_run_id)
         note = "Triggered by WCF callback via Nginx"
     }
     
-    -- 详细记录转发到Airflow的消息内容
-    log("转发到Airflow的完整消息: " .. safe_encode(airflow_payload), ngx.WARN)
+    -- 显示转发的完整消息内容
+    local msg_type = callback_data.type or "未知"
+    local content = callback_data.content or ""
+    local sender = callback_data.sender or "未知"
+    log("转发消息: 类型=" .. msg_type .. ", 发送者=" .. sender .. ", 内容=" .. content, ngx.WARN)
     
-    -- 记录Airflow API目标信息
-    log("Airflow API 目标: " .. config.AIRFLOW_BASE_URL .. "/api/v1/dags/" .. config.WX_MSG_WATCHER_DAG_ID .. "/dagRuns", ngx.WARN)
+    -- 显示完整原始数据(JSON格式)
+    log("完整消息数据: " .. safe_encode(callback_data), ngx.WARN)
+    
+    -- 只记录目标DAG ID，不记录完整载荷
+    log("转发到Airflow DAG: " .. config.WX_MSG_WATCHER_DAG_ID, ngx.INFO)
     
     -- 使用HTTP客户端触发Airflow DAG
     local httpc = http.new()
@@ -149,8 +164,10 @@ local function trigger_airflow_dag(config, callback_data, dag_run_id)
         return nil, err
     end
     
-    -- 记录API响应
-    log("收到Airflow API响应: 状态码=" .. res.status .. ", 响应体=" .. (res.body or "空"), ngx.WARN)
+    -- 简化API响应日志
+    if res.status >= 400 then
+        log("Airflow API响应: 状态码=" .. res.status .. ", 错误=" .. truncate_for_log(res.body or ""), ngx.ERR)
+    end
     
     return res
 end
@@ -158,7 +175,7 @@ end
 -- 处理HTTP响应
 local function handle_response(res, dag_run_id)
     if res.status == 200 or res.status == 201 then
-        log("DAG触发成功: dag_run_id=" .. dag_run_id, ngx.WARN)
+        log("DAG触发成功: dag_run_id=" .. dag_run_id, ngx.INFO)
         ngx.status = 200
         ngx.header.content_type = "application/json"
         ngx.say(safe_encode({
@@ -166,13 +183,13 @@ local function handle_response(res, dag_run_id)
             dag_run_id = dag_run_id
         }))
     else
-        log("触发结果: 失败 - 状态码: " .. res.status .. " - 错误: " .. res.body, ngx.ERR)
+        log("DAG触发失败: 状态码=" .. res.status, ngx.ERR)
         ngx.status = res.status
         ngx.header.content_type = "application/json"
         ngx.say(safe_encode({
             message = "DAG触发失败", 
             status = res.status,
-            error = res.body
+            error = truncate_for_log(res.body)
         }))
     end
 end
@@ -211,8 +228,8 @@ local function main()
     
     -- 5. 处理错误情况
     if not ok then
-        log("调用Airflow API发生Lua错误: " .. tostring(res_or_err), ngx.ERR)
-        return error_response(500, "Airflow API请求过程中发生Lua错误", tostring(res_or_err))
+        log("调用Airflow API发生错误: " .. tostring(res_or_err), ngx.ERR)
+        return error_response(500, "Airflow API请求过程中发生错误", tostring(res_or_err))
     end
     
     -- 6. 处理正常结果
