@@ -87,6 +87,9 @@ x-airflow-env: &airflow-env
   PIP_INDEX_URL: https://mirrors.cloud.tencent.com/pypi/simple/
   PIP_TRUSTED_HOST: mirrors.cloud.tencent.com
 
+  # 视觉AI API配置
+  VISION_AGENT_API_KEY: ${VISION_AGENT_API_KEY}
+
 #===============================================================================
 # 服务定义
 #===============================================================================
