@@ -87,7 +87,6 @@ def process_wx_message(**context):
     # user_info = mp_bot.get_user_info(message_data.get('ToUserName'))
     # print(f"ToUserName: {message_data.get('ToUserName')}, 用户信息: {user_info}")
     
-    
     # 判断消息类型
     msg_type = message_data.get('MsgType')
     
@@ -142,161 +141,59 @@ def handler_text_msg(**context):
     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
     print(f"[WATCHER] 获取到会话ID: {conversation_id}")
     
-    # 将当前消息添加到缓存列表之前，先检查之前的消息状态
-    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-    
-    # 检查最近10条消息中未处理或处理失败的消息
-    unhandled_msgs = []
-    for msg in room_msg_list[-10:]:
-        # 如果消息未回复且不在处理中，或者处理失败（processing=True但超过5分钟）
-        if (not msg.get('is_reply') and not msg.get('processing')) or \
-           (msg.get('processing') and int(time.time()) - int(msg.get('CreateTime', 0)) > 300):
-            # 重置处理状态
-            msg['processing'] = False
-            unhandled_msgs.append(msg)
-
-    # 添加当前消息
-    current_msg = {
-        'ToUserName': to_user_name,
-        'FromUserName': from_user_name,
-        'CreateTime': create_time,
-        'Content': content,
-        'MsgId': msg_id,
-        'is_reply': False,
-        'processing': False
-    }
-    
     # 更新消息列表
-    redis_handler.msg_list_append(f'mp_{from_user_name}_msg_list', current_msg)
+    redis_handler.append_msg_list(f'{from_user_name}_{to_user_name}_msg_list', message_data)
     
     # 缩短等待时间到3秒，给更多消息合并的机会
     time.sleep(5)
 
     # 重新获取消息列表前先检查是否需要提前停止
-    should_pre_stop(message_data, from_user_name)
+    should_pre_stop(message_data, from_user_name, to_user_name)
     
-    # 重新获取消息列表(可能有新消息加入)
-    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-    
-    # 获取需要处理的消息组
-    current_time = int(time.time())
-    up_for_reply_msg_content_list = []
-    up_for_reply_msg_id_list = []
-    all_pending_msg_ids = []  # 新增：记录所有待处理的消息ID
-    
-    # 按时间排序消息，只看最近10条消息
-    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
-    
-    # 找到最后一条已回复消息的时间
-    last_replied_time = 0
-    for msg in reversed(sorted_msgs):
-        if msg.get('is_reply'):
-            last_replied_time = int(msg.get('CreateTime', 0))
-            break
-    
-    # 收集需要回复的消息，包括之前未处理的消息
-    first_unreplied_time = None
-    latest_msg_time = 0
-    latest_msg = None
-    
-    for msg in sorted_msgs:
-        msg_time = int(msg.get('CreateTime', 0))
-        
-        # 更新最新消息时间和消息对象
-        if msg_time > latest_msg_time:
-            latest_msg_time = msg_time
-            latest_msg = msg
-        
-        # 处理所有未回复的消息
-        if not msg.get('is_reply'):
-            # 记录所有未处理消息的ID
-            all_pending_msg_ids.append(msg.get('MsgId'))
-            
-            # 只处理未在处理中的消息
-            if not msg.get('processing'):
-                if first_unreplied_time is None:
-                    first_unreplied_time = msg_time
-                
-                # 优化聚合判断逻辑：
-                # 1. 消息时间在第一条未回复消息5秒内
-                # 2. 消息时间在当前时间5秒内
-                # 3. 消息内容不为空
-                if ((msg_time - first_unreplied_time) <= 5 or 
-                    (current_time - msg_time) <= 5) and msg.get('Content', '').strip():
-                    up_for_reply_msg_content_list.append(msg.get('Content', ''))
-                    up_for_reply_msg_id_list.append(msg.get('MsgId'))
-
-    if not up_for_reply_msg_content_list:
-        print("[WATCHER] 没有需要回复的消息")
-        return
-
-    # 标记所有待处理消息为处理中状态，并关联到最新消息
-    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-    for msg in room_msg_list:
-        if msg['MsgId'] in up_for_reply_msg_id_list:
-            msg['processing'] = True
-            msg['batch_reply_to'] = latest_msg.get('MsgId')  # 关联到最新消息
-    redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
+    # 读取消息列表
+    room_msg_list = redis_handler.get_msg_list(f'{from_user_name}_{to_user_name}_msg_list')
     
     # 整合未回复的消息
-    questions = []
-    for content in up_for_reply_msg_content_list:
-        questions.append(content)
+    # 获取最近5条消息内容并合并
+    question = "\n\n".join([msg.get('Content', '') for msg in room_msg_list[-5:]])
     
-    question = "\n\n".join(questions)
-    
-    # 如果是多个问题，添加提示语
-    if len(up_for_reply_msg_content_list) > 1:
-        question = f"请回答以下问题：\n\n{question}"
-    
-    # 在发送到Dify之前再次检查是否需要提前停止
-    should_pre_stop(message_data, from_user_name)
+
     
     print("-"*50)
     print(f"[WATCHER] 准备发送到Dify的问题:\n{question}")
-    print(f"[WATCHER] 消息ID列表: {up_for_reply_msg_id_list}")
     print("-"*50)
 
     # 检查是否有缓存的图片信息
     dify_files = []
-    online_img_info = Variable.get(f"mp_{from_user_name}_online_img_info", default_var={}, deserialize_json=True)
-    if online_img_info and online_img_info.get("id"):
-        print(f"[WATCHER] 发现缓存的图片信息: {online_img_info}")
-        dify_files.append({
-            "type": "image",
-            "transfer_method": "remote_url",  # 修改为remote_url
-            "url": online_img_info.get("url", ""),  # 使用Dify返回的URL
-            "upload_file_id": online_img_info.get("id", "")
-        })
-        # 如果有图片，修改问题内容
-        if len(up_for_reply_msg_content_list) == 1 and up_for_reply_msg_content_list[0].strip() == "":
-            # 如果只有一条空消息，使用默认的图片分析提示语
-            question = "这是一张图片，请描述一下图片内容并给出你的分析"
-        else:
-            # 如果有具体问题，在问题前添加图片提示
-            question = "这是一张图片。" + question
+    # online_img_info = Variable.get(f"mp_{from_user_name}_online_img_info", default_var={}, deserialize_json=True)
+    # if online_img_info:
+    #     print(f"[WATCHER] 发现缓存的图片信息: {online_img_info}")
+    #     dify_files.append({
+    #         "type": "image",
+    #         "transfer_method": "remote_url",  # 修改为remote_url
+    #         "url": online_img_info.get("url", ""),  # 使用Dify返回的URL
+    #         "upload_file_id": online_img_info.get("id", "")
+    #     })
             
-        print(f"[WATCHER] 发现图片，修改后的问题: {question}")
+    #     print(f"[WATCHER] 发现图片，修改后的问题: {question}")
         
-        # 使用完图片信息后清除缓存
-        try:
-            Variable.delete(f"mp_{from_user_name}_online_img_info")
-            print("[WATCHER] 已清除图片缓存")
-        except Exception as e:
-            print(f"[WATCHER] 清除图片缓存失败: {e}")
+    #     # 使用完图片信息后清除缓存
+    #     try:
+    #         Variable.delete(f"mp_{from_user_name}_online_img_info")
+    #         print("[WATCHER] 已清除图片缓存")
+    #     except Exception as e:
+    #         print(f"[WATCHER] 清除图片缓存失败: {e}")
+    # else:
+    #     print("[WATCHER] 没有发现图片信息")
+
+    # 在发送到Dify之前再次检查是否需要提前停止
+    should_pre_stop(message_data, from_user_name, to_user_name)
 
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=from_user_name,
         conversation_id=conversation_id,  # 使用之前获取的会话ID
-        inputs={
-            "platform": "wechat_mp",
-            "user_id": from_user_name,
-            "msg_id": msg_id,
-            "is_batch_questions": len(up_for_reply_msg_content_list) > 1,
-            "question_count": len(up_for_reply_msg_content_list)
-        }
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
@@ -316,133 +213,15 @@ def handler_text_msg(**context):
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
 
     # 发送回复消息时的智能处理
-    try:
-        # 判断是否需要分段发送
-        need_split = False
-        
-        # 1. 检查是否有明显的分点标记
-        point_markers = ['1.', '2.', '3.','4.','5.','6.','7.','8.','9.', '①', '②', '③', 
-                        '一、', '二、', '三、','四、','五、','六、','七、','八、','九、',
-                        '\n1.', '\n2.', '\n3.','\n4.', '\n5.', '\n6.','\n7.', '\n8.', '\n9.',
-                        '\n一、', '\n二、', '\n三、','\n四、','\n五、','\n六、','\n七、','\n八、','\n九、']
-        if any(marker in response for marker in point_markers):
-            need_split = True
-            
-        # 2. 检查是否有明显的段落分隔
-        if response.count('\n\n') > 10:  # 有超过10个空行分隔的段落
-            need_split = True
-            
-        # 3. 检查单段长度
-        if len(response) > 500:  # 单段超过500字符
-            need_split = True
+    for response_part in re.split(r'\\n\\n|\n\n', response):
+        response_part = response_part.replace('\\n', '\n')
+        mp_bot.send_text_message(from_user_name, response_part.strip())
+    
+    # 删除缓存的消息
+    redis_handler.delete_msg_key(f'{from_user_name}_{to_user_name}_msg_list')
 
-        if need_split:
-            # 分段发送逻辑
-            # 1. 首先尝试按分点标记分割
-            has_points = False
-            for marker in ['1.', '一、', '①']:
-                if marker in response:
-                    has_points = True
-                    segments = []
-                    current_segment = []
-                    
-                    for line in response.split('\n'):
-                        if any(line.strip().startswith(m) for m in point_markers):
-                            if current_segment:
-                                segments.append('\n'.join(current_segment))
-                            current_segment = [line]
-                        else:
-                            current_segment.append(line)
-                    
-                    if current_segment:
-                        segments.append('\n'.join(current_segment))
-                    
-                    # 发送每个分点
-                    for segment in segments:
-                        if segment.strip():
-                            mp_bot.send_text_message(from_user_name, segment.strip())
-                            time.sleep(0.2)
-                    break
-            
-            # 2. 如果没有分点，按段落分割
-            if not has_points:
-                paragraphs = [p for p in re.split(r'\n\n+', response) if p.strip()]
-                if len(paragraphs) > 1:
-                    for paragraph in paragraphs:
-                        if paragraph.strip():
-                            mp_bot.send_text_message(from_user_name, paragraph.strip())
-                            time.sleep(0.2)
-                else:
-                    # 3. 如果是单个长段落，按句子分割
-                    sentences = re.split(r'([。！？])', response)
-                    current_msg = ""
-                    for i in range(0, len(sentences)-1, 2):
-                        sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else '')
-                        if len(current_msg) + len(sentence) > 300:
-                            if current_msg.strip():
-                                mp_bot.send_text_message(from_user_name, current_msg.strip())
-                                time.sleep(0.2)
-                            current_msg = sentence
-                        else:
-                            current_msg += sentence
-                    
-                    if current_msg.strip():
-                        mp_bot.send_text_message(from_user_name, current_msg.strip())
-        else:
-            # 内容较短或结构简单，直接发送
-            if response.strip():
-                mp_bot.send_text_message(from_user_name, response.strip())
-        
-        # 更新所有未处理消息的状态
-        room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-        for msg in room_msg_list:
-            if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids而不是up_for_reply_msg_id_list
-                msg['is_reply'] = True
-                msg['processing'] = False
-                msg['reply_time'] = int(time.time())
-                msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False
-                msg['reply_content'] = response
-                # 如果不是最新消息，标记为已合并回复
-                if msg['MsgId'] != latest_msg.get('MsgId'):
-                    msg['merged_to'] = latest_msg.get('MsgId')
-        redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
-
-        # 记录消息已被成功回复
-        dify_msg_id = metadata.get("message_id")
-        if dify_msg_id:
-            dify_agent.create_message_feedback(
-                message_id=dify_msg_id,
-                user_id=from_user_name,
-                rating="like",
-                content="微信公众号自动回复成功"
-            )
-
-        # 将response缓存到xcom中供后续任务使用
-        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
-
-    except Exception as error:
-        # 发生错误时，清除处理中状态和合并标记
-        try:
-            room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-            for msg in room_msg_list:
-                if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids清除所有待处理消息的状态
-                    msg['processing'] = False
-                    if 'batch_reply_to' in msg:
-                        del msg['batch_reply_to']
-            redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
-        except:
-            pass
-            
-        print(f"[WATCHER] 发送消息失败: {error}")
-        # 记录消息回复失败
-        dify_msg_id = metadata.get("message_id")
-        if dify_msg_id:
-            dify_agent.create_message_feedback(
-                message_id=dify_msg_id,
-                user_id=from_user_name,
-                rating="dislike",
-                content=f"微信公众号自动回复失败, {error}"
-            )
+    # 将response缓存到xcom中供后续任务使用
+    context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
 
 
 def save_ai_reply_msg_to_db(**context):
@@ -672,7 +451,7 @@ def handler_image_msg(**context):
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
-    
+
     # 提取微信公众号消息的关键信息
     to_user_name = message_data.get('ToUserName')  # 公众号原始ID
     from_user_name = message_data.get('FromUserName')  # 发送者的OpenID
@@ -681,7 +460,7 @@ def handler_image_msg(**context):
     media_id = message_data.get('MediaId')  # 图片消息媒体id
     msg_id = message_data.get('MsgId')  # 消息ID
     
-    print(f"收到来自 {from_user_name} 的图片消息，MediaId: {media_id}, PicUrl: {pic_url}")
+    print(f"message_data: {message_data}")
     
     # 获取微信公众号配置
     appid = Variable.get("WX_MP_APP_ID", default_var="")
@@ -707,223 +486,11 @@ def handler_image_msg(**context):
     print(f"[WATCHER] 获取到会话ID: {conversation_id}")
     
     # 将当前图片消息添加到缓存列表
-    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
+    room_msg_list = redis_handler.get_msg_list(f'mp_{from_user_name}_msg_list')
     
-    # 添加当前图片消息
-    current_msg = {
-        'ToUserName': to_user_name,
-        'FromUserName': from_user_name,
-        'CreateTime': create_time,
-        'Content': '',  # 图片消息内容为空
-        'MsgType': 'image',
-        'PicUrl': pic_url,
-        'MediaId': media_id,
-        'MsgId': msg_id,
-        'is_reply': False,
-        'processing': False
-    }
-    redis_handler.msg_list_append(f'mp_{from_user_name}_msg_list', current_msg)
-    
-    # 缩短等待时间到3秒，给更多消息合并的机会
-    time.sleep(5)
-    
-    # 重新获取消息列表前先检查是否需要提前停止
-    should_pre_stop(message_data, from_user_name)
-    
-    # 重新获取消息列表(可能有新消息加入)
-    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-    
-    # 获取需要处理的消息组
-    current_time = int(time.time())
-    up_for_reply_msg_content_list = []
-    up_for_reply_msg_id_list = []
-    all_pending_msg_ids = []
-    has_text_question = False  # 标记是否有文字问题
-    
-    # 按时间排序消息，只看最近10条消息
-    sorted_msgs = sorted(room_msg_list[-10:], key=lambda x: int(x.get('CreateTime', 0)))
-    
-    # 找到最后一条已回复消息的时间
-    last_replied_time = 0
-    for msg in reversed(sorted_msgs):
-        if msg.get('is_reply'):
-            last_replied_time = int(msg.get('CreateTime', 0))
-            break
-    
-    # 收集需要回复的消息
-    first_unreplied_time = None
-    latest_msg_time = 0
-    latest_msg = None
-    
-    for msg in sorted_msgs:
-        msg_time = int(msg.get('CreateTime', 0))
+    # 获取图片信息
+    # todo(claude89757): 获取图片信息
         
-        # 更新最新消息时间和消息对象
-        if msg_time > latest_msg_time:
-            latest_msg_time = msg_time
-            latest_msg = msg
-        
-        # 处理所有未回复的消息
-        if not msg.get('is_reply'):
-            # 记录所有未处理消息的ID
-            all_pending_msg_ids.append(msg.get('MsgId'))
-            
-            # 只处理未在处理中的消息
-            if not msg.get('processing'):
-                if first_unreplied_time is None:
-                    first_unreplied_time = msg_time
-                
-                # 判断是否在5秒时间窗口内
-                if (msg_time - first_unreplied_time) <= 5 or (current_time - msg_time) <= 5:
-                    # 如果是文本消息且有内容
-                    if msg.get('MsgType') == 'text' and msg.get('Content', '').strip():
-                        has_text_question = True
-                        up_for_reply_msg_content_list.append(msg.get('Content', ''))
-                        up_for_reply_msg_id_list.append(msg.get('MsgId'))
-                    # 如果是当前的图片消息
-                    elif msg.get('MsgType') == 'image' and msg.get('MsgId') == msg_id:
-                        up_for_reply_msg_id_list.append(msg.get('MsgId'))
-    
-    # 构建查询语句
-    if has_text_question:
-        # 如果有文字问题，将图片分析和问题结合
-        text_questions = "\n\n".join(up_for_reply_msg_content_list)
-        query = f"""这是一张图片，请先分析图片内容，然后回答以下问题：
-
-{text_questions}
-
-请在回答时：
-1. 先描述图片的主要内容
-2. 然后针对性地回答上述问题
-3. 如果问题与图片内容相关，请结合图片进行回答
-4. 如果问题与图片无关，也请给出合适的回答"""
-    else:
-        # 如果只有图片，使用默认的分析提示语
-        query = """请仔细观察这张图片，并完成以下任务：
-1. 详细描述图片中的主要内容和场景
-2. 识别图片中的关键元素和特征
-3. 分析图片的整体风格和氛围
-4. 如果有文字，请帮我读出来
-5. 给出你对这张图片的专业见解"""
-
-    # 检查是否有缓存的图片信息
-    dify_files = []
-    online_img_info = Variable.get(f"mp_{from_user_name}_online_img_info", default_var={}, deserialize_json=True)
-    if online_img_info and online_img_info.get("id"):
-        print(f"[WATCHER] 发现缓存的图片信息: {online_img_info}")
-        dify_files.append({
-            "type": "image",
-            "transfer_method": "remote_url",  # 修改为remote_url
-            "url": online_img_info.get("url", ""),  # 使用Dify返回的URL
-            "upload_file_id": online_img_info.get("id", "")
-        })
-        # 如果有图片，修改问题内容
-        if len(up_for_reply_msg_content_list) == 1 and up_for_reply_msg_content_list[0].strip() == "":
-            # 如果只有一条空消息，使用默认的图片分析提示语
-            query = "这是一张图片，请描述一下图片内容并给出你的分析"
-        else:
-            # 如果有具体问题，在问题前添加图片提示
-            query = "这是一张图片。" + query
-            
-        print(f"[WATCHER] 发现图片，修改后的问题: {query}")
-        
-        # 使用完图片信息后清除缓存
-        try:
-            Variable.delete(f"mp_{from_user_name}_online_img_info")
-            print("[WATCHER] 已清除图片缓存")
-        except Exception as e:
-            print(f"[WATCHER] 清除图片缓存失败: {e}")
-
-    # 获取AI回复
-    full_answer, metadata = dify_agent.create_chat_message_stream(
-        query=query,
-        user_id=from_user_name,
-        conversation_id=conversation_id,
-        inputs={
-            "platform": "wechat_mp",
-            "user_id": from_user_name,
-            "msg_id": msg_id,
-            "has_image": True,
-            "image_id": online_img_info.get("id"),
-            "image_url": online_img_info.get("original_url") or pic_url,
-            "image_name": os.path.basename(pic_url)
-        },
-        files=dify_files
-    )
-    print(f"full_answer: {full_answer}")
-    print(f"metadata: {metadata}")
-    response = full_answer
-
-    if not conversation_id:
-        # 新会话，重命名会话
-        try:
-            conversation_id = metadata.get("conversation_id")
-            dify_agent.rename_conversation(conversation_id, f"微信公众号用户_{from_user_name[:8]}", "公众号图片对话")
-        except Exception as e:
-            print(f"[WATCHER] 重命名会话失败: {e}")
-        
-        # 保存会话ID
-        conversation_infos = Variable.get("wechat_mp_conversation_infos", default_var={}, deserialize_json=True)
-        conversation_infos[from_user_name] = conversation_id
-        Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
-
-    # 发送回复消息
-    try:
-        # 将长回复拆分成多条消息发送
-        for response_part in re.split(r'\\n\\n|\n\n', response):
-            response_part = response_part.replace('\\n', '\n')
-            if response_part.strip():  # 确保不发送空消息
-                mp_bot.send_text_message(from_user_name, response_part)
-                time.sleep(0.5)  # 避免发送过快
-        
-        # 更新所有未处理消息的状态
-        room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-        for msg in room_msg_list:
-            if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids标记所有相关消息
-                msg['is_reply'] = True
-                msg['processing'] = False
-                msg['reply_time'] = int(time.time())
-                msg['batch_reply'] = True if len(up_for_reply_msg_id_list) > 1 else False
-                msg['reply_content'] = response
-                # 如果不是最新消息，标记为已合并回复
-                if msg['MsgId'] != latest_msg.get('MsgId'):
-                    msg['merged_to'] = latest_msg.get('MsgId')
-        redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
-        
-        # 记录消息已被成功回复
-        dify_msg_id = metadata.get("message_id")
-        if dify_msg_id:
-            dify_agent.create_message_feedback(
-                message_id=dify_msg_id,
-                user_id=from_user_name,
-                rating="like",
-                content="微信公众号图片消息自动回复成功"
-            )
-
-    except Exception as error:
-        # 发生错误时，清除处理中状态和合并标记
-        try:
-            room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
-            for msg in room_msg_list:
-                if msg['MsgId'] in all_pending_msg_ids:  # 使用all_pending_msg_ids清除所有待处理消息的状态
-                    msg['processing'] = False
-                    if 'batch_reply_to' in msg:
-                        del msg['batch_reply_to']
-            redis_handler.update_msg_list(f'mp_{from_user_name}_msg_list', room_msg_list)
-        except:
-            pass
-            
-        print(f"[WATCHER] 发送消息失败: {error}")
-        # 记录消息回复失败
-        dify_msg_id = metadata.get("message_id")
-        if dify_msg_id:
-            dify_agent.create_message_feedback(
-                message_id=dify_msg_id,
-                user_id=from_user_name,
-                rating="dislike",
-                content=f"微信公众号图片消息自动回复失败, {error}"
-            )
-
 
 def handler_voice_msg(**context):
     """
@@ -1139,35 +706,21 @@ def handler_file_msg(**context):
     pass
 
 
-def should_pre_stop(current_message, from_user_name):
+def should_pre_stop(current_message, from_user_name, to_user_name):
     """
     检查是否需要提前停止流程
     """
     # 获取用户最近的消息列表
     redis_handler = RedisHandler()
-    room_msg_list = redis_handler.read_msg_list(f'mp_{from_user_name}_msg_list')
+    room_msg_list = redis_handler.get_msg_list(f'{from_user_name}_{to_user_name}_msg_list')
     if not room_msg_list:
         return
     
-    # 获取最新消息的时间戳
-    try:
-        latest_msg_time = int(room_msg_list[-1].get('CreateTime', 0))
-    except (ValueError, TypeError):
-        latest_msg_time = int(time.time())
-        print(f"[PRE_STOP] 最新消息时间戳转换失败: {room_msg_list[-1].get('CreateTime')}")
-    
-    try:
-        current_msg_time = int(current_message.get('CreateTime', 0))
-    except (ValueError, TypeError):
-        current_msg_time = int(time.time())
-        print(f"[PRE_STOP] 当前消息时间戳转换失败: {current_message.get('CreateTime')}")
-    
-    # 如果当前消息不是最新消息，且时间差超过5秒，则停止处理
-    if current_msg_time < latest_msg_time and (latest_msg_time - current_msg_time) > 5:
-        print(f"[PRE_STOP] 发现更新的消息，当前消息时间: {current_msg_time}，最新消息时间: {latest_msg_time}")
-        raise AirflowException("检测到更新消息，停止当前处理")
-    
-    print(f"[PRE_STOP] 消息时间检查通过，继续执行")
+    if current_message['MsgId'] != room_msg_list[-1]['MsgId']:
+        print(f"[PRE_STOP] 最新消息id不一致，停止流程执行")
+        raise AirflowException("检测到提前停止信号，停止流程执行")
+    else:
+        print(f"[PRE_STOP] 最新消息id一致，继续执行")
 
 
 # 创建DAG

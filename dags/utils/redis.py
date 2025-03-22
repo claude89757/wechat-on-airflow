@@ -112,14 +112,14 @@ class RedisHandler:
             print(f"读取消息列表数据失败: {str(e)}")
             return []
         
-    def append_msg_list(self, key: str, value: Union[Dict, str], max_length: int = 100, expire_days: int = 30) -> bool:
+    def append_msg_list(self, key: str, value: Union[Dict, str], max_length: int = 100, expire_seconds: int = 60) -> bool:
         """
         追加消息列表，包含过期时间和最大长度限制
         Args:
             key: Redis键名
             value: 要追加的值（支持字典或字符串）
             max_length: 列表最大长度，超过时仅保留最新的N个值
-            expire_days: 过期时间（天），默认30天
+            expire_seconds: 过期时间（秒），默认60秒
         Returns:
             bool: 操作是否成功
         """
@@ -138,8 +138,7 @@ class RedisHandler:
                 pipe.ltrim(key, -max_length, -1)
             
             # 设置过期时间（秒）
-            if expire_days > 0:
-                expire_seconds = expire_days * 24 * 60 * 60
+            if expire_seconds > 0:
                 pipe.expire(key, expire_seconds)
             
             pipe.execute()
@@ -161,47 +160,6 @@ class RedisHandler:
             return True
         except redis.RedisError as e:
             print(f"删除Redis键失败: {str(e)}")
-            return False
-    
-    def update_msg_list(self, key: str, values: List[Union[Dict, str]], max_length: int = 100, expire_days: int = 30) -> bool:
-        """
-        更新消息列表：完全替换当前列表内容
-        Args:
-            key: Redis键名
-            values: 新的值列表（列表中的元素支持字典或字符串）
-            max_length: 列表最大长度，超过时仅保留最新的N个值
-            expire_days: 过期时间（天），默认30天
-        Returns:
-            bool: 操作是否成功
-        """
-        try:
-            pipe = self.client.pipeline()
-            
-            # 删除原有列表
-            pipe.delete(key)
-            
-            # 处理列表中的每个元素
-            for item in values:
-                # 如果是字典类型，转换为JSON字符串
-                if isinstance(item, dict):
-                    item = json.dumps(item, ensure_ascii=False)
-                # 添加到列表
-                pipe.rpush(key, item)
-            
-            # 如果设置了最大长度，保留最新的N个值
-            if max_length is not None and len(values) > max_length:
-                pipe.ltrim(key, 0, max_length - 1)
-            
-            # 设置过期时间（秒）
-            expire_seconds = expire_days * 24 * 60 * 60
-            pipe.expire(key, expire_seconds)
-            
-            # 执行所有操作
-            pipe.execute()
-            return True
-            
-        except Exception as e:
-            print(f"更新消息列表操作失败: {str(e)}")
             return False
         
 # 测试

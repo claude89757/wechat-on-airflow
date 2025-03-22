@@ -123,19 +123,12 @@ def handler_text_msg(**context):
             "transfer_method": "local_file",
             "upload_file_id": online_img_info.get("id", "")
         })
-
-    # 获取UI输入提示
-    dify_inputs = {}
-    ui_input_prompt = Variable.get(f"{wx_user_name}_{wx_user_id}_ui_input_prompt")
-    if ui_input_prompt:
-        dify_inputs["ui_input_prompt"] = ui_input_prompt
     
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=dify_user_id,
         conversation_id=conversation_id,
-        inputs=dify_inputs,
         files=dify_files
     )
     print(f"full_answer: {full_answer}")
@@ -196,9 +189,6 @@ def handler_text_msg(**context):
                     # 发送文本
                     send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
             
-            # 记录消息已被成功回复
-            dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="like", content="微信自动回复成功")
-
             # 删除缓存的消息
             redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
 

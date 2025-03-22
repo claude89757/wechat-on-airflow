@@ -81,20 +81,18 @@ def handler_voice_msg(**context):
         print(f"[WATCHER] 删除本地语音失败: {e}")
     
     # 4. 发送转写的文本到Dify
-    answer, metadata = dify_agent.create_chat_message_stream(
+    response, metadata = dify_agent.create_chat_message_stream(
         query=transcribed_text,  # 使用转写的文本
         user_id=dify_user_id,
         conversation_id=conversation_id,
         inputs={}
     )
-    print(f"answer: {answer}")
+    print(f"response: {response}")
     print(f"metadata: {metadata}")
-
-    # 5. 回复微信
-    response = answer
     
     # 处理会话ID相关逻辑
     if not conversation_id:
+        print(f"[WATCHER] 会话ID不存在，创建新会话")
         # 新会话，重命名会话
         conversation_id = metadata.get("conversation_id")
         # 获取房间和发送者信息
@@ -105,20 +103,13 @@ def handler_voice_msg(**context):
         conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)
         conversation_infos[room_id] = conversation_id
         Variable.set(f"{dify_user_id}_conversation_infos", conversation_infos, serialize_json=True)
+    else:
+        print(f"[WATCHER] 会话ID已存在: {conversation_id}")
     
     # 发送AI回复到微信
-    dify_msg_id = metadata.get("message_id")
-    try:
-        for response_part in re.split(r'\\n\\n|\n\n', response):
-            response_part = response_part.replace('\\n', '\n')
-            send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
-        # 记录消息已被成功回复
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="like", content="语音消息微信自动回复成功")
+    for response_part in re.split(r'\\n\\n|\n\n', response):
+        response_part = response_part.replace('\\n', '\n')
+        send_wx_msg(wcf_ip=source_ip, message=response_part, receiver=room_id)
 
-        # 将转写文本和回复保存到xcom中
-        context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
-
-    except Exception as error:
-        print(f"[WATCHER] 发送消息失败: {error}")
-        # 记录消息回复失败
-        dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="dislike", content=f"语音消息微信自动回复失败, {error}")
+    # 将转写文本和回复保存到xcom中
+    context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
