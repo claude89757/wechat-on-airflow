@@ -3,6 +3,9 @@ local cjson = require "cjson"
 local cjson_safe = require "cjson.safe"
 local http = require "resty.http"
 
+-- 设置cjson配置，确保大整数精度
+cjson.encode_number_precision(16)  -- 设置数字编码精度
+cjson_safe.encode_number_precision(16)  -- 同样设置安全模式的精度
 
 -- 使用cjson_safe库以避免精度问题
 local safe_decode = cjson_safe.decode
@@ -12,19 +15,6 @@ local safe_encode = cjson_safe.encode
 local function log(msg, level)
     level = level or ngx.INFO
     ngx.log(level, "[WCF Callback] ", msg)
-end
-
--- 调试日志函数，输出更详细的信息
-local function debug_log(msg, obj)
-    log(msg, ngx.DEBUG)
-    if obj then
-        local success, json_str = pcall(safe_encode, obj)
-        if success then
-            log("详细数据: " .. json_str, ngx.DEBUG)
-        else
-            log("无法序列化详细数据: " .. tostring(obj), ngx.DEBUG)
-        end
-    end
 end
 
 -- 主函数，包含配置初始化和请求处理
@@ -62,17 +52,7 @@ local function main()
         return ngx.exit(400)
     end
     
-    -- 记录原始收到的消息
-    log("接收到原始微信消息: " .. request_body, ngx.INFO)
-    
-    -- 预处理大整数ID为字符串 - 强制转换方式
-    request_body = string.gsub(request_body, '"id"%s*:%s*(%d+)', function(id)
-        return '"id":"' .. id .. '"'  -- 强制将所有ID转为字符串格式
-    end)
-    
-    -- 记录预处理后的消息
-    log("预处理后的消息体: " .. request_body, ngx.INFO)
-    
+    -- 移除预处理代码，保留整数类型的ID
     -- 解析JSON请求体，使用cjson_safe以避免精度问题
     local callback_data, err = safe_decode(request_body)
     if not callback_data then
@@ -83,23 +63,11 @@ local function main()
         return ngx.exit(400)
     end
     
-    -- 确保ID字段是字符串类型
-    if callback_data.id and type(callback_data.id) ~= "string" then
-        log("ID类型转换前: 类型=" .. type(callback_data.id) .. ", 值=" .. tostring(callback_data.id), ngx.INFO)
-        callback_data.id = tostring(callback_data.id)
-        log("ID类型转换后: 类型=" .. type(callback_data.id) .. ", 值=" .. callback_data.id, ngx.INFO)
-    else
-        log("ID字段当前类型: " .. type(callback_data.id) .. ", 值=" .. tostring(callback_data.id), ngx.INFO)
-    end
-    
     -- 获取客户端IP
     local client_ip = ngx.var.remote_addr
     
     -- 将源IP添加到callback_data中
     callback_data["source_ip"] = client_ip
-    
-    -- 记录接收到的消息
-    log("接收到微信消息: " .. request_body, ngx.INFO)
     
     -- 创建唯一的dag_run_id
     local formatted_roomid = string.gsub(tostring(callback_data["roomid"] or ""), "[^a-zA-Z0-9]", "")
@@ -115,14 +83,8 @@ local function main()
         note = "Triggered by WCF callback via Nginx"
     }
     
-    -- 详细记录转发到Airflow的内容
-    log("转发到Airflow的消息格式:", ngx.INFO)
-    log("1. ID字段: 类型=" .. type(callback_data.id) .. ", 值=" .. tostring(callback_data.id), ngx.INFO)
-    log("2. 完整载荷: " .. safe_encode(airflow_payload), ngx.INFO)
-    log("3. 原始JSON(验证): " .. safe_encode(callback_data), ngx.INFO)
-    
-    -- 记录触发Airflow的参数
-    log("触发Airflow参数: " .. safe_encode(airflow_payload), ngx.INFO)
+    -- 详细记录转发到Airflow的消息内容
+    log("转发到Airflow的完整消息: " .. safe_encode(airflow_payload), ngx.INFO)
     
     -- 使用HTTP客户端触发Airflow DAG
     local httpc = http.new()
@@ -184,7 +146,6 @@ local function main()
     
     -- 记录触发结果
     if res.status == 200 or res.status == 201 then
-        log("触发结果: 成功 - DAG: " .. WX_MSG_WATCHER_DAG_ID .. ", dag_run_id: " .. dag_run_id, ngx.INFO)
         ngx.status = 200
         ngx.header.content_type = "application/json"
         ngx.say(safe_encode({
