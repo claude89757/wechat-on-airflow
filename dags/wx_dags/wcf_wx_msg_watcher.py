@@ -33,6 +33,7 @@ from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import check_ai_enable
 from wx_dags.common.mysql_tools import save_data_to_db
 from utils.wechat_channl import send_wx_msg
+from utils.redis import RedisHandler
 
 # 导入消息处理器
 from wx_dags.handlers.handler_text_msg import handler_text_msg
@@ -125,6 +126,7 @@ def process_wx_message(**context):
     wx_account_info = update_wx_user_info(source_ip)
     wx_user_name = wx_account_info['name']
     wx_user_id = wx_account_info['wxid']
+    
     # 将微信账号信息传递到xcom中供后续任务使用
     context['task_instance'].xcom_push(key='wx_account_info', value=wx_account_info)
 
@@ -160,14 +162,13 @@ def process_wx_message(**context):
     if is_self:
         # 自己发送的消息，不进行处理
         next_task_list.append('save_msg_to_db')
-    elif not is_self and WX_MSG_TYPES.get(msg_type) == "文字":
+    elif WX_MSG_TYPES.get(msg_type) == "文字":
         # 非自己发送的消息，进行处理
         next_task_list.append('save_msg_to_db')
 
-        # 用户的消息缓存列表
-        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-        room_msg_list.append(message_data)
-        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
+        # 使用Redis缓存消息
+        redis_handler = RedisHandler()
+        redis_handler.append_msg_list(f'{wx_user_id}_{room_id}_msg_list', message_data)
 
          # 决策下游的任务
         if is_ai_enable:
@@ -175,15 +176,15 @@ def process_wx_message(**context):
             next_task_list.append('handler_text_msg')
         else:
             print("[WATCHER] 不触发AI聊天流程",is_self, is_ai_enable)
-    elif not is_self and WX_MSG_TYPES.get(msg_type) == "语音":
+    elif WX_MSG_TYPES.get(msg_type) == "语音":
         # 非自己发送的语音消息，进行处理
         next_task_list.append('save_msg_to_db')
         next_task_list.append('handler_voice_msg')
-    elif not is_self and WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
+    elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
         # 视频消息
         # next_task_list.append('handler_video_msg')
         pass
-    elif not is_self and WX_MSG_TYPES.get(msg_type) == "图片":
+    elif WX_MSG_TYPES.get(msg_type) == "图片":
         if not is_group:
             # 图片消息
             next_task_list.append('handler_image_msg')

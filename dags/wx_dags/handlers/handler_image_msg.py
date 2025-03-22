@@ -79,7 +79,7 @@ def handler_image_msg(**context):
     # TODO(claude89757): 上传到COS存储
     # TODO(claude89757): 删除本地图片
     # 删除本地图片
-    # try:
-    #     os.remove(image_file_path)
-    # except Exception as e:
-    #     print(f"[WATCHER] 删除本地图片失败: {e}")
+    try:
+        os.remove(image_file_path)
+    except Exception as e:
+        print(f"[WATCHER] 删除本地图片失败: {e}")

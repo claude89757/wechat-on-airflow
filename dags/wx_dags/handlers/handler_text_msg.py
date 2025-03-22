@@ -17,10 +17,11 @@ from airflow.models.variable import Variable
 from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
 from utils.wechat_channl import send_wx_image
+from utils.redis import RedisHandler
 from wx_dags.common.wx_tools import get_contact_name
 
 
-def should_pre_stop(current_message, wx_user_name):
+def should_pre_stop(current_message, wx_user_id, room_id):
     """
     检查是否需要提前停止流程
     
@@ -30,10 +31,11 @@ def should_pre_stop(current_message, wx_user_name):
         
     Raises:
         AirflowException: 如果需要提前停止流程则抛出异常
-    """
-    # 缓存的消息
-    room_id = current_message.get('roomid')
-    room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+    """   
+    # 使用Redis缓存消息
+    redis_handler = RedisHandler()
+    room_msg_list = redis_handler.get_msg_list(f'{wx_user_id}_{room_id}_msg_list')
+
     if current_message['id'] != room_msg_list[-1]['id']:
         print(f"[PRE_STOP] 最新消息id不一致，停止流程执行")
         raise AirflowException("检测到提前停止信号，停止流程执行")
@@ -67,7 +69,7 @@ def handler_text_msg(**context):
     time.sleep(5) 
 
     # 检查是否需要提前停止流程 
-    should_pre_stop(message_data, wx_user_name)
+    should_pre_stop(message_data, wx_user_id, room_id)
 
     # 获取房间和发送者信息
     room_name = get_contact_name(source_ip, room_id, wx_user_name)
@@ -92,18 +94,16 @@ def handler_text_msg(**context):
     conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
     # 检查是否需要提前停止流程
-    should_pre_stop(message_data, wx_user_name)
+    should_pre_stop(message_data, wx_user_id, room_id)
 
     # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
-    room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
+    redis_handler = RedisHandler()
+    room_msg_list = redis_handler.get_msg_list(f'{wx_user_id}_{room_id}_msg_list')
     up_for_reply_msg_content_list = []
     up_for_reply_msg_id_list = []
-    for msg in room_msg_list[-10:]:  # 只取最近的10条消息
-        if not msg.get('is_reply'):
-            up_for_reply_msg_content_list.append(msg.get('content', ''))
-            up_for_reply_msg_id_list.append(msg['id'])
-        else:
-            pass
+    for msg in room_msg_list[-5:]:  # 只取最近的5条消息
+        up_for_reply_msg_content_list.append(msg.get('content', ''))
+        up_for_reply_msg_id_list.append(msg['id'])
     # 整合未回复的消息
     question = "\n\n".join(up_for_reply_msg_content_list)
 
@@ -112,7 +112,7 @@ def handler_text_msg(**context):
     print("-"*50)
     
     # 检查是否需要提前停止流程
-    should_pre_stop(message_data, wx_user_name)
+    should_pre_stop(message_data, wx_user_id, room_id)
 
     # 获取在线图片信息
     dify_files = []
@@ -156,7 +156,7 @@ def handler_text_msg(**context):
         pass
     
     # 检查是否需要提前停止流程
-    should_pre_stop(message_data, wx_user_name)
+    should_pre_stop(message_data, wx_user_id, room_id)
 
     # 判断是否转人工
     if "#转人工#" in response.strip().lower():
@@ -167,27 +167,16 @@ def handler_text_msg(**context):
         human_room_ids = list(set(human_room_ids))  # 去重
         Variable.set(f"{wx_user_name}_{wx_user_id}_human_room_ids", human_room_ids, serialize_json=True)
         
-        # 缓存的消息中，标记消息已回复
-        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-        for msg in room_msg_list:
-            if msg['id'] in up_for_reply_msg_id_list:
-                msg['is_reply'] = True
-        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
-
+        # 删除缓存的消息
+        redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
         # 删除标签
         response = response.replace("#转人工#", "")
     
     if "#沉默#" in response.strip().lower():
-        # 缓存的消息中，标记消息已回复
-        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-        for msg in room_msg_list:
-            if msg['id'] in up_for_reply_msg_id_list:
-                msg['is_reply'] = True
-        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
-        
+        # 删除缓存的消息
+        redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
         # 删除标签
         response = response.replace("#沉默#", "")
-        print(f"[WATCHER] 沉默: {response}")
     
     # 开启AI，且不是自己发送的消息，则自动回复消息
     if response.strip():
@@ -210,12 +199,8 @@ def handler_text_msg(**context):
             # 记录消息已被成功回复
             dify_agent.create_message_feedback(message_id=dify_msg_id, user_id=dify_user_id, rating="like", content="微信自动回复成功")
 
-            # 缓存的消息中，标记消息已回复
-            room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-            for msg in room_msg_list:
-                if msg['id'] in up_for_reply_msg_id_list:
-                    msg['is_reply'] = True
-            Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list, serialize_json=True)
+            # 删除缓存的消息
+            redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
 
             # 删除缓存的在线图片信息
             try:

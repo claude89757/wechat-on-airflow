@@ -81,7 +81,7 @@ class RedisHandler:
             print(f"获取列表长度失败: {str(e)}")
             return 0
             
-    def read_msg_list(self, key: str, start: int = 0, end: int = -1, auto_json: bool = True) -> List[Union[Dict, str]]:
+    def get_msg_list(self, key: str, start: int = 0, end: int = -1, auto_json: bool = True) -> List[Union[Dict, str]]:
         """
         读取消息列表数据，自动处理JSON格式
         Args:
@@ -106,20 +106,66 @@ class RedisHandler:
                 except json.JSONDecodeError:
                     # 如果不是JSON格式，保持原样
                     result.append(item)
-            print("--------------------------------")
-            print(f"当前缓存消息数量: {len(result)}")
-            print(f"最新的3条缓存消息: {result[-3:]}")
-            print("--------------------------------")
             return result
             
-        except Exception as e:
+        except redis.RedisError as e:
             print(f"读取消息列表数据失败: {str(e)}")
             return []
-
+        
+    def append_msg_list(self, key: str, value: Union[Dict, str], max_length: int = 100, expire_days: int = 30) -> bool:
+        """
+        追加消息列表，包含过期时间和最大长度限制
+        Args:
+            key: Redis键名
+            value: 要追加的值（支持字典或字符串）
+            max_length: 列表最大长度，超过时仅保留最新的N个值
+            expire_days: 过期时间（天），默认30天
+        Returns:
+            bool: 操作是否成功
+        """
+        try:
+            pipe = self.client.pipeline()
+            
+            # 如果是字典类型，转换为JSON字符串
+            if isinstance(value, dict):
+                value = json.dumps(value, ensure_ascii=False)
+                
+            # 追加新值到列表
+            pipe.rpush(key, value)
+            
+            # 如果设置了最大长度，保留最新的N个值
+            if max_length > 0:
+                pipe.ltrim(key, -max_length, -1)
+            
+            # 设置过期时间（秒）
+            if expire_days > 0:
+                expire_seconds = expire_days * 24 * 60 * 60
+                pipe.expire(key, expire_seconds)
+            
+            pipe.execute()
+            return True
+        except redis.RedisError as e:
+            print(f"追加消息列表失败: {str(e)}")
+            return False
+    
+    def delete_msg_key(self, key: str) -> bool:
+        """
+        删除消息键（原clear_msg_list）
+        Args:
+            key: Redis键名
+        Returns:
+            bool: 操作是否成功
+        """
+        try:
+            self.client.delete(key)
+            return True
+        except redis.RedisError as e:
+            print(f"删除Redis键失败: {str(e)}")
+            return False
+    
     def update_msg_list(self, key: str, values: List[Union[Dict, str]], max_length: int = 100, expire_days: int = 30) -> bool:
         """
         更新消息列表：完全替换当前列表内容
-        自动处理字典类型的数据（转换为JSON存储）
         Args:
             key: Redis键名
             values: 新的值列表（列表中的元素支持字典或字符串）
@@ -157,3 +203,9 @@ class RedisHandler:
         except Exception as e:
             print(f"更新消息列表操作失败: {str(e)}")
             return False
+        
+# 测试
+if __name__ == "__main__":
+    redis_handler = RedisHandler()
+    redis_handler.append_msg_list("test_key", {"message": "Hello, World!"})
+    print(redis_handler.get_msg_list("test_key"))
