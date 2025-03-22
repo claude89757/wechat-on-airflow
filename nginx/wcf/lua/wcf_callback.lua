@@ -44,6 +44,11 @@ local function main()
     ngx.req.read_body()
     local request_body = ngx.req.get_body_data()
     
+    -- 记录原始请求体
+    if request_body then
+        log("收到原始请求体: " .. request_body, ngx.INFO)
+    end
+    
     if not request_body then
         log("请求体为空", ngx.ERR)
         ngx.status = 400
@@ -63,8 +68,12 @@ local function main()
         return ngx.exit(400)
     end
     
+    -- 记录解析后的回调数据
+    log("解析后的回调数据: " .. safe_encode(callback_data), ngx.INFO)
+    
     -- 获取客户端IP
     local client_ip = ngx.var.remote_addr
+    log("客户端IP: " .. client_ip, ngx.INFO)
     
     -- 将源IP添加到callback_data中
     callback_data["source_ip"] = client_ip
@@ -76,6 +85,8 @@ local function main()
     local msg_timestamp = tostring(callback_data["ts"] or "")
     local dag_run_id = source_ip .. "_" .. formatted_roomid .. "_" .. msg_id .. "_" .. msg_timestamp
     
+    log("生成的dag_run_id: " .. dag_run_id, ngx.INFO)
+    
     -- 准备Airflow API载荷
     local airflow_payload = {
         conf = callback_data,
@@ -85,6 +96,9 @@ local function main()
     
     -- 详细记录转发到Airflow的消息内容
     log("转发到Airflow的完整消息: " .. safe_encode(airflow_payload), ngx.INFO)
+    
+    -- 记录Airflow API目标信息
+    log("Airflow API 目标: " .. AIRFLOW_BASE_URL .. "/api/v1/dags/" .. WX_MSG_WATCHER_DAG_ID .. "/dagRuns", ngx.INFO)
     
     -- 使用HTTP客户端触发Airflow DAG
     local httpc = http.new()
@@ -111,6 +125,9 @@ local function main()
             log("连接错误详情: " .. (err or "未知错误"), ngx.ERR)
             return nil, err
         end
+        
+        -- 记录API响应
+        log("收到Airflow API响应: 状态码=" .. res.status .. ", 响应体=" .. (res.body or "空"), ngx.INFO)
         
         return res
     end)
@@ -146,6 +163,7 @@ local function main()
     
     -- 记录触发结果
     if res.status == 200 or res.status == 201 then
+        log("DAG触发成功: dag_run_id=" .. dag_run_id, ngx.INFO)
         ngx.status = 200
         ngx.header.content_type = "application/json"
         ngx.say(safe_encode({
