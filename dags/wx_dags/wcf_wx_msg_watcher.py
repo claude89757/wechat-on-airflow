@@ -122,7 +122,7 @@ def process_wx_message(**context):
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
 
-    # 获取用户信息, 并缓存
+    # 获取用户信息
     wx_account_info = update_wx_user_info(source_ip)
     wx_user_name = wx_account_info['name']
     wx_user_id = wx_account_info['wxid']
@@ -130,28 +130,20 @@ def process_wx_message(**context):
     # 将微信账号信息传递到xcom中供后续任务使用
     context['task_instance'].xcom_push(key='wx_account_info', value=wx_account_info)
 
+    # 账号的消息计时器+1
     try:
-        # 账号的消息计时器+1
         msg_count = Variable.get(f"{wx_user_name}_msg_count", default_var=0, deserialize_json=True)
         Variable.set(f"{wx_user_name}_msg_count", msg_count+1, serialize_json=True)
     except Exception as error:
-        # 不影响主流程
         print(f"[WATCHER] 更新消息计时器失败: {error}")
 
+    # 检查是否收到管理员命令
     try:
-        # 检查是否收到管理员命令
         print(f"[WATCHER] 检查管理员命令")
         is_admin_command = check_admin_command(message_data, wx_account_info)
         if is_admin_command:
             return []
     except Exception as error:
-        # 不影响主流程
-        print(f"[WATCHER] 检查管理员命令失败, 详细错误信息:")
-        print(f"错误类型: {type(error).__name__}")
-        print(f"错误信息: {str(error)}")
-        print(f"错误堆栈:")
-        import traceback
-        print(traceback.format_exc())
         print(f"[WATCHER] 检查管理员命令失败: {error}")
 
     # 检查AI是否开启

@@ -113,14 +113,30 @@ def update_wx_user_info(source_ip: str) -> dict:
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_single_chat_ai_global", "off")
     Variable.set(f"{new_account['name']}_{new_account['wxid']}_group_chat_ai_global", "off")
 
+    # 初始化新用户的配置（后面改成这个变量来管理配置）
+    Variable.set(f"{new_account['name']}_{new_account['wxid']}_configs", 
+                 {
+                    "enable_ai_room_ids": [],
+                    "disable_ai_room_ids": [],
+                    "ui_input_prompt": "",
+                    "dify_api_key": "app-qKIPKEM5uzaGW0AFzAobz2Td",
+                    "human_room_ids": [],
+                    "single_chat_ai_global": "off",
+                    "group_chat_ai_global": "off"
+                 }, 
+                 serialize_json=True)
+
     # 初始化新用户的聊天记录表
     try:
         init_wx_chat_records_table(new_account['wxid'])
     except Exception as error:
         print(f"[WATCHER] 初始化新用户聊天记录表失败: {error}")
 
+    # 更新用户列表
     print(f"新用户, 更新用户信息: {new_account}")
     Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
+
+    # 返回新用户信息
     return new_account
 
 
