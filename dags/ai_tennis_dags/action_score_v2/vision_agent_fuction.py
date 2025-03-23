@@ -2,6 +2,43 @@
 # -*- coding: utf-8 -*-
 
 
+import os
+from airflow.models import Variable
+from contextlib import contextmanager
+
+
+@contextmanager
+def proxy_context():
+    """
+    代理设置的上下文管理器
+    """
+    # 保存原始代理设置
+    original_http_proxy = os.environ.get('HTTP_PROXY')
+    original_https_proxy = os.environ.get('HTTPS_PROXY')
+    
+    try:
+        # 设置新代理
+        proxy_url = Variable.get("PROXY_URL", default_var="")
+        if proxy_url:
+            os.environ['HTTPS_PROXY'] = proxy_url
+            os.environ['HTTP_PROXY'] = proxy_url
+        else:
+            os.environ.pop('HTTP_PROXY', None)
+            os.environ.pop('HTTPS_PROXY', None)
+        yield
+    finally:
+        # 恢复原始代理
+        if original_http_proxy:
+            os.environ['HTTP_PROXY'] = original_http_proxy
+        else:
+            os.environ.pop('HTTP_PROXY', None)
+            
+        if original_https_proxy:
+            os.environ['HTTPS_PROXY'] = original_https_proxy
+        else:
+            os.environ.pop('HTTPS_PROXY', None)
+
+
 def process_tennis_video(video_path: str, output_path: str = "./output") -> dict:
     """
     Processes a tennis video to find a complete stroke that includes
@@ -418,34 +455,17 @@ def process_tennis_video(video_path: str, output_path: str = "./output") -> dict
     # 2. 网球和球拍检测与跟踪
     #########################################
     print("\n步骤2: 使用目标检测和跟踪模型...")
-    # 使用更精确的提示词，专注于网球，增加重影描述
-    tennis_ball_prompt = "blurred tennis ball in motion with motion blur, trailing effect, ghosting effect, multiple images"
-    print(f"  使用网球检测提示: '{tennis_ball_prompt}'")
-    
-    # 极低的检测阈值来捕获更多可能的网球，进一步降低阈值以捕获重影
-    ball_tracked = owlv2_sam2_video_tracking(tennis_ball_prompt, frames_list, box_threshold=0.35, chunk_length=8)
-    
-    # 备用检测方式，尝试捕获不同视角的重影网球
-    backup_ball_prompt = "fast moving tennis ball with motion blur, trailing effect"
-    backup_ball_tracked = owlv2_sam2_video_tracking(backup_ball_prompt, frames_list, box_threshold=0.3, chunk_length=8)
-    
-    # 合并主要和备用检测结果
-    combined_ball_tracked = []
-    for i in range(len(frames_list)):
-        frame_detections = []
-        if i < len(ball_tracked):
-            frame_detections.extend(ball_tracked[i])
-        if i < len(backup_ball_tracked):
-            frame_detections.extend(backup_ball_tracked[i])
-        combined_ball_tracked.append(frame_detections)
-    
-    # 使用合并后的结果
-    ball_tracked = combined_ball_tracked
-    
-    # 单独检测球拍
-    racket_prompt = "tennis racket with strings, professional tennis racket"
-    print(f"  使用球拍检测提示: '{racket_prompt}'")
-    racket_tracked = owlv2_sam2_video_tracking(racket_prompt, frames_list, box_threshold=0.6, chunk_length=15)
+
+    with proxy_context():
+        # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
+        tennis_ball_prompt = "fast moving tennis ball with motion blur, trailing effect, ghosting effect, multiple images"
+        print(f"  使用网球检测提示: '{tennis_ball_prompt}'")
+        ball_tracked = owlv2_sam2_video_tracking(tennis_ball_prompt, frames_list, box_threshold=0.1, chunk_length=8)
+        
+        # 使用球拍检测提示
+        racket_prompt = "tennis racket with strings, professional tennis racket"
+        print(f"  使用球拍检测提示: '{racket_prompt}'")
+        racket_tracked = owlv2_sam2_video_tracking(racket_prompt, frames_list, box_threshold=0.6, chunk_length=15)
     
     # 合并球和拍的检测结果
     tracked = []
