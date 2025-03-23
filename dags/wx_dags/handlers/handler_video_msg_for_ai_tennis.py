@@ -27,7 +27,7 @@ def handler_video_msg(**context):
     run_id = f'{formatted_roomid}_{sender}_{msg_id}_{now.timestamp()}'
     print(f"[WATCHER] {room_id} 收到视频消息, 触发AI视频处理DAG")
     trigger_dag(
-        dag_id='tennis_racket_speed_trajectory',
+        dag_id='tennis_action_score_v2',
         conf={"current_message": message_data},
         run_id=run_id,
         execution_date=execution_date
