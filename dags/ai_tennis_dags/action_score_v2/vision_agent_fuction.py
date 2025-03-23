@@ -460,7 +460,7 @@ def process_tennis_video(video_path: str, output_path: str = "./output") -> dict
         # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
         tennis_ball_prompt = "fast moving tennis ball with motion blur"
         print(f"  使用网球检测提示: '{tennis_ball_prompt}'")
-        ball_tracked = owlv2_sam2_video_tracking(tennis_ball_prompt, frames_list, box_threshold=0.3, chunk_length=8)
+        ball_tracked = owlv2_sam2_video_tracking(tennis_ball_prompt, frames_list, box_threshold=0.4, chunk_length=8)
         
         # 使用球拍检测提示
         racket_prompt = "tennis racket"
