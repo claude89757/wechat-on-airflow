@@ -96,7 +96,7 @@ dag = DAG(
     max_active_runs=10,
     catchup=False,
     tags=['AI网球'],
-    description='网球拍轨迹分析',
+    description='网球关键动作识别',
 )
 
 
