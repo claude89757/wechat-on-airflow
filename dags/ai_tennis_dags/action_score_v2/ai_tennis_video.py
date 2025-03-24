@@ -63,11 +63,11 @@ def process_ai_video(**context):
 
     # 处理视频
     start_time = time.time()
-    start_msg = f"Zacks 正在分析视频，请稍后（3分钟~5分钟）..."
+    start_msg = f"Zacks 正在分析视频，请稍等..."
     send_wx_msg(wcf_ip=source_ip, message=start_msg, receiver=room_id)
 
     # 获取网球动作得分
-    output_dir = f"/tmp/tennis_video_output"
+    output_dir = f"/tmp/tennis_video_output/{msg_id}"
     file_infos = get_tennis_action_score(local_file_path, output_dir)
     print(f"file_infos: {file_infos}")
     output_image_path = file_infos["analysis_image"]
@@ -91,6 +91,8 @@ def process_ai_video(**context):
     # 删除临时文件
     try:    
         os.remove(local_file_path)
+        for file in file_infos.values():
+            os.remove(file)
         os.rmdir(output_dir)
     except Exception as e:
         print(f"删除临时文件失败: {e}")

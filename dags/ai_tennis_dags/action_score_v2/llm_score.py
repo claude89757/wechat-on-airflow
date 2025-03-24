@@ -150,8 +150,8 @@ def merge_images_with_scores(preparation_image, preparation_score,
     contact_color = level_colors.get(contact_level, (255, 128, 0))
     follow_color = level_colors.get(follow_level, (255, 128, 0))
     
-    # 创建分数图标
-    score_size = 150
+    # 创建分数图标 - 减小尺寸
+    score_size = 120  # 从150减小到120
     prep_score_img = create_score_image(score_size, score_size, prep_level, prep_color)
     contact_score_img = create_score_image(score_size, score_size, contact_level, contact_color)
     follow_score_img = create_score_image(score_size, score_size, follow_level, follow_color)
@@ -160,10 +160,10 @@ def merge_images_with_scores(preparation_image, preparation_score,
     titles = ["【引拍准备】", "【发力启动】", "【挥拍击球】"]
     
     # 设置每个部分的高度（图片+评分+评价）
-    # 计算每个评价区域需要的高度
-    eval_height_prep = len(prep_eval) * 60 + 50  # 每个评价60高度，顶部留50的空间
-    eval_height_contact = len(contact_eval) * 60 + 50
-    eval_height_follow = len(follow_eval) * 60 + 50
+    # 减小评价区域的高度，减少行间距
+    eval_height_prep = len(prep_eval) * 45 + 40  # 每个评价45高度(从60减小)，顶部留40的空间(从50减小)
+    eval_height_contact = len(contact_eval) * 45 + 40
+    eval_height_follow = len(follow_eval) * 45 + 40
     
     # 找出最大的评价区域高度
     max_eval_height = max(eval_height_prep, eval_height_contact, eval_height_follow)
@@ -185,14 +185,14 @@ def merge_images_with_scores(preparation_image, preparation_score,
         "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     ]
     
-    # 尝试加载字体
+    # 尝试加载字体 - 减小字体大小
     title_font = None
     eval_font = None
     
     for font_path in font_paths:
         try:
-            title_font = ImageFont.truetype(font_path, 50)
-            eval_font = ImageFont.truetype(font_path, 36)
+            title_font = ImageFont.truetype(font_path, 40)  # 从50减小到40
+            eval_font = ImageFont.truetype(font_path, 28)   # 从36减小到28
             break
         except Exception:
             continue
@@ -208,77 +208,77 @@ def merge_images_with_scores(preparation_image, preparation_score,
     draw = ImageDraw.Draw(final_image)
     
     # 计算左边距和评价文本起始位置
-    left_margin = 50
-    text_start_x = score_size + left_margin + 50  # 分数图标宽度 + 左边距 + 额外间距
+    left_margin = 30  # 减小左边距从50到30
+    text_start_x = score_size + left_margin + 30  # 减小额外间距从50到30
     
     # 绘制第一部分：准备动作
-    y_offset = 50  # 顶部边距
+    y_offset = 30  # 减小顶部边距从50到30
     # 标题
     title_width = draw.textbbox((0, 0), titles[0], font=title_font)[2]
     title_x = (width - title_width) // 2  # 居中
     draw.text((title_x, y_offset), titles[0], fill=(0, 0, 0), font=title_font)
     
-    # 图片 (位置y_offset + 70)
-    final_image.paste(prep_img, (0, y_offset + 70))
+    # 图片 (位置y_offset + 60) - 减小间距从70到60
+    final_image.paste(prep_img, (0, y_offset + 60))
     
     # 计算评价区域顶部y坐标
-    eval_section_top = y_offset + 70 + height + 20
+    eval_section_top = y_offset + 60 + height + 15  # 减小间距从20到15
     
     # 分数图标 (居左放置)
     final_image.paste(prep_score_img, (left_margin, eval_section_top), prep_score_img)
     
     # 评价 (评价文本右对齐，整齐排列)
-    eval_y = eval_section_top + 20  # 评价文本顶部位置
+    eval_y = eval_section_top + 10  # 减小间距从20到10
     for item, value in prep_eval:
         text = f"【{item}】 {value}"
         draw.text((text_start_x, eval_y), text, fill=(0, 0, 0), font=eval_font)
-        eval_y += 60
+        eval_y += 45  # 减小行间距从60到45
     
     # 绘制第二部分：发力启动
-    y_offset = section_height + 50  # 第二部分顶部位置
+    y_offset = section_height + 30  # 减小间距从50到30
     # 标题
     title_width = draw.textbbox((0, 0), titles[1], font=title_font)[2]
     title_x = (width - title_width) // 2  # 居中
     draw.text((title_x, y_offset), titles[1], fill=(0, 0, 0), font=title_font)
     
     # 图片
-    final_image.paste(contact_img, (0, y_offset + 70))
+    final_image.paste(contact_img, (0, y_offset + 60))
     
     # 计算评价区域顶部y坐标
-    eval_section_top = y_offset + 70 + height + 20
+    eval_section_top = y_offset + 60 + height + 15
     
     # 分数图标
     final_image.paste(contact_score_img, (left_margin, eval_section_top), contact_score_img)
     
     # 评价
-    eval_y = eval_section_top + 20
+    eval_y = eval_section_top + 10
     for item, value in contact_eval:
         text = f"【{item}】 {value}"
         draw.text((text_start_x, eval_y), text, fill=(0, 0, 0), font=eval_font)
-        eval_y += 60
+        eval_y += 45
     
     # 绘制第三部分：跟随动作
-    y_offset = section_height * 2 + 50  # 第三部分顶部位置
+    y_offset = section_height * 2 + 30  # 减小间距从50到30
     # 标题
     title_width = draw.textbbox((0, 0), titles[2], font=title_font)[2]
     title_x = (width - title_width) // 2  # 居中
     draw.text((title_x, y_offset), titles[2], fill=(0, 0, 0), font=title_font)
     
     # 图片
-    final_image.paste(follow_img, (0, y_offset + 70))
+    final_image.paste(follow_img, (0, y_offset + 60))
     
     # 计算评价区域顶部y坐标
-    eval_section_top = y_offset + 70 + height + 20
+    eval_section_top = y_offset + 60 + height + 15
     
     # 分数图标
     final_image.paste(follow_score_img, (left_margin, eval_section_top), follow_score_img)
     
     # 评价
-    eval_y = eval_section_top + 20
+    eval_y = eval_section_top + 10
     for item, value in follow_eval:
         text = f"【{item}】 {value}"
         draw.text((text_start_x, eval_y), text, fill=(0, 0, 0), font=eval_font)
-        eval_y += 60
+        eval_y += 45
     
     # 保存最终图像
     final_image.save(output_path)
