@@ -16,6 +16,7 @@ from airflow.models.variable import Variable
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
+from utils.redis_handler import RedisHandler
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_voice_from_windows_server
 
@@ -80,9 +81,25 @@ def handler_voice_msg(**context):
     except Exception as e:
         print(f"[WATCHER] 删除本地语音失败: {e}")
     
+    # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
+    redis_handler = RedisHandler()
+    room_msg_list = redis_handler.get_msg_list(f'{wx_user_id}_{room_id}_msg_list')
+    up_for_reply_msg_content_list = []
+    up_for_reply_msg_id_list = []
+    for msg in room_msg_list[-5:]:  # 只取最近的5条消息
+        up_for_reply_msg_content_list.append(msg.get('content', ''))
+        up_for_reply_msg_id_list.append(msg['id'])
+    # 整合未回复的消息
+    all_messages = "\n\n".join(up_for_reply_msg_content_list)
+    # 如果有缓存的消息，将当前语音转写的文本追加到最后
+    if all_messages:
+        query = all_messages + "\n\n" + transcribed_text
+    else:
+        query = transcribed_text
+        
     # 4. 发送转写的文本到Dify
     response, metadata = dify_agent.create_chat_message_stream(
-        query=transcribed_text,  # 使用转写的文本
+        query=query,  # 使用合并后的文本
         user_id=dify_user_id,
         conversation_id=conversation_id,
         inputs={}
