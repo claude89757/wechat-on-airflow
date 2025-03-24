@@ -99,11 +99,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     def save_video_with_raw_detections(output_dir: str, frames_list: list, ball_tracked: list, racket_tracked: list, player_tracked: list):
         """
         保存包含原始检测结果的视频
-        """        
-        # 创建视频输出目录
-        videos_dir = os.path.join(output_dir, "videos")
-        os.makedirs(videos_dir, exist_ok=True)
-        
+        """              
         # 生成网球检测结果视频
         print("  正在生成网球检测结果视频...")
         ball_frames = frames_list.copy()
@@ -127,7 +123,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 ball_frames[i] = overlay_bounding_boxes(frame, boxes)
         
         # 保存网球检测视频
-        ball_video_path = os.path.join(videos_dir, "ball_detection.mp4")
+        ball_video_path = os.path.join(output_dir, "ball_detection.mp4")
         save_video(ball_frames, ball_video_path, fps=30)
         print(f"  网球检测视频已保存至: {ball_video_path}")
         
@@ -154,7 +150,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 racket_frames[i] = overlay_bounding_boxes(frame, boxes)
         
         # 保存网球拍检测视频
-        racket_video_path = os.path.join(videos_dir, "racket_detection.mp4")
+        racket_video_path = os.path.join(output_dir, "racket_detection.mp4")
         save_video(racket_frames, racket_video_path, fps=30)
         print(f"  网球拍检测视频已保存至: {racket_video_path}")
         
@@ -180,7 +176,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 player_frames[i] = overlay_bounding_boxes(frame, boxes)
         
         # 保存网球运动员检测视频
-        player_video_path = os.path.join(videos_dir, "player_detection.mp4")
+        player_video_path = os.path.join(output_dir, "player_detection.mp4")
         save_video(player_frames, player_video_path, fps=30)
         print(f"  网球运动员检测视频已保存至: {player_video_path}")
 
@@ -188,11 +184,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     def save_video_with_filtered_detections(output_dir: str, frames_list: list, ball_tracked: list, racket_tracked: list, player_tracked: list):
         """
         保存包含过滤后的检测结果的视频
-        """
-        # 创建视频输出目录
-        videos_dir = os.path.join(output_dir, "filtered_videos")
-        os.makedirs(videos_dir, exist_ok=True)
-        
+        """        
         # 生成叠加所有检测结果的综合视频
         print("  正在生成综合检测结果视频...")
         combined_frames = frames_list.copy()
@@ -265,7 +257,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 ball_frames[i] = overlay_bounding_boxes(frame, boxes)
         
         # 保存网球检测视频，确保颜色正确
-        ball_video_path = os.path.join(videos_dir, "ball_detection_filtered.mp4")
+        ball_video_path = os.path.join(output_dir, "ball_detection_filtered.mp4")
         save_video(ball_frames, ball_video_path, fps=30)
         print(f"  过滤后的网球检测视频已保存至: {ball_video_path}")
         
@@ -291,7 +283,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 racket_frames[i] = overlay_bounding_boxes(frame, boxes)
         
         # 保存球拍检测视频，确保颜色正确
-        racket_video_path = os.path.join(videos_dir, "racket_detection_filtered.mp4")
+        racket_video_path = os.path.join(output_dir, "racket_detection_filtered.mp4")
         save_video(racket_frames, racket_video_path, fps=30)
         print(f"  过滤后的球拍检测视频已保存至: {racket_video_path}")
         
@@ -317,7 +309,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 player_frames[i] = overlay_bounding_boxes(frame, boxes)
         
         # 保存运动员检测视频，确保颜色正确
-        player_video_path = os.path.join(videos_dir, "player_detection_filtered.mp4")
+        player_video_path = os.path.join(output_dir, "player_detection_filtered.mp4")
         save_video(player_frames, player_video_path, fps=30)
         print(f"  过滤后的运动员检测视频已保存至: {player_video_path}")
 
@@ -1722,10 +1714,6 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
         """
         print("\n保存完整击球动作视频...")
         
-        # 创建视频输出目录
-        videos_dir = os.path.join(output_dir, "action_videos")
-        os.makedirs(videos_dir, exist_ok=True)
-        
         # 确定视频片段的起始和结束帧
         start_frame = prep_frame
         end_frame = follow_frame
@@ -1879,12 +1867,12 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
             annotated_frames.append(frame_with_boxes)
         
         # 保存完整动作视频
-        action_video_path = os.path.join(videos_dir, "tennis_action.mp4")
+        action_video_path = os.path.join(output_dir, "tennis_action.mp4")
         save_video(annotated_frames, action_video_path, fps=30)
         print(f"完整击球动作视频已保存至: {action_video_path}")
         
         # 还可以保存慢动作版本
-        slow_motion_video_path = os.path.join(videos_dir, "tennis_action_slow.mp4")
+        slow_motion_video_path = os.path.join(output_dir, "tennis_action_slow.mp4")
         save_video(annotated_frames, slow_motion_video_path, fps=15)  # 半速
         print(f"慢动作击球视频已保存至: {slow_motion_video_path}")
         
@@ -1983,6 +1971,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     # 获取最佳接触帧的完整动作视频
     one_action_video_path, slow_action_video_path = save_video_with_one_action(output_dir, frames_list, ball_tracked, racket_tracked, player_tracked,
                                                                                contact_frame, prep_frame, follow_frame)
+                                                                               
 
     # 返回结果字典
     return {

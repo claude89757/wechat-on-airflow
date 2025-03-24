@@ -63,20 +63,23 @@ def process_ai_video(**context):
 
     # 处理视频
     start_time = time.time()
-    start_msg = f"Zacks 正在分析视频，请稍等..."
+    start_msg = f"Zacks 正在分析视频，请稍等...🔄"
     send_wx_msg(wcf_ip=source_ip, message=start_msg, receiver=room_id)
 
     # 获取网球动作得分
     output_dir = f"/tmp/tennis_video_output/{msg_id}"
     file_infos = get_tennis_action_score(local_file_path, output_dir)
     print(f"file_infos: {file_infos}")
-    output_image_path = file_infos["analysis_image"]
+    
 
     end_time = time.time()
-    end_msg = f"视频分析完成，耗时: {end_time - start_time:.2f}秒"
+    end_msg = f"视频分析完成，耗时: {end_time - start_time:.2f}秒✅"
     send_wx_msg(wcf_ip=source_ip, message=end_msg, receiver=room_id)
 
-    # 发送图片到微信: 先把图片上传到Windows服务器，然后从Windows服务器转发到微信
+
+    # 发送分析图片
+    print("发送分析图片")
+    output_image_path = file_infos["analysis_image"]
     remote_image_name = os.path.basename(output_image_path)
     print(f"remote_image_name: {remote_image_name}")
     print(f"output_image_path: {output_image_path}")
@@ -87,6 +90,20 @@ def process_ai_video(**context):
     )
     print(f"windows_image_path: {windows_image_path}")
     send_wx_image(wcf_ip=source_ip, image_path=windows_image_path, receiver=room_id)
+
+    # 发送分析视频
+    print("发送分析视频")
+    action_video_path = file_infos["action_video"]
+    remote_video_name = os.path.basename(action_video_path)
+    print(f"remote_video_name: {remote_video_name}")
+    print(f"action_video_path: {action_video_path}")
+    windows_video_path = upload_file_to_windows_server(
+        server_ip=source_ip,
+        local_file_path=action_video_path,
+        remote_file_name=remote_video_name
+    )
+    print(f"windows_video_path: {windows_video_path}")
+    send_wx_image(wcf_ip=source_ip, image_path=windows_video_path, receiver=room_id)
 
     # 删除临时文件
     try:    
