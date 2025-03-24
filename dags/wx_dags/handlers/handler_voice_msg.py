@@ -16,6 +16,7 @@ from airflow.models.variable import Variable
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
+from utils.redis import RedisHandler
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_voice_from_windows_server
 
@@ -53,7 +54,15 @@ def handler_voice_msg(**context):
     sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
 
     # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    # 如果是群聊，先检查是否有群聊专用的API key
+    if is_group:
+        try:
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
+        except:
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    else:
+        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+        
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
@@ -80,15 +89,51 @@ def handler_voice_msg(**context):
     except Exception as e:
         print(f"[WATCHER] 删除本地语音失败: {e}")
     
+    # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
+    redis_handler = RedisHandler()
+    room_msg_list = redis_handler.get_msg_list(f'{wx_user_id}_{room_id}_msg_list')
+    up_for_reply_msg_content_list = []
+    up_for_reply_msg_id_list = []
+    for msg in room_msg_list[-5:]:  # 只取最近的5条消息
+        up_for_reply_msg_content_list.append(msg.get('content', ''))
+        up_for_reply_msg_id_list.append(msg['id'])
+    # 整合未回复的消息
+    all_messages = "\n\n".join(up_for_reply_msg_content_list)
+    # 如果有缓存的消息，将当前语音转写的文本追加到最后
+    if all_messages:
+        query = all_messages + "\n\n" + transcribed_text
+    else:
+        query = transcribed_text
+        
     # 4. 发送转写的文本到Dify
     response, metadata = dify_agent.create_chat_message_stream(
-        query=transcribed_text,  # 使用转写的文本
+        query=query,  # 使用合并后的文本
         user_id=dify_user_id,
         conversation_id=conversation_id,
         inputs={}
     )
     print(f"response: {response}")
     print(f"metadata: {metadata}")
+    
+    # 判断是否转人工
+    if "#转人工#" in response.strip().lower():
+        print(f"[WATCHER] 转人工: {response}")
+        # 记录转人工的房间ID
+        human_room_ids = Variable.get(f"{wx_user_name}_{wx_user_id}_human_room_ids", default_var=[], deserialize_json=True)
+        human_room_ids.append(room_id)
+        human_room_ids = list(set(human_room_ids))  # 去重
+        Variable.set(f"{wx_user_name}_{wx_user_id}_human_room_ids", human_room_ids, serialize_json=True)
+        
+        # 删除缓存的消息
+        redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
+        # 删除标签
+        response = response.replace("#转人工#", "")
+    
+    if "#沉默#" in response.strip().lower():
+        # 删除缓存的消息
+        redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
+        # 删除标签
+        response = response.replace("#沉默#", "")
     
     # 处理会话ID相关逻辑
     if not conversation_id:
