@@ -93,7 +93,7 @@ def process_ai_video(**context):
 
     # 发送分析视频
     print("发送分析视频")
-    action_video_path = file_infos["action_video"]
+    action_video_path = file_infos["slow_action_video"]
     remote_video_name = os.path.basename(action_video_path)
     print(f"remote_video_name: {remote_video_name}")
     print(f"action_video_path: {action_video_path}")
