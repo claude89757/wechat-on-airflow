@@ -221,6 +221,8 @@ def get_tennis_action_score(video_path: str, output_dir: str):
     """
     获取网球动作得分
     """
+    print(f"video_path: {video_path}")
+    print(f"output_dir: {output_dir}")
     result = process_tennis_video(video_path, output_dir)
     print(f"result: {result}")
 
