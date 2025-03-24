@@ -16,7 +16,7 @@ from airflow.models.variable import Variable
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
-from utils.redis_handler import RedisHandler
+from utils.redis import RedisHandler
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_voice_from_windows_server
 
