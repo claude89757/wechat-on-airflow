@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from ultralytics import YOLO 
 import cv2
 import pickle
 
-
 class PlayerTracker:
     def __init__(self, model_path, batch_size=4):
+        from ultralytics import YOLO 
+
         self.model = YOLO(model_path)
         self.batch_size = batch_size
 
