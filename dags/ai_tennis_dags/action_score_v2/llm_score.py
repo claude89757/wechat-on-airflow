@@ -82,41 +82,26 @@ def create_score_image(width, height, level, color):
     # 添加等级文字
     font_size = height // 2
     
-    # 尝试加载中文字体，特别添加CentOS系统常用的中文字体路径
+    # 优先尝试使用已安装的字体
     font_paths = [
-        # CentOS字体路径
-        "/usr/share/fonts/chinese/TrueType/uming.ttc",
-        "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+        # 已安装的字体包
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",  # Noto CJK 字体
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",         # 文泉驿正黑
+        # 备用字体路径
         "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
-        "/usr/share/fonts/cjkuni-uming/uming.ttc",
-        # 其他Linux字体路径
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        # 常用字体名称
-        "SimHei",
-        "WenQuanYi Micro Hei",
-        "WenQuanYi Zen Hei",
-        "Noto Sans CJK SC",
-        "Noto Sans SC",
-        "Microsoft YaHei"
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     ]
     
-    # 如果没有找到字体，尝试使用纯ASCII显示
-    font = None
-    
     # 尝试加载字体
+    font = None
     for font_path in font_paths:
         try:
             font = ImageFont.truetype(font_path, font_size)
-            # 测试是否可以正确渲染中文
-            text_width, text_height = draw.textbbox((0, 0), "中文测试", font=font)[2:]
-            if text_width > 0:  # 如果能正确渲染，宽度应该大于0
-                break
+            break
         except Exception:
             continue
     
-    # 如果未能加载中文字体，使用字母表示等级
+    # 如果仍然无法加载字体，使用默认字体
     if font is None:
         font = ImageFont.load_default()
         text = level  # 只显示字母S/A/B/C，不显示"级"字
@@ -141,7 +126,7 @@ def merge_images_with_scores(preparation_image, preparation_score,
     follow_img = Image.open(follow_image)
     
     # 调整所有图片为相同宽度
-    width = 800
+    width = 900  # 增加宽度以适应更多内容
     height = int(width * prep_img.height / prep_img.width)
     
     prep_img = prep_img.resize((width, height))
@@ -166,7 +151,7 @@ def merge_images_with_scores(preparation_image, preparation_score,
     follow_color = level_colors.get(follow_level, (255, 128, 0))
     
     # 创建分数图标
-    score_size = 180
+    score_size = 150
     prep_score_img = create_score_image(score_size, score_size, prep_level, prep_color)
     contact_score_img = create_score_image(score_size, score_size, contact_level, contact_color)
     follow_score_img = create_score_image(score_size, score_size, follow_level, follow_color)
@@ -175,30 +160,29 @@ def merge_images_with_scores(preparation_image, preparation_score,
     titles = ["【引拍准备】", "【发力启动】", "【挥拍击球】"]
     
     # 设置每个部分的高度（图片+评分+评价）
-    section_height = height + 250  # 图片高度 + 评分和评价的额外空间
+    # 计算每个评价区域需要的高度
+    eval_height_prep = len(prep_eval) * 60 + 50  # 每个评价60高度，顶部留50的空间
+    eval_height_contact = len(contact_eval) * 60 + 50
+    eval_height_follow = len(follow_eval) * 60 + 50
+    
+    # 找出最大的评价区域高度
+    max_eval_height = max(eval_height_prep, eval_height_contact, eval_height_follow)
+    
+    # 每个部分的高度 = 图片高度 + 评价区域高度
+    section_height = height + max_eval_height
     
     # 创建最终图像
-    final_height = section_height * 3
+    final_height = section_height * 3 + 100  # 底部增加一些边距
     final_image = Image.new("RGB", (width, final_height), (255, 255, 255))
     
-    # 尝试加载中文字体，特别添加CentOS系统常用的中文字体路径
+    # 优先尝试使用已安装的字体
     font_paths = [
-        # CentOS字体路径
-        "/usr/share/fonts/chinese/TrueType/uming.ttc",
-        "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+        # 已安装的字体包
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",  # Noto CJK 字体
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",         # 文泉驿正黑
+        # 备用字体路径
         "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
-        "/usr/share/fonts/cjkuni-uming/uming.ttc",
-        # 其他Linux字体路径
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        # 常用字体名称
-        "SimHei",
-        "WenQuanYi Micro Hei",
-        "WenQuanYi Zen Hei",
-        "Noto Sans CJK SC",
-        "Noto Sans SC",
-        "Microsoft YaHei"
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     ]
     
     # 尝试加载字体
@@ -207,85 +191,94 @@ def merge_images_with_scores(preparation_image, preparation_score,
     
     for font_path in font_paths:
         try:
-            test_font = ImageFont.truetype(font_path, 36)
-            # 测试能否渲染中文
-            draw_test = ImageDraw.Draw(Image.new("RGB", (100, 100), color="white"))
-            text_width, text_height = draw_test.textbbox((0, 0), "中文测试", font=test_font)[2:]
-            if text_width > 0:  # 如果能正确渲染，宽度应该大于0
-                title_font = ImageFont.truetype(font_path, 50)
-                eval_font = test_font
-                print(f"成功加载中文字体: {font_path}")
-                break
-        except Exception as e:
-            print(f"尝试加载字体 {font_path} 失败: {str(e)}")
+            title_font = ImageFont.truetype(font_path, 50)
+            eval_font = ImageFont.truetype(font_path, 36)
+            break
+        except Exception:
             continue
     
-    # 如果无法加载中文字体，则使用默认字体，并修改文本以避免显示方块
+    # 如果仍然无法加载字体，使用默认字体
     if title_font is None or eval_font is None:
         title_font = ImageFont.load_default()
         eval_font = ImageFont.load_default()
-        print("警告：未能加载中文字体，将使用默认字体。请安装中文字体以正确显示中文。")
+        print("警告：未能加载中文字体，将使用默认字体")
         # 修改标题为英文
         titles = ["[Preparation]", "[Start]", "[Hitting]"]
     
     draw = ImageDraw.Draw(final_image)
     
+    # 计算左边距和评价文本起始位置
+    left_margin = 50
+    text_start_x = score_size + left_margin + 50  # 分数图标宽度 + 左边距 + 额外间距
+    
     # 绘制第一部分：准备动作
-    y_offset = 0
+    y_offset = 50  # 顶部边距
     # 标题
-    draw.text((20, y_offset), titles[0], fill=(0, 0, 0), font=title_font)
-    # 图片
-    final_image.paste(prep_img, (0, y_offset + 60))
-    # 分数
-    final_image.paste(prep_score_img, (20, y_offset + height + 70), prep_score_img)
-    # 评价
-    eval_y = y_offset + height + 70
+    title_width = draw.textbbox((0, 0), titles[0], font=title_font)[2]
+    title_x = (width - title_width) // 2  # 居中
+    draw.text((title_x, y_offset), titles[0], fill=(0, 0, 0), font=title_font)
+    
+    # 图片 (位置y_offset + 70)
+    final_image.paste(prep_img, (0, y_offset + 70))
+    
+    # 计算评价区域顶部y坐标
+    eval_section_top = y_offset + 70 + height + 20
+    
+    # 分数图标 (居左放置)
+    final_image.paste(prep_score_img, (left_margin, eval_section_top), prep_score_img)
+    
+    # 评价 (评价文本右对齐，整齐排列)
+    eval_y = eval_section_top + 20  # 评价文本顶部位置
     for item, value in prep_eval:
-        # 如果使用默认字体，简化显示以避免中文方块
-        if title_font == ImageFont.load_default():
-            text = f"{item[0]}:{value[0:5]}"  # 只显示第一个字符
-        else:
-            text = f"【{item}】 {value}"
-        draw.text((220, eval_y), text, fill=(0, 0, 0), font=eval_font)
-        eval_y += 50
+        text = f"【{item}】 {value}"
+        draw.text((text_start_x, eval_y), text, fill=(0, 0, 0), font=eval_font)
+        eval_y += 60
     
     # 绘制第二部分：发力启动
-    y_offset = section_height
+    y_offset = section_height + 50  # 第二部分顶部位置
     # 标题
-    draw.text((20, y_offset), titles[1], fill=(0, 0, 0), font=title_font)
+    title_width = draw.textbbox((0, 0), titles[1], font=title_font)[2]
+    title_x = (width - title_width) // 2  # 居中
+    draw.text((title_x, y_offset), titles[1], fill=(0, 0, 0), font=title_font)
+    
     # 图片
-    final_image.paste(contact_img, (0, y_offset + 60))
-    # 分数
-    final_image.paste(contact_score_img, (20, y_offset + height + 70), contact_score_img)
+    final_image.paste(contact_img, (0, y_offset + 70))
+    
+    # 计算评价区域顶部y坐标
+    eval_section_top = y_offset + 70 + height + 20
+    
+    # 分数图标
+    final_image.paste(contact_score_img, (left_margin, eval_section_top), contact_score_img)
+    
     # 评价
-    eval_y = y_offset + height + 70
+    eval_y = eval_section_top + 20
     for item, value in contact_eval:
-        # 如果使用默认字体，简化显示以避免中文方块
-        if title_font == ImageFont.load_default():
-            text = f"{item[0]}:{value[0:5]}"  # 只显示第一个字符
-        else:
-            text = f"【{item}】 {value}"
-        draw.text((220, eval_y), text, fill=(0, 0, 0), font=eval_font)
-        eval_y += 50
+        text = f"【{item}】 {value}"
+        draw.text((text_start_x, eval_y), text, fill=(0, 0, 0), font=eval_font)
+        eval_y += 60
     
     # 绘制第三部分：跟随动作
-    y_offset = section_height * 2
+    y_offset = section_height * 2 + 50  # 第三部分顶部位置
     # 标题
-    draw.text((20, y_offset), titles[2], fill=(0, 0, 0), font=title_font)
+    title_width = draw.textbbox((0, 0), titles[2], font=title_font)[2]
+    title_x = (width - title_width) // 2  # 居中
+    draw.text((title_x, y_offset), titles[2], fill=(0, 0, 0), font=title_font)
+    
     # 图片
-    final_image.paste(follow_img, (0, y_offset + 60))
-    # 分数
-    final_image.paste(follow_score_img, (20, y_offset + height + 70), follow_score_img)
+    final_image.paste(follow_img, (0, y_offset + 70))
+    
+    # 计算评价区域顶部y坐标
+    eval_section_top = y_offset + 70 + height + 20
+    
+    # 分数图标
+    final_image.paste(follow_score_img, (left_margin, eval_section_top), follow_score_img)
+    
     # 评价
-    eval_y = y_offset + height + 70
+    eval_y = eval_section_top + 20
     for item, value in follow_eval:
-        # 如果使用默认字体，简化显示以避免中文方块
-        if title_font == ImageFont.load_default():
-            text = f"{item[0]}:{value[0:5]}"  # 只显示第一个字符
-        else:
-            text = f"【{item}】 {value}"
-        draw.text((220, eval_y), text, fill=(0, 0, 0), font=eval_font)
-        eval_y += 50
+        text = f"【{item}】 {value}"
+        draw.text((text_start_x, eval_y), text, fill=(0, 0, 0), font=eval_font)
+        eval_y += 60
     
     # 保存最终图像
     final_image.save(output_path)
