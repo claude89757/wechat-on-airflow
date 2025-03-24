@@ -90,6 +90,26 @@ def handler_voice_msg(**context):
     print(f"response: {response}")
     print(f"metadata: {metadata}")
     
+    # 判断是否转人工
+    if "#转人工#" in response.strip().lower():
+        print(f"[WATCHER] 转人工: {response}")
+        # 记录转人工的房间ID
+        human_room_ids = Variable.get(f"{wx_user_name}_{wx_user_id}_human_room_ids", default_var=[], deserialize_json=True)
+        human_room_ids.append(room_id)
+        human_room_ids = list(set(human_room_ids))  # 去重
+        Variable.set(f"{wx_user_name}_{wx_user_id}_human_room_ids", human_room_ids, serialize_json=True)
+        
+        # 删除缓存的消息
+        redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
+        # 删除标签
+        response = response.replace("#转人工#", "")
+    
+    if "#沉默#" in response.strip().lower():
+        # 删除缓存的消息
+        redis_handler.delete_msg_key(f'{wx_user_id}_{room_id}_msg_list')
+        # 删除标签
+        response = response.replace("#沉默#", "")
+    
     # 处理会话ID相关逻辑
     if not conversation_id:
         print(f"[WATCHER] 会话ID不存在，创建新会话")
