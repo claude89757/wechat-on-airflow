@@ -1791,13 +1791,13 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
             text_color = (255, 255, 255)  # 白色文字
             
             if current_frame_idx < contact_frame:
-                phase_text = "准备阶段"
+                phase_text = "preparation"
                 text_color = (255, 255, 0)  # 黄色
             elif current_frame_idx == contact_frame:
-                phase_text = "接触阶段"
+                phase_text = "contact"
                 text_color = (0, 0, 255)  # 红色
             else:
-                phase_text = "跟随阶段"
+                phase_text = "follow"
                 text_color = (0, 255, 0)  # 绿色
             
             # 在帧上添加阶段文字
@@ -1817,7 +1817,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 # 在准备帧上添加特殊标记
                 cv2.putText(
                     frame_with_boxes, 
-                    "准备关键帧", 
+                    "preparation", 
                     (10, 70),  # 位置 (左上角)
                     cv2.FONT_HERSHEY_SIMPLEX,  # 字体
                     1,  # 字体大小
@@ -1838,7 +1838,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 # 在接触帧上添加特殊标记
                 cv2.putText(
                     frame_with_boxes, 
-                    "接触关键帧", 
+                    "contact", 
                     (10, 70),  # 位置 (左上角)
                     cv2.FONT_HERSHEY_SIMPLEX,  # 字体
                     1,  # 字体大小
@@ -1859,7 +1859,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 # 在跟随帧上添加特殊标记
                 cv2.putText(
                     frame_with_boxes, 
-                    "跟随关键帧", 
+                    "follow", 
                     (10, 70),  # 位置 (左上角)
                     cv2.FONT_HERSHEY_SIMPLEX,  # 字体
                     1,  # 字体大小
@@ -1902,19 +1902,36 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     print("\n步骤2: 使用目标检测和跟踪模型...")
     with proxy_context():
         # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
-        tennis_ball_prompt = "moving tennis ball with motion blur"
-        print(f"  使用网球检测提示: '{tennis_ball_prompt}'")
-        ball_tracked = owlv2_sam2_video_tracking(tennis_ball_prompt, frames_list, box_threshold=0.2, chunk_length=15)
+        # 合并三个检测为一次调用
+        combined_prompt = "moving tennis ball with motion blur, tennis racket, tennis player"
+        print(f"  使用合并检测提示: '{combined_prompt}'")
+        combined_tracked = owlv2_sam2_video_tracking(combined_prompt, frames_list, box_threshold=0.2, chunk_length=15)
         
-        # 检查网球拍
-        racket_prompt = "tennis racket"
-        print(f"  使用球拍检测提示: '{racket_prompt}'")
-        racket_tracked = owlv2_sam2_video_tracking(racket_prompt, frames_list, box_threshold=0.3, chunk_length=25)
-
-        # 检查网球运动员
-        player_prompt = "tennis player"
-        print(f"  使用网球运动员检测提示: '{player_prompt}'")
-        player_tracked = owlv2_sam2_video_tracking(player_prompt, frames_list, box_threshold=0.5, chunk_length=25)
+        # 分离检测结果
+        ball_tracked = []
+        racket_tracked = []
+        player_tracked = []
+        
+        for frame_detections in combined_tracked:
+            frame_ball = []
+            frame_racket = []
+            frame_player = []
+            
+            for detection in frame_detections:
+                if "tennis ball" in detection['label'].lower():
+                    frame_ball.append(detection)
+                elif "racket" in detection['label'].lower():
+                    frame_racket.append(detection)
+                elif "player" in detection['label'].lower():
+                    frame_player.append(detection)
+            
+            ball_tracked.append(frame_ball)
+            racket_tracked.append(frame_racket)
+            player_tracked.append(frame_player)
+        
+        print(f"  检测到网球数量: {sum(len(frame) for frame in ball_tracked)}")
+        print(f"  检测到球拍数量: {sum(len(frame) for frame in racket_tracked)}")
+        print(f"  检测到运动员数量: {sum(len(frame) for frame in player_tracked)}")
 
     #########################################
     # 4. 过滤和整理检测结果（逻辑： 仅保留一个网球拍和网球的轨迹）

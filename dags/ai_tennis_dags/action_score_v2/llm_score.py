@@ -81,31 +81,49 @@ def create_score_image(width, height, level, color):
     
     # 添加等级文字
     font_size = height // 2
-    try:
-        # 尝试加载中文字体
-        font_paths = [
-            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",  # Linux
-            "/System/Library/Fonts/PingFang.ttc",  # macOS
-            "C:/Windows/Fonts/simhei.ttf",  # Windows
-            "/Library/Fonts/Arial Unicode.ttf",  # 其他macOS字体
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # 其他Linux字体
-            "SimHei"  # 尝试直接按名称加载
-        ]
-        
-        font = None
-        for font_path in font_paths:
-            try:
-                font = ImageFont.truetype(font_path, font_size)
-                break
-            except IOError:
-                continue
-                
-        if font is None:
-            font = ImageFont.load_default()
-    except Exception:
-        font = ImageFont.load_default()
     
-    text = f"{level}级"
+    # 尝试加载中文字体，特别添加CentOS系统常用的中文字体路径
+    font_paths = [
+        # CentOS字体路径
+        "/usr/share/fonts/chinese/TrueType/uming.ttc",
+        "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+        "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
+        "/usr/share/fonts/cjkuni-uming/uming.ttc",
+        # 其他Linux字体路径
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        # 常用字体名称
+        "SimHei",
+        "WenQuanYi Micro Hei",
+        "WenQuanYi Zen Hei",
+        "Noto Sans CJK SC",
+        "Noto Sans SC",
+        "Microsoft YaHei"
+    ]
+    
+    # 如果没有找到字体，尝试使用纯ASCII显示
+    font = None
+    
+    # 尝试加载字体
+    for font_path in font_paths:
+        try:
+            font = ImageFont.truetype(font_path, font_size)
+            # 测试是否可以正确渲染中文
+            text_width, text_height = draw.textbbox((0, 0), "中文测试", font=font)[2:]
+            if text_width > 0:  # 如果能正确渲染，宽度应该大于0
+                break
+        except Exception:
+            continue
+    
+    # 如果未能加载中文字体，使用字母表示等级
+    if font is None:
+        font = ImageFont.load_default()
+        text = level  # 只显示字母S/A/B/C，不显示"级"字
+    else:
+        text = f"{level}级"
+    
+    # 计算文本位置并绘制
     text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]
     position = ((width - text_width) // 2, (height - text_height) // 2)
     draw.text(position, text, fill="white", font=font)
@@ -163,31 +181,52 @@ def merge_images_with_scores(preparation_image, preparation_score,
     final_height = section_height * 3
     final_image = Image.new("RGB", (width, final_height), (255, 255, 255))
     
-    # 设置字体
-    # 尝试加载中文字体，支持多种系统环境
+    # 尝试加载中文字体，特别添加CentOS系统常用的中文字体路径
     font_paths = [
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",  # Linux
-        "/System/Library/Fonts/PingFang.ttc",  # macOS
-        "C:/Windows/Fonts/simhei.ttf",  # Windows
-        "/Library/Fonts/Arial Unicode.ttf",  # 其他macOS字体
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # 其他Linux字体
-        "SimHei"  # 尝试直接按名称加载
+        # CentOS字体路径
+        "/usr/share/fonts/chinese/TrueType/uming.ttc",
+        "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+        "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
+        "/usr/share/fonts/cjkuni-uming/uming.ttc",
+        # 其他Linux字体路径
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        # 常用字体名称
+        "SimHei",
+        "WenQuanYi Micro Hei",
+        "WenQuanYi Zen Hei",
+        "Noto Sans CJK SC",
+        "Noto Sans SC",
+        "Microsoft YaHei"
     ]
     
+    # 尝试加载字体
     title_font = None
     eval_font = None
     
     for font_path in font_paths:
         try:
-            title_font = ImageFont.truetype(font_path, 50)  # 增大字体
-            eval_font = ImageFont.truetype(font_path, 36)  # 增大字体
-            break
-        except IOError:
+            test_font = ImageFont.truetype(font_path, 36)
+            # 测试能否渲染中文
+            draw_test = ImageDraw.Draw(Image.new("RGB", (100, 100), color="white"))
+            text_width, text_height = draw_test.textbbox((0, 0), "中文测试", font=test_font)[2:]
+            if text_width > 0:  # 如果能正确渲染，宽度应该大于0
+                title_font = ImageFont.truetype(font_path, 50)
+                eval_font = test_font
+                print(f"成功加载中文字体: {font_path}")
+                break
+        except Exception as e:
+            print(f"尝试加载字体 {font_path} 失败: {str(e)}")
             continue
-            
+    
+    # 如果无法加载中文字体，则使用默认字体，并修改文本以避免显示方块
     if title_font is None or eval_font is None:
         title_font = ImageFont.load_default()
         eval_font = ImageFont.load_default()
+        print("警告：未能加载中文字体，将使用默认字体。请安装中文字体以正确显示中文。")
+        # 修改标题为英文
+        titles = ["[Preparation]", "[Start]", "[Hitting]"]
     
     draw = ImageDraw.Draw(final_image)
     
@@ -202,7 +241,12 @@ def merge_images_with_scores(preparation_image, preparation_score,
     # 评价
     eval_y = y_offset + height + 70
     for item, value in prep_eval:
-        draw.text((220, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
+        # 如果使用默认字体，简化显示以避免中文方块
+        if title_font == ImageFont.load_default():
+            text = f"{item[0]}:{value[0:5]}"  # 只显示第一个字符
+        else:
+            text = f"【{item}】 {value}"
+        draw.text((220, eval_y), text, fill=(0, 0, 0), font=eval_font)
         eval_y += 50
     
     # 绘制第二部分：发力启动
@@ -216,7 +260,12 @@ def merge_images_with_scores(preparation_image, preparation_score,
     # 评价
     eval_y = y_offset + height + 70
     for item, value in contact_eval:
-        draw.text((220, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
+        # 如果使用默认字体，简化显示以避免中文方块
+        if title_font == ImageFont.load_default():
+            text = f"{item[0]}:{value[0:5]}"  # 只显示第一个字符
+        else:
+            text = f"【{item}】 {value}"
+        draw.text((220, eval_y), text, fill=(0, 0, 0), font=eval_font)
         eval_y += 50
     
     # 绘制第三部分：跟随动作
@@ -230,7 +279,12 @@ def merge_images_with_scores(preparation_image, preparation_score,
     # 评价
     eval_y = y_offset + height + 70
     for item, value in follow_eval:
-        draw.text((220, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
+        # 如果使用默认字体，简化显示以避免中文方块
+        if title_font == ImageFont.load_default():
+            text = f"{item[0]}:{value[0:5]}"  # 只显示第一个字符
+        else:
+            text = f"【{item}】 {value}"
+        draw.text((220, eval_y), text, fill=(0, 0, 0), font=eval_font)
         eval_y += 50
     
     # 保存最终图像
