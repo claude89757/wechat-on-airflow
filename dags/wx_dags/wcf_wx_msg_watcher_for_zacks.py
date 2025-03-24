@@ -96,23 +96,27 @@ def process_wx_message(**context):
         # 不影响主流程
         print(f"[WATCHER] 更新消息计时器失败: {error}")
 
-    # 检查AI是否开启
-    is_ai_enable = check_ai_enable(wx_user_name, wx_user_id, room_id, is_group)
-    
     # 分场景分发微信消息
     next_task_list = []
-    if WX_MSG_TYPES.get(msg_type) == "文字":
+    if is_self:
+        print("[WATCHER] 自己发送的消息，不处理")
+        return
+    elif WX_MSG_TYPES.get(msg_type) == "文字":
         # 用户的消息缓存列表
         room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
         room_msg_list.append(message_data)
         Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
 
-         # 决策下游的任务
-        if is_ai_enable and not is_self:
-            print("[WATCHER] 触发AI聊天流程")
+        # 决策下游的任务
+        if not is_group:
             next_task_list.append('handler_text_msg')
         else:
-            print("[WATCHER] 不触发AI聊天流程",is_self, is_ai_enable)
+            # 群聊消息
+            if room_id in ["XXXX"]:
+                # 开白的群里
+                next_task_list.append('handler_text_msg')
+            else:
+                pass
     elif WX_MSG_TYPES.get(msg_type) == "语音":
         # 语音消息
         next_task_list.append('handler_voice_msg')
