@@ -8,6 +8,9 @@ import math
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
+from openai import OpenAI
+import base64
+
 # 第三方库导入
 import requests
 from airflow import DAG
@@ -24,15 +27,13 @@ from utils.wechat_channl import (
 )
 
 from ai_tennis_dags.action_score_v2.vision_agent_fuction import process_tennis_video
+from ai_tennis_dags.action_score_v2.llm_score import get_tennis_action_comment
 from ai_tennis_dags.common.wcf_tools import (
     download_file_from_windows_server,
     upload_file_to_windows_server
 )
 
-
 DAG_ID = "tennis_action_score_v2"
-
-
 def process_ai_video(**context):
     """
     处理视频
@@ -66,9 +67,11 @@ def process_ai_video(**context):
     start_msg = f"Zacks 正在努力逐帧分析、疯狂动脑中，等我1分钟！\n（15秒的视频分析会更快哦）"
     send_wx_msg(wcf_ip=source_ip, message=start_msg, receiver=room_id)
 
-    file_infos = process_tennis_video(local_file_path, output_path="/tmp/tennis_video_output")
+    output_dir = f"/tmp/tennis_video_output"
+    file_infos = get_tennis_action_comment(local_file_path, output_dir)
     print(f"file_infos: {file_infos}")
-    output_image_path = file_infos["stroke_video"]
+    # 使用新生成的分析长图
+    output_image_path = file_infos["analysis_image"]
 
     end_time = time.time()
     end_msg = f"视频分析完成，耗时: {end_time - start_time:.2f}秒"
@@ -85,7 +88,13 @@ def process_ai_video(**context):
     )
     print(f"windows_image_path: {windows_image_path}")
     send_wx_image(wcf_ip=source_ip, image_path=windows_image_path, receiver=room_id)
-    
+
+    # 删除临时文件
+    try:    
+        os.remove(local_file_path)
+        os.rmdir(output_dir)
+    except Exception as e:
+        print(f"删除临时文件失败: {e}")
 
 # 创建DAG
 dag = DAG(
