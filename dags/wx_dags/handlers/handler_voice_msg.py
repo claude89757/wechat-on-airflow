@@ -54,7 +54,15 @@ def handler_voice_msg(**context):
     sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
 
     # 初始化dify
-    dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    # 如果是群聊，先检查是否有群聊专用的API key
+    if is_group:
+        try:
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
+        except:
+            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+    else:
+        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
+        
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
     
     # 获取会话ID
