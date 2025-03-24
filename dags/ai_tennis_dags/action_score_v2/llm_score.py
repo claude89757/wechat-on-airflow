@@ -62,10 +62,6 @@ def extract_score_from_comment(comment_text):
     score_level = re.search(r'评分等级：([SABC])', comment_text)
     score_level = score_level.group(1) if score_level else "C"
     
-    # 根据等级设置分数
-    score_map = {"S": 95, "A": 85, "B": 75, "C": 60}
-    score = score_map.get(score_level, 60)
-    
     # 提取各项评价
     evaluations = []
     for line in comment_text.split('\n'):
@@ -73,24 +69,43 @@ def extract_score_from_comment(comment_text):
             key, value = line.split("：", 1)
             evaluations.append((key, value))
     
-    return score, evaluations
+    return score_level, evaluations
 
-def create_score_image(width, height, score, color):
-    """创建一个带有分数的圆形图像"""
+def create_score_image(width, height, level, color):
+    """创建一个带有等级的圆形图像"""
     img = Image.new("RGBA", (width, height), (255, 255, 255, 0))
     draw = ImageDraw.Draw(img)
     
     # 画圆
     draw.ellipse((0, 0, width, height), fill=color)
     
-    # 添加分数文字
+    # 添加等级文字
     font_size = height // 2
     try:
-        font = ImageFont.truetype("SimHei", font_size)
-    except IOError:
+        # 尝试加载中文字体
+        font_paths = [
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",  # Linux
+            "/System/Library/Fonts/PingFang.ttc",  # macOS
+            "C:/Windows/Fonts/simhei.ttf",  # Windows
+            "/Library/Fonts/Arial Unicode.ttf",  # 其他macOS字体
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # 其他Linux字体
+            "SimHei"  # 尝试直接按名称加载
+        ]
+        
+        font = None
+        for font_path in font_paths:
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except IOError:
+                continue
+                
+        if font is None:
+            font = ImageFont.load_default()
+    except Exception:
         font = ImageFont.load_default()
     
-    text = f"{score}分"
+    text = f"{level}级"
     text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]
     position = ((width - text_width) // 2, (height - text_height) // 2)
     draw.text(position, text, fill="white", font=font)
@@ -116,54 +131,61 @@ def merge_images_with_scores(preparation_image, preparation_score,
     follow_img = follow_img.resize((width, height))
     
     # 解析评分
-    prep_score, prep_eval = extract_score_from_comment(preparation_score)
-    contact_score, contact_eval = extract_score_from_comment(contact_score)
-    follow_score, follow_eval = extract_score_from_comment(follow_score)
+    prep_level, prep_eval = extract_score_from_comment(preparation_score)
+    contact_level, contact_eval = extract_score_from_comment(contact_score)
+    follow_level, follow_eval = extract_score_from_comment(follow_score)
     
-    # 设置颜色 (分数<70用橙色，否则用绿色)
-    prep_color = (255, 128, 0) if prep_score < 70 else (0, 150, 0)
-    contact_color = (255, 128, 0) if contact_score < 70 else (0, 150, 0)
-    follow_color = (255, 128, 0) if follow_score < 70 else (0, 150, 0)
+    # 设置颜色(S和A用绿色，B和C用橙色)
+    level_colors = {
+        "S": (0, 180, 0),  # 深绿色
+        "A": (34, 139, 34),  # 森林绿
+        "B": (255, 140, 0),  # 深橙色
+        "C": (255, 69, 0)   # 红橙色
+    }
+    
+    prep_color = level_colors.get(prep_level, (255, 128, 0))
+    contact_color = level_colors.get(contact_level, (255, 128, 0))
+    follow_color = level_colors.get(follow_level, (255, 128, 0))
     
     # 创建分数图标
-    score_size = 150
-    prep_score_img = create_score_image(score_size, score_size, prep_score, prep_color)
-    contact_score_img = create_score_image(score_size, score_size, contact_score, contact_color)
-    follow_score_img = create_score_image(score_size, score_size, follow_score, follow_color)
+    score_size = 180
+    prep_score_img = create_score_image(score_size, score_size, prep_level, prep_color)
+    contact_score_img = create_score_image(score_size, score_size, contact_level, contact_color)
+    follow_score_img = create_score_image(score_size, score_size, follow_level, follow_color)
     
     # 设置每个部分的标题
     titles = ["【引拍准备】", "【发力启动】", "【挥拍击球】"]
     
     # 设置每个部分的高度（图片+评分+评价）
-    section_height = height + 200  # 图片高度 + 评分和评价的额外空间
+    section_height = height + 250  # 图片高度 + 评分和评价的额外空间
     
     # 创建最终图像
     final_height = section_height * 3
     final_image = Image.new("RGB", (width, final_height), (255, 255, 255))
     
     # 设置字体
-    try:
-        # 尝试加载中文字体，支持多种系统环境
-        font_paths = [
-            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",  # Linux
-            "/System/Library/Fonts/PingFang.ttc",  # macOS
-            "C:/Windows/Fonts/simhei.ttf",  # Windows
-            "SimHei"  # 尝试直接按名称加载
-        ]
-        
-        title_font = None
-        for font_path in font_paths:
-            try:
-                title_font = ImageFont.truetype(font_path, 40)
-                eval_font = ImageFont.truetype(font_path, 30)
-                break
-            except IOError:
-                continue
-                
-        if title_font is None:
-            title_font = ImageFont.load_default()
-            eval_font = ImageFont.load_default()
-    except Exception:
+    # 尝试加载中文字体，支持多种系统环境
+    font_paths = [
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",  # Linux
+        "/System/Library/Fonts/PingFang.ttc",  # macOS
+        "C:/Windows/Fonts/simhei.ttf",  # Windows
+        "/Library/Fonts/Arial Unicode.ttf",  # 其他macOS字体
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # 其他Linux字体
+        "SimHei"  # 尝试直接按名称加载
+    ]
+    
+    title_font = None
+    eval_font = None
+    
+    for font_path in font_paths:
+        try:
+            title_font = ImageFont.truetype(font_path, 50)  # 增大字体
+            eval_font = ImageFont.truetype(font_path, 36)  # 增大字体
+            break
+        except IOError:
+            continue
+            
+    if title_font is None or eval_font is None:
         title_font = ImageFont.load_default()
         eval_font = ImageFont.load_default()
     
@@ -174,42 +196,42 @@ def merge_images_with_scores(preparation_image, preparation_score,
     # 标题
     draw.text((20, y_offset), titles[0], fill=(0, 0, 0), font=title_font)
     # 图片
-    final_image.paste(prep_img, (0, y_offset + 50))
+    final_image.paste(prep_img, (0, y_offset + 60))
     # 分数
-    final_image.paste(prep_score_img, (20, y_offset + height + 60), prep_score_img)
+    final_image.paste(prep_score_img, (20, y_offset + height + 70), prep_score_img)
     # 评价
-    eval_y = y_offset + height + 60
+    eval_y = y_offset + height + 70
     for item, value in prep_eval:
-        draw.text((200, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
-        eval_y += 40
+        draw.text((220, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
+        eval_y += 50
     
     # 绘制第二部分：发力启动
     y_offset = section_height
     # 标题
     draw.text((20, y_offset), titles[1], fill=(0, 0, 0), font=title_font)
     # 图片
-    final_image.paste(contact_img, (0, y_offset + 50))
+    final_image.paste(contact_img, (0, y_offset + 60))
     # 分数
-    final_image.paste(contact_score_img, (20, y_offset + height + 60), contact_score_img)
+    final_image.paste(contact_score_img, (20, y_offset + height + 70), contact_score_img)
     # 评价
-    eval_y = y_offset + height + 60
+    eval_y = y_offset + height + 70
     for item, value in contact_eval:
-        draw.text((200, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
-        eval_y += 40
+        draw.text((220, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
+        eval_y += 50
     
     # 绘制第三部分：跟随动作
     y_offset = section_height * 2
     # 标题
     draw.text((20, y_offset), titles[2], fill=(0, 0, 0), font=title_font)
     # 图片
-    final_image.paste(follow_img, (0, y_offset + 50))
+    final_image.paste(follow_img, (0, y_offset + 60))
     # 分数
-    final_image.paste(follow_score_img, (20, y_offset + height + 60), follow_score_img)
+    final_image.paste(follow_score_img, (20, y_offset + height + 70), follow_score_img)
     # 评价
-    eval_y = y_offset + height + 60
+    eval_y = y_offset + height + 70
     for item, value in follow_eval:
-        draw.text((200, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
-        eval_y += 40
+        draw.text((220, eval_y), f"【{item}】 {value}", fill=(0, 0, 0), font=eval_font)
+        eval_y += 50
     
     # 保存最终图像
     final_image.save(output_path)
