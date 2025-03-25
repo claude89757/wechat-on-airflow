@@ -125,11 +125,8 @@ def process_wx_message(**context):
             pass
     elif WX_MSG_TYPES.get(msg_type) == "视频":
         # 视频消息
-        if room_id in ["51998713028@chatroom"]:
-            # 开白的群里
-            next_task_list.append('handler_video_msg')
-        else:
-            pass
+        # 开白的群里
+        next_task_list.append('handler_video_msg')
     elif WX_MSG_TYPES.get(msg_type) == "图片":
         if not is_group:
             # 图片消息
