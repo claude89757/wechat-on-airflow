@@ -96,7 +96,7 @@ def handler_text_msg(**context):
     # 检查是否需要提前停止流程
     should_pre_stop(message_data, wx_user_id, room_id)
 
-    # 如果开启AI，则遍历近期的消息是否已回复，没有回复，则合并到这次提问
+    # 获取缓存的消息
     redis_handler = RedisHandler()
     room_msg_list = redis_handler.get_msg_list(f'{wx_user_id}_{room_id}_msg_list')
     up_for_reply_msg_content_list = []
@@ -104,6 +104,10 @@ def handler_text_msg(**context):
     for msg in room_msg_list[-5:]:  # 只取最近的5条消息
         up_for_reply_msg_content_list.append(msg.get('content', ''))
         up_for_reply_msg_id_list.append(msg['id'])
+
+    # 添加当前消息
+    up_for_reply_msg_content_list.append(content)
+
     # 整合未回复的消息
     question = "\n\n".join(up_for_reply_msg_content_list)
 
