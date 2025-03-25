@@ -120,7 +120,7 @@ def process_wx_message(**context):
     elif WX_MSG_TYPES.get(msg_type) == "语音":
         # 语音消息
         next_task_list.append('handler_voice_msg')
-    elif WX_MSG_TYPES.get(msg_type) == "视频" and not is_group:
+    elif WX_MSG_TYPES.get(msg_type) == "视频":
         # 视频消息
         next_task_list.append('handler_video_msg')
     elif WX_MSG_TYPES.get(msg_type) == "图片":
