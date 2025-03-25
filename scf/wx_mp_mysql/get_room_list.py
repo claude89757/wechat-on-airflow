@@ -59,6 +59,12 @@ def main_handler(event, context):
     logger.info(f"收到请求: {json.dumps(event, ensure_ascii=False)}")
     
     try:
+        # Get query parameters from the event
+        query_params = event.get('queryString', {}) if event.get('queryString') else {}
+        
+        # Extract query parameters
+        gh_user_id = query_params.get('gh_user_id', '')
+        
         conn = get_db_connection()
         cursor = conn.cursor()
         
@@ -67,15 +73,15 @@ def main_handler(event, context):
         WITH latest_messages AS (
             SELECT 
                 CASE 
-                    WHEN from_user_id LIKE 'gh_%' THEN CONCAT(from_user_id, '_', to_user_id)
-                    ELSE CONCAT(to_user_id, '_', from_user_id)
+                    WHEN from_user_id LIKE 'gh_%%' THEN CONCAT(from_user_id, '@', to_user_id)
+                    ELSE CONCAT(to_user_id, '@', from_user_id)
                 END as room_id,
                 CASE 
-                    WHEN from_user_id LIKE 'gh_%' THEN from_user_id
+                    WHEN from_user_id LIKE 'gh_%%' THEN from_user_id
                     ELSE to_user_id
                 END as mp_user_id,
                 CASE 
-                    WHEN from_user_id LIKE 'gh_%' THEN to_user_id
+                    WHEN from_user_id LIKE 'gh_%%' THEN to_user_id
                     ELSE from_user_id
                 END as user_id,
                 from_user_id as sender_id,
@@ -86,12 +92,14 @@ def main_handler(event, context):
                 msg_datetime,
                 ROW_NUMBER() OVER (PARTITION BY 
                     CASE 
-                        WHEN from_user_id LIKE 'gh_%' THEN CONCAT(from_user_id, '_', to_user_id)
+                        WHEN from_user_id LIKE 'gh_%%' THEN CONCAT(from_user_id, '_', to_user_id)
                         ELSE CONCAT(to_user_id, '_', from_user_id)
                     END 
                 ORDER BY msg_datetime DESC) as rn
             FROM wx_mp_chat_records
-            WHERE from_user_id LIKE 'gh_%' OR to_user_id LIKE 'gh_%'
+            WHERE (from_user_id LIKE 'gh_%%' OR to_user_id LIKE 'gh_%%')
+            -- Filter by gh_user_id if provided
+            AND ('' = %s OR from_user_id = %s OR to_user_id = %s)
         )
         SELECT 
             room_id,
@@ -109,7 +117,8 @@ def main_handler(event, context):
         ORDER BY msg_datetime DESC
         """
         
-        cursor.execute(query)
+        # Execute query with parameters
+        cursor.execute(query, (gh_user_id, gh_user_id, gh_user_id))
         results = cursor.fetchall()
         
         # 格式化日期时间

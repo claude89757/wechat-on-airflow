@@ -78,7 +78,7 @@ def main_handler(event, context):
     if room_id:
         # 通过room_id查询
         try:
-            mp_user_id, user_id = room_id.split('_', 1)
+            mp_user_id, user_id = room_id.split('@', 1)
             conditions.append("((from_user_id = %s AND to_user_id = %s) OR (from_user_id = %s AND to_user_id = %s))")
             params.extend([mp_user_id, user_id, user_id, mp_user_id])
         except:
