@@ -36,7 +36,7 @@ def should_pre_stop(current_message, wx_user_id, room_id):
     redis_handler = RedisHandler()
     room_msg_list = redis_handler.get_msg_list(f'{wx_user_id}_{room_id}_msg_list')
 
-    if current_message['id'] != room_msg_list[-1]['id']:
+    if room_msg_list and current_message['id'] != room_msg_list[-1]['id']:
         print(f"[PRE_STOP] 最新消息id不一致，停止流程执行")
         raise AirflowException("检测到提前停止信号，停止流程执行")
     else:
