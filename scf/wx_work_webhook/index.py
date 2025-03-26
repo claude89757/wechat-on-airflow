@@ -318,10 +318,26 @@ def main_handler(event, context):
                 if ret != 0:
                     error_msg = f"验证URL失败，错误码: {ret}"
                     print(error_msg)
-                    return {"errcode": ret, "errmsg": error_msg}
+                    return {
+                        "isBase64Encoded": False,
+                        "statusCode": 400,
+                        "headers": {"Content-Type": "application/json"},
+                        "body": json.dumps({"errcode": ret, "errmsg": error_msg})
+                    }
                 
                 print(f"解密后的echostr: {decoded_echostr}")
-                return decoded_echostr
+    
+                # 关键修复：将bytes转换为字符串
+                if isinstance(decoded_echostr, bytes):
+                    decoded_echostr = decoded_echostr.decode('utf-8')
+                
+                # 返回正确格式的响应
+                return {
+                    "isBase64Encoded": False,
+                    "statusCode": 200,
+                    "headers": {"Content-Type": "text/plain"},
+                    "body": decoded_echostr
+                }
             
             # 获取请求体
             if 'body' in event:
