@@ -42,9 +42,9 @@ class TencentCosClient:
         """
         # Try to get credentials from environment variables if not provided
         if not secret_id:
-            secret_id = os.environ.get('TENCENT_SECRET_ID')
+            secret_id = Variable.get('TENCENT_SECRET_ID')
         if not secret_key:
-            secret_key = os.environ.get('TENCENT_SECRET_KEY')
+            secret_key = Variable.get('TENCENT_SECRET_KEY')
         
         if not secret_id or not secret_key:
             raise ValueError("Tencent Cloud credentials not provided and not found in environment variables")
