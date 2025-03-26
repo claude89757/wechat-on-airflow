@@ -9,6 +9,7 @@ import os
 import logging
 from typing import List, Optional, Union, Dict, Any
 from qcloud_cos import CosConfig, CosS3Client
+from airflow.models import Variable
 from qcloud_cos.cos_exception import CosServiceError, CosClientError
 
 logger = logging.getLogger(__name__)
