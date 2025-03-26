@@ -49,6 +49,9 @@ def handler_image_msg(**context):
     try:
         # 下载图片
         image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
+        print(f"[WATCHER] 下载图片成功: {image_file_path}")
+
+        # TODO: 上传到COS存储
 
         # 将图片本地路径传递到xcom中
         context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
