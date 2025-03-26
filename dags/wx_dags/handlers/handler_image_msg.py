@@ -18,7 +18,7 @@ from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_image_from_windows_server
-from dags.utils.tecent_cos import upload_file
+from utils.tecent_cos import upload_file
 
 
 def handler_image_msg(**context):
