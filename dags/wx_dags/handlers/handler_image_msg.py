@@ -18,6 +18,7 @@ from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_image_from_windows_server
+from dags.utils.tecent_cos import upload_file
 
 
 def handler_image_msg(**context):
@@ -51,7 +52,17 @@ def handler_image_msg(**context):
         image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
         print(f"[WATCHER] 下载图片成功: {image_file_path}")
 
-        # TODO: 上传到COS存储
+        # 上传到COS存储
+        # 构建COS存储路径
+        cos_path = f"{wx_user_name}_{wx_user_id}/{room_name}/{os.path.basename(image_file_path)}"
+        try:
+            upload_response = upload_file(image_file_path, cos_path)
+            print(f"上传图片到COS成功: {cos_path}")
+            # 保存COS路径到xcom中，方便后续使用
+            context['task_instance'].xcom_push(key='image_cos_path', value=cos_path)
+        except Exception as e:
+            print(f"上传图片到COS失败: {str(e)}")
+            # 即使COS上传失败，也继续处理本地图片
 
         # 将图片本地路径传递到xcom中
         context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
@@ -79,9 +90,7 @@ def handler_image_msg(**context):
         # 回复客户说网络不好，图片接受异常，口气要委婉
         # send_wx_msg(wcf_ip=source_ip, message="亲，网络有点问题，图片没收到，稍后再试试哦~", receiver=room_id)
 
-    # TODO(claude89757): 上传到COS存储
-    # TODO(claude89757): 删除本地图片
-    # 删除本地图片
+    # TODO:删除本地图片
     try:
         os.remove(image_file_path)
     except Exception as e:
