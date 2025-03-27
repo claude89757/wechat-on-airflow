@@ -207,15 +207,31 @@ def save_msg_to_mysql(**context):
     cursor = None
     try:
         # 使用get_hook函数获取数据库连接
+        print("[DB_SAVE] 尝试获取数据库连接...")
         db_hook = BaseHook.get_connection("wx_db")
         db_conn = db_hook.get_hook().get_conn()
         cursor = db_conn.cursor()
+        print(f"[DB_SAVE] 成功获取数据库连接: {db_hook}")
+        
+        # 检查表是否存在
+        check_table_sql = "SHOW TABLES LIKE 'wx_work_chat_records'"
+        cursor.execute(check_table_sql)
+        table_exists = cursor.fetchone()
+        print(f"[DB_SAVE] 表检查结果: {'表已存在' if table_exists else '表不存在'}")
         
         # 创建表（如果不存在）
+        print("[DB_SAVE] 执行创建表SQL...")
         cursor.execute(create_table_sql)
+        print("[DB_SAVE] 创建表SQL执行完成")
+        
+        # 再次检查表是否存在
+        cursor.execute(check_table_sql)
+        table_exists = cursor.fetchone()
+        print(f"[DB_SAVE] 创建表后检查结果: {'表已存在' if table_exists else '表不存在'}")
         
         # 插入数据
-        cursor.execute(insert_sql, (
+        print(f"[DB_SAVE] 执行插入数据SQL, 消息ID: {msg_id}...")
+        row_count = cursor.execute(insert_sql, (
             from_user_name,     # from_user_id
             from_user_name,     # from_user_name
             to_user_name,       # to_user_id
@@ -228,9 +244,18 @@ def save_msg_to_mysql(**context):
             create_time,        # msg_timestamp
             msg_datetime        # msg_datetime
         ))
+        print(f"[DB_SAVE] 插入数据SQL执行完成，影响行数: {row_count}")
         
         # 提交事务
+        print("[DB_SAVE] 提交事务...")
         db_conn.commit()
+        print("[DB_SAVE] 事务提交完成")
+        
+        # 验证插入结果
+        verify_sql = f"SELECT COUNT(*) FROM wx_work_chat_records WHERE msg_id = '{msg_id}'"
+        cursor.execute(verify_sql)
+        count = cursor.fetchone()[0]
+        print(f"[DB_SAVE] 验证插入结果: 找到 {count} 条匹配记录")
         print(f"[DB_SAVE] 成功保存消息到数据库: {msg_id}")
         
     except Exception as e:
