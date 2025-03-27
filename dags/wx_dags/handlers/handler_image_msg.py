@@ -54,7 +54,7 @@ def handler_image_msg(**context):
 
         # 上传到COS存储
         # 构建COS存储路径
-        cos_path = f"{wx_user_name}_{wx_user_id}/{room_name}/{os.path.basename(image_file_path)}"
+        cos_path = f"{wx_user_name}_{wx_user_id}/{room_id}/{os.path.basename(image_file_path)}"
         try:
             upload_response = upload_file(image_file_path, cos_path)
             print(f"上传图片到COS成功: {cos_path}")
