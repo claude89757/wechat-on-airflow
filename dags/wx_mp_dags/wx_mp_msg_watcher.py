@@ -490,6 +490,7 @@ def handler_image_msg(**context):
     
     # 获取图片信息
     # todo(claude89757): 获取图片信息
+    print(f"room_msg_list: {room_msg_list}")
         
 
 def handler_voice_msg(**context):
