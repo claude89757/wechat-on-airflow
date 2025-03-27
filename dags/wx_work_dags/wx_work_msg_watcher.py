@@ -121,62 +121,6 @@ def handler_text_msg(**context):
     print("实现企业微信消息处理和AI回复")
 
 
-def should_enable_ai_reply(message_data):
-    """
-    根据设置检查是否应该启用AI回复
-    
-    规则优先级:
-    1. 黑名单房间 - 如果在黑名单中，不回复
-    2. 白名单房间 - 如果在白名单中，回复
-    3. 全局设置 - 单聊全局开关/群聊全局开关
-    """
-    # 提取基本信息
-    to_user_name = message_data.get('ToUserName', '')  # 企业微信ID
-    from_user_name = message_data.get('FromUserName', '')  # 发送者ID
-    room_id = message_data.get('RoomId', '')  # 群聊ID
-    
-    # 判断是否为群聊
-    is_group_chat = bool(room_id)
-    
-    # 获取配置变量
-    # 全局开关 - 默认单聊开启，群聊关闭
-    single_chat_global_on = Variable.get(
-        f"{to_user_name}_{from_user_name}_single_chat_ai_global", 
-        default_var="on"
-    ) == "on"
-    
-    group_chat_global_on = Variable.get(
-        f"{to_user_name}_{from_user_name}_group_chat_ai_global", 
-        default_var="off"
-    ) == "on"
-    
-    # 获取房间白名单和黑名单
-    enable_room_ids = Variable.get(
-        f"{to_user_name}_{from_user_name}_enable_ai_room_ids", 
-        default_var=[], 
-        deserialize_json=True
-    )
-    
-    disable_room_ids = Variable.get(
-        f"{to_user_name}_{from_user_name}_disable_ai_room_ids", 
-        default_var=[], 
-        deserialize_json=True
-    )
-    
-    # 检查房间是否在黑名单中
-    if room_id in disable_room_ids:
-        return False
-    
-    # 检查房间是否在白名单中
-    if room_id in enable_room_ids:
-        return True
-    
-    # 使用全局设置
-    if is_group_chat:
-        return group_chat_global_on
-    else:
-        return single_chat_global_on
-
 
 def save_msg_to_mysql(**context):
     """
