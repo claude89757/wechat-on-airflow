@@ -39,6 +39,8 @@ from utils.redis import RedisHandler
 from wx_dags.handlers.handler_text_msg import handler_text_msg
 from wx_dags.handlers.handler_image_msg import handler_image_msg
 from wx_dags.handlers.handler_voice_msg import handler_voice_msg
+from wx_dags.common.wx_tools import download_image_from_windows_server, upload_image_to_cos
+
 
 
 DAG_ID = "wx_msg_watcher"
@@ -156,9 +158,8 @@ def process_wx_message(**context):
         # 自己发送的消息
         # 如果是图片，需要下载并上传到COS
         if WX_MSG_TYPES.get(msg_type) == "图片":
-            try:
-                from wx_dags.common.wx_tools import download_image_from_windows_server, upload_image_to_cos
-                
+            next_task_list.append('save_image_to_db')
+            try:                
                 # 下载图片
                 print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
                 image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
@@ -175,7 +176,6 @@ def process_wx_message(**context):
                 #     print(f"[WATCHER] 删除本地图片失败: {e}")
             except Exception as e:
                 print(f"[WATCHER] 处理自己发送的图片失败: {e}")
-            next_task_list.append('save_image_to_db')
 
         else:
             next_task_list.append('save_msg_to_db')
