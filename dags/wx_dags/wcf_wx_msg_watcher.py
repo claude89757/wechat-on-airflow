@@ -152,8 +152,33 @@ def process_wx_message(**context):
     # 分场景分发微信消息
     next_task_list = []
     if is_self:
-        # 自己发送的消息，不进行处理
+        # 自己发送的消息
         next_task_list.append('save_msg_to_db')
+        # 如果是图片，需要下载并上传到COS
+        if WX_MSG_TYPES.get(msg_type) == "图片":
+            try:
+                from wx_dags.common.wx_tools import download_image_from_windows_server, upload_image_to_cos
+                
+                # 下载图片
+                print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
+                image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
+                print(f"[WATCHER] 下载图片成功: {image_file_path}")
+                
+                # 上传到COS存储
+                cos_path = upload_image_to_cos(image_file_path, wx_user_name, wx_user_id, room_id, context)
+                
+                # 保存路径到xcom
+                context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
+                
+                # 删除本地图片
+                # try:
+                #     import os
+                #     os.remove(image_file_path)
+                # except Exception as e:
+                #     print(f"[WATCHER] 删除本地图片失败: {e}")
+            except Exception as e:
+                print(f"[WATCHER] 处理自己发送的图片失败: {e}")
+                
     elif WX_MSG_TYPES.get(msg_type) == "文字":
         # 非自己发送的消息，进行处理
         next_task_list.append('save_msg_to_db')
