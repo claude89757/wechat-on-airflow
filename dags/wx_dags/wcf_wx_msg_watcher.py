@@ -159,20 +159,6 @@ def process_wx_message(**context):
         if WX_MSG_TYPES.get(msg_type) == "图片":
             try:
                 next_task_list.append('handler_image_msg_save')
-                # 下载图片
-                # print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
-                # image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
-                # context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
-                # print(f"[WATCHER] 下载图片成功: {image_file_path}")
-                
-                # # 上传到COS存储
-                # cos_path = upload_image_to_cos(image_file_path, wx_user_name, wx_user_id, room_id, context)                
-                # # 删除本地图片
-                # try:
-                #     import os
-                #     os.remove(image_file_path)
-                # except Exception as e:
-                #     print(f"[WATCHER] 删除本地图片失败: {e}")
             except Exception as e:
                 print(f"[WATCHER] 处理自己发送的图片失败: {e}")
 
@@ -482,10 +468,10 @@ handler_image_msg_save_task = PythonOperator(
 )
 
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_message_task,handler_image_msg_save_task, save_voice_to_db_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task,handler_image_msg_save_task, handler_voice_msg_task, save_message_task, save_voice_to_db_task]
 
 handler_text_msg_task >> save_ai_reply_msg_task  # 因为消息文本不需要处理，前面的任务先保存了
 
-[handler_image_msg_task, handler_image_msg_save_task] >> save_image_to_db_task  # 图片消息不会进行单独AI回复
+[handler_image_msg_task, handler_image_msg_save_task] >> save_image_to_db_task  # 图片都要存到数据库
 
 handler_voice_msg_task >> [save_voice_to_db_task, save_ai_reply_msg_task_for_voice]  
