@@ -166,16 +166,16 @@ def process_wx_message(**context):
                 
                 # 上传到COS存储
                 cos_path = upload_image_to_cos(image_file_path, wx_user_name, wx_user_id, room_id, context)                
-                # 删除本地图片
-                try:
-                    import os
-                    os.remove(image_file_path)
-                except Exception as e:
-                    print(f"[WATCHER] 删除本地图片失败: {e}")
+                # # 删除本地图片
+                # try:
+                #     import os
+                #     os.remove(image_file_path)
+                # except Exception as e:
+                #     print(f"[WATCHER] 删除本地图片失败: {e}")
             except Exception as e:
                 print(f"[WATCHER] 处理自己发送的图片失败: {e}")
             next_task_list.append('save_image_to_db')
-            
+
         else:
             next_task_list.append('save_msg_to_db')
                 
