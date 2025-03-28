@@ -162,6 +162,7 @@ def process_wx_message(**context):
                 # 下载图片
                 print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
                 image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
+                context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
                 print(f"[WATCHER] 下载图片成功: {image_file_path}")
                 
                 # 上传到COS存储
