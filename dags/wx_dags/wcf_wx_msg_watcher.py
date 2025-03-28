@@ -158,16 +158,17 @@ def process_wx_message(**context):
         # 自己发送的消息
         # 如果是图片，需要下载并上传到COS
         if WX_MSG_TYPES.get(msg_type) == "图片":
-            next_task_list.append('save_image_to_db')
-            try:                
+            try:
+                handler_image_msg(message_data)
+                # next_task_list.append('save_image_to_db')                
                 # 下载图片
-                print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
-                image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
-                context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
-                print(f"[WATCHER] 下载图片成功: {image_file_path}")
+                # print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
+                # image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
+                # context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
+                # print(f"[WATCHER] 下载图片成功: {image_file_path}")
                 
-                # 上传到COS存储
-                cos_path = upload_image_to_cos(image_file_path, wx_user_name, wx_user_id, room_id, context)                
+                # # 上传到COS存储
+                # cos_path = upload_image_to_cos(image_file_path, wx_user_name, wx_user_id, room_id, context)                
                 # # 删除本地图片
                 # try:
                 #     import os
