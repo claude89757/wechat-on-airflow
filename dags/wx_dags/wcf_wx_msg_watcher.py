@@ -121,6 +121,7 @@ def process_wx_message(**context):
     is_self = message_data.get('is_self', False)  # 是否自己发送的消息
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
+    extra = message_data.get('extra', '')
 
     # 获取用户信息
     wx_account_info = update_wx_user_info(source_ip)
