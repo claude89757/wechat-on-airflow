@@ -474,7 +474,7 @@ save_ai_reply_msg_task_for_voice = PythonOperator(
 )
 
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_message_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_message_task, save_image_to_db_task, save_voice_to_db_task]
 
 handler_text_msg_task >> save_ai_reply_msg_task  # 因为消息文本不需要处理，前面的任务先保存了
 
