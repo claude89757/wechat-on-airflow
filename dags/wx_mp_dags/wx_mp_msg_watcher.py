@@ -89,6 +89,7 @@ def process_wx_message(**context):
     
     # 判断消息类型
     msg_type = message_data.get('MsgType')
+    print(f"[WATCHER] 消息类型: {msg_type}")
     
     if msg_type == 'text':
         return ['handler_text_msg', 'save_msg_to_mysql']
@@ -453,7 +454,7 @@ def handler_image_msg(**context):
     message_data = context.get('dag_run').conf
 
     # 提取微信公众号消息的关键信息
-    to_user_name = message_data.get('ToUserName')  # 公众号原始ID
+    to_user_name = message_data.get('ToUserName')  # 开发者微信号ID
     from_user_name = message_data.get('FromUserName')  # 发送者的OpenID
     create_time = message_data.get('CreateTime')  # 消息创建时间
     pic_url = message_data.get('PicUrl')  # 图片链接
@@ -472,6 +473,8 @@ def handler_image_msg(**context):
     
     # 初始化微信公众号机器人
     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
+    ACCESS_TOKEN = mp_bot.get_access_token()
+    MEDIA_ID = media_id
     
     # 初始化redis
     redis_handler = RedisHandler()
@@ -491,6 +494,31 @@ def handler_image_msg(**context):
     # 获取图片信息
     # todo(claude89757): 获取图片信息
     print(f"room_msg_list: {room_msg_list}")
+
+
+# 通过临时素材接口获取图片
+    temp_url = f'https://api.weixin.qq.com/cgi-bin/media/get?access_token={ACCESS_TOKEN}&media_id={MEDIA_ID}'
+    response = requests.get(temp_url)
+    if response.status_code == 200:
+        image_data = response.content
+        print(f"[WATCHER] 获取图片成功: {image_data}")
+        # image_file_path = os.path.join(tempfile.gettempdir(), f'{MEDIA_ID}.jpg')
+        # with open(image_file_path, 'wb') as f:
+        #     f.write(image_data)
+
+
+# 处理图片和dify的交互逻辑
+    # 上传图片到Dify
+    # dify_user_id = f"{from_user_name}_{to_user_name}_{conversation_id}"
+
+    # dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
+    # online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
+    # print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+
+
+
+
+    
         
 
 def handler_voice_msg(**context):
