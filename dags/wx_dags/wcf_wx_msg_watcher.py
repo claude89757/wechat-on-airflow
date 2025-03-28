@@ -481,13 +481,26 @@ handler_image_msg_save_task = PythonOperator(
     dag=dag
 )
 
-# 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_message_task,handler_image_msg_save_task, save_voice_to_db_task]
+# 设置任务依赖关系 - 优化版
 
-handler_text_msg_task >> save_ai_reply_msg_task  # 因为消息文本不需要处理，前面的任务先保存了
+# 首先设置主分支任务 - 清晰地区分处理路径
+process_message_task >> [
+    handler_text_msg_task,      # 处理文本消息
+    handler_image_msg_task,    # 处理他人发送的图片（带AI处理）
+    handler_voice_msg_task,    # 处理语音消息
+    handler_image_msg_save_task, # 处理自己发送的图片（简单存储）
+    save_message_task          # 保存普通消息
+]
 
-# handler_image_msg_task >> save_image_to_db_task  # 图片消息不会进行单独AI回复
+# 下游任务链 - 分开设置避免冲突
+# 1. 文本消息处理链
+handler_text_msg_task >> save_ai_reply_msg_task  # 处理完文本消息后保存AI回复
 
-handler_image_msg_save_task >> save_image_to_db_task # 保存图片消息到数据库 
+# 2. 他人发送的图片处理链
+handler_image_msg_task >> save_image_to_db_task  # 处理完图片后存入数据库
 
-handler_voice_msg_task >> [save_voice_to_db_task, save_ai_reply_msg_task_for_voice]  
+# 3. 自己发送的图片处理链
+handler_image_msg_save_task >> save_image_to_db_task # 仅下载上传后保存到数据库
+
+# 4. 语音消息处理链 - 优化依赖关系
+handler_voice_msg_task >> save_voice_to_db_task >> save_ai_reply_msg_task_for_voice
