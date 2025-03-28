@@ -454,6 +454,7 @@ save_image_to_db_task = PythonOperator(
     task_id='save_image_to_db',
     python_callable=save_image_to_db,
     provide_context=True,
+    trigger_rule='one_success',  # 任意一个上游任务成功就触发
     dag=dag
 )
 
