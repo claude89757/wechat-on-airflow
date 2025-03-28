@@ -159,7 +159,7 @@ def process_wx_message(**context):
         # 如果是图片，需要下载并上传到COS
         if WX_MSG_TYPES.get(msg_type) == "图片":
             try:
-                handler_image_msg(message_data)
+                next_task_list.append('handler_image_msg')
                 # next_task_list.append('save_image_to_db')                
                 # 下载图片
                 # print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
