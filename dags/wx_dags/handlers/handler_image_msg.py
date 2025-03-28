@@ -18,7 +18,7 @@ from utils.dify_sdk import DifyAgent
 from utils.wechat_channl import send_wx_msg
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_image_from_windows_server
-from utils.tecent_cos import upload_file
+from wx_dags.common.wx_tools import upload_image_to_cos
 
 
 def handler_image_msg(**context):
@@ -53,16 +53,7 @@ def handler_image_msg(**context):
         print(f"[WATCHER] 下载图片成功: {image_file_path}")
 
         # 上传到COS存储
-        # 构建COS存储路径
-        cos_path = f"{wx_user_name}_{wx_user_id}/{room_id}/{os.path.basename(image_file_path)}"
-        try:
-            upload_response = upload_file(image_file_path, cos_path)
-            print(f"上传图片到COS成功: {cos_path}")
-            # 保存COS路径到xcom中，方便后续使用
-            context['task_instance'].xcom_push(key='image_cos_path', value=cos_path)
-        except Exception as e:
-            print(f"上传图片到COS失败: {str(e)}")
-            # 即使COS上传失败，也继续处理本地图片
+        cos_path = upload_image_to_cos(image_file_path, wx_user_name, wx_user_id, room_id, context)
 
         # 将图片本地路径传递到xcom中
         context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
