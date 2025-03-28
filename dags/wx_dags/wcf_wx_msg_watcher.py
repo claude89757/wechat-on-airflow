@@ -159,7 +159,7 @@ def process_wx_message(**context):
         if WX_MSG_TYPES.get(msg_type) == "图片":
             try:
                 next_task_list.append('handler_image_msg_save')
-                # next_task_list.append('save_image_to_db')                
+                next_task_list.append('save_image_to_db')                
                 # 下载图片
                 # print("[WATCHER] 自己发送的图片消息，进行下载和COS上传")
                 # image_file_path = download_image_from_windows_server(source_ip, msg_id, extra=extra)
@@ -206,6 +206,7 @@ def process_wx_message(**context):
         if not is_group:
             # 图片消息
             next_task_list.append('handler_image_msg')
+            next_task_list.append('save_image_to_db')
         else:
             # 群聊图片消息
             pass    
@@ -488,6 +489,6 @@ handler_text_msg_task >> save_ai_reply_msg_task  # 因为消息文本不需要�
 
 # handler_image_msg_task >> save_image_to_db_task  # 图片消息不会进行单独AI回复
 
-handler_image_msg_save_task >> save_image_to_db_task # 保存图片消息到数据库 
+# handler_image_msg_save_task >> save_image_to_db_task # 保存图片消息到数据库 
 
 handler_voice_msg_task >> [save_voice_to_db_task, save_ai_reply_msg_task_for_voice]  
