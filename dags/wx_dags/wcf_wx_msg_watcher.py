@@ -175,6 +175,7 @@ def process_wx_message(**context):
             except Exception as e:
                 print(f"[WATCHER] 处理自己发送的图片失败: {e}")
             next_task_list.append('save_image_to_db')
+            
         else:
             next_task_list.append('save_msg_to_db')
                 
