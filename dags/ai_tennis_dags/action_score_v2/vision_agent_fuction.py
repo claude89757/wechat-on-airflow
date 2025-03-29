@@ -1892,7 +1892,6 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
         # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
         # 合并三个检测为一次调用
         combined_prompt = "moving tennis ball with motion blur, tennis racket, tennis player"
-        print(f"  使用合并检测提示: '{combined_prompt}'")
         combined_tracked = owlv2_sam2_video_tracking(combined_prompt, frames_list, box_threshold=0.3, chunk_length=15)
         
         # 分离检测结果

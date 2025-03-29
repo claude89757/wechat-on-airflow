@@ -90,8 +90,7 @@ def check_proxy(proxy_url, proxy_url_infos):
         
         response_text = response.text
         
-        if response.status_code == 200 and ("html" in response_text or 
-            ('"code":-1' in response_text and "签名错误" in response_text)):
+        if response.status_code == 200 and "在线订场" in response_text:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             print(f"[{now}] 发现可用代理: {proxy_url}")
             return True
