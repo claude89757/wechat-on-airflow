@@ -44,7 +44,8 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 
 备注：
 - WEB UI: 多账号管理的前端页面
-- 个人微信客户端： 使用 wcf-client-rust 项目， 基于 wcf 协议， 实现微信客户端功能
+- 个人微信客户端： 使用 wcf-client-rust 项目
+- 微信公众号\企业微信：官方接口提供支持
 - Webhook： 自研， 基于 HTTP API 实现
 - Airflow： 开源项目， 用于管理和编排工作流
 - Dify： 开源项目， 用于智能客服管理
