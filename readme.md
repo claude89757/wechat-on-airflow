@@ -53,7 +53,6 @@ wechat-on-airflow 是一个基于 Apache Airflow 的项目，用于管理和编�
 - 微信公众号：官方提供的API接口
 - Mysql: 购买腾讯云数据库，存储比较重要的聊天记录等数据
 - Nginx: 主要负责负载均衡、转发流量等
-- Nacos: 配置中心， 用于存储配置信息
 - 鉴权服务： 用于用户注册、登录、鉴权等, 推荐使用Supabase Authentication
 ```
 
