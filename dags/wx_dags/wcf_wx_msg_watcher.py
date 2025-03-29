@@ -154,7 +154,6 @@ def process_wx_message(**context):
     next_task_list = []
     if is_self:
         # 自己发送的消息
-        # 如果是图片，需要下载并上传到COS
         if WX_MSG_TYPES.get(msg_type) == "图片":
             try:
                 next_task_list.append('save_image_msg')
@@ -192,6 +191,7 @@ def process_wx_message(**context):
             next_task_list.append('handler_image_msg')
         else:
             # 群聊图片消息
+            next_task_list.append('save_image_msg')
             pass    
     else:
         # 其他类型消息暂不处理
