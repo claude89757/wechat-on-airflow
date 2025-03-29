@@ -131,13 +131,6 @@ def process_wx_message(**context):
     # 将微信账号信息传递到xcom中供后续任务使用
     context['task_instance'].xcom_push(key='wx_account_info', value=wx_account_info)
 
-    # 账号的消息计时器+1
-    try:
-        msg_count = Variable.get(f"{wx_user_name}_msg_count", default_var=0, deserialize_json=True)
-        Variable.set(f"{wx_user_name}_msg_count", msg_count+1, serialize_json=True)
-    except Exception as error:
-        print(f"[WATCHER] 更新消息计时器失败: {error}")
-
     # 检查是否收到管理员命令
     try:
         print(f"[WATCHER] 检查管理员命令")
@@ -196,6 +189,13 @@ def process_wx_message(**context):
     else:
         # 其他类型消息暂不处理
         print("[WATCHER] 不触发AI聊天流程")
+    
+    # 账号的消息计时器+1
+    try:
+        msg_count = Variable.get(f"{wx_user_name}_msg_count", default_var=0, deserialize_json=True)
+        Variable.set(f"{wx_user_name}_msg_count", msg_count+1, serialize_json=True)
+    except Exception as error:
+        print(f"[WATCHER] 更新消息计时器失败: {error}")
  
     return next_task_list
 
