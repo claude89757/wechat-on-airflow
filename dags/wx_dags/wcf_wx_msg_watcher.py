@@ -39,8 +39,7 @@ from utils.redis import RedisHandler
 from wx_dags.handlers.handler_text_msg import handler_text_msg
 from wx_dags.handlers.handler_image_msg import handler_image_msg
 from wx_dags.handlers.handler_voice_msg import handler_voice_msg
-from wx_dags.common.wx_tools import download_image_from_windows_server, upload_image_to_cos
-from wx_dags.handlers.handler_image_msg_save import handler_image_msg_save
+from wx_dags.savers.save_image_msg import save_image_msg
 
 DAG_ID = "wx_msg_watcher"
 
@@ -158,7 +157,7 @@ def process_wx_message(**context):
         # 如果是图片，需要下载并上传到COS
         if WX_MSG_TYPES.get(msg_type) == "图片":
             try:
-                next_task_list.append('handler_image_msg_save')
+                next_task_list.append('save_image_msg')
             except Exception as e:
                 print(f"[WATCHER] 处理自己发送的图片失败: {e}")
 
@@ -210,7 +209,7 @@ def save_image_to_db(**context):
     
      # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
-    image_local_path = context.get('task_instance').xcom_pull(key='image_local_path')
+    image_cos_path = context.get('task_instance').xcom_pull(key='image_cos_path')
 
     save_msg = {}
     # 提取消息信息
@@ -219,7 +218,7 @@ def save_image_to_db(**context):
     save_msg['msg_id'] = message_data.get('id', '')
     save_msg['msg_type'] = message_data.get('type', 0)
     save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], f"未知类型({save_msg['msg_type']})")
-    save_msg['content'] = image_local_path
+    save_msg['content'] = image_cos_path
     save_msg['is_self'] = message_data.get('is_self', False)  # 是否自己发送的消息
     save_msg['is_group'] = message_data.get('is_group', False)  # 是否群聊
     save_msg['msg_timestamp'] = message_data.get('ts', 0)
@@ -460,18 +459,18 @@ save_ai_reply_msg_task_for_voice = PythonOperator(
     dag=dag
 )
 
-handler_image_msg_save_task = PythonOperator(
-    task_id='handler_image_msg_save',
-    python_callable=handler_image_msg_save,
+save_image_msg_task = PythonOperator(
+    task_id='save_image_msg',
+    python_callable=save_image_msg,
     provide_context=True,
     dag=dag
 )
 
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task,handler_image_msg_save_task, handler_voice_msg_task, save_message_task, save_voice_to_db_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task,save_image_msg_task, handler_voice_msg_task, save_message_task, save_voice_to_db_task]
 
 handler_text_msg_task >> save_ai_reply_msg_task  # 因为消息文本不需要处理，前面的任务先保存了
 
-[handler_image_msg_task, handler_image_msg_save_task] >> save_image_to_db_task  # 图片都要存到数据库
+[handler_image_msg_task, save_image_msg_task] >> save_image_to_db_task  # 图片都要存到数据库
 
 handler_voice_msg_task >> [save_voice_to_db_task, save_ai_reply_msg_task_for_voice]  

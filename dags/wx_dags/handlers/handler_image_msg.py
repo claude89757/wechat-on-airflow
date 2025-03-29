@@ -54,9 +54,10 @@ def handler_image_msg(**context):
 
         # 上传到COS存储
         cos_path = upload_image_to_cos(image_file_path, wx_user_name, wx_user_id, room_id, context)
+        print(f"[WATCHER] 上传图片到COS成功: {cos_path}")
 
         # 将图片本地路径传递到xcom中
-        context['task_instance'].xcom_push(key='image_local_path', value=image_file_path)
+        context['task_instance'].xcom_push(key='image_cos_path', value=cos_path)
 
         # 上传图片到Dify
         dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}"
