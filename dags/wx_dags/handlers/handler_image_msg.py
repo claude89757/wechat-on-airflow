@@ -6,16 +6,12 @@
 
 # 标准库导入
 import os
-import re
-import time
 
 # Airflow相关导入
-from airflow.exceptions import AirflowException
 from airflow.models.variable import Variable
 
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
-from utils.wechat_channl import send_wx_msg
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_image_from_windows_server
 from wx_dags.common.wx_tools import upload_image_to_cos
