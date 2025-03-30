@@ -201,6 +201,7 @@ def handler_text_msg(**context):
 
             # response缓存到xcom中
             context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+            context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
 
         except Exception as error:
             print(f"[WATCHER] 发送消息失败: {error}")

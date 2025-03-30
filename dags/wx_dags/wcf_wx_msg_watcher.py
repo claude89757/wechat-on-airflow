@@ -40,6 +40,7 @@ from wx_dags.handlers.handler_text_msg import handler_text_msg
 from wx_dags.handlers.handler_image_msg import handler_image_msg
 from wx_dags.handlers.handler_voice_msg import handler_voice_msg
 from wx_dags.savers.save_image_msg import save_image_msg
+from wx_dags.common.mysql_tools import save_token_usage_to_db
 
 DAG_ID = "wx_msg_watcher"
 
@@ -373,6 +374,51 @@ def save_ai_reply_msg_to_db(**context):
         print(f"[WATCHER] 更新消息计时器失败: {error}")
 
 
+def save_token_usage(**context):
+    """
+    保存token用量到DB
+    """
+
+    # 获取token用量信息
+    token_usage_data = context.get('task_instance').xcom_pull(key='token_usage_data')
+
+    if not token_usage_data:
+        print("[WATCHER] 没有收到token用量信息")
+        return
+
+    # 提取token信息
+    msg_id = token_usage_data.get('message_id', '')
+    prompt_tokens = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_tokens', '')
+    prompt_unit_price = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_unit_price', '')
+    prompt_price_unit = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_price_unit', '')
+    prompt_price = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_price', '')
+    completion_tokens = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_tokens', '')
+    completion_unit_price = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_unit_price', '')
+    completion_price_unit = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_price_unit', '')
+    completion_price = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_price', '')
+    total_tokens = token_usage_data.get('metadata', {}).get('usage', {}).get('total_tokens', '')
+    total_price = token_usage_data.get('metadata', {}).get('usage', {}).get('total_price', '')
+    currency = token_usage_data.get('metadata', {}).get('usage', {}).get('currency', '')
+
+    save_token_usage_data = {}
+    save_token_usage_data['token_source_platform'] = 'wx_chat'
+    save_token_usage_data['msg_id'] = msg_id
+    save_token_usage_data['prompt_tokens'] = prompt_tokens
+    save_token_usage_data['prompt_unit_price'] = prompt_unit_price
+    save_token_usage_data['prompt_price_unit'] = prompt_price_unit
+    save_token_usage_data['prompt_price'] = prompt_price
+    save_token_usage_data['completion_tokens'] = completion_tokens
+    save_token_usage_data['completion_unit_price'] = completion_unit_price
+    save_token_usage_data['completion_price_unit'] = completion_price_unit
+    save_token_usage_data['completion_price'] = completion_price
+    save_token_usage_data['total_tokens'] = total_tokens
+    save_token_usage_data['total_price'] = total_price
+    save_token_usage_data['currency'] = currency
+
+    # 保存token用量到DB
+    save_token_usage_to_db(save_token_usage_data)
+
+
 # 创建DAG
 dag = DAG(
     dag_id=DAG_ID,
@@ -466,11 +512,18 @@ save_image_msg_task = PythonOperator(
     dag=dag
 )
 
+save_token_usage_task = PythonOperator(
+    task_id='save_token_usage',
+    python_callable=save_token_usage,
+    provide_context=True,
+    dag=dag
+)   
+
 # 设置任务依赖关系
 process_message_task >> [handler_text_msg_task, handler_image_msg_task,save_image_msg_task, handler_voice_msg_task, save_message_task, save_voice_to_db_task]
 
-handler_text_msg_task >> save_ai_reply_msg_task  # 因为消息文本不需要处理，前面的任务先保存了
+handler_text_msg_task >> [save_ai_reply_msg_task, save_token_usage_task]  # 因为消息文本不需要处理，前面的任务先保存了
 
 [handler_image_msg_task, save_image_msg_task] >> save_image_to_db_task  # 图片都要存到数据库
 
-handler_voice_msg_task >> [save_voice_to_db_task, save_ai_reply_msg_task_for_voice]  
+handler_voice_msg_task >> [save_voice_to_db_task, save_ai_reply_msg_task_for_voice, save_token_usage_task]  
