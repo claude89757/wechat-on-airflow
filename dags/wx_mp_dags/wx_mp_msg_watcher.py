@@ -875,6 +875,7 @@ save_token_usage_task = PythonOperator(
     task_id='save_token_usage',
     python_callable=save_token_usage,
     provide_context=True,
+    trigger_rule='one_success', 
     dag=dag
 )
 
