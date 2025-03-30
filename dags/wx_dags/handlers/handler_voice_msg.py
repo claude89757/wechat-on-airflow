@@ -126,6 +126,7 @@ def handler_voice_msg(**context):
     )
     print(f"response: {response}")
     print(f"metadata: {metadata}")
+    context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
     
     # 判断是否转人工
     if "#转人工#" in response.strip().lower():
@@ -170,6 +171,7 @@ def handler_voice_msg(**context):
 
     # 将转写文本和回复保存到xcom中
     context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+    context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
     
     # 删除缓存的在线图片信息
     try:
