@@ -327,6 +327,7 @@ def save_token_usage_to_db(token_usage_data: dict):
     total_tokens = token_usage_data.get('total_tokens', '')
     total_price = token_usage_data.get('total_price', '')
     currency = token_usage_data.get('currency', '')
+    wx_user_id = token_usage_data.get('wx_user_id', '')
 
     # 插入数据SQL
     insert_sql = """INSERT INTO `token_usage` 
@@ -342,8 +343,9 @@ def save_token_usage_to_db(token_usage_data: dict):
     completion_price, 
     total_tokens, 
     total_price, 
-    currency) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    currency,
+    wx_user_id) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     db_conn = None
     cursor = None
@@ -367,7 +369,8 @@ def save_token_usage_to_db(token_usage_data: dict):
             completion_price, 
             total_tokens, 
             total_price, 
-            currency
+            currency,
+            wx_user_id
         ))
         
         # 提交事务
