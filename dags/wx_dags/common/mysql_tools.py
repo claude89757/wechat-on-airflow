@@ -351,7 +351,7 @@ def save_token_usage_to_db(token_usage_data: dict):
     wx_user_name,
     room_id,
     room_name) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     db_conn = None
     cursor = None
