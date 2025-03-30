@@ -379,6 +379,8 @@ def save_token_usage(**context):
     保存token用量到DB
     """
 
+    message_data = context.get('dag_run').conf
+
     # 获取token用量信息
     token_usage_data = context.get('task_instance').xcom_pull(key='token_usage_data')
 
@@ -414,9 +416,13 @@ def save_token_usage(**context):
     save_token_usage_data['total_tokens'] = total_tokens
     save_token_usage_data['total_price'] = total_price
     save_token_usage_data['currency'] = currency
+    save_token_usage_data['source_ip'] = message_data.get('source_ip', '')
 
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
     save_token_usage_data['wx_user_id'] = wx_account_info.get('wxid', '')
+    save_token_usage_data['wx_user_name'] = wx_account_info.get('wx_user_name', '')
+    save_token_usage_data['room_id'] = message_data.get('roomid', '')
+    save_token_usage_data['room_name'] = get_contact_name(save_token_usage_data['source_ip'], save_token_usage_data['room_id'], save_token_usage_data['wx_user_name'])
 
     # 保存token用量到DB
     save_token_usage_to_db(save_token_usage_data)

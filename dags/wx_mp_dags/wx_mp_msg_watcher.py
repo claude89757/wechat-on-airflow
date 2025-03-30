@@ -43,6 +43,7 @@ from utils.wechat_mp_channl import WeChatMPBot
 from utils.tts import text_to_speech
 from utils.redis import RedisHandler
 from wx_dags.common.mysql_tools import save_token_usage_to_db
+from wx_dags.common.wx_tools import get_contact_name
 
 
 DAG_ID = "wx_mp_msg_watcher"
@@ -759,6 +760,7 @@ def save_token_usage(**context):
     """
     保存token用量到DB
     """
+    message_data = context.get('dag_run').conf
 
     # 获取token用量信息
     token_usage_data = context.get('task_instance').xcom_pull(key='token_usage_data')
@@ -798,6 +800,10 @@ def save_token_usage(**context):
 
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
     save_token_usage_data['wx_user_id'] = wx_account_info.get('wxid', '')
+    save_token_usage_data['wx_user_name'] = wx_account_info.get('wx_user_name', '')
+    save_token_usage_data['room_id'] = message_data.get('roomid', '')
+    save_token_usage_data['room_name'] = get_contact_name(save_token_usage_data['source_ip'], save_token_usage_data['room_id'], save_token_usage_data['wx_user_name'])
+
 
     # 保存token用量到DB
     save_token_usage_to_db(save_token_usage_data)
