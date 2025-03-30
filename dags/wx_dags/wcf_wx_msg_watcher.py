@@ -390,15 +390,15 @@ def save_token_usage(**context):
 
     # 提取token信息
     msg_id = token_usage_data.get('message_id', '')
-    prompt_tokens = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_tokens', '')
+    prompt_tokens = str(token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_tokens', ''))
     prompt_unit_price = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_unit_price', '')
     prompt_price_unit = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_price_unit', '')
     prompt_price = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_price', '')
-    completion_tokens = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_tokens', '')
+    completion_tokens = str(token_usage_data.get('metadata', {}).get('usage', {}).get('completion_tokens', ''))
     completion_unit_price = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_unit_price', '')
     completion_price_unit = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_price_unit', '')
     completion_price = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_price', '')
-    total_tokens = token_usage_data.get('metadata', {}).get('usage', {}).get('total_tokens', '')
+    total_tokens = str(token_usage_data.get('metadata', {}).get('usage', {}).get('total_tokens', ''))
     total_price = token_usage_data.get('metadata', {}).get('usage', {}).get('total_price', '')
     currency = token_usage_data.get('metadata', {}).get('usage', {}).get('currency', '')
 
