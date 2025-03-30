@@ -797,6 +797,7 @@ def save_token_usage(**context):
     save_token_usage_data['total_tokens'] = total_tokens
     save_token_usage_data['total_price'] = total_price
     save_token_usage_data['currency'] = currency
+    save_token_usage_data['source_ip'] = message_data.get('source_ip', '')
 
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
     save_token_usage_data['wx_user_id'] = wx_account_info.get('wxid', '')
