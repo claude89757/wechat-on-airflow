@@ -306,4 +306,103 @@ def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = 
                 db_conn.close()
             except:
                 pass
+
+def save_token_usage_to_db(token_usage_data: dict):
+    """
+    保存token用量到数据库
+    """
+    print(f"[DB_SAVE] 保存token用量到数据库, token_usage_data: {token_usage_data}")
+    
+    # 提取token信息
+    token_source_platform = token_usage_data.get('token_source_platform', '')
+    msg_id = token_usage_data.get('msg_id', '')
+    prompt_tokens = token_usage_data.get('prompt_tokens', '')
+    prompt_unit_price = token_usage_data.get('prompt_unit_price', '')
+    prompt_price_unit = token_usage_data.get('prompt_price_unit', '')
+    prompt_price = token_usage_data.get('prompt_price', '')
+    completion_tokens = token_usage_data.get('completion_tokens', '')
+    completion_unit_price = token_usage_data.get('completion_unit_price', '')
+    completion_price_unit = token_usage_data.get('completion_price_unit', '')
+    completion_price = token_usage_data.get('completion_price', '')
+    total_tokens = token_usage_data.get('total_tokens', '')
+    total_price = token_usage_data.get('total_price', '')
+    currency = token_usage_data.get('currency', '')
+    wx_user_id = token_usage_data.get('wx_user_id', '')
+    wx_user_name = token_usage_data.get('wx_user_name', '')
+    room_id = token_usage_data.get('room_id', '')
+    room_name = token_usage_data.get('room_name', '')
+
+    # 插入数据SQL
+    insert_sql = """INSERT INTO `token_usage` 
+    (token_source_platform, 
+    msg_id, 
+    prompt_tokens, 
+    prompt_unit_price, 
+    prompt_price_unit, 
+    prompt_price, 
+    completion_tokens, 
+    completion_unit_price,
+    completion_price_unit, 
+    completion_price, 
+    total_tokens, 
+    total_price, 
+    currency,
+    wx_user_id,
+    wx_user_name,
+    room_id,
+    room_name) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 插入数据
+        cursor.execute(insert_sql, (
+            token_source_platform, 
+            msg_id, 
+            prompt_tokens, 
+            prompt_unit_price, 
+            prompt_price_unit, 
+            prompt_price, 
+            completion_tokens, 
+            completion_unit_price,
+            completion_price_unit, 
+            completion_price, 
+            total_tokens, 
+            total_price, 
+            currency,
+            wx_user_id,
+            wx_user_name,
+            room_id,
+            room_name
+        ))
+        
+        # 提交事务
+        db_conn.commit()
+        print(f"[DB_SAVE] 成功保存token用量到数据库: {msg_id}")
+    except Exception as e:
+        print(f"[DB_SAVE] 保存token用量到数据库失败: {e}")
+        if db_conn:
+            try:
+                db_conn.rollback()
+            except:
+                pass
+        raise Exception(f"[DB_SAVE] 保存token用量到数据库失败, 稍后重试")
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
         

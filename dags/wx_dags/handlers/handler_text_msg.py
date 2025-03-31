@@ -105,9 +105,6 @@ def handler_text_msg(**context):
         up_for_reply_msg_content_list.append(msg.get('content', ''))
         up_for_reply_msg_id_list.append(msg['id'])
 
-    # 添加当前消息
-    up_for_reply_msg_content_list.append(content)
-
     # 整合未回复的消息
     question = "\n\n".join(up_for_reply_msg_content_list)
 
@@ -138,6 +135,7 @@ def handler_text_msg(**context):
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
     response = full_answer
+    context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
 
     if not conversation_id:
         # 新会话，重命名会话

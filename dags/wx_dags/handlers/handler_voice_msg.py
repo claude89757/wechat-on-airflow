@@ -69,6 +69,17 @@ def handler_voice_msg(**context):
     dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}"
     conversation_id = dify_agent.get_conversation_id_for_room(dify_user_id, room_id)
 
+    # 获取在线图片信息
+    dify_files = []
+    online_img_info = Variable.get(f"{wx_user_name}_{room_id}_online_img_info", default_var={}, deserialize_json=True)
+    if online_img_info:
+        dify_files.append({
+            "type": "image",
+            "transfer_method": "local_file",
+            "upload_file_id": online_img_info.get("id", "")
+        })
+        print(f"[WATCHER] 获取到缓存的在线图片信息: {online_img_info}")
+
     # 2. 语音转文字
     try:
         transcribed_text = dify_agent.audio_to_text(voice_file_path)
@@ -110,10 +121,12 @@ def handler_voice_msg(**context):
         query=query,  # 使用合并后的文本
         user_id=dify_user_id,
         conversation_id=conversation_id,
+        files=dify_files if dify_files else None,
         inputs={}
     )
     print(f"response: {response}")
     print(f"metadata: {metadata}")
+    context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
     
     # 判断是否转人工
     if "#转人工#" in response.strip().lower():
@@ -158,3 +171,11 @@ def handler_voice_msg(**context):
 
     # 将转写文本和回复保存到xcom中
     context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+    
+    # 删除缓存的在线图片信息
+    try:
+        if online_img_info:
+            Variable.delete(f"{wx_user_name}_{room_id}_online_img_info")
+            print(f"[WATCHER] 删除缓存的在线图片信息成功")
+    except Exception as e:
+        print(f"[WATCHER] 删除缓存的在线图片信息失败: {e}")
