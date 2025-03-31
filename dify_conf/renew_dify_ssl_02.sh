@@ -6,8 +6,8 @@ echo "刷新证书"
 
 # 复制最新的 fullchain 和 privkey 文件
 echo "复制最新的 fullchain 和 privkey 文件"
-cp $(ls -t /etc/letsencrypt/archive/dify.lucyai.sale/fullchain*.pem | head -n 1) /root/dify/docker/nginx/ssl/fullchain.pem
-cp $(ls -t /etc/letsencrypt/archive/dify.lucyai.sale/privkey*.pem | head -n 1)  /root/dify/docker/nginx/ssl/privkey.pem
+cp $(ls -t /etc/letsencrypt/archive/dify02.lucyai.ai/fullchain*.pem | head -n 1) /root/dify/docker/nginx/ssl/fullchain.pem
+cp $(ls -t /etc/letsencrypt/archive/dify02.lucyai.ai/privkey*.pem | head -n 1)  /root/dify/docker/nginx/ssl/privkey.pem
 
 # dify的环境变量.env设置
 echo "更新dify环境变量配置"
