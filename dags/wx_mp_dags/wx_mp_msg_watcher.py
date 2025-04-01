@@ -449,77 +449,6 @@ def save_msg_to_mysql(**context):
                 pass
 
 
-# def handler_image_msg(**context):
-#     """
-#     处理图片类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
-#     """
-#     # 获取传入的消息数据
-#     message_data = context.get('dag_run').conf
-
-#     # 提取微信公众号消息的关键信息
-#     to_user_name = message_data.get('ToUserName')  # 开发者微信号ID
-#     from_user_name = message_data.get('FromUserName')  # 发送者的OpenID
-#     create_time = message_data.get('CreateTime')  # 消息创建时间
-#     pic_url = message_data.get('PicUrl')  # 图片链接
-#     media_id = message_data.get('MediaId')  # 图片消息媒体id
-#     msg_id = message_data.get('MsgId')  # 消息ID
-    
-#     print(f"message_data: {message_data}")
-#     print(f"收到来自 {from_user_name} 的图像消息，MediaId: {media_id}), PicUrl: {pic_url}")
-    
-#     # 获取微信公众号配置
-#     appid = Variable.get("WX_MP_APP_ID", default_var="")
-#     appsecret = Variable.get("WX_MP_SECRET", default_var="")
-    
-#     if not appid or not appsecret:
-#         print("[WATCHER] 微信公众号配置缺失")
-#         return
-    
-#     # 初始化微信公众号机器人
-#     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
-#     ACCESS_TOKEN = mp_bot.get_access_token()
-#     MEDIA_ID = media_id
-    
-#     # 初始化redis
-#     redis_handler = RedisHandler()
-
-#     # 初始化dify
-#     dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={}, deserialize_json=True)[appid]
-#     dify_base_url = Variable.get("DIFY_BASE_URL")
-#     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
-    
-#     # 获取会话ID - 只在这里获取一次
-#     conversation_id = dify_agent.get_conversation_id_for_user(from_user_name)
-#     print(f"[WATCHER] 获取到会话ID: {conversation_id}")
-    
-#     # 创建临时目录用于保存下载的图像文件
-#     import tempfile
-#     import os
-#     from datetime import datetime
-    
-#     temp_dir = tempfile.gettempdir()
-#     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-
-
-# # 通过临时素材接口获取图片
-#     temp_url = f'https://api.weixin.qq.com/cgi-bin/media/get?access_token={ACCESS_TOKEN}&media_id={MEDIA_ID}'
-#     response = requests.get(temp_url)
-#     if response.status_code == 200:
-#         image_data = response.content
-#         print(f"[WATCHER] 获取图片成功: {image_data}")
-#         image_file_path = os.path.join(tempfile.gettempdir(), f'{MEDIA_ID}.jpg')
-#         # with open(image_file_path, 'wb') as f:
-#         #     f.write(image_data)
-
-
-# 处理图片和dify的交互逻辑
-    # 上传图片到Dify
-    # dify_user_id = f"{from_user_name}_{to_user_name}_{conversation_id}"
-
-    # dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
-    # online_img_info = dify_agent.upload_file(image_file_path, dify_user_id)
-    # print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
-
 
 def download_image_from_wechat_mp(access_token, media_id, save_path=None):
     """
@@ -635,24 +564,6 @@ def handler_image_msg(**context):
             raise Exception("下载图片失败")
         
         print(f"[WATCHER] 图片已保存到: {saved_path}")
-
-        #  # 2. 上传图片到Dify
-        # dify_user_id = f"{from_user_name}_{to_user_name}_{conversation_id}"
-        # online_img_info = dify_agent.upload_file(saved_path, dify_user_id)
-        # print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
-        
-        # # 修改判断条件，检查是否有有效的文件ID
-        # if not online_img_info or not online_img_info.get("id"):
-        #     raise Exception("上传图片到Dify失败")
-        
-        # # 3. 发送图片信息到Dify
-        # question = "我发送了一张图片，请分析图片内容并回复"
-        # # 修改文件参数，优先使用返回的文件ID
-        # dify_files = [{
-        #     "type": "image",
-        #     "transfer_method": "file_id",  # 改为使用file_id
-        #     "upload_file_id": online_img_info.get("id")
-        # }]
 
         # 2. 上传图片到Dify
         dify_user_id = f"{from_user_name}_{to_user_name}_{conversation_id}"
