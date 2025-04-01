@@ -131,6 +131,7 @@ def main_handler(event, context):
                 partner_name,
                 partner_interest_focus,
                 partner_conversion_obstacles,
+                chat_key_event,
                 created_at,
                 updated_at
             FROM wx_chat_summary
@@ -152,7 +153,7 @@ def main_handler(event, context):
                 # 处理JSON字段
                 for key in ['core_values', 'hobbies_interests', 'life_status_indicators', 
                            'info_acquisition_habits', 'decision_drivers', 'main_purchase_obstacles',
-                           'repurchase_drivers', 'partner_conversion_obstacles']:
+                           'repurchase_drivers', 'partner_conversion_obstacles', 'chat_key_event']:
                     if key in result and result[key]:
                         if isinstance(result[key], str):
                             try:
@@ -228,10 +229,14 @@ def main_handler(event, context):
                     "updated_at": result.get('updated_at')
                 }
                 
+                # 处理关键事件数据
+                chat_key_event = result.get('chat_key_event', [])
+                
                 # 结果对象
                 return_data = {
                     "metadata": metadata,
                     "summary": result.get('raw_summary'),
+                    "chat_key_event": chat_key_event,
                     "tags": structured_data
                 }
                 

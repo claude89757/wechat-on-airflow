@@ -371,6 +371,9 @@ def init_wx_chat_summary_table():
         `partner_interest_focus` VARCHAR(30) DEFAULT NULL COMMENT '合作客户兴趣点',
         `partner_conversion_obstacles` JSON DEFAULT NULL COMMENT '合作客户转化障碍',
         
+        -- 聊天关键事件
+        `chat_key_event` JSON DEFAULT NULL COMMENT '聊天关键事件/产品咨询',
+        
         -- 基础信息
         `start_time` DATETIME NOT NULL COMMENT '聊天开始时间',
         `end_time` DATETIME NOT NULL COMMENT '聊天结束时间',
@@ -474,6 +477,9 @@ def save_chat_summary_to_db(summary_data: dict):
             'partner_name': summary_data.get('特殊来源', {}).get('partner_name'),
             'partner_interest_focus': summary_data.get('特殊来源', {}).get('partner_interest_focus'),
             'partner_conversion_obstacles': json.dumps(summary_data.get('特殊来源', {}).get('partner_conversion_obstacles', []), ensure_ascii=False),
+            
+            # 聊天关键事件
+            'chat_key_event': json.dumps(summary_data.get('chat_key_event', []), ensure_ascii=False),
             
             # 基础信息
             'start_time': summary_data.get('start_time'),
