@@ -521,8 +521,6 @@ def save_msg_to_mysql(**context):
     # print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
 
 
-
-
 def download_image_from_wechat_mp(access_token, media_id, save_path=None):
     """
     从微信公众号下载临时素材(图片)
@@ -638,20 +636,38 @@ def handler_image_msg(**context):
         
         print(f"[WATCHER] 图片已保存到: {saved_path}")
         
-        # 2. 上传图片到Dify
+        # # 2. 上传图片到Dify
+        # dify_user_id = f"{from_user_name}_{to_user_name}_{conversation_id}"
+        # online_img_info = dify_agent.upload_file(saved_path, dify_user_id)
+        # print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        
+        # if not online_img_info or not online_img_info.get("url"):
+        #     raise Exception("上传图片到Dify失败")
+        
+        # # 3. 发送图片信息到Dify
+        # question = "我发送了一张图片，请分析图片内容并回复"
+        # dify_files = [{
+        #     "type": "image",
+        #     "transfer_method": "remote_url",
+        #     "url": online_img_info.get("url"),
+        #     "upload_file_id": online_img_info.get("id")
+        # }]
+
+         # 2. 上传图片到Dify
         dify_user_id = f"{from_user_name}_{to_user_name}_{conversation_id}"
         online_img_info = dify_agent.upload_file(saved_path, dify_user_id)
         print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
         
-        if not online_img_info or not online_img_info.get("url"):
+        # 修改判断条件，检查是否有有效的文件ID
+        if not online_img_info or not online_img_info.get("id"):
             raise Exception("上传图片到Dify失败")
         
         # 3. 发送图片信息到Dify
         question = "我发送了一张图片，请分析图片内容并回复"
+        # 修改文件参数，优先使用返回的文件ID
         dify_files = [{
             "type": "image",
-            "transfer_method": "remote_url",
-            "url": online_img_info.get("url"),
+            "transfer_method": "file_id",  # 改为使用file_id
             "upload_file_id": online_img_info.get("id")
         }]
         
