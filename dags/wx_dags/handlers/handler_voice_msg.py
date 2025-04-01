@@ -126,6 +126,7 @@ def handler_voice_msg(**context):
     )
     print(f"response: {response}")
     print(f"metadata: {metadata}")
+    context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
     
     # 判断是否转人工
     if "#转人工#" in response.strip().lower():

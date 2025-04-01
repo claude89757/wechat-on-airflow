@@ -306,4 +306,321 @@ def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = 
                 db_conn.close()
             except:
                 pass
+
+def init_wx_chat_summary_table():
+    """
+    初始化微信聊天记录摘要表
+    """
+    # 使用get_hook函数获取数据库连接
+    db_hook = BaseHook.get_connection("wx_db").get_hook()
+    db_conn = db_hook.get_conn()
+    cursor = db_conn.cursor()
+    
+    # 创建聊天记录摘要表
+    create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_chat_summary` (
+        `id` BIGINT NOT NULL AUTO_INCREMENT,
+        `room_id` VARCHAR(100) NOT NULL COMMENT '会话ID',
+        `room_name` VARCHAR(100) NOT NULL COMMENT '会话名称',
+        `wx_user_id` VARCHAR(100) NOT NULL COMMENT '微信用户ID',
+        
+        -- I. 基础信息
+        `age_group` VARCHAR(20) DEFAULT '未知' COMMENT '年龄段',
+        `gender` VARCHAR(10) DEFAULT '未知' COMMENT '性别',
+        `city_tier` VARCHAR(20) DEFAULT '未知' COMMENT '城市级别',
+        `specific_location` VARCHAR(100) DEFAULT NULL COMMENT '具体城市/区域',
+        `occupation_type` VARCHAR(20) DEFAULT '未知' COMMENT '职业类型',
+        `marital_status` VARCHAR(20) DEFAULT '未知' COMMENT '婚姻状态',
+        `family_structure` VARCHAR(30) DEFAULT '未知' COMMENT '家庭结构',
+        `income_level_estimated` VARCHAR(20) DEFAULT '未知' COMMENT '估计收入水平',
+        `core_values` JSON DEFAULT NULL COMMENT '核心价值观',
+        `hobbies_interests` JSON DEFAULT NULL COMMENT '爱好和兴趣',
+        `life_status_indicators` JSON DEFAULT NULL COMMENT '生活状态指标',
+        `social_media_activity_level` VARCHAR(20) DEFAULT '未知' COMMENT '社交媒体活跃度',
+        `info_acquisition_habits` JSON DEFAULT NULL COMMENT '信息获取习惯',
+        
+        -- II. 互动与认知
+        `acquisition_channel_type` VARCHAR(20) DEFAULT '未知' COMMENT '获客渠道类型',
+        `acquisition_channel_detail` VARCHAR(100) DEFAULT NULL COMMENT '具体渠道详情',
+        `initial_intent` VARCHAR(20) DEFAULT '未知' COMMENT '初始意图',
+        `intent_details` TEXT DEFAULT NULL COMMENT '具体意图详情',
+        `product_knowledge_level` VARCHAR(20) DEFAULT '未知' COMMENT '产品知识水平',
+        `communication_style` VARCHAR(20) DEFAULT '未知' COMMENT '沟通风格',
+        `current_trust_level` VARCHAR(10) DEFAULT '未知' COMMENT '当前信任水平',
+        `need_urgency` VARCHAR(20) DEFAULT '未知' COMMENT '需求紧迫性',
+        
+        -- III. 购买决策
+        `core_need_type` VARCHAR(20) DEFAULT '未知' COMMENT '核心需求类型',
+        `budget_sensitivity` VARCHAR(30) DEFAULT '未知' COMMENT '预算敏感度',
+        `decision_drivers` JSON DEFAULT NULL COMMENT '决策驱动因素',
+        `main_purchase_obstacles` JSON DEFAULT NULL COMMENT '主要购买障碍',
+        `upsell_readiness` VARCHAR(20) DEFAULT '未知' COMMENT '升单准备度',
+        
+        -- IV. 客户关系与忠诚度
+        `past_satisfaction_level` VARCHAR(20) DEFAULT '未知' COMMENT '过往满意度',
+        `customer_loyalty_status` VARCHAR(30) DEFAULT '未知' COMMENT '客户忠诚度状态',
+        `repurchase_drivers` JSON DEFAULT NULL COMMENT '复购驱动因素',
+        `need_evolution_trend` VARCHAR(20) DEFAULT '未知' COMMENT '需求演变趋势',
+        `engagement_level` VARCHAR(10) DEFAULT '未知' COMMENT '品牌互动活跃度',
+        
+        -- V. 特殊来源
+        `partner_source_type` VARCHAR(20) DEFAULT NULL COMMENT '合作方类型',
+        `partner_name` VARCHAR(100) DEFAULT NULL COMMENT '具体合作方名称',
+        `partner_interest_focus` VARCHAR(30) DEFAULT NULL COMMENT '合作客户兴趣点',
+        `partner_conversion_obstacles` JSON DEFAULT NULL COMMENT '合作客户转化障碍',
+        
+        -- 基础信息
+        `start_time` DATETIME NOT NULL COMMENT '聊天开始时间',
+        `end_time` DATETIME NOT NULL COMMENT '聊天结束时间',
+        `message_count` INT NOT NULL DEFAULT 0 COMMENT '消息数量',
+        `raw_summary` TEXT DEFAULT NULL COMMENT '原始摘要文本',
+        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+        
+        PRIMARY KEY (`id`),
+        INDEX `idx_room_wx_user` (`room_id`, `wx_user_id`),
+        INDEX `idx_time_range` (`start_time`, `end_time`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信聊天记录客户标签摘要';
+    """
+    
+    cursor.execute(create_table_sql)
+    
+    # 提交事务
+    db_conn.commit()
+    
+    # 关闭连接
+    cursor.close()
+    db_conn.close()
+    
+    print("微信聊天记录摘要表初始化完成")
+
+
+def save_chat_summary_to_db(summary_data: dict):
+    """
+    保存聊天记录摘要到数据库
+    
+    Args:
+        summary_data (dict): 摘要数据
+    """
+    print(f"[DB_SAVE] 保存聊天记录摘要到数据库, summary_data: {summary_data}")
+    
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 检查表是否存在，如果不存在则创建
+        cursor.execute("SHOW TABLES LIKE 'wx_chat_summary'")
+        if not cursor.fetchone():
+            init_wx_chat_summary_table()
+        
+        # 准备数据
+        params = {
+            # 基础信息
+            'room_id': summary_data.get('room_id'),
+            'room_name': summary_data.get('room_name'),
+            'wx_user_id': summary_data.get('wx_user_id'),
+            
+            # I. 基础信息
+            'age_group': summary_data.get('基础信息', {}).get('age_group', '未知'),
+            'gender': summary_data.get('基础信息', {}).get('gender', '未知'),
+            'city_tier': summary_data.get('基础信息', {}).get('city_tier', '未知'),
+            'specific_location': summary_data.get('基础信息', {}).get('specific_location'),
+            'occupation_type': summary_data.get('基础信息', {}).get('occupation_type', '未知'),
+            'marital_status': summary_data.get('基础信息', {}).get('marital_status', '未知'),
+            'family_structure': summary_data.get('基础信息', {}).get('family_structure', '未知'),
+            'income_level_estimated': summary_data.get('基础信息', {}).get('income_level_estimated', '未知'),
+            
+            # 处理JSON字段
+            'core_values': json.dumps(summary_data.get('价值观与兴趣', {}).get('core_values', []), ensure_ascii=False),
+            'hobbies_interests': json.dumps(summary_data.get('价值观与兴趣', {}).get('hobbies_interests', []), ensure_ascii=False),
+            'life_status_indicators': json.dumps(summary_data.get('价值观与兴趣', {}).get('life_status_indicators', []), ensure_ascii=False),
+            'social_media_activity_level': summary_data.get('价值观与兴趣', {}).get('social_media_activity_level', '未知'),
+            'info_acquisition_habits': json.dumps(summary_data.get('价值观与兴趣', {}).get('info_acquisition_habits', []), ensure_ascii=False),
+            
+            # II. 互动与认知
+            'acquisition_channel_type': summary_data.get('互动与认知', {}).get('acquisition_channel_type', '未知'),
+            'acquisition_channel_detail': summary_data.get('互动与认知', {}).get('acquisition_channel_detail'),
+            'initial_intent': summary_data.get('互动与认知', {}).get('initial_intent', '未知'),
+            'intent_details': summary_data.get('互动与认知', {}).get('intent_details'),
+            'product_knowledge_level': summary_data.get('互动与认知', {}).get('product_knowledge_level', '未知'),
+            'communication_style': summary_data.get('互动与认知', {}).get('communication_style', '未知'),
+            'current_trust_level': summary_data.get('互动与认知', {}).get('current_trust_level', '未知'),
+            'need_urgency': summary_data.get('互动与认知', {}).get('need_urgency', '未知'),
+            
+            # III. 购买决策
+            'core_need_type': summary_data.get('购买决策', {}).get('core_need_type', '未知'),
+            'budget_sensitivity': summary_data.get('购买决策', {}).get('budget_sensitivity', '未知'),
+            'decision_drivers': json.dumps(summary_data.get('购买决策', {}).get('decision_drivers', []), ensure_ascii=False),
+            'main_purchase_obstacles': json.dumps(summary_data.get('购买决策', {}).get('main_purchase_obstacles', []), ensure_ascii=False),
+            'upsell_readiness': summary_data.get('购买决策', {}).get('upsell_readiness', '未知'),
+            
+            # IV. 客户关系与忠诚度
+            'past_satisfaction_level': summary_data.get('客户关系', {}).get('past_satisfaction_level', '未知'),
+            'customer_loyalty_status': summary_data.get('客户关系', {}).get('customer_loyalty_status', '未知'),
+            'repurchase_drivers': json.dumps(summary_data.get('客户关系', {}).get('repurchase_drivers', []), ensure_ascii=False),
+            'need_evolution_trend': summary_data.get('客户关系', {}).get('need_evolution_trend', '未知'),
+            'engagement_level': summary_data.get('客户关系', {}).get('engagement_level', '未知'),
+            
+            # V. 特殊来源
+            'partner_source_type': summary_data.get('特殊来源', {}).get('partner_source_type'),
+            'partner_name': summary_data.get('特殊来源', {}).get('partner_name'),
+            'partner_interest_focus': summary_data.get('特殊来源', {}).get('partner_interest_focus'),
+            'partner_conversion_obstacles': json.dumps(summary_data.get('特殊来源', {}).get('partner_conversion_obstacles', []), ensure_ascii=False),
+            
+            # 基础信息
+            'start_time': summary_data.get('start_time'),
+            'end_time': summary_data.get('end_time'),
+            'message_count': summary_data.get('message_count', 0),
+            'raw_summary': summary_data.get('raw_summary')
+        }
+        
+        # 构建插入SQL
+        fields = ', '.join(params.keys())
+        placeholders = ', '.join(['%s'] * len(params))
+        
+        # 检查是否已存在记录
+        check_sql = "SELECT id FROM wx_chat_summary WHERE room_id = %s AND wx_user_id = %s LIMIT 1"
+        cursor.execute(check_sql, (params['room_id'], params['wx_user_id']))
+        existing_record = cursor.fetchone()
+        
+        if existing_record:
+            # 更新现有记录
+            update_parts = [f"{field} = %s" for field in params.keys()]
+            update_sql = f"UPDATE wx_chat_summary SET {', '.join(update_parts)} WHERE room_id = %s AND wx_user_id = %s"
+            cursor.execute(update_sql, list(params.values()) + [params['room_id'], params['wx_user_id']])
+            print(f"[DB_SAVE] 更新聊天记录摘要: room_id={params['room_id']}, wx_user_id={params['wx_user_id']}")
+        else:
+            # 插入新记录
+            insert_sql = f"INSERT INTO wx_chat_summary ({fields}) VALUES ({placeholders})"
+            cursor.execute(insert_sql, list(params.values()))
+            print(f"[DB_SAVE] 插入聊天记录摘要: room_id={params['room_id']}, wx_user_id={params['wx_user_id']}")
+        
+        # 提交事务
+        db_conn.commit()
+        print(f"[DB_SAVE] 成功保存聊天记录摘要到数据库")
+        
+    except Exception as e:
+        print(f"[DB_SAVE] 保存聊天记录摘要到数据库失败: {e}")
+        if db_conn:
+            try:
+                db_conn.rollback()
+            except:
+                pass
+        raise Exception(f"[DB_SAVE] 保存聊天记录摘要到数据库失败: {e}")
+        
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
+
+
+def save_token_usage_to_db(token_usage_data: dict):
+    """
+    保存token用量到数据库
+    """
+    print(f"[DB_SAVE] 保存token用量到数据库, token_usage_data: {token_usage_data}")
+    
+    # 提取token信息
+    token_source_platform = token_usage_data.get('token_source_platform', '')
+    msg_id = token_usage_data.get('msg_id', '')
+    prompt_tokens = token_usage_data.get('prompt_tokens', '')
+    prompt_unit_price = token_usage_data.get('prompt_unit_price', '')
+    prompt_price_unit = token_usage_data.get('prompt_price_unit', '')
+    prompt_price = token_usage_data.get('prompt_price', '')
+    completion_tokens = token_usage_data.get('completion_tokens', '')
+    completion_unit_price = token_usage_data.get('completion_unit_price', '')
+    completion_price_unit = token_usage_data.get('completion_price_unit', '')
+    completion_price = token_usage_data.get('completion_price', '')
+    total_tokens = token_usage_data.get('total_tokens', '')
+    total_price = token_usage_data.get('total_price', '')
+    currency = token_usage_data.get('currency', '')
+    wx_user_id = token_usage_data.get('wx_user_id', '')
+    wx_user_name = token_usage_data.get('wx_user_name', '')
+    room_id = token_usage_data.get('room_id', '')
+    room_name = token_usage_data.get('room_name', '')
+
+    # 插入数据SQL
+    insert_sql = """INSERT INTO `token_usage` 
+    (token_source_platform, 
+    msg_id, 
+    prompt_tokens, 
+    prompt_unit_price, 
+    prompt_price_unit, 
+    prompt_price, 
+    completion_tokens, 
+    completion_unit_price,
+    completion_price_unit, 
+    completion_price, 
+    total_tokens, 
+    total_price, 
+    currency,
+    wx_user_id,
+    wx_user_name,
+    room_id,
+    room_name) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 插入数据
+        cursor.execute(insert_sql, (
+            token_source_platform, 
+            msg_id, 
+            prompt_tokens, 
+            prompt_unit_price, 
+            prompt_price_unit, 
+            prompt_price, 
+            completion_tokens, 
+            completion_unit_price,
+            completion_price_unit, 
+            completion_price, 
+            total_tokens, 
+            total_price, 
+            currency,
+            wx_user_id,
+            wx_user_name,
+            room_id,
+            room_name
+        ))
+        
+        # 提交事务
+        db_conn.commit()
+        print(f"[DB_SAVE] 成功保存token用量到数据库: {msg_id}")
+    except Exception as e:
+        print(f"[DB_SAVE] 保存token用量到数据库失败: {e}")
+        if db_conn:
+            try:
+                db_conn.rollback()
+            except:
+                pass
+        raise Exception(f"[DB_SAVE] 保存token用量到数据库失败, 稍后重试")
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
         

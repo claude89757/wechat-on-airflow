@@ -29,6 +29,7 @@ from airflow.api.common.trigger_dag import trigger_dag
 from wx_dags.common.wx_tools import WX_MSG_TYPES
 from wx_dags.common.wx_tools import update_wx_user_info
 from wx_dags.common.wx_tools import check_ai_enable
+from utils.redis import RedisHandler
 
 # 导入消息处理器
 from wx_dags.handlers.handler_text_msg import handler_text_msg
@@ -102,10 +103,10 @@ def process_wx_message(**context):
         print("[WATCHER] 自己发送的消息，不处理")
         return
     elif WX_MSG_TYPES.get(msg_type) == "文字":
-        # 用户的消息缓存列表
-        room_msg_list = Variable.get(f'{wx_user_name}_{room_id}_msg_list', default_var=[], deserialize_json=True)
-        room_msg_list.append(message_data)
-        Variable.set(f'{wx_user_name}_{room_id}_msg_list', room_msg_list[-100:], serialize_json=True)  # 只缓存最近的100条消息
+
+        # 使用Redis缓存消息
+        redis_handler = RedisHandler()
+        redis_handler.append_msg_list(f'{wx_user_id}_{room_id}_msg_list', message_data) # 只缓存最近的100条消息
 
         # 决策下游的任务
         if not is_group:
@@ -117,6 +118,7 @@ def process_wx_message(**context):
                 next_task_list.append('handler_text_msg')
             else:
                 pass
+    
     elif WX_MSG_TYPES.get(msg_type) == "语音":
         # 语音消息
         if not is_group:

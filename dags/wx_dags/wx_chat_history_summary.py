@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-聊天记录总结
+聊天记录总结与客户标签分析
 """
 
 # 标准库导入
@@ -15,7 +15,7 @@ from airflow.models.variable import Variable
 from airflow.operators.python import PythonOperator
 
 # 自定义库导入
-from wx_dags.common.mysql_tools import get_wx_chat_history
+from wx_dags.common.mysql_tools import get_wx_chat_history, save_chat_summary_to_db
 from utils.dify_sdk import DifyAgent
 
 
@@ -74,7 +74,9 @@ def extract_json_from_string(text):
 
 def summary_chat_history(**context):
     """
-    聊天记录总结
+    聊天记录总结与客户标签分析
+    提取聊天记录中的客户信息，包括基础信息、核心价值观、爱好兴趣、互动特征等
+    并将结果保存到数据库中
     """
     # 获取输入参数
     input_data = context.get('dag_run').conf or {}
@@ -118,9 +120,9 @@ def summary_chat_history(**context):
     # 初始化Dify
     dify_agent = DifyAgent(api_key=Variable.get("CHAT_SUMMARY_TOKEN"), base_url=Variable.get("DIFY_BASE_URL"))
 
-    # 获取AI总结
+    # 获取AI总结 - 直接使用Dify中已配置的提示词
     response_data = dify_agent.create_chat_message(
-        query=chat_text,  # 直接传递文本形式的聊天记录
+        query=chat_text,  # 直接传递聊天记录，提示词已在Dify中配置
         user_id=f"{wx_user_id}_{room_id}",
         conversation_id=""
     )
@@ -136,25 +138,47 @@ def summary_chat_history(**context):
     print("提取的JSON内容:")
     print(json.dumps(summary_json, ensure_ascii=False, indent=2))
     print("="*100)
-
-    # 缓存总结结果
+    
+    # 准备存储到数据库的数据
+    db_summary_data = {
+        # 基础信息
+        'room_id': room_id,
+        'room_name': chat_history[0]['room_name'],
+        'wx_user_id': wx_user_id,
+        'start_time': chat_history[-1]['msg_datetime'],  # 最早的消息时间
+        'end_time': chat_history[0]['msg_datetime'],     # 最近的消息时间
+        'message_count': len(text_messages),             # 只统计文本消息数量
+        'raw_summary': summary_text                      # 保存原始文本
+    }
+    
+    # 保存到数据库
+    try:
+        save_chat_summary_to_db({
+            **db_summary_data,
+            **summary_json  # 合并AI提取的标签信息
+        })
+        print(f"聊天记录总结已保存到数据库: room_id={room_id}, wx_user_id={wx_user_id}")
+    except Exception as e:
+        print(f"保存聊天记录总结到数据库失败: {e}")
+    
+    # 同时保留原来的缓存功能，作为备份
     cache_key = f"{wx_user_id}_{room_id}_chat_summary"
     cache_data = {
         'room_id': room_id,
         'room_name': chat_history[0]['room_name'],
         'wx_user_id': wx_user_id,
-        'summary_text': summary_text,  # 保存原始文本
-        'summary_json': summary_json,  # 保存提取的JSON
+        'summary_text': summary_text,
+        'summary_json': summary_json,
         'time_range': {
-            'start': chat_history[0]['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S'),
-            'end': chat_history[-1]['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')
+            'start': chat_history[-1]['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S'),
+            'end': chat_history[0]['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')
         },
-        'message_count': len(text_messages),  # 只统计文本消息数量
+        'message_count': len(text_messages),
         'updated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
     Variable.set(cache_key, cache_data, serialize_json=True)
 
-    print(f"聊天记录总结完成，已缓存到 {cache_key}")
+    print(f"聊天记录总结完成，已保存到数据库并缓存到 {cache_key}")
     return summary_json  # 返回提取的JSON数据
 
 
@@ -171,9 +195,9 @@ dag = DAG(
 
 # 为DAG添加文档说明
 dag.doc_md = """
-## 聊天记录总结DAG
+## 聊天记录总结与客户标签分析DAG
 
-此DAG用于总结微信群聊的聊天记录，并使用AI生成摘要。
+此DAG用于总结微信群聊的聊天记录，提取客户标签信息，并使用AI生成摘要。
 
 ### 如何使用:
 1. 点击"Trigger DAG"按钮
@@ -191,7 +215,8 @@ dag.doc_md = """
 - `wx_user_id`: 微信用户ID
 
 ### 输出:
-- 会将摘要结果缓存到Airflow变量中，缓存键为`{wx_user_id}_{room_id}_chat_summary`
+- 会将摘要结果保存到数据库的`wx_chat_summary`表中
+- 同时也会缓存到Airflow变量中，缓存键为`{wx_user_id}_{room_id}_chat_summary`
 """
 
 # 创建处理消息的任务
