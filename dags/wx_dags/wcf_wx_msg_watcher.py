@@ -434,6 +434,7 @@ dag = DAG(
     default_args={'owner': 'claude89757'},
     start_date=datetime(2024, 1, 1),
     schedule_interval=None,
+    dag_concurrency=50,
     max_active_runs=50,
     catchup=False,
     tags=['个人微信'],
