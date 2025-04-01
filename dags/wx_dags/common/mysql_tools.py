@@ -15,6 +15,7 @@ MySQL数据库工具模块
 """
 
 
+import json
 from airflow.hooks.base import BaseHook
 
 
@@ -324,6 +325,8 @@ def init_wx_chat_summary_table():
         `wx_user_id` VARCHAR(100) NOT NULL COMMENT '微信用户ID',
         
         -- I. 基础信息
+        `name` VARCHAR(50) DEFAULT NULL COMMENT '客户姓名',
+        `contact` VARCHAR(100) DEFAULT NULL COMMENT '联系方式',
         `age_group` VARCHAR(20) DEFAULT '未知' COMMENT '年龄段',
         `gender` VARCHAR(10) DEFAULT '未知' COMMENT '性别',
         `city_tier` VARCHAR(20) DEFAULT '未知' COMMENT '城市级别',
@@ -424,6 +427,8 @@ def save_chat_summary_to_db(summary_data: dict):
             'wx_user_id': summary_data.get('wx_user_id'),
             
             # I. 基础信息
+            'name': summary_data.get('name') or summary_data.get('基础信息', {}).get('name'),
+            'contact': summary_data.get('contact') or summary_data.get('基础信息', {}).get('contact'),
             'age_group': summary_data.get('基础信息', {}).get('age_group', '未知'),
             'gender': summary_data.get('基础信息', {}).get('gender', '未知'),
             'city_tier': summary_data.get('基础信息', {}).get('city_tier', '未知'),
