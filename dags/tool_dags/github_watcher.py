@@ -70,7 +70,7 @@ def get_latest_commits(**context):
             return
         
         # 连接Redis
-        redis_client = Redis(host='airflow_redis', port=6379, decode_responses=True)
+        redis_client = Redis(host='wechat-on-airflow-redis-1', port=6379, decode_responses=True)
         
         # 获取现有的提交记录
         existing_commits_json = redis_client.get(REDIS_KEY)
