@@ -34,6 +34,7 @@ def proxy_context():
         else:
             os.environ.pop('HTTP_PROXY', None)
             os.environ.pop('HTTPS_PROXY', None)
+        print(f"[AI] 代理设置: {os.environ['HTTP_PROXY']} {os.environ['HTTPS_PROXY']}")
         yield
     finally:
         # 恢复原始代理
