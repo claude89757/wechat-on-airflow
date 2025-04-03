@@ -137,7 +137,7 @@ def get_latest_commits(**context):
                 print(f"已将仓库 {owner}/{repo} 的最新提交记录缓存到Redis，键名: {redis_key}")
                 
                 # 如果有新提交，发送到微信群
-                if has_new_commits and WECHAT_CONFIG["WCF_IP"] and WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+                if has_new_commits and WECHAT_CONFIG["DEV_WCF_IP"] and WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
                     send_github_commits_to_wechat(new_commits)
             else:
                 print(f"仓库 {owner}/{repo} 没有新的提交记录")
