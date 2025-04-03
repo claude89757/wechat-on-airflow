@@ -93,8 +93,10 @@ def update_wx_user_info(source_ip: str) -> dict:
     
     # 获取最新用户信息
     new_account = get_wx_self_info(wcf_ip=source_ip)
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     new_account.update({
-        'update_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'update_time': current_time,
+        'create_time': current_time,  # 设置创建时间，只在账号第一次创建时记录
         'source_ip': source_ip
     })
 
