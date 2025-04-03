@@ -105,19 +105,15 @@ def get_latest_commits(**context):
             existing_commits_json = redis_client.get(redis_key)
             existing_commits = json.loads(existing_commits_json) if existing_commits_json else []
             
-            # 检查是否有新提交
-            latest_commit_sha = commits[0]["sha"]
+            # 获取现有提交的SHA列表，用于快速查找
+            existing_commit_shas = set(commit["sha"] for commit in existing_commits)
             
-            # 如果没有现有提交或者最新提交与缓存中的不同，则更新缓存
-            new_commits = []
+            # 比较获取真正的新提交
+            truly_new_commits = []
             
-            if not existing_commits or latest_commit_sha != existing_commits[0]["sha"]:
-                has_new_commits = True
-                has_any_new_commits = True
-                print(f"发现仓库 {owner}/{repo} 的新提交记录，SHA: {latest_commit_sha}")
-                
-                # 提取需要保存的提交信息
-                for commit in commits:
+            for commit in commits:
+                # 只处理真正的新提交（不在现有提交中的）
+                if commit["sha"] not in existing_commit_shas:
                     commit_info = {
                         "sha": commit["sha"],
                         "message": commit["commit"]["message"],
@@ -128,11 +124,16 @@ def get_latest_commits(**context):
                         "repo": repo,
                         "description": description
                     }
-                    print(commit_info)
-                    new_commits.append(commit_info)
+                    truly_new_commits.append(commit_info)
+            
+            # 检查是否有新提交
+            if truly_new_commits:
+                has_new_commits = True
+                has_any_new_commits = True
+                print(f"发现仓库 {owner}/{repo} 的新提交记录: {len(truly_new_commits)}个")
                 
                 # 合并现有提交和新提交，并限制数量
-                merged_commits = new_commits + [c for c in existing_commits if c["sha"] not in [nc["sha"] for nc in new_commits]]
+                merged_commits = truly_new_commits + existing_commits
                 merged_commits = merged_commits[:MAX_COMMITS]
                 
                 # 更新Redis
@@ -141,7 +142,7 @@ def get_latest_commits(**context):
                 
                 # 如果有新提交，发送到微信群
                 if has_new_commits and WECHAT_CONFIG["WCF_IP"] and WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-                    send_github_commits_to_wechat(new_commits)
+                    send_github_commits_to_wechat(truly_new_commits)
             else:
                 print(f"仓库 {owner}/{repo} 没有新的提交记录")
         
@@ -158,7 +159,7 @@ def send_github_commits_to_wechat(commits):
     将GitHub提交记录发送到微信群
     
     Args:
-        commits: 提交记录列表
+        commits: 提交记录列表，仅包含新的提交
     """
     if not commits:
         return
@@ -180,12 +181,15 @@ def send_github_commits_to_wechat(commits):
     for repo_key, repo_data in commits_by_repo.items():
         # 简洁的消息
         msg_list = []
-        msg_list.append(f"【GitHub更新】{repo_key}")
+        commit_count = len(repo_data["commits"])
+        msg_list.append(f"【GitHub更新】{repo_key} ({commit_count}个新提交)")
         
         # 添加每个提交的简要信息
         for commit in repo_data["commits"]:
-            # 截取提交信息的第一行作为标题
+            # 截取提交信息的第一行作为标题，并限制长度
             commit_title = commit["message"].split("\n")[0]
+            if len(commit_title) > 60:
+                commit_title = commit_title[:57] + "..."
             msg_list.append(f"- {commit_title} ({commit['author']})")
         
         # 最后添加第一个提交的链接
@@ -203,7 +207,7 @@ def send_github_commits_to_wechat(commits):
                     receiver=room_id,
                     aters=''
                 )
-                print(f"已发送仓库 {repo_key} 的GitHub提交记录到微信群: {room_id}")
+                print(f"已发送仓库 {repo_key} 的{commit_count}个新提交记录到微信群: {room_id}")
             except Exception as e:
                 print(f"发送仓库 {repo_key} 的GitHub提交记录到微信群失败: {e}")
 
