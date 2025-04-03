@@ -62,6 +62,12 @@ def check_wx_account_status(**context):
         # 检查微信登录状态
         new_wx_account_info['source_ip'] = source_ip
         new_wx_account_info['update_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 保留原始的创建时间，如果存在的话，否则设置为当前时间
+        if 'create_time' in account:
+            new_wx_account_info['create_time'] = account['create_time']
+        else:
+            new_wx_account_info['create_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # 更新缓存
         updated_account_list.append(new_wx_account_info)
