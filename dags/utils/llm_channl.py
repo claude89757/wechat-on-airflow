@@ -48,7 +48,7 @@ def proxy_context():
         else:
             os.environ.pop('HTTPS_PROXY', None)
 
-def get_llm_response(user_question: str, model_name: str = None, system_prompt: str = None, chat_history: list = None) -> str:
+def get_llm_response(user_question: str = None, model_name: str = None, system_prompt: str = None, chat_history: list = None) -> str:
     """
     调用AI API进行对话
 
@@ -74,8 +74,8 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
 
         # 创建消息列表
         messages = chat_history or []
-        # 添加当前用户问题
-        messages.append({"role": "user", "content": user_question})
+        if user_question:
+            messages.append({"role": "user", "content": user_question})
 
         print("[AI] 输入消息:")
         print("="*100)
@@ -90,7 +90,8 @@ def get_llm_response(user_question: str, model_name: str = None, system_prompt: 
                 
                 client = OpenAI()
                 # 加入系统提示词
-                messages.insert(0, {"role": "system", "content": system_prompt})
+                if system_prompt:
+                    messages.insert(0, {"role": "system", "content": system_prompt})
                 response = client.chat.completions.create(model=model_name, messages=messages, **LLM_CONFIG)
                 ai_response = response.choices[0].message.content.strip()
                 
