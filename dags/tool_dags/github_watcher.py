@@ -8,6 +8,7 @@ GitHub仓库巡检DAG
 2. 如果有新的提交记录，将其缓存到最近的提交记录列表中
 3. 使用Redis存储提交记录列表
 4. 当有新提交时，实时推送到微信群
+5. 每天晚上8点生成当日提交汇总，并推送到微信群
 """
 
 # 标准库导入
@@ -24,6 +25,8 @@ from redis import Redis
 
 # 导入微信消息发送功能
 from utils.wechat_channl import send_wx_msg
+# 导入LLM功能
+from utils.llm_channl import get_llm_response
 
 # 从Airflow变量获取仓库配置
 GITHUB_REPOS = [
@@ -37,18 +40,18 @@ GITHUB_REPOS = [
         "repo": "ai-agent",
         "description": "前端项目"
     },
-    
 ]
 
 # DAG ID
-DAG_ID = "github_repos_watcher"
+DAG_ID = "github_multi_repos_watcher"
+DAILY_SUMMARY_DAG_ID = "github_daily_summary"
 
 # 最大保存的提交记录数量
-MAX_COMMITS = 20
+MAX_COMMITS = 1000
 
 # 微信配置
 WECHAT_CONFIG = {
-    "DEV_WCF_IP": Variable.get("DEV_WCF_IP", default_var="10.1.8.5"),
+    "WCF_IP": Variable.get("DEV_WCF_IP", default_var="10.1.8.5"),
     "GITHUB_ROOM_ID_LIST": Variable.get("GITHUB_ROOM_ID_LIST", deserialize_json=True, default_var=["57852893888@chatroom"])
 }
 
@@ -137,7 +140,7 @@ def get_latest_commits(**context):
                 print(f"已将仓库 {owner}/{repo} 的最新提交记录缓存到Redis，键名: {redis_key}")
                 
                 # 如果有新提交，发送到微信群
-                if has_new_commits and WECHAT_CONFIG["DEV_WCF_IP"] and WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+                if has_new_commits and WECHAT_CONFIG["WCF_IP"] and WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
                     send_github_commits_to_wechat(new_commits)
             else:
                 print(f"仓库 {owner}/{repo} 没有新的提交记录")
@@ -195,7 +198,7 @@ def send_github_commits_to_wechat(commits):
         for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
             try:
                 send_wx_msg(
-                    wcf_ip=WECHAT_CONFIG["DEV_WCF_IP"],
+                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
                     message=message,
                     receiver=room_id,
                     aters=''
@@ -205,7 +208,138 @@ def send_github_commits_to_wechat(commits):
                 print(f"发送仓库 {repo_key} 的GitHub提交记录到微信群失败: {e}")
 
 
-# 定义DAG参数
+def generate_daily_summary(**context):
+    """
+    生成GitHub提交记录的每日总结
+    
+    从Redis中获取所有仓库的提交记录，筛选出当天的提交，
+    使用LLM生成中文摘要，并发送到微信群
+    
+    Args:
+        **context: Airflow上下文参数
+    
+    Returns:
+        None
+    """
+    # 连接Redis
+    redis_client = Redis(host='wechat-on-airflow-redis-1', port=6379, decode_responses=True)
+    
+    # 获取今天的日期范围
+    today = datetime.now().date()
+    today_start = datetime.combine(today, datetime.min.time()).isoformat()
+    today_end = datetime.combine(today, datetime.max.time()).isoformat()
+    
+    print(f"正在生成 {today} 的每日提交摘要")
+    print(f"日期范围: {today_start} - {today_end}")
+    
+    all_commits_today = []
+    commit_stats_by_repo = {}
+    
+    # 遍历所有仓库，获取当天的提交
+    for repo_config in GITHUB_REPOS:
+        owner = repo_config["owner"]
+        repo = repo_config["repo"]
+        description = repo_config.get("description", repo)
+        repo_key = f"{owner}/{repo}"
+        
+        # 构建Redis键
+        redis_key = f"github_{owner}_{repo}_recent_commits"
+        
+        # 获取提交记录
+        commits_json = redis_client.get(redis_key)
+        if not commits_json:
+            print(f"仓库 {repo_key} 没有缓存的提交记录")
+            continue
+        
+        commits = json.loads(commits_json)
+        
+        # 筛选当天的提交
+        today_commits = []
+        for commit in commits:
+            commit_date = commit.get("date", "")
+            if today_start <= commit_date <= today_end:
+                today_commits.append(commit)
+                all_commits_today.append(commit)
+        
+        if today_commits:
+            commit_stats_by_repo[repo_key] = {
+                "description": description,
+                "count": len(today_commits),
+                "commits": today_commits
+            }
+            print(f"仓库 {repo_key} 有 {len(today_commits)} 个提交")
+        else:
+            print(f"仓库 {repo_key} 今天没有提交")
+    
+    # 如果没有今天的提交，返回
+    if not all_commits_today:
+        print("今天没有任何仓库有提交记录")
+        for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+            try:
+                send_wx_msg(
+                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
+                    message=f"【GitHub日报】{today}\n今天无提交记录。",
+                    receiver=room_id,
+                    aters=''
+                )
+            except Exception as e:
+                print(f"发送GitHub日报到微信群失败: {e}")
+        return
+    
+    # 为每个仓库生成LLM摘要
+    for repo_key, repo_data in commit_stats_by_repo.items():
+        try:
+            # 准备LLM输入
+            commits_text = "\n".join([
+                f"- {commit['message']} (作者: {commit['author']}, 时间: {commit['date']})"
+                for commit in repo_data["commits"]
+            ])
+            
+            prompt = f"""作为一名技术专家，请根据以下GitHub提交记录，生成一份简洁的中文日报摘要。
+仓库：{repo_key} ({repo_data['description']})
+日期：{today}
+提交数量：{repo_data['count']}
+
+提交记录：
+{commits_text}
+
+请总结开发进展，提取3-5个要点，并尽量使用技术术语。回复格式应包含仓库名、主要变更内容，不需要包含提交者姓名和具体时间。
+请确保摘要简洁明了，不超过200字。"""
+
+            # 调用LLM生成摘要
+            summary = get_llm_response(user_question=prompt)
+            
+            # 发送到微信群
+            for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+                try:
+                    send_wx_msg(
+                        wcf_ip=WECHAT_CONFIG["WCF_IP"],
+                        message=f"【GitHub日报】{today}\n{summary}",
+                        receiver=room_id,
+                        aters=''
+                    )
+                    print(f"已发送仓库 {repo_key} 的每日摘要到微信群: {room_id}")
+                except Exception as e:
+                    print(f"发送仓库 {repo_key} 的每日摘要到微信群失败: {e}")
+                    
+        except Exception as e:
+            print(f"生成仓库 {repo_key} 的每日摘要失败: {e}")
+            # 发送简单汇总
+            simple_summary = f"【GitHub日报】{today}\n仓库: {repo_key}\n今日共有 {repo_data['count']} 次提交。"
+            
+            for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+                try:
+                    send_wx_msg(
+                        wcf_ip=WECHAT_CONFIG["WCF_IP"],
+                        message=simple_summary,
+                        receiver=room_id,
+                        aters=''
+                    )
+                except Exception as e:
+                    print(f"发送仓库 {repo_key} 的简单汇总到微信群失败: {e}")
+
+
+# 定义实时监控DAG参数
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -216,7 +350,7 @@ default_args = {
     "retry_delay": timedelta(minutes=1),
 }
 
-# 创建DAG
+# 创建实时监控DAG
 dag = DAG(
     dag_id=DAG_ID,
     default_args=default_args,
@@ -226,7 +360,7 @@ dag = DAG(
     tags=["github", "监控"],
 )
 
-# 定义任务
+# 定义实时监控任务
 check_github_task = PythonOperator(
     task_id="check_github_commits",
     python_callable=get_latest_commits,
@@ -234,5 +368,37 @@ check_github_task = PythonOperator(
     dag=dag,
 )
 
-# 设置任务依赖
+# 设置实时监控任务依赖
 check_github_task
+
+# 定义每日总结DAG参数
+daily_summary_args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2024, 1, 1),
+    "email_on_failure": False,
+    "email_on_retry": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=1),
+}
+
+# 创建每日总结DAG
+daily_summary_dag = DAG(
+    dag_id=DAILY_SUMMARY_DAG_ID,
+    default_args=daily_summary_args,
+    description="每天晚上8点生成GitHub提交记录的每日总结",
+    schedule_interval="0 20 * * *",  # 每天晚上8点执行
+    catchup=False,
+    tags=["github", "日报"],
+)
+
+# 定义每日总结任务
+daily_summary_task = PythonOperator(
+    task_id="generate_daily_summary",
+    python_callable=generate_daily_summary,
+    provide_context=True,
+    dag=daily_summary_dag,
+)
+
+# 设置每日总结任务依赖
+daily_summary_task
