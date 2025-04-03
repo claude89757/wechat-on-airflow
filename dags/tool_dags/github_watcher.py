@@ -26,7 +26,7 @@ from redis import Redis
 # 导入微信消息发送功能
 from utils.wechat_channl import send_wx_msg
 # 导入LLM功能
-from utils.llm_channl import get_llm_response
+from utils.openrouter import OpenRouter
 
 # 从Airflow变量获取仓库配置
 GITHUB_REPOS = [
@@ -290,7 +290,10 @@ def generate_daily_summary(**context):
                 print(f"发送GitHub日报到微信群失败: {e}")
         return
     
-    # 为每个仓库生成LLM摘要
+    # 准备所有仓库的提交信息，用于生成综合摘要
+    all_repos_summary = []
+    
+    # 为每个仓库准备提交信息
     for repo_key, repo_data in commit_stats_by_repo.items():
         try:
             # 准备LLM输入
@@ -299,48 +302,74 @@ def generate_daily_summary(**context):
                 for commit in repo_data["commits"]
             ])
             
-            prompt = f"""作为一名技术专家，请根据以下GitHub提交记录，生成一份简洁的中文日报摘要。
-仓库：{repo_key} ({repo_data['description']})
-日期：{today}
-提交数量：{repo_data['count']}
-
-提交记录：
-{commits_text}
-
-请总结开发进展，提取3-5个要点，并尽量使用技术术语。回复格式应包含仓库名、主要变更内容，不需要包含提交者姓名和具体时间。
-请确保摘要简洁明了，不超过200字。"""
-
-            # 调用LLM生成摘要
-            summary = get_llm_response(system_prompt=prompt, model_name="gpt-4o-mini")
+            # 将仓库信息添加到综合摘要中
+            all_repos_summary.append({
+                "repo_key": repo_key,
+                "description": repo_data["description"],
+                "count": repo_data["count"],
+                "commits_text": commits_text
+            })
             
-            # 发送到微信群
-            for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-                try:
-                    send_wx_msg(
-                        wcf_ip=WECHAT_CONFIG["WCF_IP"],
-                        message=f"【GitHub日报】{today}\n{summary}",
-                        receiver=room_id,
-                        aters=''
-                    )
-                    print(f"已发送仓库 {repo_key} 的每日摘要到微信群: {room_id}")
-                except Exception as e:
-                    print(f"发送仓库 {repo_key} 的每日摘要到微信群失败: {e}")
-                    
         except Exception as e:
-            print(f"生成仓库 {repo_key} 的每日摘要失败: {e}")
-            # 发送简单汇总
-            simple_summary = f"【GitHub日报】{today}\n仓库: {repo_key}\n今日共有 {repo_data['count']} 次提交。"
-            
-            for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-                try:
-                    send_wx_msg(
-                        wcf_ip=WECHAT_CONFIG["WCF_IP"],
-                        message=simple_summary,
-                        receiver=room_id,
-                        aters=''
-                    )
-                except Exception as e:
-                    print(f"发送仓库 {repo_key} 的简单汇总到微信群失败: {e}")
+            print(f"处理仓库 {repo_key} 的提交信息时出错: {e}")
+    
+    # 生成综合摘要
+    try:
+        # 准备综合摘要的提示
+        all_repos_text = "\n\n".join([
+            f"仓库：{repo['repo_key']} ({repo['description']})\n提交数量：{repo['count']}\n\n提交记录：\n{repo['commits_text']}"
+            for repo in all_repos_summary
+        ])
+        
+        prompt = f"""作为一名技术专家，请根据以下多个GitHub仓库的提交记录，生成一份简洁的中文日报摘要。
+日期：{today}
+
+{all_repos_text}
+
+请总结所有仓库的开发进展，提取3-5个要点，并尽量使用技术术语。回复格式应包含仓库名、主要变更内容，不需要包含提交者姓名和具体时间。
+请确保摘要简洁明了，不超过300字。"""
+
+        # 调用LLM生成综合摘要
+        api_key = Variable.get("OPENROUTER_API_KEY")
+        openrouter = OpenRouter(api_key=api_key)
+        response = openrouter.chat_completion(
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            model="google/gemini-2.0-flash-thinking-exp:free"
+        )
+        summary = openrouter.extract_text_response(response)
+        
+        # 发送综合摘要到微信群
+        for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+            try:
+                send_wx_msg(
+                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
+                    message=f"【GitHub日报】{today}\n{summary}",
+                    receiver=room_id,
+                    aters=''
+                )
+                print(f"已发送所有仓库的综合每日摘要到微信群: {room_id}")
+            except Exception as e:
+                print(f"发送所有仓库的综合每日摘要到微信群失败: {e}")
+                
+    except Exception as e:
+        print(f"生成综合每日摘要失败: {e}")
+        # 发送简单汇总
+        simple_summary = f"【GitHub日报】{today}\n"
+        for repo_key, repo_data in commit_stats_by_repo.items():
+            simple_summary += f"仓库: {repo_key}\n今日共有 {repo_data['count']} 次提交。\n\n"
+        
+        for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+            try:
+                send_wx_msg(
+                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
+                    message=simple_summary,
+                    receiver=room_id,
+                    aters=''
+                )
+            except Exception as e:
+                print(f"发送简单汇总到微信群失败: {e}")
 
 
 # 定义实时监控DAG参数
