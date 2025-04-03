@@ -307,7 +307,7 @@ def generate_daily_summary(**context):
 请确保摘要简洁明了，不超过200字。"""
 
             # 调用LLM生成摘要
-            summary = get_llm_response(user_question=prompt)
+            summary = get_llm_response(user_question=prompt, model="gpt-4o-mini")
             
             # 发送到微信群
             for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
