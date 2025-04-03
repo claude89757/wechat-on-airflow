@@ -35,24 +35,24 @@ class OpenRouter:
         self,
         messages: List[Dict[str, str]],
         model: str = "openai/gpt-3.5-turbo",
-        system_prompt: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
         创建聊天完成请求
         
         Args:
-            messages: 消息列表，格式为[{"role": "user", "content": "..."}, ...]
-            model: 要使用的模型ID，例如"openai/gpt-3.5-turbo"或"anthropic/claude-3-opus"
-            system_prompt: 系统提示，如果提供则添加到消息列表的开头
-            **kwargs: 其他参数传递给API
+            messages: 消息列表，格式为[
+                {"role": "system", "content": "你是一个有帮助的AI助手"},
+                {"role": "user", "content": "你好，请介绍一下你自己"},
+                {"role": "assistant", "content": "你好！我是一个AI助手，很高兴为你服务。"},
+                {"role": "user", "content": "你能做什么？"}
+            ]
+            model: 要使用的模型ID，例如"openai/gpt-3.5-turbo"、"anthropic/claude-3-opus"或"google/gemini-pro"
+            **kwargs: 其他参数传递给API，如temperature、max_tokens、top_p等
             
         Returns:
             API响应字典
         """
-        if system_prompt and not any(msg.get("role") == "system" for msg in messages):
-            messages.insert(0, {"role": "system", "content": system_prompt})
-        
         # 合并默认配置和用户提供的参数
         params = {**self.default_config, **kwargs}
         
@@ -79,6 +79,7 @@ class OpenRouter:
                 json=data
             )
             response.raise_for_status()
+            print(f"[OpenRouter] 响应: {response.json()}")
             return response.json()
         except Exception as e:
             print(f"[OpenRouter] 请求失败: {str(e)}")
@@ -132,36 +133,36 @@ def test_openrouter():
     OpenRouter API基础测试示例
     """
     # 初始化客户端
-    client = OpenRouter(api_key="xxx")
+    client = OpenRouter(api_key="sk-or-x")
     
     # 测试1: 简单聊天完成
     print("\n=== 测试1: 简单聊天完成 ===")
     response = client.chat_completion(
         messages=[{"role": "user", "content": "你好，请介绍一下自己"}],
-        model="openai/gpt-3.5-turbo"
+        model="google/gemini-2.0-flash-thinking-exp:free"
     )
     print(f"响应: {client.extract_text_response(response)}")
     
-    # 测试2: 使用系统提示
-    print("\n=== 测试2: 使用系统提示 ===")
-    response = client.chat_completion(
-        messages=[{"role": "user", "content": "给我讲个笑话"}],
-        model="anthropic/claude-3-haiku",
-        system_prompt="你是一个幽默的AI助手，专注于讲笑话"
-    )
-    print(f"响应: {client.extract_text_response(response)}")
+    # # 测试2: 使用系统提示
+    # print("\n=== 测试2: 使用系统提示 ===")
+    # response = client.chat_completion(
+    #     messages=[{"role": "user", "content": "给我讲个笑话"}],
+    #     model="anthropic/claude-3-haiku",
+    #     system_prompt="你是一个幽默的AI助手，专注于讲笑话"
+    # )
+    # print(f"响应: {client.extract_text_response(response)}")
     
-    # 测试3: 多轮对话
-    print("\n=== 测试3: 多轮对话 ===")
-    response = client.chat_completion(
-        messages=[
-            {"role": "user", "content": "中国的首都是哪里？"},
-            {"role": "assistant", "content": "中国的首都是北京。"},
-            {"role": "user", "content": "它有什么著名的景点？"}
-        ],
-        model="openai/gpt-4o"
-    )
-    print(f"响应: {client.extract_text_response(response)}")
+    # # 测试3: 多轮对话
+    # print("\n=== 测试3: 多轮对话 ===")
+    # response = client.chat_completion(
+    #     messages=[
+    #         {"role": "user", "content": "中国的首都是哪里？"},
+    #         {"role": "assistant", "content": "中国的首都是北京。"},
+    #         {"role": "user", "content": "它有什么著名的景点？"}
+    #     ],
+    #     model="openai/gpt-4o"
+    # )
+    # print(f"响应: {client.extract_text_response(response)}")
     
     # 测试4: 获取可用模型
     print("\n=== 测试4: 获取可用模型 ===")

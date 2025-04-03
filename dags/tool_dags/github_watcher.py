@@ -336,7 +336,7 @@ def generate_daily_summary(**context):
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            model="google/gemini-2.0-flash-thinking-exp:free"
+            model="deepseek/deepseek-v3-base:free"
         )
         summary = openrouter.extract_text_response(response)
         
