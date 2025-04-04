@@ -177,13 +177,18 @@ def check_tennis_courts():
     
     area_id = "3"  # 新API的区域ID参数
     
-    for index in range(0, 7):
+    for index in range(0, 4):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
-        data_list, ok_proxy_list = get_free_tennis_court_data(area_id,
-                                                             input_date,
-                                                             proxy_list=proxy_list,
-                                                             ok_proxy_list=ok_proxy_list)
+        try:
+            print(f"checking {input_date}...")
+            data_list, ok_proxy_list = get_free_tennis_court_data(area_id,
+                                                                 input_date,
+                                                                 proxy_list=proxy_list,
+                                                                 ok_proxy_list=ok_proxy_list)
+        except Exception as e:
+            print(f"error for {input_date}: {e}")
+            continue
         time.sleep(1)
         if data_list:
             # 按照场地分组
