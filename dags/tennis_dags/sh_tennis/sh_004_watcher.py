@@ -221,7 +221,7 @@ def check_tennis_courts():
             print(f"checking {input_date}...")
             data_list, ok_proxy_list = get_free_tennis_court_data(venue_id,
                                                                  input_date,
-                                                                 proxy_list=proxy_list,
+                                                                 # proxy_list=proxy_list,
                                                                  ok_proxy_list=ok_proxy_list)
         except Exception as e:
             print(f"error for {input_date}: {e}")
