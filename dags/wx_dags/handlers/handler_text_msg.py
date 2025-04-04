@@ -126,7 +126,7 @@ def handler_text_msg(**context):
         })
     
     # 群聊标识
-    input_params = {"is_group": True} if is_group else {}
+    input_params = {"is_group": "true"} if is_group else {}
 
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
