@@ -134,7 +134,7 @@ def handler_text_msg(**context):
         user_id=dify_user_id,
         conversation_id=conversation_id,
         files=dify_files,
-        input=input_params
+        inputs=input_params
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
