@@ -66,7 +66,7 @@ def handler_text_msg(**context):
     wx_user_id = wx_account_info['wxid']
 
     # 等待3秒，聚合消息
-    time.sleep(5) 
+    time.sleep(3) 
 
     # 检查是否需要提前停止流程 
     should_pre_stop(message_data, wx_user_id, room_id)
