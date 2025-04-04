@@ -142,9 +142,12 @@ def handler_text_msg(**context):
     context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
 
     if not conversation_id:
-        # 新会话，重命名会话
-        conversation_id = metadata.get("conversation_id")
-        dify_agent.rename_conversation(conversation_id, dify_user_id, room_name)
+        try:
+            # 新会话，重命名会话
+            conversation_id = metadata.get("conversation_id")
+            dify_agent.rename_conversation(conversation_id, dify_user_id, room_name)
+        except Exception as e:
+            print(f"[WATCHER] 重命名会话失败: {e}")
 
         # 保存会话ID
         conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)

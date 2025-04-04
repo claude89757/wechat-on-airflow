@@ -201,6 +201,10 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
         # 重新获取联系人名称
         contact_name = contact_infos.get(wxid, {}).get('name', wxid)
 
+    # 如果联系人名称不存在，则使用wxid作为联系人名称
+    if not contact_name:
+        contact_name = wxid
+
     print(f"返回联系人名称, wxid: {wxid}, 名称: {contact_name}")
     return contact_name
 
