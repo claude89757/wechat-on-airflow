@@ -320,23 +320,31 @@ def generate_daily_summary(**context):
             f"仓库：{repo['repo_key']} ({repo['description']})\n提交数量：{repo['count']}\n\n提交记录：\n{repo['commits_text']}"
             for repo in all_repos_summary
         ])
+
+        print(f"all_repos_text: {all_repos_text}")
         
-        prompt = f"""作为一名技术专家，请根据以下多个GitHub仓库的提交记录，生成一份简洁的中文日报摘要。
+        prompt = f"""作为一名技术专家，请根据以下GitHub仓库的提交记录，生成一份综合性的开发日报摘要。
 日期：{today}
 
 {all_repos_text}
 
-请总结所有仓库的开发进展，提取3-5个要点，并尽量使用技术术语。回复格式应包含仓库名、主要变更内容，不需要包含提交者姓名和具体时间。
-请确保摘要简洁明了，不超过300字。"""
+要求：
+1. 以团队整体开发进展为视角，提取所有仓库的关键变更点（总计3-5点）
+2. 按重要性排序，重点突出功能新增、架构改进、问题修复等内容
+3. 使用专业技术术语，简明扼要描述变更要点
+4. 适当使用项目符号提高可读性
+5. 可根据实际情况灵活组织内容结构
+
+总结必须简洁明了，控制在250字以内，突出团队整体进展。"""
 
         # 调用LLM生成综合摘要
         api_key = Variable.get("OPENROUTER_API_KEY")
         openrouter = OpenRouter(api_key=api_key)
         response = openrouter.chat_completion(
             messages=[
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": prompt}
             ],
-            model="deepseek/deepseek-v3-base:free"
+            model="google/gemini-2.5-pro-exp-03-25:free"
         )
         summary = openrouter.extract_text_response(response)
         
