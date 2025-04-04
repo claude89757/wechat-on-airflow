@@ -313,17 +313,15 @@ def generate_daily_summary(**context):
         except Exception as e:
             print(f"处理仓库 {repo_key} 的提交信息时出错: {e}")
     
-    # 生成综合摘要
-    try:
-        # 准备综合摘要的提示
-        all_repos_text = "\n\n".join([
-            f"仓库：{repo['repo_key']} ({repo['description']})\n提交数量：{repo['count']}\n\n提交记录：\n{repo['commits_text']}"
-            for repo in all_repos_summary
-        ])
+    # 准备综合摘要的提示
+    all_repos_text = "\n\n".join([
+        f"仓库：{repo['repo_key']} ({repo['description']})\n提交数量：{repo['count']}\n\n提交记录：\n{repo['commits_text']}"
+        for repo in all_repos_summary
+    ])
 
-        print(f"all_repos_text: {all_repos_text}")
-        
-        prompt = f"""作为一名技术专家，请根据以下GitHub仓库的提交记录，生成一份综合性的开发日报摘要。
+    print(f"all_repos_text: {all_repos_text}")
+    
+    prompt = f"""作为一名技术专家，请根据以下GitHub仓库的提交记录，生成一份综合性的开发日报摘要。
 日期：{today}
 
 {all_repos_text}
@@ -337,48 +335,29 @@ def generate_daily_summary(**context):
 
 总结必须简洁明了，控制在250字以内，突出团队整体进展。"""
 
-        # 调用LLM生成综合摘要
-        api_key = Variable.get("OPENROUTER_API_KEY")
-        openrouter = OpenRouter(api_key=api_key)
-        response = openrouter.chat_completion(
-            messages=[
-                {"role": "system", "content": prompt}
-            ],
-            model="google/gemini-2.5-pro-exp-03-25:free"
-        )
-        summary = openrouter.extract_text_response(response)
-        
-        # 发送综合摘要到微信群
-        for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-            try:
-                send_wx_msg(
-                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
-                    message=f"【GitHub日报】{today}\n{summary}",
-                    receiver=room_id,
-                    aters=''
-                )
-                print(f"已发送所有仓库的综合每日摘要到微信群: {room_id}")
-            except Exception as e:
-                print(f"发送所有仓库的综合每日摘要到微信群失败: {e}")
-                
-    except Exception as e:
-        print(f"生成综合每日摘要失败: {e}")
-        # 发送简单汇总
-        simple_summary = f"【GitHub日报】{today}\n"
-        for repo_key, repo_data in commit_stats_by_repo.items():
-            simple_summary += f"仓库: {repo_key}\n今日共有 {repo_data['count']} 次提交。\n\n"
-        
-        for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-            try:
-                send_wx_msg(
-                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
-                    message=simple_summary,
-                    receiver=room_id,
-                    aters=''
-                )
-            except Exception as e:
-                print(f"发送简单汇总到微信群失败: {e}")
-
+    # 调用LLM生成综合摘要
+    api_key = Variable.get("OPENROUTER_API_KEY")
+    openrouter = OpenRouter(api_key=api_key)
+    response = openrouter.chat_completion(
+        messages=[
+            {"role": "system", "content": prompt}
+        ],
+        model="deepseek/deepseek-chat-v3-0324:free"
+    )
+    summary = openrouter.extract_text_response(response)
+    
+    # 发送综合摘要到微信群
+    for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+        try:
+            send_wx_msg(
+                wcf_ip=WECHAT_CONFIG["WCF_IP"],
+                message=f"【GitHub日报】{today}\n{summary}",
+                receiver=room_id,
+                aters=''
+            )
+            print(f"已发送所有仓库的综合每日摘要到微信群: {room_id}")
+        except Exception as e:
+            print(f"发送所有仓库的综合每日摘要到微信群失败: {e}")
 
 # 定义实时监控DAG参数
 default_args = {
@@ -396,7 +375,7 @@ dag = DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="每5分钟查询多个GitHub仓库的提交记录",
-    schedule_interval="*/5 * * * *",  # 每5分钟执行一次
+    schedule_interval="*/10 * * * *",  # 每10分钟执行一次
     catchup=False,
     tags=["github", "监控"],
 )
