@@ -24,7 +24,7 @@ def query_szw_venue_info(billDay: str):
     Returns:
         dict: 格式化后的场地信息，格式适合大模型解读
     """
-    cookie = os.environ.get("SZBAY_COOKIE", "HT.LoginType.1=20; HT.App.Type.1=10; HT.Weixin.ServiceType.1=30; HT.Weixin.AppID.1=wx6b10d95e92283e1c; HT.Weixin.OpenID.1=oH5RL5EWB5CjAPKVPOOLlfHm1bV8; HT.EmpID.1=4d5adfce-e849-48d5-b7fb-863cdf34bea0; HT.IsTrainer.1=False; HT.PartID.1=b700c053-71f2-47a6-88a1-6cf50b7cf863; HT.PartDisplayName.1=%e6%b7%b1%e5%9c%b3%e6%b9%be%e4%bd%93%e8%82%b2%e4%b8%ad%e5%bf%83; HT.ShopID.1=4f195d33-de51-495e-a345-09b23f98ce95; HT.ShopDisplayName.1=%e6%b7%b1%e5%9c%b3%e6%b9%be%e5%b0%8f%e7%a8%8b%e5%ba%8f; ASP.NET_SessionId=krqivgapdfsmtrounmdawovm; .AspNet.ApplicationCookie=IJH0GRgqRiSD63pT0lHJ_m9hupwF2cyb8ejq4KzrKqAj2TIYHW09MegGY5QVfSglxePdqcnUAC8ca0xKhvIodjqRQ1ogcz16WC3IY7LyLCSque6lX1dh1dQs6ZB1U3zAGd2WkzRPB7QJjpI3uaCFkQ6PL_s7o15Ky6suPbnlSlRIRteoowIRLmQz3v8Ox6AUmpVFnt7GhLZDQV686xWRhAF5a1fuYTQ-sbhSNjg6hykmr2F4zevOYgmFW9hS2QxuUN2BBIOPnYm_flk4NDkmk5hhtqsE9T3rTGiNSLquoMmV-x3mjL85ZNW4zpa147ixIxTnfT7EItXAmhBrfuOr9b4Nm0SrTzvC_3oxGFL17pxFFp2TfDZOPYmN4syZ6-UY7AS1fg-6krh_znUAHRkWijkRjxDKFhDK2eRV1o_W7yTV2HUtjASQ-Dj1vzufgEY9Y8ijlyzh0xEYAEXVyjXdO6bC5tnNrNhUeviYqJE61ehiJOvNTJS60ZarOTOGdwn3z8KFcvQfpF9mZjxiLOlLYbPLL9t2GexmxUIHXWpJ7fONafgPxmCB4K9BdSr3pBozGRIyhc1nsG7GF2UubKE00zQPn1fWESARhBjWb8ugyJdzir9W; __RequestVerificationToken_L3N6YmF50=fHCJUsWh79XgaAtZmmQ6LJF40sY-80ldyOb6q9awYgCoXCPVbU3r8F8aIB0S-MQVmgGFmvFZJI0I5IaV2do0QwnI0z81; XSRF-TOKEN=KTQOsbvkql3JF8L9p5jjpoRDfiyLum89WZU86rWdyLLT2a_sgMrlfAnSuMJYlbvlU3pVgKs1MswvlXZEdz-1TWt1wgFzB_dS1v8mSkF-NPENXEMFQEQlhLs5SgN22ATT9W9Rpw2")
+    cookie = os.environ.get("SZBAY_COOKIE")
     if not cookie:
         raise ValueError("环境变量 'SZBAY_COOKIE' 未设置。请设置该变量后重试。")
 
