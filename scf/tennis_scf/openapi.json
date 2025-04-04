@@ -1,0 +1,143 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "网球场地预订查询API",
+    "description": "查询特定日期可用的网球场地和时间段",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://1300108802-ifjqm9x6d3.in.ap-singapore.tencentscf.com",
+      "description": "腾讯云函数服务"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "queryAvailableCourts",
+        "summary": "查询深圳湾网球场地的可预订信息",
+        "description": "根据指定日期查询可预订的网球场地和时间段",
+        "parameters": [
+          {
+            "name": "check_date",
+            "in": "query",
+            "description": "要查询的日期，格式为YYYY-MM-DD",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "example": "2025-04-05"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回场地可用信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数错误"
+          },
+          "500": {
+            "description": "服务器内部错误"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AvailabilityResponse": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "查询日期",
+            "example": "2025-04-05"
+          },
+          "date_formatted": {
+            "type": "string",
+            "description": "格式化后的日期（中文）",
+            "example": "2025年04月05日"
+          },
+          "weekday": {
+            "type": "string",
+            "description": "星期几（中文）",
+            "example": "星期六"
+          },
+          "available_courts": {
+            "type": "array",
+            "description": "可用场地列表",
+            "items": {
+              "$ref": "#/components/schemas/Court"
+            }
+          },
+          "summary": {
+            "type": "string",
+            "description": "可用情况摘要（中文）",
+            "example": "在2025年04月05日（星期六）共有11个场地有空闲时段，共18个可预订时段，最早可预订时间为08:00，最晚结束时间为20:30。"
+          },
+          "has_available_courts": {
+            "type": "boolean",
+            "description": "是否有可用场地",
+            "example": true
+          },
+          "total_available_time_slots": {
+            "type": "integer",
+            "description": "总可用时间段数量",
+            "example": 18
+          }
+        }
+      },
+      "Court": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "场地名称",
+            "example": "1号场"
+          },
+          "available_time_slots": {
+            "type": "array",
+            "description": "可用时间段列表",
+            "items": {
+              "$ref": "#/components/schemas/TimeSlot"
+            }
+          }
+        }
+      },
+      "TimeSlot": {
+        "type": "object",
+        "properties": {
+          "start_time": {
+            "type": "string",
+            "description": "开始时间",
+            "example": "08:00"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "结束时间",
+            "example": "09:30"
+          },
+          "duration_hours": {
+            "type": "number",
+            "format": "float",
+            "description": "持续时间（小时）",
+            "example": 1.5
+          },
+          "formatted": {
+            "type": "string",
+            "description": "格式化的时间段信息",
+            "example": "08:00-09:30 (1.5小时)"
+          }
+        }
+      }
+    }
+  }
+}
