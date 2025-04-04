@@ -346,6 +346,10 @@ def generate_daily_summary(**context):
     )
     summary = openrouter.extract_text_response(response)
     
+    if not summary:
+        print("生成综合摘要失败")
+        return
+    
     # 发送综合摘要到微信群
     for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
         try:
