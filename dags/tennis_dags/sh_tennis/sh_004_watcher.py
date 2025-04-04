@@ -86,7 +86,7 @@ def get_free_tennis_court_data(venue_id: str, date_str: str, proxy_list: list = 
     headers = {
         "Host": "jsapp.jussyun.com",
         "os_type": "wechat_mini",
-        "fullMobile": Variable.get("WILSON_FULLMOBILE", default_var=""),
+        # "fullMobile": Variable.get("WILSON_FULLMOBILE", default_var=""),
         "gw_channel": "api",
         "app_id": "0ff444f417de34c1352af3b3ffc30348",
         "js_sign": Variable.get("WILSON_JS_SIGN", default_var=""),
@@ -95,7 +95,7 @@ def get_free_tennis_court_data(venue_id: str, date_str: str, proxy_list: list = 
         "Content-Type": "application/json",
         "xweb_xhr": "1",
         "device_type": "Mac16,11",
-        "token": Variable.get("WILSON_TOKEN", default_var=""),
+        # "token": Variable.get("WILSON_TOKEN", default_var=""),
         "Accept": "*/*",
         "Sec-Fetch-Site": "cross-site",
         "Sec-Fetch-Mode": "cors",
