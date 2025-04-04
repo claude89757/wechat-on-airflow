@@ -342,7 +342,7 @@ def generate_daily_summary(**context):
         messages=[
             {"role": "system", "content": prompt}
         ],
-        model="google/gemini-2.0-flash-exp:free"
+        model="openai/gpt-4o-mini"
     )
     summary = openrouter.extract_text_response(response)
     
