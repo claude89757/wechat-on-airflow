@@ -180,7 +180,8 @@ class DifyAgent:
         elif name:
             payload["name"] = name
         else:
-            raise ValueError("必须提供name或设置auto_generate=True")
+            # 如果name为空，则使用用户ID作为会话名称
+            payload["name"] = user_id
         
         print(f"重命名会话, url: {url}, payload: {payload}")
         response = requests.post(url, headers=self.headers, json=payload)
