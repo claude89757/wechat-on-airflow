@@ -125,12 +125,16 @@ def handler_text_msg(**context):
             "upload_file_id": online_img_info.get("id", "")
         })
     
+    # 群聊标识
+    input_params = {"is_group": True} if is_group else {}
+
     # 获取AI回复
     full_answer, metadata = dify_agent.create_chat_message_stream(
         query=question,
         user_id=dify_user_id,
         conversation_id=conversation_id,
-        files=dify_files
+        files=dify_files,
+        input=input_params
     )
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")

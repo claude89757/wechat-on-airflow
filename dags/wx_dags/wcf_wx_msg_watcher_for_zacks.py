@@ -113,7 +113,8 @@ def process_wx_message(**context):
             next_task_list.append('handler_text_msg')
         else:
             # 群聊消息
-            if room_id in ["XXXX"]:
+            enable_rooms = Variable.get(f"zacks_enable_ai_room_ids", default_var=[], deserialize_json=True)
+            if room_id in enable_rooms:
                 # 开白的群里
                 next_task_list.append('handler_text_msg')
             else:
