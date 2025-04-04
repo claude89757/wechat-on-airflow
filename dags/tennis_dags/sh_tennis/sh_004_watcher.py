@@ -316,7 +316,7 @@ def check_tennis_courts():
 
 # 创建DAG
 dag = DAG(
-    'Wilson网球场巡检',
+    '上海Wilson网球场巡检',
     default_args=default_args,
     description='监控Wilson网球场地可用情况',
     schedule_interval='*/5 * * * *',  # 每5分钟执行一次
