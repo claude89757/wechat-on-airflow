@@ -184,8 +184,8 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
                         if str(venue_info.get('bookLinker')) == '可定' or str(venue_info.get('bookLinker')) == '可订':
                             pass
                         else:
-                            start_time = str(venue_info['timeStartEndName']).split('-')[0].replace(":30", ":00")
-                            end_time = str(venue_info['timeStartEndName']).split('-')[1].replace(":30", ":00")
+                            start_time = str(venue_info['timeStartEndName']).split('-')[0]
+                            end_time = str(venue_info['timeStartEndName']).split('-')[1]
                             venue_name = venue_name_infos[venue_info['venueID']]
                             if booked_court_infos.get(venue_name):
                                 booked_court_infos[venue_name].append([start_time, end_time])
@@ -196,8 +196,8 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
                             response.json()['result'][0]['listWeixinVenueStatus']:
                         for venue_info in response.json()['result'][0]['listWeixinVenueStatus']:
                             if venue_info['status'] == 20:
-                                start_time = str(venue_info['timeStartEndName']).split('-')[0].replace(":30", ":00")
-                                end_time = str(venue_info['timeStartEndName']).split('-')[1].replace(":30", ":00")
+                                start_time = str(venue_info['timeStartEndName']).split('-')[0]
+                                end_time = str(venue_info['timeStartEndName']).split('-')[1]
                                 venue_name = venue_name_infos[venue_info['venueID']]
                                 if booked_court_infos.get(venue_name):
                                     booked_court_infos[venue_name].append([start_time, end_time])
@@ -246,8 +246,8 @@ def check_tennis_courts():
 
     # 设置查询时间范围
     time_range = {
-        "start_time": "08:00",
-        "end_time": "22:00"
+        "start_time": "08:30",
+        "end_time": "22:30"
     }
 
     # 使用可用代理查询空闲的球场信息
@@ -270,10 +270,10 @@ def check_tennis_courts():
                     for slot in free_slots:
                         hour_num = int(slot[0].split(':')[0])
                         if is_weekend:
-                            if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
+                            if 15 <= hour_num < 21:  # 周末关注15点到21点的场地
                                 filtered_slots.append(slot)
                         else:
-                            if 18 <= hour_num <= 21:  # 工作日仍然只关注18点到21点的场地
+                            if 18 <= hour_num < 21:  # 工作日仍然只关注18点到21点的场地
                                 filtered_slots.append(slot)
                     
                     if filtered_slots:
