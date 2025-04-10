@@ -87,9 +87,7 @@ def process_wx_message(**context):
     mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
     user_info = mp_bot.get_user_info(message_data.get('FromUserName'))
     print(f"FromUserName: {message_data.get('FromUserName')}, 用户信息: {user_info}")
-    # 将账号信息传递到xcom中供后续任务使用
-    context['task_instance'].xcom_push(key='wx_mp_account_info', value=wx_account_info)
-    
+        
     # 获取公众号账号信息
     wx_mp_account_info = get_mp_account_info(message_data.get('ToUserName'))
     # 将账号信息传递到xcom中供后续任务使用
