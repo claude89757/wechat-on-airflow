@@ -57,7 +57,7 @@ MAX_COMMITS = 1000
 # 微信配置
 WECHAT_CONFIG = {
     "WCF_IP": Variable.get("DEV_WCF_IP", default_var="10.1.8.5"),
-    "GITHUB_ROOM_ID_LIST": Variable.get("GITHUB_ROOM_ID_LIST", deserialize_json=True, default_var=["57852893888@chatroom"])
+    "GITHUB_ROOM_ID_LIST": Variable.get("GITHUB_ROOM_ID_LIST", deserialize_json=True, default_var=["56234805102@chatroom"])
 }
 
 def get_latest_commits(**context):
