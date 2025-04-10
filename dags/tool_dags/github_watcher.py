@@ -40,6 +40,11 @@ GITHUB_REPOS = [
         "repo": "ai-agent",
         "description": "前端项目"
     },
+    {
+        "owner": "claude89757",
+        "repo": "crawler_on_airflow",
+        "description": "爬虫Airflow项目"
+    },
 ]
 
 # DAG ID
