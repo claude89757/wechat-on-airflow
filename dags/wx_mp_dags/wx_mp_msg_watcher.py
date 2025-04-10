@@ -43,7 +43,8 @@ from utils.wechat_mp_channl import WeChatMPBot
 from utils.tts import text_to_speech
 from utils.redis import RedisHandler
 from wx_dags.common.mysql_tools import save_token_usage_to_db
-from wx_dags.common.wx_tools import get_contact_name
+from wx_mp_dags.common.wx_mp_tools import get_mp_account_info
+
 
 
 DAG_ID = "wx_mp_msg_watcher"
@@ -86,8 +87,13 @@ def process_wx_message(**context):
     mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
     user_info = mp_bot.get_user_info(message_data.get('FromUserName'))
     print(f"FromUserName: {message_data.get('FromUserName')}, 用户信息: {user_info}")
-    # user_info = mp_bot.get_user_info(message_data.get('ToUserName'))
-    # print(f"ToUserName: {message_data.get('ToUserName')}, 用户信息: {user_info}")
+    # 将账号信息传递到xcom中供后续任务使用
+    context['task_instance'].xcom_push(key='wx_mp_account_info', value=wx_account_info)
+    
+    # 获取公众号账号信息
+    wx_mp_account_info = get_mp_account_info(message_data.get('ToUserName'))
+    # 将账号信息传递到xcom中供后续任务使用
+    context['task_instance'].xcom_push(key='wx_mp_account_info', value=wx_mp_account_info)
     
     # 判断消息类型
     msg_type = message_data.get('MsgType')
@@ -925,11 +931,11 @@ def save_token_usage(**context):
     save_token_usage_data['currency'] = currency
     save_token_usage_data['source_ip'] = message_data.get('source_ip', '')
 
-    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
-    save_token_usage_data['wx_user_id'] = wx_account_info.get('wxid', '')
-    save_token_usage_data['wx_user_name'] = wx_account_info.get('wx_user_name', '')
-    save_token_usage_data['room_id'] = message_data.get('roomid', '')
-    save_token_usage_data['room_name'] = get_contact_name(save_token_usage_data['source_ip'], save_token_usage_data['room_id'], save_token_usage_data['wx_user_name'])
+    wx_mp_account_info = context.get('task_instance').xcom_pull(key='wx_mp_account_info')
+    save_token_usage_data['wx_user_id'] = wx_mp_account_info.get('gh_user_id', '')
+    save_token_usage_data['wx_user_name'] = wx_mp_account_info.get('name', '')
+    save_token_usage_data['room_id'] = message_data.get('FromUserName', '')
+    save_token_usage_data['room_name'] = message_data.get('FromUserName', '')
 
 
     # 保存token用量到DB
