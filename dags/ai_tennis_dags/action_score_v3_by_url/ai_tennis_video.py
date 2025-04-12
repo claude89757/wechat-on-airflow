@@ -62,10 +62,12 @@ def process_ai_video(**context):
             file_urls[file_type] = file_url
 
             print(f"文件 {file_type} 已上传至COS，URL: {file_url}\n{upload_result}")
-    
-    # 将结果保存到XCom
-    context['ti'].xcom_push(key='file_urls', value=file_urls)
     print(f"文件URLs已保存: {file_urls}")
+
+    # 将结果保存到XCom
+    context['ti'].xcom_push(key='output_video_url', value=file_urls["slow_action_video"])
+    context['ti'].xcom_push(key='output_image_url', value=file_urls["analysis_image"])
+    context['ti'].xcom_push(key='output_text', value="AI网球动作分析完成, 请查看视频和图片")
 
     # 删除临时文件
     try:    
