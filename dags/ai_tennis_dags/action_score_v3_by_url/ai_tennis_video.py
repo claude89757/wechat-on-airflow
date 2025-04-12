@@ -44,6 +44,7 @@ def process_ai_video(**context):
     # one_action_video': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/tennis_action.mp4',
     # 'slow_action_video': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/tennis_action_slow.mp4',
     #  'analysis_image': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/tennis_analysis_416_1742834282.jpg'}
+    
     cos_client = TencentCosClient()
     # 使用run_id作为COS文件夹名称
     file_urls = {}
@@ -54,11 +55,13 @@ def process_ai_video(**context):
             # 使用run_id作为文件夹名称
             cos_path = f"{run_id}/{file_name}"
             # 上传文件到COS
-            cos_client.upload_file(local_file_path, cos_path)
+            upload_result = cos_client.upload_file(local_file_path, cos_path)
+
             # 获取文件的URL，有效期设为7天
-            file_url = cos_client.get_object_url(cos_path, expires=7*24*3600)
+            file_url = cos_client.get_object_url(cos_path, expires=14*24*3600)
             file_urls[file_type] = file_url
-            print(f"文件 {file_type} 已上传至COS，URL: {file_url}")
+
+            print(f"文件 {file_type} 已上传至COS，URL: {file_url}\n{upload_result}")
     
     # 将结果保存到XCom
     context['ti'].xcom_push(key='file_urls', value=file_urls)
@@ -89,6 +92,7 @@ dag = DAG(
     start_date=datetime(2025, 1, 1),
     schedule_interval=None,
     max_active_runs=1,
+
     catchup=False,
     tags=['AI网球'],
     description='网球关键动作识别',
