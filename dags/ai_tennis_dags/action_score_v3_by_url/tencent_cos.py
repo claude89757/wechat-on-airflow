@@ -41,26 +41,24 @@ class TencentCosClient:
             secret_id = Variable.get('CLAUDE_TENCENT_SECRET_ID')
         if not secret_key:
             secret_key = Variable.get('CLAUDE_TENCENT_SECRET_KEY')
-        
-        
+
+        # Set the bucket name and region
+        self.bucket = bucket or Variable.get('CLAUDE_TENCENT_COS_BUCKET')
+        self.region = region or Variable.get('CLAUDE_TENCENT_COS_REGION')
+    
         if not secret_id or not secret_key:
             raise ValueError("Tencent Cloud credentials not provided and not found in environment variables")
         
         # Initialize COS configuration
         self.config = CosConfig(
-            Region=region,
+            Region=self.region,
             SecretId=secret_id,
             SecretKey=secret_key,
             Token=token,
             Scheme=scheme
         )
-        
         # Initialize the COS client
         self.client = CosS3Client(self.config)
-        
-        # Set the bucket name
-        self.bucket = bucket or Variable.get('CLAUDE_TENCENT_COS_BUCKET')
-        self.region = region or Variable.get('CLAUDE_TENCENT_COS_REGION')
     
     def upload_file(self, 
                    local_path: str, 

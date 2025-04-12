@@ -99,8 +99,6 @@ process_ai_video_task = PythonOperator(
     task_id='process_ai_video',
     python_callable=process_ai_video,
     provide_context=True,
-    retry_delay=timedelta(seconds=10),
-    retries=2,
     dag=dag,
 )
 
