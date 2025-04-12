@@ -10,8 +10,8 @@ import requests
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from ai_tennis_dags.action_score_v2.llm_score import get_tennis_action_score
-
+from ai_tennis_dags.action_score_v3_by_url.llm_score import get_tennis_action_score
+from ai_tennis_dags.action_score_v3_by_url.tencent_cos import TencentCosClient
 
 DAG_ID = "tennis_action_score_v3"
 
@@ -37,12 +37,32 @@ def process_ai_video(**context):
     file_infos = get_tennis_action_score(local_file_path, output_dir)
     print(f"file_infos: {file_infos}")
     
-    # 发送分析图片
-    print("发送分析图片")
-    output_image_path = file_infos["analysis_image"]
-    remote_image_name = os.path.basename(output_image_path)
-    print(f"remote_image_name: {remote_image_name}")
-    print(f"output_image_path: {output_image_path}")
+    # 上传视频到腾讯云COS, 并返回视频的URL
+    # file_infos: {'preparation_frame': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/prep_frame.jpg', 
+    # 'contact_frame': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/contact_frame.jpg', 
+    # 'follow_frame': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/follow_frame.jpg', 
+    # one_action_video': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/tennis_action.mp4',
+    # 'slow_action_video': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/tennis_action_slow.mp4',
+    #  'analysis_image': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/tennis_analysis_416_1742834282.jpg'}
+    cos_client = TencentCosClient()
+    # 使用run_id作为COS文件夹名称
+    file_urls = {}
+    for file_type, local_file_path in file_infos.items():
+        if os.path.exists(local_file_path):
+            # 获取文件名
+            file_name = os.path.basename(local_file_path)
+            # 使用run_id作为文件夹名称
+            cos_path = f"{run_id}/{file_name}"
+            # 上传文件到COS
+            cos_client.upload_file(local_file_path, cos_path)
+            # 获取文件的URL，有效期设为7天
+            file_url = cos_client.get_object_url(cos_path, expires=7*24*3600)
+            file_urls[file_type] = file_url
+            print(f"文件 {file_type} 已上传至COS，URL: {file_url}")
+    
+    # 将结果保存到XCom
+    context['ti'].xcom_push(key='file_urls', value=file_urls)
+    print(f"文件URLs已保存: {file_urls}")
 
     # 删除临时文件
     try:    
@@ -56,7 +76,11 @@ def process_ai_video(**context):
     except Exception as e:
         print(f"删除临时文件失败: {e}")
 
-    return {}
+    return {
+        "output_video_url": file_urls["slow_action_video"],
+        "output_image_url": file_urls["analysis_image"],
+        "output_text": "AI网球动作分析完成, 请查看视频和图片"
+    }
 
 # 创建DAG
 dag = DAG(
