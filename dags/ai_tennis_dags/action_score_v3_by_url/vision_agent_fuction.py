@@ -1894,7 +1894,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
         combined_prompt = "moving tennis ball with motion blur, tennis racket, tennis player"
         print(f"使用提示词: {combined_prompt}")
         combined_tracked = owlv2_sam2_video_tracking(combined_prompt, frames_list, box_threshold=0.3, chunk_length=15)
-        print(f"检测结果: {combined_tracked}")
+        # print(f"检测结果: {combined_tracked}")
         
         # 分离检测结果
         ball_tracked = []
