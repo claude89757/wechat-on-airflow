@@ -79,7 +79,7 @@ def handler_text_msg(**context):
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
     # 获取Dify的URL和API key
-    dify_base_url = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_base_url")
+    dify_base_url = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_base_url", default_var="")
     if not dify_base_url:
         dify_base_url = Variable.get("DIFY_BASE_URL")
     if is_group:
