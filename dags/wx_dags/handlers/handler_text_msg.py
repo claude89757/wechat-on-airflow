@@ -78,7 +78,10 @@ def handler_text_msg(**context):
     # 打印调试信息
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
-    # 如果是群聊，先检查是否有群聊专用的API key
+    # 获取Dify的URL和API key
+    dify_base_url = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_base_url")
+    if not dify_base_url:
+        dify_base_url = Variable.get("DIFY_BASE_URL")
     if is_group:
         try:
             dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
@@ -86,8 +89,11 @@ def handler_text_msg(**context):
             dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
     else:
         dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
-        
-    dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
+    if not dify_api_key:
+        dify_api_key = Variable.get("DIFY_API_KEY")
+    
+    # 初始化DifyAgent
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
 
     # 获取会话ID
     dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}"
