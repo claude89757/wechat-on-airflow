@@ -17,6 +17,7 @@ from datetime import datetime
 # Airflow相关导入
 from airflow.models import Variable
 from utils.tecent_cos import upload_file
+import os
 
 def get_mp_account_info(to_user_name: str) -> dict:
     """
