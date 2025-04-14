@@ -658,14 +658,14 @@ def handler_image_msg(**context):
             mp_bot.send_text_message(from_user_name, f"很抱歉，无法处理您的图片消息，发生了以下错误：{str(e)}")
         except Exception as send_error:
             print(f"[WATCHER] 发送错误提示失败: {send_error}")
-    finally:
-        # 清理临时文件
-        try:
-            if 'image_file_path' in locals() and image_file_path and os.path.exists(image_file_path):
-                os.remove(image_file_path)
-                print(f"[WATCHER] 临时图片文件已删除: {image_file_path}")
-        except Exception as e:
-            print(f"[WATCHER] 删除临时文件失败: {e}")
+    # finally:
+    #     # 清理临时文件
+    #     try:
+    #         if 'image_file_path' in locals() and image_file_path and os.path.exists(image_file_path):
+    #             os.remove(image_file_path)
+    #             print(f"[WATCHER] 临时图片文件已删除: {image_file_path}")
+    #     except Exception as e:
+    #         print(f"[WATCHER] 删除临时文件失败: {e}")
     
 
 def handler_voice_msg(**context):
