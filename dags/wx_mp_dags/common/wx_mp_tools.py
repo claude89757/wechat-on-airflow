@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Airflow相关导入
 from airflow.models import Variable
-
+from utils.tecent_cos import upload_file
 
 def get_mp_account_info(to_user_name: str) -> dict:
     """
@@ -47,45 +47,33 @@ def get_mp_account_info(to_user_name: str) -> dict:
     print(f"未找到匹配的公众号信息，使用默认值: {default_account}")
     return default_account
 
+
+def upload_mp_image_to_cos(image_file_path: str, mp_name: str, to_user_name: str, from_user_name: str, context=None):
     """
-    更新微信公众号账号信息
+    上传微信公众号图片到COS存储
     
     Args:
-        to_user_name: 公众号原始ID (ToUserName)
-        account_info: 要更新的账号信息
+        image_file_path: 本地图片路径
+        mp_name: 公众号名称
+        to_user_name: 接收者ID (ToUserName)
+        from_user_name: 发送者ID (FromUserName)
+        context: Airflow上下文，用于xcom_push
         
     Returns:
-        dict: 更新后的账号信息
+        str: COS路径
     """
-    # 获取当前已缓存的公众号账号列表
-    mp_account_list = Variable.get("WX_MP_ACCOUNT_LIST", default_var=[], deserialize_json=True)
-    
-    # 更新时间
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    account_info['update_time'] = current_time
-    
-    # 确保有gh_user_id字段
-    if 'gh_user_id' not in account_info:
-        account_info['gh_user_id'] = to_user_name
-    
-    # 查找是否已存在该公众号
-    found = False
-    for i, account in enumerate(mp_account_list):
-        if to_user_name == account.get('gh_user_id', ''):
-            # 更新现有账号信息
-            mp_account_list[i] = account_info
-            found = True
-            break
-    
-    # 如果未找到，添加新账号
-    if not found:
-        # 设置创建时间
-        if 'create_time' not in account_info:
-            account_info['create_time'] = current_time
-        mp_account_list.append(account_info)
-    
-    # 更新账号列表
-    Variable.set("WX_MP_ACCOUNT_LIST", mp_account_list, serialize_json=True)
-    
-    print(f"更新公众号信息: {account_info}")
-    return account_info
+    # 构建COS存储路径
+    cos_path = f"{mp_name}_{to_user_name}/{from_user_name}/{os.path.basename(image_file_path)}"
+    try:
+
+        # 使用特定的 bucket wx-mp-records-1347723456
+        upload_response = upload_file(image_file_path, cos_path, bucket='wx-mp-records-1347723456')
+        print(f"上传微信公众号图片到COS成功: {cos_path}")
+        # 保存COS路径到xcom中，方便后续使用
+        if context and 'task_instance' in context:
+            context['task_instance'].xcom_push(key='mp_image_cos_path', value=cos_path)
+        return cos_path
+    except Exception as e:
+        print(f"上传微信公众号图片到COS失败: {str(e)}")
+        # 即使COS上传失败，也返回构建的路径
+        return cos_path

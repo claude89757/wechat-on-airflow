@@ -14,7 +14,7 @@ from wx_dags.common.wx_tools import upload_image_to_cos
 
 def save_image_msg(**context):
     """
-    处理图片消息, 通过Dify的AI助手进行聊天, 并回复微信消息
+    处理图片消息, 上传到COS存储
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
