@@ -573,12 +573,26 @@ def handler_image_msg(**context):
         dify_user_id = f"{from_user_name}_{to_user_name}_{conversation_id}"
         online_img_info = dify_agent.upload_file(saved_path, dify_user_id)
         print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+
+         # 3. 上传图片到COS
+        from wx_mp_dags.common.wx_mp_tools import upload_mp_image_to_cos
+        wx_mp_account_info = context['task_instance'].xcom_pull(key='wx_mp_account_info')
+        mp_name = wx_mp_account_info.get('name', to_user_name)
+        
+        cos_path = upload_mp_image_to_cos(
+            image_file_path=saved_path,
+            mp_name=mp_name,
+            to_user_name=to_user_name,
+            from_user_name=from_user_name,
+            context=context
+        )
+        print(f"[WATCHER] 图片已上传到COS: {cos_path}")
         
         # 修改判断条件，检查是否有有效的文件ID
         if not online_img_info or not online_img_info.get("id"):
             raise Exception("上传图片到Dify失败")
         
-        # 3. 发送图片信息到Dify
+        # 4. 发送图片信息到Dify
         question = "我发送了一张图片，请分析图片内容并回复"
         # 修改文件参数，使用正确的transfer_method值
         dify_files = [{
@@ -602,20 +616,6 @@ def handler_image_msg(**context):
         print(f"full_answer: {full_answer}")
         print(f"metadata: {metadata}")
         response = full_answer
-
-        # 4. 上传图片到COS
-        # from wx_mp_dags.common.wx_mp_tools import upload_mp_image_to_cos
-        # wx_mp_account_info = context['task_instance'].xcom_pull(key='wx_mp_account_info')
-        # mp_name = wx_mp_account_info.get('name', to_user_name)
-        
-        # cos_path = upload_mp_image_to_cos(
-        #     image_file_path=saved_path,
-        #     mp_name=mp_name,
-        #     to_user_name=to_user_name,
-        #     from_user_name=from_user_name,
-        #     context=context
-        # )
-        # print(f"[WATCHER] 图片已上传到COS: {cos_path}")
         
         # 处理会话ID相关逻辑
         if not conversation_id:
