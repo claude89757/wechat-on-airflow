@@ -457,7 +457,88 @@ def save_msg_to_mysql(**context):
             except:
                 pass
 
+def save_image_to_mysql(**context):
+    """
+    保存图片消息到MySQL
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    
+    # 获取公众号账号信息
+    wx_mp_account_info = context.get('task_instance').xcom_pull(key='wx_mp_account_info')
+    # 获取COS路径
+    cos_path = context.get('task_instance').xcom_pull(key='mp_image_cos_path')
 
+    # 提取消息信息
+    save_msg = {}
+    save_msg['from_user_id'] = message_data.get('FromUserName', '')  # 发送者的OpenID
+    save_msg['from_user_name'] = message_data.get('FromUserName', '')
+    save_msg['to_user_id'] = message_data.get('ToUserName', '')      # 接收者的OpenID
+    save_msg['to_user_name'] = message_data.get('ToUserName', '')
+    save_msg['msg_id'] = message_data.get('MsgId', '')              # 消息ID
+    save_msg['msg_type'] = 'image'                                  # 消息类型
+    save_msg['msg_type_name'] = WX_MSG_TYPES.get('image')           # 消息类型名称
+    save_msg['content'] = cos_path                                  # 使用COS路径作为内容
+    save_msg['msg_timestamp'] = int(message_data.get('CreateTime', 0))  # 消息时间戳
+    save_msg['msg_datetime'] = datetime.fromtimestamp(save_msg['msg_timestamp']) if save_msg['msg_timestamp'] > 0 else datetime.now()
+    
+    # 使用相同的数据库连接函数保存图片消息
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db")
+        db_conn = db_hook.get_hook().get_conn()
+        cursor = db_conn.cursor()
+        
+        # 插入图片消息的SQL
+        insert_sql = """INSERT INTO `wx_mp_chat_records` 
+        (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
+        msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE 
+        content = VALUES(content),
+        msg_type_name = VALUES(msg_type_name),
+        updated_at = CURRENT_TIMESTAMP
+        """
+        
+        # 执行插入
+        cursor.execute(insert_sql, (
+            save_msg['from_user_id'],
+            save_msg['from_user_name'],
+            save_msg['to_user_id'],
+            save_msg['to_user_name'],
+            save_msg['msg_id'],
+            save_msg['msg_type'],
+            save_msg['msg_type_name'],
+            save_msg['content'],
+            save_msg['msg_timestamp'],
+            save_msg['msg_datetime']
+        ))
+        
+        # 提交事务
+        db_conn.commit()
+        print(f"[DB_SAVE] 成功保存图片消息到数据库: {save_msg['msg_id']}")
+        
+    except Exception as e:
+        print(f"[DB_SAVE] 保存图片消息到数据库失败: {e}")
+        if db_conn:
+            try:
+                db_conn.rollback()
+            except:
+                pass
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
 
 def download_image_from_wechat_mp(access_token, media_id, save_path=None):
     """
@@ -1012,6 +1093,14 @@ save_msg_to_mysql_task = PythonOperator(
     dag=dag
 )
 
+# 创建保存图片到MySQL的任务
+save_image_to_mysql_task = PythonOperator(
+    task_id='save_image_to_mysql',
+    python_callable=save_image_to_mysql,
+    provide_context=True,
+    dag=dag
+)
+
 # 保存AI回复的消息到数据库
 save_ai_reply_msg_task = PythonOperator(
     task_id='save_ai_reply_msg_to_db',
@@ -1033,4 +1122,5 @@ save_token_usage_task = PythonOperator(
 # 设置任务依赖关系
 process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_msg_to_mysql_task]
 handler_text_msg_task >> save_ai_reply_msg_task >> save_token_usage_task
+handler_image_msg_task >> save_image_to_mysql_task
 handler_voice_msg_task >> save_token_usage_task
