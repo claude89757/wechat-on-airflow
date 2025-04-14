@@ -454,16 +454,18 @@ def save_msg_to_mysql(**context):
 
 
 
-def download_image_from_wechat_mp(access_token, media_id):
+def download_image_from_wechat_mp(access_token, media_id, save_path=None):
     """
     从微信公众号下载临时素材(图片)
     
     Args:
         access_token: 微信公众号access_token
         media_id: 媒体文件ID
+        save_path: 图片保存路径(可选)，如果不指定则返回二进制内容
         
     Returns:
-        返回图片二进制内容
+        如果save_path为None，返回图片二进制内容
+        如果指定了save_path，返回保存的文件路径
         如果失败，返回None
     """
     url = f"https://api.weixin.qq.com/cgi-bin/media/get?access_token={access_token}&media_id={media_id}"
@@ -488,12 +490,23 @@ def download_image_from_wechat_mp(access_token, media_id):
             return None
         
         # 获取文件内容
-        return response.content
+        image_data = response.content
+        
+        # 如果指定了保存路径
+        if save_path:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            with open(save_path, 'wb') as f:
+                f.write(image_data)
+            print(f"[WX_MP] 图片已保存到: {save_path}")
+            return save_path
+        else:
+            return image_data
             
     except Exception as e:
         print(f"[WX_MP] 下载图片异常: {e}")
         return None
-
+    
 def handler_image_msg(**context):
     """
     处理图片类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
@@ -546,11 +559,11 @@ def handler_image_msg(**context):
     
     temp_dir = tempfile.gettempdir()
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    image_file_path = os.path.join(temp_dir, f"{from_user_name}_{timestamp}.jpg")
+    image_file_path = os.path.join(temp_dir, f"wx_image_{from_user_name}_{timestamp}.jpg")
     
     try:
         # 1. 下载图片文件
-        saved_path = download_image_from_wechat_mp(access_token, media_id)
+        saved_path = download_image_from_wechat_mp(access_token, media_id, image_file_path)
         if not saved_path:
             raise Exception("下载图片失败")
         
