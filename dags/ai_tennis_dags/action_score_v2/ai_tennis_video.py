@@ -121,6 +121,7 @@ dag = DAG(
     start_date=datetime(2025, 1, 1),
     schedule_interval=None,
     max_active_runs=1,
+    dagrun_timeout=datetime.timedelta(minutes=10),
     catchup=False,
     tags=['AI网球'],
     description='网球关键动作识别',
@@ -131,8 +132,6 @@ process_ai_video_task = PythonOperator(
     task_id='process_ai_video',
     python_callable=process_ai_video,
     provide_context=True,
-    retry_delay=timedelta(seconds=10),
-    retries=2,
     dag=dag,
 )
 
