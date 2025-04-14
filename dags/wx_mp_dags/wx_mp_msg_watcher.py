@@ -342,6 +342,7 @@ def save_msg_to_mysql(**context):
     # 根据消息类型处理content
     if msg_type == 'image':
         cos_path = context['task_instance'].xcom_pull(key='mp_image_cos_path')
+        print(f"[DB_SAVE] 图片COS路径: {cos_path}")
         if cos_path:
             content = cos_path
         else:
