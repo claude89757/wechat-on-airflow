@@ -100,7 +100,7 @@ def process_wx_message(**context):
     if msg_type == 'text':
         return ['handler_text_msg', 'save_msg_to_mysql']
     elif msg_type == 'image':
-        return ['handler_image_msg', 'save_msg_to_mysql']
+        return ['handler_image_msg']
     elif msg_type == 'voice':
         return ['handler_voice_msg', 'save_msg_to_mysql']
     else:
@@ -1032,4 +1032,5 @@ save_token_usage_task = PythonOperator(
 # 设置任务依赖关系
 process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_msg_to_mysql_task]
 handler_text_msg_task >> save_ai_reply_msg_task >> save_token_usage_task
+handler_image_msg_task >> save_msg_to_mysql_task 
 handler_voice_msg_task >> save_token_usage_task
