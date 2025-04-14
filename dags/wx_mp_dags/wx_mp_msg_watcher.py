@@ -98,11 +98,11 @@ def process_wx_message(**context):
     print(f"[WATCHER] 消息类型: {msg_type}")
     
     if msg_type == 'text':
-        return ['handler_text_msg', 'save_msg_to_mysql']
+        return ['handler_text_msg']
     elif msg_type == 'image':
         return ['handler_image_msg']
     elif msg_type == 'voice':
-        return ['handler_voice_msg', 'save_msg_to_mysql']
+        return ['handler_voice_msg']
     else:
         print(f"[WATCHER] 不支持的消息类型: {msg_type}")
         return []
@@ -1030,7 +1030,6 @@ save_token_usage_task = PythonOperator(
 
 
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_msg_to_mysql_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task]>>save_msg_to_mysql_task
 handler_text_msg_task >> save_ai_reply_msg_task >> save_token_usage_task
-handler_image_msg_task >> save_msg_to_mysql_task 
 handler_voice_msg_task >> save_token_usage_task
