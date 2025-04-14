@@ -604,18 +604,18 @@ def handler_image_msg(**context):
         response = full_answer
 
         # 4. 上传图片到COS
-        from wx_mp_dags.common.wx_mp_tools import upload_mp_image_to_cos
-        wx_mp_account_info = context['task_instance'].xcom_pull(key='wx_mp_account_info')
-        mp_name = wx_mp_account_info.get('name', to_user_name)
+        # from wx_mp_dags.common.wx_mp_tools import upload_mp_image_to_cos
+        # wx_mp_account_info = context['task_instance'].xcom_pull(key='wx_mp_account_info')
+        # mp_name = wx_mp_account_info.get('name', to_user_name)
         
-        cos_path = upload_mp_image_to_cos(
-            image_file_path=saved_path,
-            mp_name=mp_name,
-            to_user_name=to_user_name,
-            from_user_name=from_user_name,
-            context=context
-        )
-        print(f"[WATCHER] 图片已上传到COS: {cos_path}")
+        # cos_path = upload_mp_image_to_cos(
+        #     image_file_path=saved_path,
+        #     mp_name=mp_name,
+        #     to_user_name=to_user_name,
+        #     from_user_name=from_user_name,
+        #     context=context
+        # )
+        # print(f"[WATCHER] 图片已上传到COS: {cos_path}")
         
         # 处理会话ID相关逻辑
         if not conversation_id:
