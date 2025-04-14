@@ -341,7 +341,11 @@ def save_msg_to_mysql(**context):
     
     # 根据消息类型处理content
     if msg_type == 'image':
-        content = message_data.get('PicUrl', '')
+        cos_path = context['task_instance'].xcom_pull(key='mp_image_cos_path')
+        if cos_path:
+            content = cos_path
+        else:
+            content = message_data.get('PicUrl', '')
     elif msg_type == 'voice':
         content = f"MediaId: {message_data.get('MediaId', '')}, Format: {message_data.get('Format', '')}"
     
