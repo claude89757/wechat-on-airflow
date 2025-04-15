@@ -139,6 +139,7 @@ def handler_text_msg(**context):
 
     # 获取AI回复
     try:
+        print(f"[WATCHER] 开始获取AI回复---test")
         full_answer, metadata = dify_agent.create_chat_message_stream(
             query=question,
             user_id=dify_user_id,
