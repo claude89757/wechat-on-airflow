@@ -91,6 +91,9 @@ def handler_text_msg(**context):
         dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
     if not dify_api_key:
         dify_api_key = Variable.get("DIFY_API_KEY")
+
+    print(f"dify_base_url: {dify_base_url}")
+    print(f"dify_api_key: {dify_api_key}")
     
     # 初始化DifyAgent
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
