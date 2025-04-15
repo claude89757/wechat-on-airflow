@@ -58,7 +58,7 @@ def handler_text_msg(**context):
     is_group = message_data.get('is_group', False)  # 是否群聊
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
-    print(f"[TEXT_MSG] 接收到消息-------是不是群聊???: {is_group}")
+    print(f"[TEXT_MSG] 接收到消息-------是不是群聊: {is_group}")
 
     # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
@@ -139,7 +139,7 @@ def handler_text_msg(**context):
 
     # 获取AI回复
     try:
-        print(f"[WATCHER] 开始获取AI回复---test")
+        print(f"[WATCHER] 开始获取AI回复")
         full_answer, metadata = dify_agent.create_chat_message_stream(
             query=question,
             user_id=dify_user_id,
@@ -157,6 +157,7 @@ def handler_text_msg(**context):
             print(f"已清除用户 {dify_user_id} 在房间 {room_id} 的会话记录")
             
             # 重新请求
+            print(f"[WATCHER] 重新请求AI回复")
             full_answer, metadata = dify_agent.create_chat_message_stream(
                 query=question,
                 user_id=dify_user_id,
