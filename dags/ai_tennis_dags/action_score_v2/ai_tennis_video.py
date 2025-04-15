@@ -63,7 +63,7 @@ def process_ai_video(**context):
 
     # 处理视频
     start_time = time.time()
-    start_msg = f"Zacks 正在分析视频，请稍等...🔄"
+    start_msg = f"🤖AI网球助手 正在分析视频，请稍等...🔄"
     send_wx_msg(wcf_ip=source_ip, message=start_msg, receiver=room_id)
 
     # 获取网球动作得分
