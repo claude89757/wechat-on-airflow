@@ -281,6 +281,7 @@ dag = DAG(
     start_date=datetime(2025, 1, 1),
     schedule_interval=None,
     max_active_runs=10,
+    dagrun_timeout=timedelta(minutes=10),
     catchup=False,
     tags=['AI网球'],
     description='AI网球视频处理',
