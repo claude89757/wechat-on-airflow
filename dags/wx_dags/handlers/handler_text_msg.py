@@ -58,7 +58,7 @@ def handler_text_msg(**context):
     is_group = message_data.get('is_group', False)  # 是否群聊
     current_msg_timestamp = message_data.get('ts')
     source_ip = message_data.get('source_ip')
-    print(f"[TEXT_MSG] 接收到消息-------是不是群聊: {is_group}")
+    print(f"[TEXT_MSG] 接收到消息-------是不是群聊???: {is_group}")
 
     # 获取微信账号信息
     wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
