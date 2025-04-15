@@ -107,18 +107,8 @@ def process_wx_message(**context):
         # 使用Redis缓存消息
         redis_handler = RedisHandler()
         redis_handler.append_msg_list(f'{wx_user_id}_{room_id}_msg_list', message_data) # 只缓存最近的100条消息
-
-        # 决策下游的任务
-        if not is_group:
-            next_task_list.append('handler_text_msg')
-        else:
-            # 群聊消息
-            enable_rooms = Variable.get(f"zacks_enable_ai_room_ids", default_var=[], deserialize_json=True)
-            if room_id in enable_rooms:
-                # 开白的群里
-                next_task_list.append('handler_text_msg')
-            else:
-                pass
+        
+        next_task_list.append('handler_text_msg')
     
     elif WX_MSG_TYPES.get(msg_type) == "语音":
         # 语音消息
