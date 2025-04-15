@@ -138,13 +138,33 @@ def handler_text_msg(**context):
     input_params = {"is_group": "true"} if is_group else {}
 
     # 获取AI回复
-    full_answer, metadata = dify_agent.create_chat_message_stream(
-        query=question,
-        user_id=dify_user_id,
-        conversation_id=conversation_id,
-        files=dify_files,
-        inputs=input_params
-    )
+    try:
+        full_answer, metadata = dify_agent.create_chat_message_stream(
+            query=question,
+            user_id=dify_user_id,
+            conversation_id=conversation_id,
+            files=dify_files,
+            inputs=input_params
+        )
+    except Exception as e:
+        if "Variable #conversation.section# not found" in str(e):
+            # 清理会话记录
+            conversation_infos = Variable.get(f"{dify_user_id}_conversation_infos", default_var={}, deserialize_json=True)
+            if room_id in conversation_infos:
+                del conversation_infos[room_id]
+                Variable.set(f"{dify_user_id}_conversation_infos", conversation_infos, serialize_json=True)
+            print(f"已清除用户 {dify_user_id} 在房间 {room_id} 的会话记录")
+            
+            # 重新请求
+            full_answer, metadata = dify_agent.create_chat_message_stream(
+                query=question,
+                user_id=dify_user_id,
+                conversation_id=None,  # 使用新的会话
+                files=dify_files,
+                inputs=input_params
+            )
+        else:
+            raise
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
     response = full_answer
