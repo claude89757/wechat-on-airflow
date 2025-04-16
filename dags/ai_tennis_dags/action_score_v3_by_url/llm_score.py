@@ -11,14 +11,51 @@ import re
 from airflow.models import Variable
 
 
-def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl-max-latest", action_type: str = "击球准备动作") -> str:
+def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl-max-latest", action_type: str = "击球动作") -> str:
     """
     通过阿里云的AI模型，获取网球动作的评论
     """
-    system_prompt = f"专业的网球教练，擅长对网球动作进行分析和评价。请结合照片网球运动员的{action_type}的细节，给出评价。格式如下：\n" \
-                    f"评分等级：S|A|B|C\n" \
-                    f"动作评价：10字以内\n" \
-                    f"动作建议：10字以内(如果比较完美，可以不给出建议)"
+    if action_type == "引拍动作":
+        action_standard = """
+        引拍动作评判标准：
+        - 重心转移：身体重心是否自然向后转移
+        - 拍头路线：拍面是否拉开到位，形成合适的引拍弧线
+        - 手腕固定：手腕是否保持稳定不松散
+        - 肩部旋转：肩膀是否充分转动带动上半身
+        - 握拍姿势：是否使用适合该击球的标准握法
+        """ 
+    elif action_type == "击球动作":
+        action_standard = """
+        击球动作评判标准：
+        - 击球点：是否在最佳击球区域内完成击球
+        - 拍面控制：击球瞬间拍面角度是否正确
+        - 腿部支撑：下肢是否提供足够稳定的支撑
+        - 力量传递：是否从地面经由腿部、核心到手臂形成完整动力链
+        - 视线跟踪：眼睛是否始终注视球
+        """
+    elif action_type == "随挥动作":
+        action_standard = """
+        随挥动作评判标准：
+        - 动作完整性：是否完成充分的随挥跟随动作
+        - 平衡保持：击球后身体是否保持平衡
+        - 重心转移：重心是否自然向前转移
+        - 收拍流畅度：是否平稳自然地完成收拍
+        - 恢复能力：是否迅速恢复到击球后的准备姿态
+        """
+    else:
+        raise ValueError(f"不支持的动作类型: {action_type}")
+
+    system_prompt = f"""作为专业网球教练，请根据严格的技术标准评估照片中运动员的{action_type}。请按以下网球动作规范进行评价：
+===
+ 
+{action_standard}
+
+===
+
+请根据以上标准提供：
+评分等级：S(完美)|A(优秀)|B(良好)|C(需改进)
+动作评价：10字以内简明点评
+动作建议：10字以内针对性建议(如果动作接近完美可略过)"""
 
     #  base 64 编码格式
     def encode_image(image_path):
@@ -282,7 +319,7 @@ def get_tennis_action_score(video_path: str, output_dir: str):
     follow_image = result["follow_frame"]
 
     # 获取准备动作得分
-    preparation_score = get_tennis_action_comment(preparation_image, action_type="准备动作")
+    preparation_score = get_tennis_action_comment(preparation_image, action_type="引拍动作")
     print(f"preparation_score: {preparation_score}")
 
     # 获取击球动作得分
