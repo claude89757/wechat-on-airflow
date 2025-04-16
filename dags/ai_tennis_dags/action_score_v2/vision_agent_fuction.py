@@ -1890,7 +1890,6 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     print("\n步骤2: 使用目标检测和跟踪模型...")
     with proxy_context():
         # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
-        # 合并三个检测为一次调用
         combined_prompt = "moving tennis ball with motion blur, tennis racket, tennis player"
         print(f"使用提示词: {combined_prompt}")
         combined_tracked = owlv2_sam2_video_tracking(combined_prompt, frames_list, box_threshold=0.3, chunk_length=15)

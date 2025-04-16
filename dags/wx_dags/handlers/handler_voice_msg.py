@@ -19,6 +19,7 @@ from utils.wechat_channl import send_wx_msg
 from utils.redis import RedisHandler
 from wx_dags.common.wx_tools import get_contact_name
 from wx_dags.common.wx_tools import download_voice_from_windows_server
+from wx_dags.common.tools import get_dify_base_url
 
 
 def handler_voice_msg(**context):
@@ -53,17 +54,11 @@ def handler_voice_msg(**context):
     room_name = get_contact_name(source_ip, room_id, wx_user_name)
     sender_name = get_contact_name(source_ip, sender, wx_user_name) or (wx_user_name if is_self else None)
 
-    # 初始化dify
-    # 如果是群聊，先检查是否有群聊专用的API key
-    if is_group:
-        try:
-            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
-        except:
-            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
-    else:
-        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
-        
-    dify_agent = DifyAgent(api_key=dify_api_key, base_url=Variable.get("DIFY_BASE_URL"))
+    # 获取Dify的URL和API key
+    dify_base_url, dify_api_key = get_dify_base_url(wx_user_name, wx_user_id, is_group)
+
+    # 初始化DifyAgent
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID
     dify_user_id = f"{wx_user_name}_{wx_user_id}_{room_name}"

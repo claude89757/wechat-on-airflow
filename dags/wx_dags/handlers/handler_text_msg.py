@@ -19,6 +19,7 @@ from utils.wechat_channl import send_wx_msg
 from utils.wechat_channl import send_wx_image
 from utils.redis import RedisHandler
 from wx_dags.common.wx_tools import get_contact_name
+from wx_dags.common.tools import get_dify_base_url
 
 
 def should_pre_stop(current_message, wx_user_id, room_id):
@@ -79,21 +80,7 @@ def handler_text_msg(**context):
     print(f"房间信息: {room_id}({room_name}), 发送者: {sender}({sender_name})")
 
     # 获取Dify的URL和API key
-    dify_base_url = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_base_url", default_var="")
-    if not dify_base_url:
-        dify_base_url = Variable.get("DIFY_BASE_URL")
-    if is_group:
-        try:
-            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_group_dify_api_key")
-        except:
-            dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
-    else:
-        dify_api_key = Variable.get(f"{wx_user_name}_{wx_user_id}_dify_api_key")
-    if not dify_api_key:
-        dify_api_key = Variable.get("DIFY_API_KEY")
-
-    print(f"dify_base_url: {dify_base_url}")
-    print(f"dify_api_key: {dify_api_key}")
+    dify_base_url, dify_api_key = get_dify_base_url(wx_user_name, wx_user_id, is_group)
     
     # 初始化DifyAgent
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
