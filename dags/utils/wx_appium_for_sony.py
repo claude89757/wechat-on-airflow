@@ -399,6 +399,284 @@ class WeChatOperator:
                 
         print("-" * 120)
 
+
+    def get_recent_new_msg(self):
+        """
+        获取最近聊天的新消息
+        返回格式, 多个聊天会话的多个信息
+        {
+         "张三": [
+            {
+                "sender": "张三",
+                "msg": "你好",
+                "msg_type": "text",
+                "msg_time": "2021-01-01 12:00:00"
+            },
+            {
+                "sender": "张三",
+                "msg": "在吗？",
+                "msg_type": "text",
+                "msg_time": "2021-01-01 12:00:00"
+            }
+         ],
+         "李四": [
+            {   
+                "sender": "李四",
+                "msg": "在吗？",
+                "msg_type": "text",
+                "msg_time": "2021-01-01 12:00:00"
+            }
+         ]
+        }
+        """
+        try:
+            # 确保在微信主页面
+            if not self.is_at_main_page():
+                self.return_to_chats()
+                time.sleep(1)
+                
+            # 初始化结果字典
+            result = {}
+            
+            # 先获取所有聊天列表项
+            chat_items = self.driver.find_elements(
+                by=AppiumBy.XPATH,
+                value="//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/cj1']"
+            )
+            
+            # 遍历每个聊天项，查找带有未读消息的
+            unread_chats = 0
+            for chat_item in chat_items:
+                try:
+                    # 检查是否有未读消息标记
+                    unread_indicators = chat_item.find_elements(
+                        by=AppiumBy.ID,
+                        value="com.tencent.mm:id/o_u"
+                    )
+                    
+                    # 如果没有未读消息，跳过
+                    if not unread_indicators:
+                        continue
+                        
+                    unread_chats += 1
+                    
+                    # 获取未读消息数量
+                    unread_count = int(unread_indicators[0].text)
+                    print(f"[INFO] 发现一个会话有 {unread_count} 条未读消息")
+                    
+                    # 获取联系人名称
+                    contact_name_elem = chat_item.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.view.View[@resource-id='com.tencent.mm:id/kbq']"
+                    )
+                    contact_name = contact_name_elem.text
+                    print(f"[INFO] 联系人: {contact_name}")
+                    
+                    # 获取会话时间
+                    try:
+                        time_elem = chat_item.find_element(
+                            by=AppiumBy.XPATH,
+                            value=".//android.view.View[@resource-id='com.tencent.mm:id/otg']"
+                        )
+                        chat_time = time_elem.text
+                        print(f"[INFO] 会话时间: {chat_time}")
+                    except:
+                        chat_time = ""
+                        print("[WARNING] 无法获取会话时间")
+                    
+                    # 获取最近一条消息的预览文本和类型
+                    msg_text = ""
+                    msg_type = "text"  # 默认为文本类型
+                    try:
+                        msg_preview_elem = chat_item.find_element(
+                            by=AppiumBy.XPATH,
+                            value=".//android.view.View[@resource-id='com.tencent.mm:id/ht5']"
+                        )
+                        msg_text = msg_preview_elem.text
+                        
+                        # 根据预览文本判断消息类型
+                        if msg_text == "[图片]":
+                            msg_type = "image"
+                            print(f"[INFO] 最近消息预览: {msg_text} (类型: 图片)")
+                        elif msg_text == "[视频]":
+                            msg_type = "video"
+                            print(f"[INFO] 最近消息预览: {msg_text} (类型: 视频)")
+                        elif msg_text == "[语音]":
+                            msg_type = "voice"
+                            print(f"[INFO] 最近消息预览: {msg_text} (类型: 语音)")
+                        elif msg_text == "[位置]":
+                            msg_type = "location"
+                            print(f"[INFO] 最近消息预览: {msg_text} (类型: 位置)")
+                        elif msg_text == "[文件]":
+                            msg_type = "file"
+                            print(f"[INFO] 最近消息预览: {msg_text} (类型: 文件)")
+                        elif msg_text == "[动画表情]" or msg_text == "[表情]":
+                            msg_type = "sticker"
+                            print(f"[INFO] 最近消息预览: {msg_text} (类型: 表情)")
+                        else:
+                            print(f"[INFO] 最近消息预览: {msg_text}")
+                    except:
+                        print("[WARNING] 无法获取消息预览")
+                    
+                    # 点击进入聊天界面
+                    print(f"[INFO] 正在进入与 {contact_name} 的聊天界面...")
+                    chat_item.click()
+                    time.sleep(2)  # 等待加载聊天界面
+                    
+                    # 获取消息内容
+                    messages = []
+                    try:
+                        # 查找聊天消息列表
+                        msg_elements = self.driver.find_elements(
+                            by=AppiumBy.XPATH,
+                            value="//androidx.recyclerview.widget.RecyclerView/android.widget.RelativeLayout"
+                        )
+                        
+                        # 如果没有找到，尝试另一种元素查找方式
+                        if not msg_elements:
+                            msg_elements = self.driver.find_elements(
+                                by=AppiumBy.XPATH,
+                                value="//android.widget.ListView/android.widget.LinearLayout"
+                            )
+                        
+                        print(f"[INFO] 找到 {len(msg_elements)} 条消息元素")
+                        
+                        # 从最新的消息开始获取，最多获取未读消息数量
+                        for i in range(min(unread_count, len(msg_elements))):
+                            try:
+                                # 获取倒数第i+1条消息
+                                msg_elem = msg_elements[len(msg_elements) - 1 - i]
+                                
+                                # 获取消息内容
+                                content_elem = None
+                                cur_msg_type = "text"  # 默认为文本类型
+                                
+                                # 尝试查找不同类型的消息元素
+                                try:
+                                    # 文本消息
+                                    content_elem = msg_elem.find_element(
+                                        by=AppiumBy.XPATH,
+                                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/bkl']"
+                                    )
+                                    cur_msg_text = content_elem.text
+                                except:
+                                    try:
+                                        # 查找其他可能的文本元素
+                                        content_elem = msg_elem.find_element(
+                                            by=AppiumBy.XPATH,
+                                            value=".//android.widget.TextView"
+                                        )
+                                        cur_msg_text = content_elem.text
+                                    except:
+                                        # 如果找不到文本元素，检查是否有图片元素
+                                        try:
+                                            img_elem = msg_elem.find_element(
+                                                by=AppiumBy.XPATH,
+                                                value=".//android.widget.ImageView"
+                                            )
+                                            # 存在ImageView元素，可能是图片消息
+                                            content_elem = img_elem
+                                            cur_msg_text = "[图片]"  # 直接设置固定文本内容
+                                            cur_msg_type = "image"
+                                        except:
+                                            print("[WARNING] 无法找到消息内容元素")
+                                            continue
+                                
+                                # 获取消息时间
+                                msg_time = chat_time
+                                try:
+                                    time_elem = msg_elem.find_element(
+                                        by=AppiumBy.XPATH,
+                                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/br1']"
+                                    )
+                                    msg_time = time_elem.text
+                                except:
+                                    pass
+                                
+                                # 获取发送者
+                                sender = contact_name
+                                try:
+                                    # 尝试获取发送者头像的内容描述
+                                    avatar_elem = msg_elem.find_element(
+                                        by=AppiumBy.XPATH,
+                                        value=".//android.widget.ImageView[@resource-id='com.tencent.mm:id/bk1']"
+                                    )
+                                    if avatar_elem.get_attribute("content-desc"):
+                                        sender_desc = avatar_elem.get_attribute("content-desc")
+                                        if "头像" in sender_desc:
+                                            sender = sender_desc.replace("头像", "")
+                                except:
+                                    pass
+                                
+                                # 如果是首条消息，使用从会话列表中获取的类型
+                                if i == 0 and msg_type != "text":
+                                    cur_msg_type = msg_type
+                                
+                                # 构建消息对象
+                                if content_elem:
+                                    message = {
+                                        "sender": sender,
+                                        "msg": cur_msg_text,
+                                        "msg_type": cur_msg_type,
+                                        "msg_time": msg_time
+                                    }
+                                    messages.append(message)
+                                    print(f"[INFO] 获取到消息: {cur_msg_text[:50] if len(cur_msg_text) > 50 else cur_msg_text} (类型: {cur_msg_type})")
+                            except Exception as e:
+                                print(f"[WARNING] 解析消息时出错: {str(e)}")
+                                continue
+                        
+                    except Exception as e:
+                        print(f"[ERROR] 获取消息内容时出错: {str(e)}")
+                        import traceback
+                        print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+                    
+                    # 将消息添加到结果字典
+                    if messages:
+                        result[contact_name] = messages
+                    else:
+                        # 如果没有获取到详细消息，至少添加一条消息（基于会话列表预览）
+                        result[contact_name] = [{
+                            "sender": contact_name,
+                            "msg": msg_text or "无法获取具体消息内容",
+                            "msg_type": msg_type,
+                            "msg_time": chat_time
+                        }]
+                    
+                    # 返回到主界面继续处理下一个会话
+                    print(f"[INFO] 正在返回主界面...")
+                    self.return_to_chats()
+                    time.sleep(1.5)  # 等待返回
+                    
+                except Exception as e:
+                    print(f"[ERROR] 处理会话时出错: {str(e)}")
+                    import traceback
+                    print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+                    
+                    # 确保返回到主界面
+                    if not self.is_at_main_page():
+                        self.return_to_chats()
+                        time.sleep(1.5)
+                    continue
+                    
+            print(f"[INFO] 发现 {unread_chats} 个带有未读消息的会话")
+            print(f"[INFO] 成功获取了 {len(result)} 个会话的新消息")
+            return result
+            
+        except Exception as e:
+            print(f"[ERROR] 获取最近新消息时出错: {str(e)}")
+            import traceback
+            print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+            
+            # 确保返回到主界面
+            if not self.is_at_main_page():
+                try:
+                    self.return_to_chats()
+                except:
+                    pass
+                
+            return {}
+
     def close(self):
         """
         关闭微信操作器
@@ -491,6 +769,88 @@ def send_wx_msg_by_appium(contact_name: str, messages: list[str]) -> bool:
             print(f"[ERROR] 释放锁时出错: {str(e)}")
 
 
+def get_recent_new_msg_by_appium() -> dict:
+    """获取微信最近的新消息"""
+    # 获取Appium服务器URL和初始化锁变量
+    try:
+        from airflow.models import Variable
+        appium_server_url = Variable.get('ZACKS_APPIUM_SERVER_URL')
+        
+        # 检查锁状态
+        lock_key = 'ZACKS_WX_APPIUM_LOCK'
+        lock_status = None
+        
+        # 如果锁已被占用，最多等待180秒
+        max_wait_time = 180  # 最大等待时间（秒）
+        wait_interval = 5  # 每次检查间隔（秒）
+        total_waited = 0
+        
+        while total_waited <= max_wait_time:
+            try:
+                lock_status = Variable.get(lock_key)
+                print(f"当前锁状态: {lock_status}")
+                
+                if lock_status != 'LOCKED':
+                    # 锁未被占用，可以继续执行
+                    break
+                
+                # 锁被占用，等待一段时间后重试
+                if total_waited == 0:
+                    print(f"[WARN] 检测到微信操作锁被占用，将等待最多 {max_wait_time} 秒...")
+                
+                wait_time = min(wait_interval, max_wait_time - total_waited)
+                if wait_time <= 0:
+                    break
+                    
+                print(f"[INFO] 已等待 {total_waited} 秒，继续等待 {wait_time} 秒...")
+                time.sleep(wait_time)
+                total_waited += wait_time
+                
+            except:
+                # 锁不存在，可以继续执行
+                print(f"[INFO] 锁不存在，可以继续执行")
+                break
+                
+        # 如果经过等待后锁仍被占用，则退出
+        if lock_status == 'LOCKED' and total_waited >= max_wait_time:
+            print(f"[ERROR] 等待超时（{max_wait_time}秒），微信操作锁仍被占用，无法执行操作")
+            return {}
+            
+        # 设置锁
+        print(f"[INFO] 设置微信操作锁...")
+        Variable.set(lock_key, 'LOCKED')
+        print(f"[INFO] 微信操作锁设置成功")
+        
+    except Exception as e:
+        print(f"[ERROR] 初始化锁或获取Appium服务器URL时出错: {str(e)}")
+        return {}
+
+    # 获取消息
+    wx = None
+    try:
+        wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=True)
+        time.sleep(3)
+        result = wx.get_recent_new_msg()
+        return result
+    except Exception as e:
+        print(f"[ERROR] 获取消息时出错: {str(e)}")
+        import traceback
+        print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+        return {}
+    finally:
+        # 关闭操作器
+        if wx:
+            wx.close()
+        
+        # 释放锁
+        try:
+            print(f"[INFO] 释放微信操作锁...")
+            Variable.set(lock_key, 'UNLOCKED')
+            print(f"[INFO] 微信操作锁释放成功")
+        except Exception as e:
+            print(f"[ERROR] 释放锁时出错: {str(e)}")
+
+
 # 测试代码
 if __name__ == "__main__":    
     # 获取Appium服务器URL
@@ -501,10 +861,12 @@ if __name__ == "__main__":
 
     try:
         time.sleep(5)
-        # print(wx.driver.page_source)
+        print(wx.driver.page_source)
         # wx.print_all_elements()
+        # wx.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
 
-        wx.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
+        print(wx.get_recent_new_msg())
+        
     except Exception as e:
         
         print(f"运行出错: {str(e)}")
