@@ -40,7 +40,7 @@ def send_messages(**context):
     
     # 发送消息
     for contact_name, messages in recent_new_msg.items():
-        send_wx_msg_by_appium(contact_name, f"测试: 我收到了{len(messages)}条消息")
+        send_wx_msg_by_appium(contact_name, [f"测试: 我收到了{len(messages)}条消息"])
 
     return recent_new_msg
 
@@ -53,7 +53,7 @@ with DAG(
         'retry_delay': timedelta(seconds=5),
     },
     description='使用Appium SDK自动化微信操作',
-    schedule=timedelta(seconds=10),
+    schedule=timedelta(seconds=30),
     start_date=datetime(2025, 4, 22),
     max_active_runs=1,
     catchup=False,
