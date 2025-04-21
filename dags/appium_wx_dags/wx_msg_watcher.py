@@ -54,9 +54,10 @@ with DAG(
     },
     description='使用Appium SDK自动化微信操作',
     schedule=timedelta(seconds=10),
-    start_date=datetime(2025, 1, 10),
+    start_date=datetime(2025, 4, 22),
+    max_active_runs=1,
     catchup=False,
-    tags=['测试示例'],
+    tags=['个人微信'],
 ) as dag:
 
     monitor_chats_task = PythonOperator(
