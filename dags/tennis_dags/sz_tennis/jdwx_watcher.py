@@ -19,6 +19,7 @@ from datetime import timedelta
 
 from utils.wechat_channl import send_wx_msg
 from utils.wx_appium_for_sony import send_wx_msg_by_appium
+from utils.tencent_sms import send_sms_for_news
 
 # DAG的默认参数
 default_args = {
@@ -187,6 +188,7 @@ def check_tennis_courts():
         cache_key = "金地威新网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
         up_for_send_msg_list = []
+        up_for_send_sms_list = []
         for data in up_for_send_data_list:
             date = data['date']
             court_name = data['court_name']
@@ -200,6 +202,12 @@ def check_tennis_courts():
                 notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
+                    up_for_send_sms_list.append({
+                        "date": date,
+                        "court_name": court_name,
+                        "start_time": free_slot[0],
+                        "end_time": free_slot[1]
+                    })
 
         # # 获取微信发送配置
         # wcf_ip = Variable.get("WCF_IP", default_var="")
@@ -216,6 +224,11 @@ def check_tennis_courts():
         #     time.sleep(30)
 
         if up_for_send_msg_list:
+            # 发送短信
+            phone_num_list = Variable.get("PHONE_NUM_LIST", default_var=[])
+            for data in up_for_send_sms_list:
+                send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
+
             # 发送微信消息
             chat_names = Variable.get("MY_OWN_CHAT_NAMES", default_var="")
             for contact_name in str(chat_names).splitlines():
