@@ -257,11 +257,12 @@ def check_tennis_courts():
         #     )
         #     sended_msg_list.append(msg)
 
-        chat_names = Variable.get("SH_TENNIS_CHATROOMS", default_var="")
-        for contact_name in str(chat_names).splitlines():
-            send_wx_msg_by_appium(contact_name=str(contact_name).strip(), messages=up_for_send_msg_list)
-            sended_msg_list.extend(up_for_send_msg_list)
-            time.sleep(10)
+        if up_for_send_msg_list:
+            chat_names = Variable.get("SH_TENNIS_CHATROOMS", default_var="")
+            for contact_name in str(chat_names).splitlines():
+                send_wx_msg_by_appium(contact_name=str(contact_name).strip(), messages=up_for_send_msg_list)
+                sended_msg_list.extend(up_for_send_msg_list)
+                time.sleep(10)
 
         # 更新缓存信息
         description = f"徐汇网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
