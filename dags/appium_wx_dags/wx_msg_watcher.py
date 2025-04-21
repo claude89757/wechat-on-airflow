@@ -67,8 +67,8 @@ def handle_msg_by_ai(wx_user_name, room_id: str, msg: str) -> list:
         list: AI回复内容列表
     """
     # 获取Dify的URL和API key
-    dify_base_url = Variable.get("ZACKS_DIFY_BASE_URL")
-    dify_api_key = Variable.get("ZACKS_DIFY_API_KEY")
+    dify_base_url = Variable.get("DIFY_BASE_URL")
+    dify_api_key = Variable.get("DIFY_API_KEY")
     
     # 初始化DifyAgent
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
