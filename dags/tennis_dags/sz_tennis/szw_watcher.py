@@ -24,6 +24,8 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.wechat_channl import send_wx_msg
+from utils.wx_appium_for_sony import send_wx_msg_by_appium
+
 
 # DAG的默认参数
 default_args = {
@@ -306,17 +308,24 @@ def check_tennis_courts():
                     up_for_send_msg_list.append(notification)
 
         # 获取微信发送配置
-        wcf_ip = Variable.get("WCF_IP", default_var="")
-        for chat_room_id in ["38763452635@chatroom", "51998713028@chatroom"]:
-            print(f"sending to {chat_room_id}")
-            for msg in up_for_send_msg_list:
-                send_wx_msg(
-                    wcf_ip=wcf_ip,
-                    message=msg,
-                    receiver=chat_room_id,
-                    aters=''
-                )
-                sended_msg_list.append(msg)
+        # wcf_ip = Variable.get("WCF_IP", default_var="")
+        # for chat_room_id in ["38763452635@chatroom", "51998713028@chatroom"]:
+        #     print(f"sending to {chat_room_id}")
+        #     for msg in up_for_send_msg_list:
+        #         send_wx_msg(
+        #             wcf_ip=wcf_ip,
+        #             message=msg,
+        #             receiver=chat_room_id,
+        #             aters=''
+        #         )
+        #         sended_msg_list.append(msg)
+        #     time.sleep(10)
+
+        # 发送微信消息
+        chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+        for contact_name in str(chat_names).splitlines():
+            send_wx_msg_by_appium(contact_name=str(contact_name).strip(), messages=up_for_send_msg_list)
+            sended_msg_list.extend(up_for_send_msg_list)
             time.sleep(10)
 
         # 更新Variable

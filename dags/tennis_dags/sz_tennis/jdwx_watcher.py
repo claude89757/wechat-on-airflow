@@ -18,6 +18,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.wechat_channl import send_wx_msg
+from utils.wx_appium_for_sony import send_wx_msg_by_appium
 
 # DAG的默认参数
 default_args = {
@@ -200,19 +201,35 @@ def check_tennis_courts():
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
 
-        # 获取微信发送配置
-        wcf_ip = Variable.get("WCF_IP", default_var="")
-        for chat_room_id in ["57497883531@chatroom", "38763452635@chatroom", "51998713028@chatroom"]:
-            print(f"sending to {chat_room_id}")
-            for msg in up_for_send_msg_list:
-                send_wx_msg(
-                    wcf_ip=wcf_ip,
-                    message=msg,
-                    receiver=chat_room_id,
-                    aters=''
-                )
-                sended_msg_list.append(msg)
-            time.sleep(30)
+        # # 获取微信发送配置
+        # wcf_ip = Variable.get("WCF_IP", default_var="")
+        # for chat_room_id in ["57497883531@chatroom", "38763452635@chatroom", "51998713028@chatroom"]:
+        #     print(f"sending to {chat_room_id}")
+        #     for msg in up_for_send_msg_list:
+        #         send_wx_msg(
+        #             wcf_ip=wcf_ip,
+        #             message=msg,
+        #             receiver=chat_room_id,
+        #             aters=''
+        #         )
+        #         sended_msg_list.append(msg)
+        #     time.sleep(30)
+
+        # 发送微信消息
+        chat_names = Variable.get("MY_OWN_CHAT_NAMES", default_var="")
+        for contact_name in str(chat_names).splitlines():
+            send_wx_msg_by_appium(contact_name=str(contact_name).strip(), messages=up_for_send_msg_list)
+            sended_msg_list.extend(up_for_send_msg_list)
+            time.sleep(10)
+
+        time.sleep(30)
+        
+        # 发送微信消息
+        chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+        for contact_name in str(chat_names).splitlines():
+            send_wx_msg_by_appium(contact_name=str(contact_name).strip(), messages=up_for_send_msg_list)
+            sended_msg_list.extend(up_for_send_msg_list)
+            time.sleep(10)
 
         # 更新Variable
         description = f"深圳金地网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

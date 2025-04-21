@@ -20,6 +20,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.wechat_channl import send_wx_msg
+from utils.wx_appium_for_sony import send_wx_msg_by_appium
 
 # DAG的默认参数
 default_args = {
@@ -290,16 +291,22 @@ def check_tennis_courts():
 
         print(f"up_for_send_msg_list: {up_for_send_msg_list}")
 
-        # 发送微信消息
-        wcf_ip = Variable.get("WCF_IP")
-        for msg in up_for_send_msg_list:
-            send_wx_msg(
-                wcf_ip=wcf_ip,
-                message=msg,
-                receiver="56351399535@chatroom",
-                aters=''
-            )
-            sended_msg_list.append(msg)
+        # # 发送微信消息
+        # wcf_ip = Variable.get("WCF_IP")
+        # for msg in up_for_send_msg_list:
+        #     send_wx_msg(
+        #         wcf_ip=wcf_ip,
+        #         message=msg,
+        #         receiver="56351399535@chatroom",
+        #         aters=''
+        #     )
+        #     sended_msg_list.append(msg)
+
+        chat_names = Variable.get("SH_TENNIS_CHATROOMS", default_var="")
+        for contact_name in str(chat_names).splitlines():
+            send_wx_msg_by_appium(contact_name=str(contact_name).strip(), messages=up_for_send_msg_list)
+            sended_msg_list.extend(up_for_send_msg_list)
+            time.sleep(10)
 
         # 更新缓存信息
         description = f"Wilson网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
