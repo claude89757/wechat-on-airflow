@@ -12,8 +12,8 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 
-from dags.utils.wx_appium_for_sony import get_recent_new_msg_by_appium
-from dags.utils.wx_appium_for_sony import send_wx_msg_by_appium
+from utils.wx_appium_for_sony import get_recent_new_msg_by_appium
+from utils.wx_appium_for_sony import send_wx_msg_by_appium
 
 
 def monitor_chats(**context):
