@@ -41,7 +41,7 @@ def should_pre_stop(current_message, wx_user_id, room_id):
         print(f"[PRE_STOP] 最新消息id不一致，停止流程执行")
         raise AirflowException("检测到提前停止信号，停止流程执行")
     else:
-        print(f"[PRE_STOP] 最新消息id一致，继续执行")
+        print(f"[PRE_STOP] 最新消息id一致，继续执行 ")
 
 
 def handler_text_msg(**context):
