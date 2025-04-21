@@ -745,8 +745,26 @@ def send_wx_msg_by_appium(contact_name: str, messages: list[str]) -> bool:
     # 发送消息
     wx = None
     try:
-        wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=True)
-        time.sleep(3)
+        # 首先尝试不重启应用
+        print("[INFO] 尝试不重启应用，检查当前是否在微信...")
+        wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=False)
+        time.sleep(1)
+        
+        # 检查是否在微信主页面
+        if wx.is_at_main_page():
+            print("[INFO] 已在微信主页面，无需重启应用")
+        else:
+            # 不在主页面，可能需要关闭当前实例并重启
+            print("[INFO] 不在微信主页面，将关闭当前实例并重启应用")
+            if wx:
+                wx.close()
+                wx = None
+                time.sleep(1)
+
+            # 重新启动微信
+            wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=True)
+            time.sleep(3)
+        
         wx.send_message(contact_name=contact_name, messages=messages)
         success = True
         return True
