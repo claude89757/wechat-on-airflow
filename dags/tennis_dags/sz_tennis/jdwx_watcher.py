@@ -271,7 +271,7 @@ dag = DAG(
     description='金地威新网球场巡检',
     schedule_interval='*/1 * * * *',  # 每1分钟执行一次
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=3),
+    dagrun_timeout=timedelta(minutes=10),
     catchup=False,
     tags=['深圳']
 )
