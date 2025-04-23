@@ -24,14 +24,18 @@ from xml.etree import ElementTree
 
 
 class WeChatOperator:
-    def __init__(self, appium_server_url: str = 'http://localhost:4723', force_app_launch: bool = False):
+    def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False):
         """
         初始化微信操作器
+        appium_server_url: Appium服务器URL
+        device_name: 设备名称
+        force_app_launch: 是否强制重启应用
         """
         capabilities = dict(
             platformName='Android',
             automationName='uiautomator2',
-            deviceName='BH901V3R9E',
+            udid=device_name,
+            # deviceName=device_name,
             appPackage='com.tencent.mm',  # 微信的包名
             appActivity='.ui.LauncherUI',  # 微信的启动活动
             noReset=True,  # 保留应用数据
@@ -127,6 +131,7 @@ class WeChatOperator:
                 raise
 
         print(f"[SUCCESS] 所有消息已发送给 {contact_name}")
+        self.return_to_chats()
 
 
     def is_contact_in_recent_chats(self, contact_name: str) -> bool:
@@ -686,72 +691,24 @@ class WeChatOperator:
             print('控制器已关闭。')
 
 
-def send_wx_msg_by_appium(contact_name: str, messages: list[str]) -> bool:
-    """发送消息到微信"""
-    # 获取Appium服务器URL和初始化锁变量
-    try:
-        from airflow.models import Variable
-        appium_server_url = Variable.get('ZACKS_APPIUM_SERVER_URL')
-        
-        # 检查锁状态
-        lock_key = 'ZACKS_WX_APPIUM_LOCK'
-        lock_status = None
-        
-        # 如果锁已被占用，最多等待180秒
-        max_wait_time = 180  # 最大等待时间（秒）
-        wait_interval = 5  # 每次检查间隔（秒）
-        total_waited = 0
-        
-        while total_waited <= max_wait_time:
-            try:
-                lock_status = Variable.get(lock_key)
-                print(f"当前锁状态: {lock_status}")
-                
-                if lock_status != 'LOCKED':
-                    # 锁未被占用，可以继续执行
-                    break
-                
-                # 锁被占用，等待一段时间后重试
-                if total_waited == 0:
-                    print(f"[WARN] 检测到微信操作锁被占用，将等待最多 {max_wait_time} 秒...")
-                
-                wait_time = min(wait_interval, max_wait_time - total_waited)
-                if wait_time <= 0:
-                    break
-                    
-                print(f"[INFO] 已等待 {total_waited} 秒，继续等待 {wait_time} 秒...")
-                time.sleep(wait_time)
-                total_waited += wait_time
-                
-            except:
-                # 锁不存在，可以继续执行
-                print(f"[INFO] 锁不存在，可以继续执行")
-                break
-                
-        # 如果经过等待后锁仍被占用，则退出
-        if lock_status == 'LOCKED' and total_waited >= max_wait_time:
-            print(f"[ERROR] 等待超时（{max_wait_time}秒），微信操作锁仍被占用，无法执行操作")
-            return False
-            
-        # 设置锁
-        print(f"[INFO] 设置微信操作锁...")
-        Variable.set(lock_key, 'LOCKED')
-        print(f"[INFO] 微信操作锁设置成功")
-        
-    except Exception as e:
-        print(f"[ERROR] 初始化锁或获取Appium服务器URL时出错: {str(e)}")
-        return False
-
+def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name: str, messages: list[str]):
+    """
+    发送消息到微信, 支持多条消息
+    appium_server_url: Appium服务器URL
+    device_name: 设备名称
+    contact_name: 联系人名称
+    messages: 消息列表
+    """
     # 发送消息
-    wx = None
+    wx_operator = None
     try:
         # 首先尝试不重启应用
         print("[INFO] 尝试不重启应用，检查当前是否在微信...")
-        wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=False)
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False)
         time.sleep(1)
         
         # 检查是否在微信主页面
-        if wx.is_at_main_page():
+        if wx_operator.is_at_main_page():
             print("[INFO] 已在微信主页面，无需重启应用")
         else:
             # 不在主页面，可能需要关闭当前实例并重启
@@ -762,112 +719,52 @@ def send_wx_msg_by_appium(contact_name: str, messages: list[str]) -> bool:
                 time.sleep(1)
 
             # 重新启动微信
-            wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=True)
+            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
             time.sleep(3)
         
-        wx.send_message(contact_name=contact_name, messages=messages)
-        success = True
-        return True
+        wx_operator.send_message(contact_name=contact_name, messages=messages)
     except Exception as e:
         print(f"[ERROR] 发送消息时出错: {str(e)}")
         import traceback
         print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
-        return False
     finally:
         # 关闭操作器
-        if wx:
-            wx.close()
+        if wx_operator:
+            wx_operator.close()
         
-        # 释放锁
-        try:
-            print(f"[INFO] 释放微信操作锁...")
-            Variable.set(lock_key, 'UNLOCKED')
-            print(f"[INFO] 微信操作锁释放成功")
-        except Exception as e:
-            print(f"[ERROR] 释放锁时出错: {str(e)}")
 
-
-def get_recent_new_msg_by_appium() -> dict:
-    """获取微信最近的新消息"""
-    # 获取Appium服务器URL和初始化锁变量
-    try:
-        from airflow.models import Variable
-        appium_server_url = Variable.get('ZACKS_APPIUM_SERVER_URL')
-        
-        # 检查锁状态
-        lock_key = 'ZACKS_WX_APPIUM_LOCK'
-        lock_status = None
-        
-        # 如果锁已被占用，最多等待180秒
-        max_wait_time = 180  # 最大等待时间（秒）
-        wait_interval = 5  # 每次检查间隔（秒）
-        total_waited = 0
-        
-        while total_waited <= max_wait_time:
-            try:
-                lock_status = Variable.get(lock_key)
-                print(f"当前锁状态: {lock_status}")
-                
-                if lock_status != 'LOCKED':
-                    # 锁未被占用，可以继续执行
-                    break
-                
-                # 锁被占用，等待一段时间后重试
-                if total_waited == 0:
-                    print(f"[WARN] 检测到微信操作锁被占用，将等待最多 {max_wait_time} 秒...")
-                
-                wait_time = min(wait_interval, max_wait_time - total_waited)
-                if wait_time <= 0:
-                    break
-                    
-                print(f"[INFO] 已等待 {total_waited} 秒，继续等待 {wait_time} 秒...")
-                time.sleep(wait_time)
-                total_waited += wait_time
-                
-            except:
-                # 锁不存在，可以继续执行
-                print(f"[INFO] 锁不存在，可以继续执行")
-                break
-                
-        # 如果经过等待后锁仍被占用，则退出
-        if lock_status == 'LOCKED' and total_waited >= max_wait_time:
-            print(f"[ERROR] 等待超时（{max_wait_time}秒），微信操作锁仍被占用，无法执行操作")
-            return {}
-            
-        # 设置锁
-        print(f"[INFO] 设置微信操作锁...")
-        Variable.set(lock_key, 'LOCKED')
-        print(f"[INFO] 微信操作锁设置成功")
-        
-    except Exception as e:
-        print(f"[ERROR] 初始化锁或获取Appium服务器URL时出错: {str(e)}")
-        return {}
-
+def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str) -> dict:
+    """
+    获取微信最近的新消息
+    appium_server_url: Appium服务器URL
+    device_name: 设备名称
+    """
     # 获取消息
-    wx = None
+    wx_operator = None
     try:
         # 首先尝试不重启应用
         print("[INFO] 尝试不重启应用，检查当前是否在微信...")
-        wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=False)
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False)
         time.sleep(1)
         
         # 检查是否在微信主页面
-        if wx.is_at_main_page():
+        if wx_operator.is_at_main_page():
             print("[INFO] 已在微信主页面，无需重启应用")
         else:
             # 不在主页面，可能需要关闭当前实例并重启
             print("[INFO] 不在微信主页面，将关闭当前实例并重启应用")
-            if wx:
-                wx.close()
-                wx = None
+            if wx_operator:
+                wx_operator.close()
+                wx_operator = None
                 time.sleep(1)
             
             # 重新启动微信
-            wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=True)
+            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
             time.sleep(3)
         
         # 获取最近新消息
-        result = wx.get_recent_new_msg()
+        result = wx_operator.get_recent_new_msg()
+
         return result
     except Exception as e:
         print(f"[ERROR] 获取消息时出错: {str(e)}")
@@ -876,37 +773,32 @@ def get_recent_new_msg_by_appium() -> dict:
         return {}
     finally:
         # 关闭操作器
-        if wx:
-            wx.close()
+        if wx_operator:
+            wx_operator.close()
         
-        # 释放锁
-        try:
-            print(f"[INFO] 释放微信操作锁...")
-            Variable.set(lock_key, 'UNLOCKED')
-            print(f"[INFO] 微信操作锁释放成功")
-        except Exception as e:
-            print(f"[ERROR] 释放锁时出错: {str(e)}")
-
 
 # 测试代码
 if __name__ == "__main__":    
     # 获取Appium服务器URL
-    appium_server_url = os.getenv('APPIUM_SERVER_URL')
-    
+    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:4723')
+    print(appium_server_url)
+
     # 打印当前页面的XML结构
-    wx = WeChatOperator(appium_server_url=appium_server_url, force_app_launch=False)
+    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='BH901V3R9E', force_app_launch=False)
 
     try:
         time.sleep(5)
-        print(wx.driver.page_source)
-        # wx.print_all_elements()
-        # wx.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
+        # print(wx.driver.page_source)
+        wx1.print_all_elements()
 
-        print(wx.get_recent_new_msg())
+        wx1.print_all_elements()
+        # wx1.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
+
+        print(wx1.get_recent_new_msg())
         
     except Exception as e:
         
         print(f"运行出错: {str(e)}")
     finally:
         # 关闭操作器
-        wx.close()
+        wx1.close()
