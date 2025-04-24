@@ -224,6 +224,7 @@ def check_tennis_courts():
         #     time.sleep(30)
 
         if up_for_send_msg_list:
+            all_in_one_msg = "\n".join(up_for_send_msg_list)
             try:
                 # 发送短信
                 phone_num_list = Variable.get("PHONE_NUM_LIST", default_var=[], deserialize_json=True)
@@ -237,7 +238,7 @@ def check_tennis_courts():
             appium_url = Variable.get("ZACKS_APPIUM_URL")
             device_name = Variable.get("ZACKS_DEVICE_NAME")
             for contact_name in str(chat_names).splitlines():
-                send_wx_msg_by_appium(appium_url, device_name, contact_name, up_for_send_msg_list)
+                send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
                 sended_msg_list.extend(up_for_send_msg_list)
                 time.sleep(10)
 
@@ -246,7 +247,7 @@ def check_tennis_courts():
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
             for contact_name in str(chat_names).splitlines():
-                send_wx_msg_by_appium(appium_url, device_name, contact_name, up_for_send_msg_list)
+                send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
                 sended_msg_list.extend(up_for_send_msg_list)
                 time.sleep(10)
 
