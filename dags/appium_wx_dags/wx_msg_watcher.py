@@ -6,12 +6,17 @@ Author: claude89757
 Date: 2025-04-22
 """
 import re
+import os
+import time
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from airflow import DAG
-from airflow.operators.python import ShortCircuitOperator, PythonOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.models import Variable
+from airflow.api.common.trigger_dag import trigger_dag
+from airflow.models.dagrun import DagRun
+from airflow.models.taskinstance import TaskInstance
 
 from utils.dify_sdk import DifyAgent
 from utils.appium.wx_appium import get_recent_new_msg_by_appium
@@ -39,20 +44,31 @@ def monitor_chats(**context):
     # 获取最近的新消息
     recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name, login_info)
     print(f"[WATCHER] 获取最近的新消息: {recent_new_msg}")
+
+    include_video_msg = {}
+    include_text_msg = {}
+    for contact_name, messages in recent_new_msg.items():
+        for message in messages:
+            if message['msg_type'] == 'video':
+                include_video_msg[contact_name] = message
+            else:
+                include_text_msg[contact_name] = message
     
     # 缓存到XCOM
-    context['ti'].xcom_push(key=f'recent_new_msg_{task_index}', value=recent_new_msg)
+    need_handle_tasks = []
+    if include_video_msg:
+        context['ti'].xcom_push(key=f'video_msg_{task_index}', value=include_video_msg)
+        need_handle_tasks.append(f'wx_video_handler_{task_index}')
+    if include_text_msg:
+        context['ti'].xcom_push(key=f'text_msg_{task_index}', value=include_text_msg)
+        need_handle_tasks.append(f'wx_text_handler_{task_index}')
 
-    # 如果最近的新消息不为空，则返回True
-    if recent_new_msg:
-        return True
-    else:
-        return False
+    return need_handle_tasks
 
 
-def handle_messages(**context):
-    """处理消息"""
-    print(f"[HANDLE] 处理消息")
+def handle_text_messages(**context):
+    """处理文本消息"""
+    print(f"[HANDLE] 处理文本消息")
     task_index = int(context['task_instance'].task_id.split('_')[-1])
     appium_server_info = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)[task_index]
     print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
@@ -64,7 +80,7 @@ def handle_messages(**context):
     dify_api_key = appium_server_info['dify_api_key']
 
     # 获取XCOM
-    recent_new_msg = context['ti'].xcom_pull(key=f'recent_new_msg_{task_index}')
+    recent_new_msg = context['ti'].xcom_pull(key=f'text_msg_{task_index}')
     print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
     
     # 发送消息
@@ -81,6 +97,58 @@ def handle_messages(**context):
 
     return recent_new_msg
 
+
+def handle_video_messages(**context):
+    """处理视频消息"""
+    print(f"[HANDLE] 处理视频消息")
+    task_index = int(context['task_instance'].task_id.split('_')[-1])
+    appium_server_info = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)[task_index]
+    print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
+
+    wx_name = appium_server_info['wx_name']
+    device_name = appium_server_info['device_name']
+    appium_url = appium_server_info['appium_url']
+    dify_api_url = appium_server_info['dify_api_url']
+    dify_api_key = appium_server_info['dify_api_key']
+
+    # 获取XCOM
+    recent_new_msg = context['ti'].xcom_pull(key=f'video_msg_{task_index}')
+    print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
+    
+    # 发送消息
+    for contact_name, messages in recent_new_msg.items():
+        video_url = ""
+        for message in messages:
+            if message['msg_type'] == 'video':
+                video_url = message['msg'].split(":")[-1].strip()
+                break
+        print(f"[HANDLE] 视频路径: {video_url}")
+
+        # 创建DAG
+        timestamp = int(time.time())
+        print(f"[HANDLE] {contact_name} 收到视频消息, 触发AI视频处理DAG")
+        trigger_dag(
+            dag_id='tennis_action_score_v4_local_file',
+            conf={"video_url": video_url},
+            run_id=f'{contact_name}_{timestamp}',
+        )
+
+        # 循环等待dag运行完成
+        while True:
+            dag_run = DagRun.get_run(dag_id='tennis_action_score_v4_local_file', run_id=f'{contact_name}_{timestamp}')
+            if dag_run and dag_run.state == 'success':
+                break
+            print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run.state if dag_run else 'None'}")
+            time.sleep(3)
+        
+        # 从XCom获取DAG的输出结果
+        task_instance = TaskInstance(task=dag_run.get_task('process_ai_video'), execution_date=dag_run.execution_date)
+        file_infos = task_instance.xcom_pull(task_ids='process_ai_video')
+        print(f"[HANDLE] 从XCom获取AI视频处理结果: {file_infos}")
+
+        # send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
+
+    return recent_new_msg
 
 
 def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> list:
@@ -181,37 +249,25 @@ with DAG(
 ) as dag:
 
     # 监控聊天消息
-    wx_watcher_0 = ShortCircuitOperator(task_id='wx_watcher_0', python_callable=monitor_chats)
-    wx_watcher_1 = ShortCircuitOperator(task_id='wx_watcher_1', python_callable=monitor_chats)
-    wx_watcher_2 = ShortCircuitOperator(task_id='wx_watcher_2', python_callable=monitor_chats)
-    wx_watcher_3 = ShortCircuitOperator(task_id='wx_watcher_3', python_callable=monitor_chats)
-    wx_watcher_4 = ShortCircuitOperator(task_id='wx_watcher_4', python_callable=monitor_chats)
-    wx_watcher_5 = ShortCircuitOperator(task_id='wx_watcher_5', python_callable=monitor_chats)
-    wx_watcher_6 = ShortCircuitOperator(task_id='wx_watcher_6', python_callable=monitor_chats)
-    wx_watcher_7 = ShortCircuitOperator(task_id='wx_watcher_7', python_callable=monitor_chats)
-    wx_watcher_8 = ShortCircuitOperator(task_id='wx_watcher_8', python_callable=monitor_chats)
-    wx_watcher_9 = ShortCircuitOperator(task_id='wx_watcher_9', python_callable=monitor_chats)
+    wx_watcher_0 = BranchPythonOperator(task_id='wx_watcher_0', python_callable=monitor_chats)
+    wx_watcher_1 = BranchPythonOperator(task_id='wx_watcher_1', python_callable=monitor_chats)
+    wx_watcher_2 = BranchPythonOperator(task_id='wx_watcher_2', python_callable=monitor_chats)
 
-    # 处理消息
-    wx_handler_0 = PythonOperator(task_id='wx_handler_0', python_callable=handle_messages)
-    wx_handler_1 = PythonOperator(task_id='wx_handler_1', python_callable=handle_messages)
-    wx_handler_2 = PythonOperator(task_id='wx_handler_2', python_callable=handle_messages)
-    wx_handler_3 = PythonOperator(task_id='wx_handler_3', python_callable=handle_messages)
-    wx_handler_4 = PythonOperator(task_id='wx_handler_4', python_callable=handle_messages)
-    wx_handler_5 = PythonOperator(task_id='wx_handler_5', python_callable=handle_messages)
-    wx_handler_6 = PythonOperator(task_id='wx_handler_6', python_callable=handle_messages)
-    wx_handler_7 = PythonOperator(task_id='wx_handler_7', python_callable=handle_messages)
-    wx_handler_8 = PythonOperator(task_id='wx_handler_8', python_callable=handle_messages)
-    wx_handler_9 = PythonOperator(task_id='wx_handler_9', python_callable=handle_messages)
+    # 处理文本消息
+    wx_text_handler_0 = PythonOperator(task_id='wx_text_handler_0', python_callable=handle_text_messages)
+    wx_text_handler_1 = PythonOperator(task_id='wx_text_handler_1', python_callable=handle_text_messages)
+    wx_text_handler_2 = PythonOperator(task_id='wx_text_handler_2', python_callable=handle_text_messages)
+
+    # 处理视频消息
+    wx_video_handler_0 = PythonOperator(task_id='wx_video_handler_0', python_callable=handle_video_messages)
+    wx_video_handler_1 = PythonOperator(task_id='wx_video_handler_1', python_callable=handle_video_messages)
+    wx_video_handler_2 = PythonOperator(task_id='wx_video_handler_2', python_callable=handle_video_messages)
 
     # 设置依赖关系
-    wx_watcher_0 >> wx_handler_0
-    wx_watcher_1 >> wx_handler_1
-    wx_watcher_2 >> wx_handler_2
-    wx_watcher_3 >> wx_handler_3
-    wx_watcher_4 >> wx_handler_4
-    wx_watcher_5 >> wx_handler_5
-    wx_watcher_6 >> wx_handler_6
-    wx_watcher_7 >> wx_handler_7
-    wx_watcher_8 >> wx_handler_8
-    wx_watcher_9 >> wx_handler_9
+    wx_watcher_0 >> wx_text_handler_0
+    wx_watcher_1 >> wx_text_handler_1
+    wx_watcher_2 >> wx_text_handler_2
+
+    wx_watcher_0 >> wx_video_handler_0
+    wx_watcher_1 >> wx_video_handler_1
+    wx_watcher_2 >> wx_video_handler_2
