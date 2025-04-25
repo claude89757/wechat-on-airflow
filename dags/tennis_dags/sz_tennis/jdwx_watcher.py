@@ -224,32 +224,37 @@ def check_tennis_courts():
         #     time.sleep(30)
 
         if up_for_send_msg_list:
-            all_in_one_msg = "\n".join(up_for_send_msg_list)
-            try:
-                # 发送短信
-                phone_num_list = Variable.get("PHONE_NUM_LIST", default_var=[], deserialize_json=True)
-                for data in up_for_send_sms_list:
+            all_in_one_msg = "\n".join(up_for_send_msg_list) 
+            # 发送短信
+            phone_num_list = Variable.get("PHONE_NUM_LIST", default_var=[], deserialize_json=True)
+            for data in up_for_send_sms_list:
+                try:
                     send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
-            except Exception as e:
-                print(f"Error sending sms: {e}")
+                except Exception as e:
+                    print(f"Error sending sms: {e}")
 
             # 发送微信消息
             chat_names = Variable.get("MY_OWN_CHAT_NAMES", default_var="")
             appium_url = Variable.get("ZACKS_APPIUM_URL")
             device_name = Variable.get("ZACKS_DEVICE_NAME")
             for contact_name in str(chat_names).splitlines():
-                send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
-                sended_msg_list.extend(up_for_send_msg_list)
-                time.sleep(10)
+                try:
+                    send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
+                    time.sleep(10)
+                except Exception as e:
+                    print(f"Error sending message to {contact_name}: {e}")
 
-            time.sleep(30)
-            
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
             for contact_name in str(chat_names).splitlines():
-                send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
-                sended_msg_list.extend(up_for_send_msg_list)
-                time.sleep(10)
+                try:
+                    send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
+                    time.sleep(10)
+                except Exception as e:
+                    print(f"Error sending message to {contact_name}: {e}")
+
+            sended_msg_list.extend(up_for_send_msg_list)
+
 
         # 更新Variable
         description = f"深圳金地网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
