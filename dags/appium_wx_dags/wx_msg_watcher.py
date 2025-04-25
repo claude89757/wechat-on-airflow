@@ -28,7 +28,10 @@ def monitor_chats(**context):
     print(f"[WATCHER] 监控聊天消息")
     task_index = int(context['task_instance'].task_id.split('_')[-1])
     try:
-        appium_server_info = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)[task_index]
+        print(f"INDEX: {task_index}")
+        appium_server_list = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)
+        print(f"APPIUM_SERVER_LIST: {appium_server_list}")
+        appium_server_info = appium_server_list[task_index]
         print(f"[WATCHER] 获取Appium服务器信息: {appium_server_info}")
     except Exception as e:
         print(f"[WATCHER] 获取Appium服务器信息失败: {e}")
