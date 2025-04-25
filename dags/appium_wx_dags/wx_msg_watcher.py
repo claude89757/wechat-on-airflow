@@ -32,7 +32,7 @@ def monitor_chats(**context):
         print(f"[WATCHER] 获取Appium服务器信息: {appium_server_info}")
     except Exception as e:
         print(f"[WATCHER] 获取Appium服务器信息失败: {e}")
-        return False
+        return []
 
     wx_name = appium_server_info['wx_name']
     device_name = appium_server_info['device_name']
