@@ -52,7 +52,7 @@ def save_video(driver, element):
             text = elem.attrib.get('text', 'N/A')
             if "视频已保存至" in text:
                 # 获取视频保存路径
-                video_path = text.strip("视频已保存至")
+                video_path = text.split("视频已保存至")[-1].strip()
                 print(f"[INFO] 视频已保存至: {video_path}")
                 # 返回到聊天页面
                 driver.press_keycode(4)  # Android返回键
