@@ -14,8 +14,8 @@ from airflow.operators.python import ShortCircuitOperator, PythonOperator
 from airflow.models import Variable
 
 from utils.dify_sdk import DifyAgent
-from utils.wx_appium_for_sony import get_recent_new_msg_by_appium
-from utils.wx_appium_for_sony import send_wx_msg_by_appium
+from utils.appium.wx_appium import get_recent_new_msg_by_appium
+from utils.appium.wx_appium import send_wx_msg_by_appium
 
 
 def monitor_chats(**context):
@@ -34,9 +34,10 @@ def monitor_chats(**context):
     appium_url = appium_server_info['appium_url']
     dify_api_url = appium_server_info['dify_api_url']
     dify_api_key = appium_server_info['dify_api_key']
+    login_info = appium_server_info['login_info']
 
     # 获取最近的新消息
-    recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name)
+    recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name, login_info)
     print(f"[WATCHER] 获取最近的新消息: {recent_new_msg}")
     
     # 缓存到XCOM

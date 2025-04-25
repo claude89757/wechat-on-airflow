@@ -24,7 +24,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.wechat_channl import send_wx_msg
-from utils.wx_appium_for_sony import send_wx_msg_by_appium
+from utils.appium.wx_appium import send_wx_msg_by_appium
 
 
 # DAG的默认参数

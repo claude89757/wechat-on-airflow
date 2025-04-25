@@ -22,14 +22,23 @@ from selenium.webdriver.support import expected_conditions as EC
 from appium.options.android import UiAutomator2Options
 from xml.etree import ElementTree
 
+from handler_video import (
+    save_video,
+    clear_mp4_files_in_directory,
+    pull_file_from_device,
+    push_file_to_device,
+    download_file_via_sftp
+)
+
 
 class WeChatOperator:
-    def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False):
+    def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False, login_info: dict = None):
         """
         初始化微信操作器
         appium_server_url: Appium服务器URL
         device_name: 设备名称
         force_app_launch: 是否强制重启应用
+        login_info: 登录信息
         """
         capabilities = dict(
             platformName='Android',
@@ -47,6 +56,10 @@ class WeChatOperator:
             resetKeyboard=True,  # 重置输入法
         )
         
+        # 登录信息
+        self.login_info = login_info
+        self.device_name = device_name
+
         print('正在初始化微信控制器...')
         print("-"*100)
         print(json.dumps(capabilities, indent=4, ensure_ascii=False))
@@ -453,10 +466,37 @@ class WeChatOperator:
                     by=AppiumBy.XPATH,
                     value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/boy']"
                 )
-                
-                content_elem = video_image
-                video_length = video_duration.text if video_duration else "未知时长"
-                cur_msg_text = f"[视频] {video_length}"
+                video_duration_text = video_duration.text
+
+                video_url = ""
+                if self.login_info:
+                    # 保存视频到手机
+                    phone_video_path = save_video(self.driver, video_duration)
+                    print(f"[INFO] 保存视频到手机: {phone_video_path}")
+                    
+                    # 在主机上从手机上pull视频
+                    login_info = {
+                    "device_ip": "",
+                    "username": "",
+                    "password": "",
+                    "port": 6000
+                    }
+                    device_ip = self.login_info["device_ip"]
+                    username = self.login_info["username"]
+                    password = self.login_info["password"]
+                    port = self.login_info["port"]
+                    device_serial = self.device_name
+                    directory_path = phone_video_path
+                    video_name = os.path.basename(phone_video_path)
+                    local_path = f"/tmp/tennis_video_output/{video_name}"
+                    pull_file_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
+
+                    # 在主机上从主机上下载视频
+                    video_url = download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
+                    print(f"[INFO] 从主机上下载视频: {video_url}")
+
+                video_length = video_duration_text if video_duration_text else "未知时长"
+                cur_msg_text = f"[视频] {video_length}: {video_url}"
                 cur_msg_type = "video"
                 print(f"[INFO] 获取到视频消息: {cur_msg_text} (时长: {video_length})")
         except:
@@ -1114,7 +1154,7 @@ def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name
             wx_operator.close()
         
 
-def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str) -> dict:
+def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login_info: dict = None) -> dict:
     """
     获取微信最近的新消息
     appium_server_url: Appium服务器URL
@@ -1125,7 +1165,7 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str) -> di
     try:
         # 首先尝试不重启应用
         print("[INFO] 尝试不重启应用，检查当前是否在微信...")
-        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False)
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False, login_info=login_info)
         time.sleep(1)
         
         # 检查是否在微信主页面
