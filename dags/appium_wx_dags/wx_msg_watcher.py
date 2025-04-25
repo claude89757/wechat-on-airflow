@@ -51,11 +51,17 @@ def monitor_chats(**context):
     include_video_msg = {}
     include_text_msg = {}
     for contact_name, messages in recent_new_msg.items():
+        include_video = False
         for message in messages:
             if message['msg_type'] == 'video':
-                include_video_msg[contact_name] = message
+                include_video = True
+                break
             else:
-                include_text_msg[contact_name] = message
+                pass
+        if include_video:
+            include_video_msg[contact_name] = messages
+        else:
+            include_text_msg[contact_name] = messages
     
     # 缓存到XCOM
     need_handle_tasks = []
