@@ -46,8 +46,11 @@ class WeChatOperator:
             unicodeKeyboard=True,  # 使用 Unicode 输入法
             resetKeyboard=True,  # 重置输入法
         )
-
+        
         print('正在初始化微信控制器...')
+        print("-"*100)
+        print(json.dumps(capabilities, indent=4, ensure_ascii=False))
+        print("-"*100)
         self.driver: AppiumWebDriver = AppiumWebDriver(
             command_executor=appium_server_url,
             options=UiAutomator2Options().load_capabilities(capabilities)
