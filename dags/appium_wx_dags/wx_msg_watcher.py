@@ -62,7 +62,8 @@ def monitor_chats(**context):
     if include_text_msg:
         context['ti'].xcom_push(key=f'text_msg_{task_index}', value=include_text_msg)
         need_handle_tasks.append(f'wx_text_handler_{task_index}')
-
+    
+    print(f"[WATCHER] 需要处理的任务: {need_handle_tasks}")
     return need_handle_tasks
 
 
