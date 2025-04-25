@@ -54,20 +54,10 @@ def save_video(driver, element):
                 # 获取视频保存路径
                 video_path = text.strip("视频已保存至")
                 print(f"[INFO] 视频已保存至: {video_path}")
-                
                 # 返回到聊天页面
-                try:
-                    # 点击返回按钮回到聊天页面
-                    back_button = driver.find_element(by=AppiumBy.XPATH, value="//android.widget.ImageView[@content-desc='返回']")
-                    back_button.click()
-                    print("[INFO] 已点击返回按钮，返回聊天页面")
-                    time.sleep(1)  # 等待页面加载
-                except Exception as e:
-                    print(f"[ERROR] 返回聊天页面失败: {str(e)}")
-                    # 尝试使用物理返回键
-                    driver.press_keycode(4)  # Android返回键
-                    print("[INFO] 已使用物理返回键，返回聊天页面")
-                return text.strip("视频已保存至")
+                driver.press_keycode(4)  # Android返回键
+                print("[INFO] 已使用物理返回键，返回聊天页面")
+                return video_path
             else:
                 pass
         raise Exception(f"视频不见了？")
@@ -189,6 +179,15 @@ def pull_file_from_device(device_ip, username, password, device_serial, device_p
         # 连接到远程服务器
         ssh_client.connect(hostname=device_ip, username=username, password=password, port=port)
         
+        # 确保远程服务器上的目标目录存在
+        local_dir = os.path.dirname(local_path)
+        if local_dir:  # 如果local_path包含目录路径
+            mkdir_command = f"mkdir -p {local_dir}"
+            stdin, stdout, stderr = ssh_client.exec_command(mkdir_command)
+            error = stderr.read().decode('utf-8')
+            if error:
+                print(f"Failed to create directory on remote server: {error}")
+        
         # 构建adb pull命令（指定设备）
         adb_command = f"adb -s {device_serial} pull {device_path} {local_path}"
         
@@ -200,14 +199,19 @@ def pull_file_from_device(device_ip, username, password, device_serial, device_p
         error = stderr.read().decode('utf-8')
         
         # 检查命令是否成功执行
-        if error:
+        if error and "No such file or directory" in error:
             print(f"Failed to pull file: {error}")
+            return None
+        elif error:
+            print(f"Warning during pull file: {error}")
         else:
             print(f"File pulled successfully from {device_path} to {local_path}")
             print(f"Command output: {output}")
+            return local_path
             
     except Exception as e:
         print(f"An error occurred: {e}")
+        return None
     finally:
         # 确保无论如何都会关闭SSH连接
         if ssh_client:
@@ -234,6 +238,16 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
         # 连接到远程服务器
         ssh_client.connect(hostname=device_ip, username=username, password=password, port=port)
         
+        # 确保设备上的目标目录存在
+        device_dir = os.path.dirname(device_path)
+        if device_dir:
+            # 先创建设备上的目录
+            mkdir_command = f"adb -s {device_serial} shell mkdir -p {device_dir}"
+            stdin, stdout, stderr = ssh_client.exec_command(mkdir_command)
+            error = stderr.read().decode('utf-8')
+            if error:
+                print(f"Warning: failed to create directory on device: {error}")
+        
         # 构建adb push命令（指定设备）
         adb_push_command = f"adb -s {device_serial} push {local_path} {device_path}"
         
@@ -245,8 +259,11 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
         error = stderr.read().decode('utf-8')
         
         # 检查命令是否成功执行
-        if error:
+        if error and "No such file or directory" in error:
             print(f"Failed to push file: {error}")
+            return False
+        elif error:
+            print(f"Warning during push file: {error}")
         else:
             print(f"File pushed successfully from {local_path} to {device_path}")
             print(f"Command output: {output}")
@@ -266,9 +283,11 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
             else:
                 print("Media scan triggered successfully.")
                 print(f"Scan command output: {scan_output}")
+            return True
         
     except Exception as e:
         print(f"An error occurred: {e}")
+        return False
     finally:
         # 确保无论如何都会关闭SSH连接
         if ssh_client:
@@ -306,7 +325,7 @@ def download_file_via_sftp(device_ip, username, password, remote_path, video_nam
         # 构建本地保存路径
         local_path = f"/tmp/tennis_video_output/{video_name}"
         
-        # 确保本地目录存在
+        # 确保本地目录存在（注意：这是在当前执行环境中创建目录，而不是在远程服务器上）
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         
         # 下载文件
