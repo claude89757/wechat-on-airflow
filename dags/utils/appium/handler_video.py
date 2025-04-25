@@ -51,8 +51,22 @@ def save_video(driver, element):
         for elem in all_elements:
             text = elem.attrib.get('text', 'N/A')
             if "视频已保存至" in text:
-                WebDriverWait(driver, 60).until(
-                    expected_conditions.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, '关闭'))).click()
+                # 获取视频保存路径
+                video_path = text.strip("视频已保存至")
+                print(f"[INFO] 视频已保存至: {video_path}")
+                
+                # 返回到聊天页面
+                try:
+                    # 点击返回按钮回到聊天页面
+                    back_button = driver.find_element(by=AppiumBy.XPATH, value="//android.widget.ImageView[@content-desc='返回']")
+                    back_button.click()
+                    print("[INFO] 已点击返回按钮，返回聊天页面")
+                    time.sleep(1)  # 等待页面加载
+                except Exception as e:
+                    print(f"[ERROR] 返回聊天页面失败: {str(e)}")
+                    # 尝试使用物理返回键
+                    driver.press_keycode(4)  # Android返回键
+                    print("[INFO] 已使用物理返回键，返回聊天页面")
                 return text.strip("视频已保存至")
             else:
                 pass
