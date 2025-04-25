@@ -470,28 +470,32 @@ class WeChatOperator:
 
                 video_url = ""
                 if self.login_info:
-                    print(f"[INFO] 登录信息: {self.login_info}")
-                    # 保存视频到手机
-                    print(f"[INFO] 保存视频到手机...")
-                    phone_video_path = save_video(self.driver, video_duration)
-                    print(f"[INFO] 保存视频到手机: {phone_video_path}")
-                    
-                    # 在主机上从手机上pull视频
-                    device_ip = self.login_info["device_ip"]
-                    username = self.login_info["username"]
-                    password = self.login_info["password"]
-                    port = self.login_info["port"]
-                    device_serial = self.device_name
-                    directory_path = phone_video_path
-                    video_name = os.path.basename(phone_video_path)
-                    local_path = f"/tmp/tennis_video_output/{video_name}"
-                    print(f"[INFO] 从手机上pull视频: {local_path}")
-                    pull_file_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
+                    try:
+                        print(f"[INFO] 登录信息: {self.login_info}")
+                        # 保存视频到手机
+                        print(f"[INFO] 保存视频到手机...")
+                        phone_video_path = save_video(self.driver, video_duration)
+                        print(f"[INFO] 保存视频到手机: {phone_video_path}")
+                        
+                        # 在主机上从手机上pull视频
+                        device_ip = self.login_info["device_ip"]
+                        username = self.login_info["username"]
+                        password = self.login_info["password"]
+                        port = self.login_info["port"]
+                        device_serial = self.device_name
+                        directory_path = phone_video_path
+                        video_name = os.path.basename(phone_video_path)
+                        local_path = f"/tmp/tennis_video_output/{video_name}"
+                        print(f"[INFO] 从手机上pull视频: {local_path}")
+                        pull_file_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
 
-                    # 在主机上从主机上下载视频
-                    print(f"[INFO] 从主机上下载视频: {local_path}")
-                    video_url = download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
-                    print(f"[INFO] 从主机上下载视频: {video_url}")
+                        # 在主机上从主机上下载视频(路径均相同)
+                        print(f"[INFO] 从主机上下载视频: {local_path}")
+                        video_url = download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
+                        print(f"[INFO] 从主机上下载视频: {video_url}")
+                    except Exception as e:
+                        print(f"[ERROR] 从主机上下载视频失败: {e}")
+                        video_url = "下载视频失败"
 
                 video_length = video_duration_text if video_duration_text else "未知时长"
                 cur_msg_text = f"[视频] {video_length}: {video_url}"

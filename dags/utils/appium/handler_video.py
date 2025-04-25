@@ -295,14 +295,14 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
             print("SSH connection closed")
 
 
-def download_file_via_sftp(device_ip, username, password, remote_path, video_name=None, port=22):
+def download_file_via_sftp(device_ip, username, password, remote_path, local_path, port=22):
     """
     通过SSH/SFTP协议直接从远程服务器下载文件到本地/tmp/tennis_video_output/目录
     :param device_ip: 远程服务器IP
     :param username: 用户名
     :param password: 密码
     :param remote_path: 远程文件路径
-    :param video_name: 视频文件名，如果为None则使用远程文件名
+    :param local_path: 本地文件路径
     :param port: SSH端口号，默认22
     :return: 本地文件路径或None（如果下载失败）
     """
@@ -317,13 +317,6 @@ def download_file_via_sftp(device_ip, username, password, remote_path, video_nam
         
         # 创建SFTP客户端
         sftp_client = ssh_client.open_sftp()
-        
-        # 如果未指定视频名称，则从远程路径中提取
-        if video_name is None:
-            video_name = os.path.basename(remote_path)
-        
-        # 构建本地保存路径
-        local_path = f"/tmp/tennis_video_output/{video_name}"
         
         # 确保本地目录存在（注意：这是在当前执行环境中创建目录，而不是在远程服务器上）
         os.makedirs(os.path.dirname(local_path), exist_ok=True)

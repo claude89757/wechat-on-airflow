@@ -50,12 +50,12 @@ def monitor_chats(**context):
         return False
 
 
-def send_messages(**context):
-    """发送消息"""
-    print(f"[SENDER] 发送消息")
+def handle_messages(**context):
+    """处理消息"""
+    print(f"[HANDLE] 处理消息")
     task_index = int(context['task_instance'].task_id.split('_')[-1])
     appium_server_info = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)[task_index]
-    print(f"[WATCHER] 获取Appium服务器信息: {appium_server_info}")
+    print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
 
     wx_name = appium_server_info['wx_name']
     device_name = appium_server_info['device_name']
@@ -65,7 +65,7 @@ def send_messages(**context):
 
     # 获取XCOM
     recent_new_msg = context['ti'].xcom_pull(key=f'recent_new_msg_{task_index}')
-    print(f"[SENDER] 获取XCOM: {recent_new_msg}")
+    print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
     
     # 发送消息
     for contact_name, messages in recent_new_msg.items():
@@ -192,26 +192,26 @@ with DAG(
     wx_watcher_8 = ShortCircuitOperator(task_id='wx_watcher_8', python_callable=monitor_chats)
     wx_watcher_9 = ShortCircuitOperator(task_id='wx_watcher_9', python_callable=monitor_chats)
 
-    # 发送消息
-    wx_sender_0 = PythonOperator(task_id='wx_sender_0', python_callable=send_messages)
-    wx_sender_1 = PythonOperator(task_id='wx_sender_1', python_callable=send_messages)
-    wx_sender_2 = PythonOperator(task_id='wx_sender_2', python_callable=send_messages)
-    wx_sender_3 = PythonOperator(task_id='wx_sender_3', python_callable=send_messages)
-    wx_sender_4 = PythonOperator(task_id='wx_sender_4', python_callable=send_messages)
-    wx_sender_5 = PythonOperator(task_id='wx_sender_5', python_callable=send_messages)
-    wx_sender_6 = PythonOperator(task_id='wx_sender_6', python_callable=send_messages)
-    wx_sender_7 = PythonOperator(task_id='wx_sender_7', python_callable=send_messages)
-    wx_sender_8 = PythonOperator(task_id='wx_sender_8', python_callable=send_messages)
-    wx_sender_9 = PythonOperator(task_id='wx_sender_9', python_callable=send_messages)
+    # 处理消息
+    wx_handler_0 = PythonOperator(task_id='wx_handler_0', python_callable=handle_messages)
+    wx_handler_1 = PythonOperator(task_id='wx_handler_1', python_callable=handle_messages)
+    wx_handler_2 = PythonOperator(task_id='wx_handler_2', python_callable=handle_messages)
+    wx_handler_3 = PythonOperator(task_id='wx_handler_3', python_callable=handle_messages)
+    wx_handler_4 = PythonOperator(task_id='wx_handler_4', python_callable=handle_messages)
+    wx_handler_5 = PythonOperator(task_id='wx_handler_5', python_callable=handle_messages)
+    wx_handler_6 = PythonOperator(task_id='wx_handler_6', python_callable=handle_messages)
+    wx_handler_7 = PythonOperator(task_id='wx_handler_7', python_callable=handle_messages)
+    wx_handler_8 = PythonOperator(task_id='wx_handler_8', python_callable=handle_messages)
+    wx_handler_9 = PythonOperator(task_id='wx_handler_9', python_callable=handle_messages)
 
     # 设置依赖关系
-    wx_watcher_0 >> wx_sender_0
-    wx_watcher_1 >> wx_sender_1
-    wx_watcher_2 >> wx_sender_2
-    wx_watcher_3 >> wx_sender_3
-    wx_watcher_4 >> wx_sender_4
-    wx_watcher_5 >> wx_sender_5
-    wx_watcher_6 >> wx_sender_6
-    wx_watcher_7 >> wx_sender_7
-    wx_watcher_8 >> wx_sender_8
-    wx_watcher_9 >> wx_sender_9
+    wx_watcher_0 >> wx_handler_0
+    wx_watcher_1 >> wx_handler_1
+    wx_watcher_2 >> wx_handler_2
+    wx_watcher_3 >> wx_handler_3
+    wx_watcher_4 >> wx_handler_4
+    wx_watcher_5 >> wx_handler_5
+    wx_watcher_6 >> wx_handler_6
+    wx_watcher_7 >> wx_handler_7
+    wx_watcher_8 >> wx_handler_8
+    wx_watcher_9 >> wx_handler_9
