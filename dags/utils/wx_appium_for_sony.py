@@ -407,6 +407,390 @@ class WeChatOperator:
                 
         print("-" * 120)
 
+    def _get_image_msg_content(self, msg_elem):
+        """
+        获取图片消息内容
+        """
+        cur_msg_text = ""
+        cur_msg_type = ""
+        try:
+            # 查找带有图片标识的ImageView
+            img_elem = msg_elem.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.widget.ImageView[@content-desc='图片'][@resource-id='com.tencent.mm:id/bkm']"
+            )
+            # 找到明确标识为图片的元素
+            # TODO(claude89757): 下载图片，并上传到cos
+            cur_msg_text = "[图片]"
+            cur_msg_type = "image"
+            print(f"[INFO] 通过content-desc='图片'找到图片消息")
+        except:
+            print(f"非图片消息")
+
+        return cur_msg_text, cur_msg_type
+
+    def _get_video_msg_content(self, msg_elem):
+        """
+        获取视频消息内容
+        """
+        cur_msg_text = ""
+        cur_msg_type = ""
+        try:
+            # 尝试查找视频消息元素
+            # 根据截图中的层级结构寻找视频元素
+            video_container = msg_elem.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/oy_']"
+            )
+            if video_container:
+                # 找到视频帧图像
+                video_image = video_container.find_element(
+                    by=AppiumBy.XPATH,
+                    value=".//android.widget.FrameLayout[@resource-id='com.tencent.mm:id/bkg']/android.widget.ImageView"
+                )
+                # 找到视频时长文本
+                video_duration = video_container.find_element(
+                    by=AppiumBy.XPATH,
+                    value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/boy']"
+                )
+                
+                content_elem = video_image
+                video_length = video_duration.text if video_duration else "未知时长"
+                cur_msg_text = f"[视频] {video_length}"
+                cur_msg_type = "video"
+                print(f"[INFO] 获取到视频消息: {cur_msg_text} (时长: {video_length})")
+        except:
+            print("非视频消息")
+        return cur_msg_text, cur_msg_type
+
+    def _get_voice_msg_content(self, msg_elem):
+        """
+        获取语音消息内容
+        """
+        cur_msg_text = ""
+        cur_msg_type = ""
+        try:
+            # 尝试查找语音消息元素 - 基于用户提供的XML修改resource-id
+            voice_container = msg_elem.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.widget.FrameLayout[@resource-id='com.tencent.mm:id/brr']"
+            )
+            
+            # 如果没有找到，尝试旧的resource-id
+            if not voice_container:
+                voice_container = msg_elem.find_element(
+                    by=AppiumBy.XPATH,
+                    value=".//android.widget.FrameLayout[@resource-id='com.tencent.mm:id/brq']"
+                )
+            
+            if voice_container:
+                # 获取语音时长 - 根据XML直接使用content-desc属性
+                voice_length = "1秒"  # 默认值
+                try:
+                    # 根据XML找到带有语音时长的元素
+                    duration_elem = voice_container.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/bkl']"
+                    )
+                    if duration_elem.text:
+                        voice_length = duration_elem.text
+                except:
+                    pass
+                
+                # 检查是否已经有转文字结果
+                try:
+                    # 使用resource-id查找
+                    voice_text_elem = voice_container.find_element(
+                        by=AppiumBy.XPATH, 
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/brv']"
+                    )
+                    voice_text = voice_text_elem.text
+                    cur_msg_text = f"[语音] {voice_length}: {voice_text}"
+                except:
+                    # 检查是否有转文字按钮
+                    try:
+                        # 首先检查是否存在"转文字"按钮
+                        convert_text_btn = voice_container.find_element(
+                            by=AppiumBy.XPATH,
+                            value=".//android.widget.RelativeLayout[@resource-id='com.tencent.mm:id/blv']"
+                        )
+                        
+                        # 验证是否是"转文字"按钮
+                        convert_text_label = convert_text_btn.find_element(
+                            by=AppiumBy.XPATH,
+                            value=".//android.widget.TextView[@text='转文字']"
+                        )
+                        
+                        if convert_text_label:
+                            print("[INFO] 找到转文字按钮，点击...")
+                            convert_text_label.click()
+                            time.sleep(2)  # 等待转换完成
+                            
+                            # 刷新页面DOM
+                            page_source = self.driver.page_source
+                            
+                            # 点击转文字后，重新获取整个页面的元素
+                            try:
+                                # 获取当前页面中所有匹配的语音文字结果元素
+                                voice_text_elems = self.driver.find_elements(
+                                    by=AppiumBy.XPATH,
+                                    value="//android.widget.TextView[@resource-id='com.tencent.mm:id/brv']"
+                                )
+                                
+                                # 如果找到文字结果元素，使用最后一个（通常是最新转换的）
+                                if voice_text_elems and len(voice_text_elems) > 0:
+                                    voice_text = voice_text_elems[-1].text
+                                    cur_msg_text = f"[语音] {voice_length}: {voice_text}"
+                                else:
+                                    cur_msg_text = f"[语音] {voice_length}"
+                            except:
+                                cur_msg_text = f"[语音] {voice_length}"
+                        else:
+                            cur_msg_text = f"[语音] {voice_length}"
+                    except:
+                        # 如果没有直接可见的转文字按钮，尝试长按唤出菜单
+                        try:
+                            # 长按语音消息唤出菜单
+                            print("[INFO] 长按语音消息唤出菜单")
+                            self.driver.execute_script("mobile: longClickGesture", {
+                                "elementId": voice_container.id,
+                                "duration": 1000
+                            })
+                            time.sleep(0.5)
+                            
+                            # 点击"转文字"按钮
+                            try:
+                                convert_btn = WebDriverWait(self.driver, 3).until(
+                                    EC.presence_of_element_located((
+                                        AppiumBy.XPATH,
+                                        "//android.widget.TextView[contains(@text, '转文字')]"
+                                    ))
+                                )
+                                print("[INFO] 点击转文字按钮")
+                                convert_btn.click()
+                                time.sleep(2)
+                                
+                                # 刷新页面DOM
+                                page_source = self.driver.page_source
+                                
+                                # 点击转文字后，重新获取整个页面的元素
+                                try:
+                                    # 获取当前页面中所有匹配的语音文字结果元素
+                                    voice_text_elems = self.driver.find_elements(
+                                        by=AppiumBy.XPATH,
+                                        value="//android.widget.TextView[@resource-id='com.tencent.mm:id/brv']"
+                                    )
+                                    
+                                    # 如果找到文字结果元素，使用最后一个（通常是最新转换的）
+                                    if voice_text_elems and len(voice_text_elems) > 0:
+                                        voice_text = voice_text_elems[-1].text
+                                        cur_msg_text = f"[语音] {voice_length}: {voice_text}"
+                                    else:
+                                        cur_msg_text = f"[语音] {voice_length}"
+                                except:
+                                    cur_msg_text = f"[语音] {voice_length}"
+                            except:
+                                # 如果没有找到"转文字"按钮，使用默认文本
+                                print("[INFO] 未找到转文字按钮或转换失败")
+                                # 点击空白区域关闭菜单
+                                self.driver.press_keycode(4)  # 按返回键关闭菜单
+                                time.sleep(0.5)
+                                cur_msg_text = f"[语音] {voice_length}"
+                        except:
+                            cur_msg_text = f"[语音] {voice_length}"
+                
+                cur_msg_type = "voice"
+                print(f"[INFO] 获取到语音消息: {cur_msg_text}")
+        except:
+            print(f"非语音消息")
+
+        return cur_msg_text, cur_msg_type
+        
+    def _get_location_msg_content(self, msg_elem):
+        """
+        获取位置消息内容
+        """
+        cur_msg_text = ""
+        cur_msg_type = ""
+        try:
+            # 尝试查找位置消息容器
+            location_container = msg_elem.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/bp7']"
+            )
+            
+            if location_container:
+                # 获取位置标题 (如"中兴通讯员工宿舍")
+                try:
+                    location_title = location_container.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/bp8']"
+                    )
+                    title_text = location_title.text
+                except:
+                    title_text = "未知位置"
+                
+                # 获取位置详细地址 (如"广东省深圳市南山区西丽街道打石一路22号2号楼")
+                try:
+                    location_address = location_container.find_element(
+                        by=AppiumBy.XPATH, 
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/bp6']"
+                    )
+                    address_text = location_address.text
+                except:
+                    address_text = ""
+                
+                # 构建位置消息文本
+                if address_text:
+                    cur_msg_text = f"[位置] {title_text}: {address_text}"
+                else:
+                    cur_msg_text = f"[位置] {title_text}"
+                
+                cur_msg_type = "location"
+                print(f"[INFO] 获取到位置消息: {cur_msg_text}")
+        except:
+            print(f"非位置消息")
+            
+        return cur_msg_text, cur_msg_type
+
+    def _get_file_msg_content(self, msg_elem):
+        """
+        获取文件消息内容
+        """
+        cur_msg_text = ""
+        cur_msg_type = ""
+        try:
+            # 基于XML结构查找文件消息容器
+            # 尝试查找包含文件信息的容器
+            file_container = msg_elem.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.widget.FrameLayout[@resource-id='com.tencent.mm:id/bkg']"
+            )
+            
+            # 查找文件名元素 - 尝试多种可能的resource-id
+            file_name = None
+            for resource_id in ['com.tencent.mm:id/bju', 'com.tencent.mm:id/bjp']:
+                try:
+                    file_name_elem = file_container.find_element(
+                        by=AppiumBy.XPATH,
+                        value=f".//android.widget.TextView[@resource-id='{resource_id}']"
+                    )
+                    file_name = file_name_elem.text
+                    break
+                except:
+                    continue
+            
+            # 如果通过resource-id没找到，尝试查找第一个TextView元素
+            if not file_name:
+                try:
+                    # 查找文件名可能在多个不同位置，尝试不同的路径
+                    file_name_elems = file_container.find_elements(
+                        by=AppiumBy.XPATH, 
+                        value=".//android.widget.TextView"
+                    )
+                    # 通常第一个TextView就是文件名
+                    if file_name_elems and len(file_name_elems) > 0:
+                        file_name = file_name_elems[0].text
+                except:
+                    pass
+            
+            # 查找文件大小元素 - 尝试多种可能的resource-id
+            file_size = None
+            for resource_id in ['com.tencent.mm:id/bj2', 'com.tencent.mm:id/bjm']:
+                try:
+                    file_size_elem = file_container.find_element(
+                        by=AppiumBy.XPATH,
+                        value=f".//android.widget.TextView[@resource-id='{resource_id}']"
+                    )
+                    file_size = file_size_elem.text
+                    break
+                except:
+                    continue
+            
+            # 如果通过resource-id没找到，尝试查找包含"KB"或"MB"的TextView
+            if not file_size:
+                try:
+                    size_candidates = file_container.find_elements(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView[contains(@text, 'KB') or contains(@text, 'MB') or contains(@text, 'B')]"
+                    )
+                    if size_candidates:
+                        file_size = size_candidates[0].text
+                except:
+                    pass
+            
+            # 构建文件消息文本
+            if file_name:
+                if file_size:
+                    cur_msg_text = f"[文件] {file_name} ({file_size})"
+                else:
+                    cur_msg_text = f"[文件] {file_name}"
+                cur_msg_type = "file"
+                print(f"[INFO] 获取到文件消息: {cur_msg_text}")
+            
+        except Exception as e:
+            # 尝试另一种方式查找文件消息
+            try:
+                # 查找包含文件图标的布局
+                file_icon = msg_elem.find_element(
+                    by=AppiumBy.XPATH,
+                    value=".//android.widget.ImageView[@resource-id='com.tencent.mm:id/bjs']"
+                )
+                
+                # 如果找到文件图标，再查找相邻的文件名和大小
+                if file_icon:
+                    # 查找所有TextView，通常第一个是文件名，第二个是大小
+                    text_elems = msg_elem.find_elements(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView"
+                    )
+                    
+                    file_name = None
+                    file_size = None
+                    
+                    # 遍历找到的文本元素
+                    for elem in text_elems:
+                        text = elem.text
+                        if text:
+                            # 如果文本中包含尺寸单位，则可能是文件大小
+                            if any(unit in text for unit in ['KB', 'MB', 'GB', 'B']):
+                                file_size = text
+                            # 否则第一个非空文本可能是文件名
+                            elif file_name is None:
+                                file_name = text
+                    
+                    # 构建文件消息文本
+                    if file_name:
+                        if file_size:
+                            cur_msg_text = f"[文件] {file_name} ({file_size})"
+                        else:
+                            cur_msg_text = f"[文件] {file_name}"
+                        cur_msg_type = "file"
+                        print(f"[INFO] 获取到文件消息: {cur_msg_text}")
+            except:
+                print(f"非文件消息")
+                
+        return cur_msg_text, cur_msg_type
+
+    def _get_text_msg_content(self, msg_elem):
+        """
+        获取文本消息内容
+        """
+        cur_msg_text = ""
+        cur_msg_type = ""
+        try:
+            # 文本消息
+            content_elem = msg_elem.find_element(
+            by=AppiumBy.XPATH,
+            value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/bkl']"
+        )
+            cur_msg_text = content_elem.text
+            cur_msg_type = "text"
+            print(f"[INFO] 获取到消息: {cur_msg_text[:50] if len(cur_msg_text) > 50 else cur_msg_text} (类型: {cur_msg_type})")
+        except:
+            print("非文本消息")
+        return cur_msg_text, cur_msg_type
+        
 
     def get_recent_new_msg(self):
         """
@@ -554,41 +938,37 @@ class WeChatOperator:
                             try:
                                 # 获取倒数第i+1条消息
                                 msg_elem = msg_elements[len(msg_elements) - 1 - i]
-                                
+
                                 # 获取消息内容
-                                content_elem = None
-                                cur_msg_type = "text"  # 默认为文本类型
-                                
-                                # 尝试查找不同类型的消息元素
-                                try:
-                                    # 文本消息
-                                    content_elem = msg_elem.find_element(
-                                        by=AppiumBy.XPATH,
-                                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/bkl']"
-                                    )
-                                    cur_msg_text = content_elem.text
-                                except:
-                                    try:
-                                        # 查找其他可能的文本元素
-                                        content_elem = msg_elem.find_element(
-                                            by=AppiumBy.XPATH,
-                                            value=".//android.widget.TextView"
-                                        )
-                                        cur_msg_text = content_elem.text
-                                    except:
-                                        # 如果找不到文本元素，检查是否有图片元素
-                                        try:
-                                            img_elem = msg_elem.find_element(
-                                                by=AppiumBy.XPATH,
-                                                value=".//android.widget.ImageView"
-                                            )
-                                            # 存在ImageView元素，可能是图片消息
-                                            content_elem = img_elem
-                                            cur_msg_text = "[图片]"  # 直接设置固定文本内容
-                                            cur_msg_type = "image"
-                                        except:
-                                            print("[WARNING] 无法找到消息内容元素")
-                                            continue
+                                cur_msg_text = ""
+                                cur_msg_type = ""
+
+                                # 先尝试图片消息内容
+                                cur_msg_text, cur_msg_type = self._get_image_msg_content(msg_elem)
+
+                                # 再尝试视频消息内容
+                                if not cur_msg_text:
+                                    cur_msg_text, cur_msg_type = self._get_video_msg_content(msg_elem)
+
+                                # 再尝试语音消息内容
+                                if not cur_msg_text:
+                                    cur_msg_text, cur_msg_type = self._get_voice_msg_content(msg_elem)
+
+                                # 再尝试位置消息内容
+                                if not cur_msg_text:
+                                    cur_msg_text, cur_msg_type = self._get_location_msg_content(msg_elem)
+
+                                # 再尝试文件消息内容
+                                if not cur_msg_text:
+                                    cur_msg_text, cur_msg_type = self._get_file_msg_content(msg_elem)
+
+                                # 最后尝试文本消息内容
+                                if not cur_msg_text:
+                                    cur_msg_text, cur_msg_type = self._get_text_msg_content(msg_elem)
+
+                                if not cur_msg_text:
+                                    print("[ERROR] 无法获取消息内容")
+                                    continue
                                 
                                 # 获取消息时间
                                 msg_time = chat_time
@@ -621,7 +1001,7 @@ class WeChatOperator:
                                     cur_msg_type = msg_type
                                 
                                 # 构建消息对象
-                                if content_elem:
+                                if cur_msg_text:
                                     message = {
                                         "sender": sender,
                                         "msg": cur_msg_text,
@@ -785,7 +1165,7 @@ if __name__ == "__main__":
     print(appium_server_url)
 
     # 打印当前页面的XML结构
-    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='BH901V3R9E', force_app_launch=False)
+    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='971bd67c0107', force_app_launch=False)
 
     try:
         time.sleep(5)
