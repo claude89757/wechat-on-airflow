@@ -151,7 +151,7 @@ def handle_video_messages(**context):
             if dag_run_list and dag_run_list[0].state == 'success':
                 break
             print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run_list[0].state if dag_run_list else 'None'}")
-            time.sleep(3)
+            time.sleep(5)
         
         # 从XCom获取DAG的输出结果 - 修正获取方式
         from airflow.models import XCom
