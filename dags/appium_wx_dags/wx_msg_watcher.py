@@ -137,26 +137,41 @@ def handle_video_messages(**context):
         # 创建DAG
         timestamp = int(time.time())
         print(f"[HANDLE] {contact_name} 收到视频消息, 触发AI视频处理DAG")
+        dag_run_id = f'{contact_name}_{timestamp}'
         trigger_dag(
             dag_id='tennis_action_score_v4_local_file',
             conf={"video_url": video_url},
-            run_id=f'{contact_name}_{timestamp}',
+            run_id=dag_run_id,
         )
 
         # 循环等待dag运行完成
         while True:
-            dag_run = DagRun.get_run(dag_id='tennis_action_score_v4_local_file', run_id=f'{contact_name}_{timestamp}')
-            if dag_run and dag_run.state == 'success':
+            dag_run_list = DagRun.find(dag_id="tennis_action_score_v4_local_file", run_id=dag_run_id)
+            print(f"dag_run_list: {dag_run_list}")
+            if dag_run_list and dag_run_list[0].state == 'success':
                 break
-            print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run.state if dag_run else 'None'}")
+            print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run_list[0].state if dag_run_list else 'None'}")
             time.sleep(3)
         
-        # 从XCom获取DAG的输出结果
-        task_instance = TaskInstance(task=dag_run.get_task('process_ai_video'), execution_date=dag_run.execution_date)
-        file_infos = task_instance.xcom_pull(task_ids='process_ai_video')
-        print(f"[HANDLE] 从XCom获取AI视频处理结果: {file_infos}")
-
-        # send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
+        # 从XCom获取DAG的输出结果 - 修正获取方式
+        from airflow.models import XCom
+        from sqlalchemy.orm import Session
+        from airflow import settings
+        
+        execution_date = dag_run_list[0].execution_date
+        session = settings.Session()
+        try:
+            # 使用XCom.get_one获取return_value
+            file_infos = XCom.get_one(
+                execution_date=execution_date,
+                key="return_value",
+                dag_id="tennis_action_score_v4_local_file",
+                task_id="process_ai_video",
+                session=session
+            )
+            print(f"[HANDLE] 从XCom获取AI视频处理结果: {file_infos}")
+        finally:
+            session.close()
 
     return recent_new_msg
 
