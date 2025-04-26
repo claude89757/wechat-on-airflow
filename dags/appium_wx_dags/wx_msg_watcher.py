@@ -175,7 +175,7 @@ def handle_video_messages(**context):
         device_ip = login_info['device_ip']
         username = login_info['username']
         password = login_info['password']
-        device_serial = login_info['device_serial']
+        device_serial = device_name
         port = login_info['port']
         analysis_image_path = file_infos['analysis_image']
         slow_action_video_path = file_infos['slow_action_video']
