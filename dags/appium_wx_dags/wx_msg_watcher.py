@@ -9,19 +9,21 @@ import re
 import os
 import time
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.models import Variable
 from airflow.api.common.trigger_dag import trigger_dag
 from airflow.models.dagrun import DagRun
-from airflow.models.taskinstance import TaskInstance
+from airflow.models import XCom
+from airflow import settings
 
 from utils.dify_sdk import DifyAgent
 from utils.appium.wx_appium import get_recent_new_msg_by_appium
 from utils.appium.wx_appium import send_wx_msg_by_appium
-
+from utils.appium.handler_video import push_file_to_device
+from utils.appium.handler_video import clear_mp4_files_in_directory
 
 def monitor_chats(**context):
     """监控聊天消息"""
@@ -120,7 +122,8 @@ def handle_video_messages(**context):
     appium_url = appium_server_info['appium_url']
     dify_api_url = appium_server_info['dify_api_url']
     dify_api_key = appium_server_info['dify_api_key']
-
+    login_info = appium_server_info['login_info']
+    
     # 获取XCOM
     recent_new_msg = context['ti'].xcom_pull(key=f'video_msg_{task_index}')
     print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
@@ -153,11 +156,7 @@ def handle_video_messages(**context):
             print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run_list[0].state if dag_run_list else 'None'}")
             time.sleep(5)
         
-        # 从XCom获取DAG的输出结果 - 修正获取方式
-        from airflow.models import XCom
-        from sqlalchemy.orm import Session
-        from airflow import settings
-        
+        # 从XCom获取DAG的输出结果
         session = settings.Session()
         try:
             # 使用XCom.get_one获取return_value
@@ -171,6 +170,20 @@ def handle_video_messages(**context):
             print(f"[HANDLE] 从XCom获取AI视频处理结果: {file_infos}")
         finally:
             session.close()
+
+        # 推送图片和视频到手机上
+        device_ip = login_info['device_ip']
+        username = login_info['username']
+        password = login_info['password']
+        device_serial = login_info['device_serial']
+        port = login_info['port']
+        analysis_image_path = file_infos['analysis_image']
+        slow_action_video_path = file_infos['slow_action_video']
+        push_file_to_device(device_ip, username, password, device_serial, analysis_image_path, "/sdcard/DCIM/WeiXin/", port=port)
+        push_file_to_device(device_ip, username, password, device_serial, slow_action_video_path, "/sdcard/DCIM/WeiXin/", port=port)
+
+        # 清理视频缓存
+        # clear_mp4_files_in_directory(device_ip, username, password, device_serial, "/sdcard/DCIM/WeiXin/", port=port)
 
     return recent_new_msg
 
