@@ -1333,7 +1333,7 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
                 time.sleep(1)
             
             # 重新启动微信
-            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
+            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True, login_info=login_info)
             time.sleep(3)
         
         # 获取最近新消息
