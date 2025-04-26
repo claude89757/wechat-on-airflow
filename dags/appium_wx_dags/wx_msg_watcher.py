@@ -133,6 +133,9 @@ def handle_video_messages(**context):
     
     # 发送消息
     for contact_name, messages in recent_new_msg.items():
+        # 通知用户
+        send_wx_msg_by_appium(appium_url, device_name, contact_name, ["收到视频，AI分析中...🔄"])
+
         video_url = ""
         for message in messages:
             if message['msg_type'] == 'video':
