@@ -277,7 +277,7 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
             return False
         else:
             # 检查输出是否包含成功信息
-            if "pushed" in output and "100%" in output:
+            if "pushed" in output:
                 print(f"文件成功推送，从 {local_path} 到 {device_path}")
                 print(f"命令输出: {output}")
                 

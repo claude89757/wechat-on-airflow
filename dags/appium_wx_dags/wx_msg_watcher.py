@@ -185,14 +185,23 @@ def handle_video_messages(**context):
         slow_action_video_name = slow_action_video_path.split('/')[-1]
 
         # 先上传到管控手机的主机中
+        print(f"[HANDLE] 上传图片到主机: {analysis_image_path}")
         upload_file_to_device_via_sftp(device_ip, username, password, analysis_image_path, analysis_image_path, port=port)
+        print("-"*100)
+        print(f"[HANDLE] 上传视频到主机: {slow_action_video_path}")
         upload_file_to_device_via_sftp(device_ip, username, password, slow_action_video_path, slow_action_video_path, port=port)
+        print("-"*100)
 
         # 再通过主机的adb命令上传到手机中
-        push_file_to_device(device_ip, username, password, device_name, analysis_image_path, f"/storage/emulated/0/Pictures/WeiXin/{analysis_image_name}", port=port)        
+        print(f"[HANDLE] 上传图片到手机: {analysis_image_path}")
+        push_file_to_device(device_ip, username, password, device_name, analysis_image_path, f"/storage/emulated/0/Pictures/WeiXin/{analysis_image_name}", port=port)   
+        print("-"*100)
+        print(f"[HANDLE] 上传视频到手机: {slow_action_video_path}")
         push_file_to_device(device_ip, username, password, device_name, slow_action_video_path, f"/storage/emulated/0/DCIM/WeiXin/{slow_action_video_name}", port=port)
+        print("-"*100)
 
         # 发送图片和视频到微信
+        print(f"[HANDLE] 发送图片和视频到微信")
         send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=2)
 
         # 清理视频缓存
