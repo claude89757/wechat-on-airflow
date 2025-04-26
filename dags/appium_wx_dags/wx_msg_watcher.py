@@ -158,12 +158,11 @@ def handle_video_messages(**context):
         from sqlalchemy.orm import Session
         from airflow import settings
         
-        execution_date = dag_run_list[0].execution_date
         session = settings.Session()
         try:
             # 使用XCom.get_one获取return_value
             file_infos = XCom.get_one(
-                execution_date=execution_date,
+                run_id=dag_run_id,
                 key="return_value",
                 dag_id="tennis_action_score_v4_local_file",
                 task_id="process_ai_video",
