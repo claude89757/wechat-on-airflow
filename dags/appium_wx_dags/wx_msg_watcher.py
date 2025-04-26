@@ -175,15 +175,14 @@ def handle_video_messages(**context):
         device_ip = login_info['device_ip']
         username = login_info['username']
         password = login_info['password']
-        device_serial = device_name
         port = login_info['port']
         analysis_image_path = file_infos['analysis_image']
         slow_action_video_path = file_infos['slow_action_video']
-        push_file_to_device(device_ip, username, password, device_serial, analysis_image_path, "/sdcard/DCIM/WeiXin/", port=port)
-        push_file_to_device(device_ip, username, password, device_serial, slow_action_video_path, "/sdcard/DCIM/WeiXin/", port=port)
+        push_file_to_device(device_ip, username, password, device_name, analysis_image_path, "/sdcard/DCIM/WeiXin/", port=port)
+        push_file_to_device(device_ip, username, password, device_name, slow_action_video_path, "/sdcard/DCIM/WeiXin/", port=port)
 
         # 清理视频缓存
-        # clear_mp4_files_in_directory(device_ip, username, password, device_serial, "/sdcard/DCIM/WeiXin/", port=port)
+        # clear_mp4_files_in_directory(device_ip, username, password, device_name, "/sdcard/DCIM/WeiXin/", port=port)
 
     return recent_new_msg
 
