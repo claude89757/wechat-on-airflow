@@ -185,8 +185,8 @@ def handle_video_messages(**context):
         slow_action_video_name = slow_action_video_path.split('/')[-1]
 
         # 先上传到管控手机的主机中
-        upload_file_to_device_via_sftp(device_ip, username, password, device_name, analysis_image_path, analysis_image_path, port=port)
-        upload_file_to_device_via_sftp(device_ip, username, password, device_name, slow_action_video_path, slow_action_video_path, port=port)
+        upload_file_to_device_via_sftp(device_ip, username, password, analysis_image_path, analysis_image_path, port=port)
+        upload_file_to_device_via_sftp(device_ip, username, password, slow_action_video_path, slow_action_video_path, port=port)
 
         # 再通过主机的adb命令上传到手机中
         push_file_to_device(device_ip, username, password, device_name, analysis_image_path, f"/storage/emulated/0/Pictures/WeiXin/{analysis_image_name}", port=port)        

@@ -418,17 +418,4 @@ def download_file_via_sftp(device_ip, username, password, remote_path, local_pat
 
 # TEST
 if __name__ == "__main__":
-    # 测试clear_mp4_files_in_directory函数
-    device_ip = "47.115.144.127"
-    username = "claude89757"
-    password = "claude@pi"
-    device_serial = "971bd67c0107"
-    directory_path = "/sdcard/DCIM/WeiXin/mmexport1745606531043.mp4"
-    local_path = "/tmp/test123.mp4"
-    pull_file_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=6000)
-
-    # 测试download_file_via_sftp函数
-    remote_path = "/tmp/test123.mp4"
-    video_name = "mmexport1745606531043.mp4"
-    local_path = download_file_via_sftp(device_ip, username, password, remote_path, video_name, port=6000)
-    print(f"Downloaded file to: {local_path}")
+    pass
