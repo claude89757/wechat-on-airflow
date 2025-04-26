@@ -618,6 +618,7 @@ class WeChatOperator:
 
                 video_url = ""
                 if self.login_info:
+                    print(f"正在保存视频...")
                     try:
                         print(f"[INFO] 登录信息: {self.login_info}")
                         # 保存视频到手机
@@ -644,6 +645,8 @@ class WeChatOperator:
                     except Exception as e:
                         print(f"[ERROR] 从主机上下载视频失败: {e}")
                         video_url = "下载视频失败"
+                else:
+                    print(f"登录信息为空，无法下载视频")
 
                 video_length = video_duration_text if video_duration_text else "未知时长"
                 cur_msg_text = f"[视频] {video_length}: {video_url}"
