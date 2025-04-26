@@ -233,10 +233,19 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
     # 创建SSH客户端
     ssh_client = paramiko.SSHClient()
     try:
-        # 自动添加主机密钥
+        # 先在远程服务器上检查本地文件是否存在
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        # 连接到远程服务器
         ssh_client.connect(hostname=device_ip, username=username, password=password, port=port)
+        
+        # 检查文件是否存在
+        check_file_command = f"ls -la {local_path}"
+        stdin, stdout, stderr = ssh_client.exec_command(check_file_command)
+        file_check_output = stdout.read().decode('utf-8')
+        file_check_error = stderr.read().decode('utf-8')
+        
+        if file_check_error and "No such file or directory" in file_check_error:
+            print(f"错误：本地文件不存在: {local_path}")
+            return False
         
         # 确保设备上的目标目录存在
         device_dir = os.path.dirname(device_path)
@@ -246,7 +255,7 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
             stdin, stdout, stderr = ssh_client.exec_command(mkdir_command)
             error = stderr.read().decode('utf-8')
             if error:
-                print(f"Warning: failed to create directory on device: {error}")
+                print(f"警告: 在设备上创建目录失败: {error}")
         
         # 构建adb push命令（指定设备）
         adb_push_command = f"adb -s {device_serial} push {local_path} {device_path}"
@@ -260,39 +269,106 @@ def push_file_to_device(device_ip, username, password, device_serial, local_path
         
         # 检查命令是否成功执行
         if error and "No such file or directory" in error:
-            print(f"Failed to push file: {error}")
+            print(f"推送文件失败: {error}")
             return False
-        elif error:
-            print(f"Warning during push file: {error}")
+        elif "adb: error" in output or "failed to copy" in output.lower() or error:
+            print(f"推送文件过程中出现警告: {error}")
+            print(f"输出: {output}")
+            return False
         else:
-            print(f"File pushed successfully from {local_path} to {device_path}")
-            print(f"Command output: {output}")
-            
-            # 构建触发媒体扫描的命令（指定设备）
-            scan_command = f'adb -s {device_serial} shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{device_path}'
-            
-            # 执行媒体扫描命令
-            stdin, stdout, stderr = ssh_client.exec_command(scan_command)
-            
-            # 获取扫描命令输出
-            scan_output = stdout.read().decode('utf-8')
-            scan_error = stderr.read().decode('utf-8')
-            
-            if scan_error:
-                print(f"Failed to trigger media scan: {scan_error}")
+            # 检查输出是否包含成功信息
+            if "pushed" in output and "100%" in output:
+                print(f"文件成功推送，从 {local_path} 到 {device_path}")
+                print(f"命令输出: {output}")
+                
+                # 构建触发媒体扫描的命令（指定设备）
+                scan_command = f'adb -s {device_serial} shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://{device_path}'
+                
+                # 执行媒体扫描命令
+                stdin, stdout, stderr = ssh_client.exec_command(scan_command)
+                
+                # 获取扫描命令输出
+                scan_output = stdout.read().decode('utf-8')
+                scan_error = stderr.read().decode('utf-8')
+                
+                if scan_error:
+                    print(f"触发媒体扫描失败: {scan_error}")
+                else:
+                    print("媒体扫描成功触发。")
+                    print(f"扫描命令输出: {scan_output}")
+                return True
             else:
-                print("Media scan triggered successfully.")
-                print(f"Scan command output: {scan_output}")
-            return True
+                print(f"推送文件可能失败: {output}")
+                return False
         
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"发生错误: {e}")
         return False
     finally:
         # 确保无论如何都会关闭SSH连接
         if ssh_client:
             ssh_client.close()
-            print("SSH connection closed")
+            print("SSH连接已关闭")
+
+
+def upload_file_to_device_via_sftp(device_ip, username, password, local_path, device_path, port=22):
+    """
+    通过SSH/SFTP协议直接将本地文件上传到远程设备（树莓派或Mac系统）
+    :param device_ip: 远程服务器IP
+    :param username: 用户名
+    :param password: 密码
+    :param local_path: 本地文件路径
+    :param device_path: 远程设备上的文件路径
+    :param port: SSH端口号，默认22
+    :return: 远程文件路径或None（如果上传失败）
+    """
+    # 创建SSH客户端
+    ssh_client = paramiko.SSHClient()
+    sftp_client = None
+    try:
+        # 自动添加主机密钥
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        # 连接到远程服务器
+        ssh_client.connect(hostname=device_ip, username=username, password=password, port=port)
+        
+        # 创建SFTP客户端
+        sftp_client = ssh_client.open_sftp()
+        
+        # 确保本地文件存在
+        if not os.path.exists(local_path):
+            print(f"本地文件不存在: {local_path}")
+            return None
+        
+        # 确保远程目录存在
+        remote_dir = os.path.dirname(device_path)
+        if remote_dir:
+            try:
+                # 尝试创建远程目录（如果不存在）
+                mkdir_command = f"mkdir -p {remote_dir}"
+                stdin, stdout, stderr = ssh_client.exec_command(mkdir_command)
+                error = stderr.read().decode('utf-8')
+                if error:
+                    print(f"警告: 在远程服务器上创建目录失败: {error}")
+            except Exception as e:
+                print(f"创建远程目录时出错: {e}")
+        
+        # 上传文件
+        sftp_client.put(local_path, device_path)
+        
+        print(f"文件成功上传，从 {local_path} 到 {device_path}")
+        return device_path
+        
+    except Exception as e:
+        print(f"上传文件失败: {e}")
+        return None
+    finally:
+        # 确保无论如何都会关闭连接
+        if sftp_client:
+            sftp_client.close()
+            print("SFTP连接已关闭")
+        if ssh_client:
+            ssh_client.close()
+            print("SSH连接已关闭")
 
 
 def download_file_via_sftp(device_ip, username, password, remote_path, local_path, port=22):

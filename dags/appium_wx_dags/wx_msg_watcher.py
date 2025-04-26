@@ -22,8 +22,12 @@ from airflow import settings
 from utils.dify_sdk import DifyAgent
 from utils.appium.wx_appium import get_recent_new_msg_by_appium
 from utils.appium.wx_appium import send_wx_msg_by_appium
+from utils.appium.wx_appium import send_top_n_image_or_video_msg_by_appium
 from utils.appium.handler_video import push_file_to_device
 from utils.appium.handler_video import clear_mp4_files_in_directory
+from utils.appium.handler_video import upload_file_to_device_via_sftp
+
+
 
 def monitor_chats(**context):
     """监控聊天消息"""
@@ -178,8 +182,19 @@ def handle_video_messages(**context):
         port = login_info['port']
         analysis_image_path = file_infos['analysis_image']
         slow_action_video_path = file_infos['slow_action_video']
-        push_file_to_device(device_ip, username, password, device_name, analysis_image_path, "/sdcard/DCIM/WeiXin/", port=port)
-        push_file_to_device(device_ip, username, password, device_name, slow_action_video_path, "/sdcard/DCIM/WeiXin/", port=port)
+        analysis_image_name = analysis_image_path.split('/')[-1]
+        slow_action_video_name = slow_action_video_path.split('/')[-1]
+
+        # 先上传到管控手机的主机中
+        upload_file_to_device_via_sftp(device_ip, username, password, device_name, analysis_image_path, analysis_image_path, port=port)
+        upload_file_to_device_via_sftp(device_ip, username, password, device_name, slow_action_video_path, slow_action_video_path, port=port)
+
+        # 再通过主机的adb命令上传到手机中
+        push_file_to_device(device_ip, username, password, device_name, analysis_image_path, f"/storage/emulated/0/Pictures/WeiXin/{analysis_image_name}", port=port)        
+        push_file_to_device(device_ip, username, password, device_name, slow_action_video_path, f"/storage/emulated/0/DCIM/WeiXin/{slow_action_video_name}", port=port)
+
+        # 发送图片和视频到微信
+        send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=2)
 
         # 清理视频缓存
         # clear_mp4_files_in_directory(device_ip, username, password, device_name, "/sdcard/DCIM/WeiXin/", port=port)

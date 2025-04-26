@@ -150,6 +150,154 @@ class WeChatOperator:
         self.return_to_chats()
 
 
+    def send_top_n_image_or_video_msg(self, contact_name: str, top_n: int = 1):
+        """
+        发送指定数量的图片或视频消息给指定联系人
+        """ 
+        print(f"[INFO] 正在发送消息给 {contact_name}, 共 {top_n} 条消息")
+
+        # 先查找最近的会话中是否存在该联系人
+        if self.is_contact_in_recent_chats(contact_name):
+            print(f"[INFO] 联系人 {contact_name} 已在最近的会话中, 直接进入聊天界面")
+        else:
+            print(f"[INFO] 联系人 {contact_name} 不在最近的会话中, 先搜索并进入聊天界面")
+
+            # 点击搜索按钮
+            print("[1] 正在点击搜索按钮...")
+            search_btn = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
+            )
+            search_btn.click()
+            print("[1] 点击搜索按钮成功")
+            
+            # 输入联系人名称
+            print("[2] 正在输入联系人名称...")
+            search_input = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']"))
+            )
+            search_input.send_keys(contact_name)
+            print("[2] 输入联系人名称成功")
+
+            # 点击联系人
+            print("[3] 正在点击联系人...")
+            contact = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((
+                    AppiumBy.XPATH,
+                    f"//android.widget.TextView[@text='{contact_name}']"
+                ))
+            )
+            contact.click()
+            print("[3] 成功进入联系人聊天界面")
+
+        try:
+            # 点击更多功能按钮
+            print("[4] 正在点击更多功能按钮...")
+            more_btn = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((
+                    AppiumBy.XPATH,
+                    "//android.widget.ImageButton[contains(@content-desc, '更多功能按钮')]"
+                ))
+            )
+            more_btn.click()
+            print("[4] 点击更多功能按钮成功")
+            
+            # 点击相册按钮
+            print("[5] 正在点击相册按钮...")
+            album_btn = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((
+                    AppiumBy.XPATH,
+                    "//android.widget.TextView[@text='相册']"
+                ))
+            )
+            album_btn.click()
+            print("[5] 点击相册按钮成功")
+            
+            # 选择前面的n张图片或视频
+            print(f"[6] 正在选择前 {top_n} 张图片或视频...")
+            time.sleep(2)  # 等待相册加载
+            
+            # 获取所有的图片/视频选择框
+            checkboxes = WebDriverWait(self.driver, 10).until(
+                EC.presence_of_all_elements_located((
+                    AppiumBy.XPATH,
+                    "//android.widget.CheckBox[@resource-id='com.tencent.mm:id/jdh']"
+                ))
+            )
+            
+            print(f"[INFO] 找到 {len(checkboxes)} 个可选择的图片/视频")
+            
+            # 选择前top_n个不同的图片/视频
+            selected_count = 0
+            for i, checkbox in enumerate(checkboxes):
+                if selected_count >= top_n or i >= min(top_n * 2, len(checkboxes)):
+                    break
+                
+                try:
+                    # 检查是否已选中
+                    is_checked = checkbox.get_attribute("checked") == "true"
+                    
+                    if not is_checked:
+                        checkbox.click()
+                        selected_count += 1
+                        print(f"[6.{selected_count}] 已选择第 {i+1} 个图片/视频")
+                        time.sleep(0.5)  # 短暂等待确保UI更新
+                except Exception as e:
+                    print(f"[WARNING] 选择第 {i+1} 个图片/视频时出错: {str(e)}")
+            
+            print(f"[INFO] 成功选择了 {selected_count} 个图片/视频")
+            
+            if selected_count == 0:
+                print("[WARNING] 未能选择任何图片/视频，将返回聊天界面")
+                # 按返回键返回聊天界面
+                self.driver.press_keycode(4)
+                time.sleep(1)
+                self.return_to_chats()
+                return
+            
+            # 点击发送按钮
+            print("[7] 正在点击发送按钮...")
+            try:
+                # 首先尝试通过资源ID查找发送按钮
+                send_btn = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.Button[@resource-id='com.tencent.mm:id/kaq']"
+                    ))
+                )
+                send_btn.click()
+            except:
+                # 如果通过ID找不到，则尝试通过文本找
+                try:
+                    send_btn = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((
+                            AppiumBy.XPATH,
+                            "//android.widget.Button[contains(@text, '发送')]"
+                        ))
+                    )
+                    send_btn.click()
+                except Exception as e:
+                    print(f"[ERROR] 无法找到发送按钮: {str(e)}")
+                    # 按返回键返回聊天界面
+                    self.driver.press_keycode(4)
+                    time.sleep(1)
+                    self.driver.press_keycode(4)
+                    time.sleep(1)
+                    return
+            
+            print("[7] 点击发送按钮成功")
+            time.sleep(2)  # 等待发送完成
+            
+            print(f"[SUCCESS] 已成功发送 {selected_count} 张图片或视频给 {contact_name}")
+            
+        except Exception as e:
+            print(f"[ERROR] 发送图片或视频失败: {str(e)}")
+            import traceback
+            print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+        
+        # 返回到聊天列表界面
+        self.return_to_chats()
+
+
     def is_contact_in_recent_chats(self, contact_name: str) -> bool:
         """
         检查指定联系人是否在最近的会话中
@@ -1198,7 +1346,46 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
         # 关闭操作器
         if wx_operator:
             wx_operator.close()
+
+def send_top_n_image_or_video_msg_by_appium(appium_server_url: str, device_name: str, contact_name: str, top_n: int = 1):
+    """
+    发送消息到微信, 支持多条消息
+    appium_server_url: Appium服务器URL
+    device_name: 设备名称
+    contact_name: 联系人名称
+    top_n: 发送的图片或视频数量
+    """
+    # 发送消息
+    wx_operator = None
+    try:
+        # 首先尝试不重启应用
+        print("[INFO] 尝试不重启应用，检查当前是否在微信...")
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False)
+        time.sleep(1)
         
+        # 检查是否在微信主页面
+        if wx_operator.is_at_main_page():
+            print("[INFO] 已在微信主页面，无需重启应用")
+        else:
+            # 不在主页面，可能需要关闭当前实例并重启
+            print("[INFO] 不在微信主页面，将关闭当前实例并重启应用")
+            if wx_operator:
+                wx_operator.close()
+
+            # 重新启动微信
+            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
+            time.sleep(3)
+        
+        wx_operator.send_top_n_image_or_video_msg(contact_name=contact_name, top_n=top_n)
+    except Exception as e:
+        print(f"[ERROR] 发送消息时出错: {str(e)}")
+        import traceback
+        print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+    finally:
+        # 关闭操作器
+        if wx_operator:
+            wx_operator.close()
+
 
 # 测试代码
 if __name__ == "__main__":    
@@ -1214,7 +1401,7 @@ if __name__ == "__main__":
         # print(wx.driver.page_source)
         wx1.print_all_elements()
 
-        wx1.print_all_elements()
+        wx1.send_top_n_image_or_video_msg(contact_name="文件传输助手", top_n=3)
         # wx1.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
 
         print(wx1.get_recent_new_msg())
