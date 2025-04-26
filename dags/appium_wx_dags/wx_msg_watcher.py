@@ -28,7 +28,6 @@ from utils.appium.handler_video import clear_mp4_files_in_directory
 from utils.appium.handler_video import upload_file_to_device_via_sftp
 
 
-
 def monitor_chats(**context):
     """监控聊天消息"""
     print(f"[WATCHER] 监控聊天消息")
@@ -155,7 +154,7 @@ def handle_video_messages(**context):
         while True:
             dag_run_list = DagRun.find(dag_id="tennis_action_score_v4_local_file", run_id=dag_run_id)
             print(f"dag_run_list: {dag_run_list}")
-            if dag_run_list and dag_run_list[0].state == 'success':
+            if dag_run_list and (dag_run_list[0].state == 'success' or dag_run_list[0].state == 'failed'):
                 break
             print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run_list[0].state if dag_run_list else 'None'}")
             time.sleep(5)
