@@ -140,7 +140,7 @@ def handler_text_msg(**context):
     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
     
     # 初始化dify
-    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={}, deserialize_json=True)[appid]
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
@@ -630,7 +630,7 @@ def handler_image_msg(**context):
     access_token = mp_bot.get_access_token()
     
     # 初始化dify
-    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={}, deserialize_json=True)[appid]
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
@@ -795,7 +795,7 @@ def handler_voice_msg(**context):
     mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
     
     # 初始化dify
-    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS", default_var={}, deserialize_json=True)[appid]
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
