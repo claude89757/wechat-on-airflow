@@ -103,6 +103,16 @@ def process_wx_message(**context):
         return ['handler_image_msg']
     elif msg_type == 'voice':
         return ['handler_voice_msg', 'save_msg_to_mysql']
+    elif msg_type == 'event':
+        # 处理事件消息
+        event_type = message_data.get('Event')
+        print(f"[WATCHER] 收到事件类型: {event_type}")
+        
+        if event_type == 'subscribe':
+            return ['handler_subscribe_event']
+        else:
+            print(f"[WATCHER] 不支持的事件类型: {event_type}")
+            return []
     else:
         print(f"[WATCHER] 不支持的消息类型: {msg_type}")
         return []
@@ -970,6 +980,42 @@ def handler_file_msg(**context):
     pass
 
 
+def handler_subscribe_event(**context):
+    """
+    处理用户关注公众号事件，发送欢迎消息
+    """
+    # 获取传入的消息数据
+    message_data = context.get('dag_run').conf
+    
+    # 提取微信公众号消息的关键信息
+    to_user_name = message_data.get('ToUserName')  # 公众号原始ID
+    from_user_name = message_data.get('FromUserName')  # 发送者的OpenID (新关注用户)
+    create_time = message_data.get('CreateTime')  # 消息创建时间
+    event = message_data.get('Event')  # 事件类型 (subscribe)
+    
+    print(f"[SUBSCRIBE] 收到用户 {from_user_name} 关注事件")
+    
+    # 获取公众号账号信息
+    wx_mp_account_info = context.get('task_instance').xcom_pull(key='wx_mp_account_info')
+    print(f"[SUBSCRIBE] 公众号信息: {wx_mp_account_info}")
+    
+    # 创建微信公众号机器人实例
+    mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
+    
+    # 欢迎消息
+    welcome_message = "欢迎关注lucyai，我是医美小助手小希，您可以给我发送信息，我24小时都在线回复您～"
+    
+    try:
+        # 发送欢迎消息
+        print(f"[SUBSCRIBE] 发送欢迎消息给用户 {from_user_name}: {welcome_message}")
+        mp_bot.send_text_message(from_user_name, welcome_message)
+        print(f"[SUBSCRIBE] 成功发送欢迎消息")
+        return True
+    except Exception as e:
+        print(f"[SUBSCRIBE] 发送欢迎消息失败: {e}")
+        return False
+
+
 def should_pre_stop(current_message, from_user_name, to_user_name):
     """
     检查是否需要提前停止流程
@@ -1085,6 +1131,14 @@ handler_voice_msg_task = PythonOperator(
     dag=dag
 )
 
+# 创建处理关注事件的任务
+handler_subscribe_event_task = PythonOperator(
+    task_id='handler_subscribe_event',
+    python_callable=handler_subscribe_event,
+    provide_context=True,
+    dag=dag
+)
+
 # 创建保存消息到MySQL的任务
 save_msg_to_mysql_task = PythonOperator(
     task_id='save_msg_to_mysql',
@@ -1120,7 +1174,7 @@ save_token_usage_task = PythonOperator(
 
 
 # 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, save_msg_to_mysql_task]
+process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, handler_subscribe_event_task, save_msg_to_mysql_task]
 handler_text_msg_task >> save_ai_reply_msg_task >> save_token_usage_task
 handler_image_msg_task >> save_image_to_mysql_task
 handler_voice_msg_task >> save_token_usage_task
