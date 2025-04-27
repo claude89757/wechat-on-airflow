@@ -269,8 +269,16 @@ def send_message_to_airflow(msg):
         # 准备回调数据
         callback_data = msg
         
-        # 根据Airflow的DAG run ID命名规范, 删除所有非字母数字字符
-        dag_run_id = f"{msg['ToUserName']}_{msg['MsgId']}"
+        # 根据Airflow的DAG run ID命名规范
+        # 对于事件消息（如关注事件）使用 ToUserName_Event 格式
+        # 对于普通消息使用 ToUserName_MsgId 格式
+        if msg.get('MsgType') == 'event' and 'Event' in msg:
+            dag_run_id = f"{msg['ToUserName']}_{msg['Event']}"
+        elif 'MsgId' in msg:
+            dag_run_id = f"{msg['ToUserName']}_{msg['MsgId']}"
+        else:
+            # 兜底处理，确保总是有有效的 dag_run_id
+            dag_run_id = f"{msg['ToUserName']}_{int(time.time())}"
         
         # 准备Airflow API的请求数据
         airflow_payload = {
