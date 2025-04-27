@@ -108,7 +108,10 @@ def handle_text_messages(**context):
         # AI 回复
         response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
 
-        send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
+        if response_msg_list:
+            send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
+        else:
+            print(f"[HANDLE] 没有AI回复")
 
     return recent_new_msg
 
@@ -146,7 +149,7 @@ def handle_video_messages(**context):
         # 创建DAG
         timestamp = int(time.time())
         print(f"[HANDLE] {contact_name} 收到视频消息, 触发AI视频处理DAG")
-        dag_run_id = f'{contact_name}_{timestamp}'
+        dag_run_id = f'ai_tennis_{timestamp}'
         trigger_dag(
             dag_id='tennis_action_score_v4_local_file',
             conf={"video_url": video_url},
@@ -298,7 +301,8 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
     response_msg_list = []
     for response_part in re.split(r'\\n\\n|\n\n', full_answer):
         response_part = response_part.replace('\\n', '\n')
-        response_msg_list.append(response_part)
+        if response_part and response_part != "#沉默#":  # 忽略沉默
+            response_msg_list.append(response_part)
 
     return response_msg_list
 
