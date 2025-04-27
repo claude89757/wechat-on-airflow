@@ -24,7 +24,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.wechat_channl import send_wx_msg
-from utils.wx_appium_for_sony import send_wx_msg_by_appium
+from utils.appium.wx_appium import send_wx_msg_by_appium
 
 
 # DAG的默认参数
@@ -322,12 +322,19 @@ def check_tennis_courts():
         #     time.sleep(10)
 
         if up_for_send_msg_list:
+            all_in_one_msg = "\n".join(up_for_send_msg_list)
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+            appium_url = Variable.get("ZACKS_APPIUM_URL")
+            device_name = Variable.get("ZACKS_DEVICE_NAME")
             for contact_name in str(chat_names).splitlines():
-                send_wx_msg_by_appium(contact_name=str(contact_name).strip(), messages=up_for_send_msg_list)
-                sended_msg_list.extend(up_for_send_msg_list)
-                time.sleep(10)
+                try:
+                    send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
+                    time.sleep(10)
+                except Exception as e:
+                    print(f"Error sending message to {contact_name}: {e}")
+            
+            sended_msg_list.extend(up_for_send_msg_list)
 
         # 更新Variable
         description = f"深圳湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
