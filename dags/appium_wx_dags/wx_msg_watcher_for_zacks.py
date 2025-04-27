@@ -309,7 +309,7 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
 
 # 定义 DAG
 with DAG(
-    dag_id='appium_wx_msg_watcher',
+    dag_id='appium_wx_msg_watcher_for_zacks',
     default_args={'owner': 'claude89757'},
     description='使用Appium SDK自动化微信操作',
     schedule=timedelta(seconds=60),
