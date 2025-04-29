@@ -22,7 +22,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from appium.options.android import UiAutomator2Options
 from xml.etree import ElementTree
 
-from utils.appium.handler_video import (
+from .handler_video import (
     save_video,
     clear_mp4_files_in_directory,
     pull_file_from_device,
@@ -30,6 +30,12 @@ from utils.appium.handler_video import (
     download_file_via_sftp
 )
 
+
+from .handler_image import (
+    save_image,
+    get_image_path,
+    pull_image_from_device
+)
 
 class WeChatOperator:
     def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False, login_info: dict = None):
@@ -582,11 +588,47 @@ class WeChatOperator:
             )
             # 找到明确标识为图片的元素
             # TODO(claude89757): 下载图片，并上传到cos
-            cur_msg_text = "[图片]"
+
+            # 保存图片到本地
+            print(f"[INFO] 正在保存图片...")
+            save_image(self.driver, img_elem)
+            print(f"[INFO] 图片保存成功")
+
+            # 提取login信息
+            if self.login_info:
+                print(f"[INFO] 登录信息: {self.login_info}")
+                device_ip = self.login_info["device_ip"]
+                username = self.login_info["username"]
+                password = self.login_info["password"]
+                port = self.login_info["port"]
+                device_serial = self.device_name
+            else:
+                print(f"[INFO] 登录信息为空，无法传输图片")
+
+
+            # 获取图片路径
+            image_path = get_image_path(device_ip, username, password, device_serial, port=port)
+
+            # 在主机上从手机上pull图片
+            directory_path = image_path
+            image_name = os.path.basename(directory_path)
+            local_path = f"/tmp/image_output/{image_name}"
+            print(f"[INFO] 从手机上pull图片: {local_path}")
+            pull_image_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
+
+            # 使用ftp传送图片
+            # print(f"[INFO] 从主机上下载图片: {local_path}")
+            # image_url = download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
+            # print(f"[INFO] 从主机上下载图片成功: {image_url}")
+            
+            image_url = local_path
+
+            # cur_msg_text = "[图片]"
+            cur_msg_text = f"[图片]:{image_url}"
             cur_msg_type = "image"
             print(f"[INFO] 通过content-desc='图片'找到图片消息")
-        except:
-            print(f"非图片消息")
+        except Exception as e:
+            print(f"[ERROR] 获取图片消息内容 错误信息: {e}")
 
         return cur_msg_text, cur_msg_type
 

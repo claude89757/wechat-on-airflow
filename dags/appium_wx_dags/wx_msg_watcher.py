@@ -26,7 +26,8 @@ from utils.appium.wx_appium import send_top_n_image_or_video_msg_by_appium
 from utils.appium.handler_video import push_file_to_device
 from utils.appium.handler_video import clear_mp4_files_in_directory
 from utils.appium.handler_video import upload_file_to_device_via_sftp
-
+from utils.appium.handler_video import download_file_via_sftp
+from utils.appium.handler_image import push_image_to_device
 
 def monitor_chats(**context):
     """监控聊天消息"""
@@ -55,16 +56,21 @@ def monitor_chats(**context):
 
     include_video_msg = {}
     include_text_msg = {}
+    include_image_msg = {}
     for contact_name, messages in recent_new_msg.items():
         include_video = False
         for message in messages:
             if message['msg_type'] == 'video':
                 include_video = True
                 break
+            elif message['msg_type'] == 'image':
+                include_image = True
             else:
                 pass
         if include_video:
             include_video_msg[contact_name] = messages
+        elif include_image:
+            include_image_msg[contact_name] = messages
         else:
             include_text_msg[contact_name] = messages
     
@@ -73,6 +79,11 @@ def monitor_chats(**context):
     if include_video_msg:
         context['ti'].xcom_push(key=f'video_msg_{task_index}', value=include_video_msg)
         need_handle_tasks.append(f'wx_video_handler_{task_index}')
+
+    if include_image_msg:
+        context['ti'].xcom_push(key=f'image_msg_{task_index}', value=include_image_msg)
+        need_handle_tasks.append(f'wx_image_handler_{task_index}')
+
     if include_text_msg:
         context['ti'].xcom_push(key=f'text_msg_{task_index}', value=include_text_msg)
         need_handle_tasks.append(f'wx_text_handler_{task_index}')
@@ -115,6 +126,54 @@ def handle_text_messages(**context):
 
     return recent_new_msg
 
+
+def handle_image_messages(**context):
+    """处理图片消息"""
+    print(f"[HANDLE] 处理图片消息")
+    task_index = int(context['task_instance'].task_id.split('_')[-1])
+    appium_server_info = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)[task_index]
+    print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
+
+    wx_name = appium_server_info['wx_name']
+    device_name = appium_server_info['device_name']
+    appium_url = appium_server_info['appium_url']
+    dify_api_url = appium_server_info['dify_api_url']
+    dify_api_key = appium_server_info['dify_api_key']
+    login_info = appium_server_info['login_info']
+
+    # 获取XCOM
+    recent_new_msg = context['ti'].xcom_pull(key=f'image_msg_{task_index}')
+    print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
+    
+    # 发送消息
+    for contact_name, messages in recent_new_msg.items():
+        # 通知用户
+        send_wx_msg_by_appium(appium_url, device_name, contact_name, ["收到图片，尝试保存..."])
+
+        image_url = ""
+        for message in messages:
+            if message['msg_type'] == 'image':
+                image_url = message['msg'].split(":")[-1].strip()
+                break
+        print(f"[HANDLE] 图片路径: {image_url}")
+
+        # appium服务器上拉取图片
+        device_ip = login_info["device_ip"]
+        username = login_info["username"]
+        password = login_info["password"]
+        port = login_info["port"]
+        # 和appium服务器一样的路径
+        download_file_via_sftp(device_ip, username, password, image_url, image_url, port=port)
+
+        # TODO 图片处理
+
+        # 上传至appium服务器
+        upload_file_to_device_via_sftp(device_ip, username, password, image_url, image_url, port=port)
+        push_image_to_device(device_ip, username, password, device_name,image_url, image_url, port=port)
+        # 发送图片到微信
+        send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=1)
+        
+    return recent_new_msg
 
 def handle_video_messages(**context):
     """处理视频消息"""
