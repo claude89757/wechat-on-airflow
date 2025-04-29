@@ -59,6 +59,7 @@ def monitor_chats(**context):
     include_image_msg = {}
     for contact_name, messages in recent_new_msg.items():
         include_video = False
+        include_image = False
         for message in messages:
             if message['msg_type'] == 'video':
                 include_video = True
