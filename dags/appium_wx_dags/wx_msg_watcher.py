@@ -172,7 +172,7 @@ def handle_image_messages(**context):
         push_image_to_device(device_ip, username, password, device_name,image_url, image_url, port=port)
         # 发送图片到微信
         send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=1)
-        
+
     return recent_new_msg
 
 def handle_video_messages(**context):
@@ -380,24 +380,31 @@ with DAG(
 
     # 监控聊天消息
     wx_watcher_0 = BranchPythonOperator(task_id='wx_watcher_0', python_callable=monitor_chats)
-    wx_watcher_1 = BranchPythonOperator(task_id='wx_watcher_1', python_callable=monitor_chats)
-    wx_watcher_2 = BranchPythonOperator(task_id='wx_watcher_2', python_callable=monitor_chats)
+    # wx_watcher_1 = BranchPythonOperator(task_id='wx_watcher_1', python_callable=monitor_chats)
+    # wx_watcher_2 = BranchPythonOperator(task_id='wx_watcher_2', python_callable=monitor_chats)
 
     # 处理文本消息
     wx_text_handler_0 = PythonOperator(task_id='wx_text_handler_0', python_callable=handle_text_messages)
-    wx_text_handler_1 = PythonOperator(task_id='wx_text_handler_1', python_callable=handle_text_messages)
-    wx_text_handler_2 = PythonOperator(task_id='wx_text_handler_2', python_callable=handle_text_messages)
+    # wx_text_handler_1 = PythonOperator(task_id='wx_text_handler_1', python_callable=handle_text_messages)
+    # wx_text_handler_2 = PythonOperator(task_id='wx_text_handler_2', python_callable=handle_text_messages)
+
+    # 处理图片消息
+    wx_image_handler_0 = PythonOperator(task_id='wx_image_handler_0', python_callable=handle_image_messages)
+    # wx_image_handler_1 = PythonOperator(task_id='wx_image_handler_1', python_callable=handle_image_messages)
+    # wx_image_handler_2 = PythonOperator(task_id='wx_image_handler_2', python_callable=handle_image_messages)
 
     # 处理视频消息
-    wx_video_handler_0 = PythonOperator(task_id='wx_video_handler_0', python_callable=handle_video_messages)
-    wx_video_handler_1 = PythonOperator(task_id='wx_video_handler_1', python_callable=handle_video_messages)
-    wx_video_handler_2 = PythonOperator(task_id='wx_video_handler_2', python_callable=handle_video_messages)
+    # wx_video_handler_0 = PythonOperator(task_id='wx_video_handler_0', python_callable=handle_video_messages)
+    # wx_video_handler_1 = PythonOperator(task_id='wx_video_handler_1', python_callable=handle_video_messages)
+    # wx_video_handler_2 = PythonOperator(task_id='wx_video_handler_2', python_callable=handle_video_messages)
 
     # 设置依赖关系
     wx_watcher_0 >> wx_text_handler_0
-    wx_watcher_1 >> wx_text_handler_1
-    wx_watcher_2 >> wx_text_handler_2
+    # wx_watcher_1 >> wx_text_handler_1
+    # wx_watcher_2 >> wx_text_handler_2
 
-    wx_watcher_0 >> wx_video_handler_0
-    wx_watcher_1 >> wx_video_handler_1
-    wx_watcher_2 >> wx_video_handler_2
+    wx_watcher_0 >> wx_image_handler_0
+
+    # wx_watcher_0 >> wx_video_handler_0
+    # wx_watcher_1 >> wx_video_handler_1
+    # wx_watcher_2 >> wx_video_handler_2
