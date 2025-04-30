@@ -236,7 +236,7 @@ with DAG(
     # wx_watcher_2 = BranchPythonOperator(task_id='wx_watcher_2', python_callable=monitor_chats)
 
     # 处理文本消息
-    wx_text_handler_0 = PythonOperator(task_id='wx_text_handler_0', python_callable=handle_text_messages)
+    wx_text_handler_0 = PythonOperator(task_id='wx_text_handler_0', python_callable=handle_text_messages, trigger_rule='none_failed_min_one_success')
     # wx_text_handler_1 = PythonOperator(task_id='wx_text_handler_1', python_callable=handle_text_messages)
     # wx_text_handler_2 = PythonOperator(task_id='wx_text_handler_2', python_callable=handle_text_messages)
 
