@@ -25,10 +25,10 @@ def handle_text_messages(**context):
     # 获取XCOM
     recent_new_msg = context['ti'].xcom_pull(key=f'text_msg_{task_index}', task_ids=f'wx_watcher_{task_index}')
 
+    print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
+
     # 检查是否有消息任务，有则处理
     if recent_new_msg:
-        print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
-        
         # 发送消息
         for contact_name, messages in recent_new_msg.items():
             msg_list = []
