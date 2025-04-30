@@ -83,14 +83,13 @@ def monitor_chats(**context):
         # 保存消息
         if include_video:
             include_video_msg[contact_name] = current_contact_video_msg
-        elif include_image:
+            
+        if include_image:
             include_image_msg[contact_name] = current_contact_image_msg
-        elif include_text:
+            
+        if include_text:
             include_text_msg[contact_name] = current_contact_text_msg
-        else:
-            # 重新拼接为dict
-            temp_dict = {contact_name: messages}
-            print(f'[ERROR] 未知消息对话:{temp_dict}')
+
     
     # 缓存到XCOM
     need_handle_tasks = []
