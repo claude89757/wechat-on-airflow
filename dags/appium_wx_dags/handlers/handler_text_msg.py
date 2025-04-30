@@ -23,7 +23,7 @@ def handle_text_messages(**context):
     dify_api_key = appium_server_info['dify_api_key']
 
     # 获取XCOM
-    recent_new_msg = context['ti'].xcom_pull(key=f'text_msg_{task_index}', task_id=f'wx_watcher_{task_index}')
+    recent_new_msg = context['ti'].xcom_pull(key=f'text_msg_{task_index}', task_ids=f'wx_watcher_{task_index}')
 
     # 检查是否有消息任务，有则处理
     if recent_new_msg:
