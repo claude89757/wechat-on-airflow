@@ -28,8 +28,8 @@ from utils.appium.handler_video import clear_mp4_files_in_directory
 from utils.appium.handler_video import upload_file_to_device_via_sftp
 
 # 从handlers导入不同任务的handler
-from handlers.handler_image_msg import handle_image_messages
-from handlers.handler_text_msg import handle_text_messages
+from dags.appium_wx_dags.handlers.handler_image_msg import handle_image_messages
+from dags.appium_wx_dags.handlers.handler_text_msg import handle_text_messages
 
 
 def monitor_chats(**context):
