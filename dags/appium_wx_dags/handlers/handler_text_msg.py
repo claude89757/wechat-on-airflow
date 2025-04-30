@@ -6,7 +6,7 @@ from airflow.models import Variable
 # 第三方库
 from utils.dify_sdk import DifyAgent
 # 自定义库
-from dags.utils.appium.wx_appium import send_wx_msg_by_appium
+from utils.appium.wx_appium import send_wx_msg_by_appium
 
 
 def handle_text_messages(**context):

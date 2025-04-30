@@ -2,8 +2,8 @@
 from airflow.models import Variable
 
 # 自定义库
-from dags.utils.dify_sdk import DifyAgent
-from dags.utils.appium.wx_appium import download_file_via_sftp
+from utils.dify_sdk import DifyAgent
+from utils.appium.wx_appium import download_file_via_sftp
 
 
 def handle_image_messages(**context):
