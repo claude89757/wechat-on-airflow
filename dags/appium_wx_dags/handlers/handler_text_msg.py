@@ -24,22 +24,27 @@ def handle_text_messages(**context):
 
     # 获取XCOM
     recent_new_msg = context['ti'].xcom_pull(key=f'text_msg_{task_index}')
-    print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
-    
-    # 发送消息
-    for contact_name, messages in recent_new_msg.items():
-        msg_list = []
-        for message in messages:
-            msg_list.append(message['msg'])
-        msg = "\n".join(msg_list)
 
-        # AI 回复
-        response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
+    # 检查是否有消息任务，有则处理
+    if recent_new_msg:
+        print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
+        
+        # 发送消息
+        for contact_name, messages in recent_new_msg.items():
+            msg_list = []
+            for message in messages:
+                msg_list.append(message['msg'])
+            msg = "\n".join(msg_list)
 
-        if response_msg_list:
-            send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
-        else:
-            print(f"[HANDLE] 没有AI回复")
+            # AI 回复
+            response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
+
+            if response_msg_list:
+                send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
+            else:
+                print(f"[HANDLE] 没有AI回复")
+    else:
+        print(f"[HANDLE] 没有文本消息处理任务")
 
     return recent_new_msg
 

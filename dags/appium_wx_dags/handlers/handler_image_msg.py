@@ -49,7 +49,7 @@ def handle_image_messages(**context):
         dify_user_id = f"{wx_name}_{contact_name}"
         # 上传图片到Dify
         online_img_info = dify_agent.upload_file(image_url, dify_user_id)
-        print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
+        print(f"[HANDLE] 上传图片到Dify成功: {online_img_info}")
 
         # 这里不发起聊天消息,缓存到Airflow的变量中,等待文字消息来触发
         Variable.set(f"{dify_user_id}_online_img_info", online_img_info, serialize_json=True)

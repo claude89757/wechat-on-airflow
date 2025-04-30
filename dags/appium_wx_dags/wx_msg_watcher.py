@@ -57,26 +57,40 @@ def monitor_chats(**context):
     recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name, login_info)
     print(f"[WATCHER] 获取最近的新消息: {recent_new_msg}")
 
-    include_video_msg = {}
-    include_text_msg = {}
-    include_image_msg = {}
+    # 用作保存消息的字典
+    include_video_msg, include_image_msg, include_text_msg = {}, {}, {}
+
     for contact_name, messages in recent_new_msg.items():
-        include_video = False
-        include_image = False
+        # 消息类型状态符
+        include_video, include_image, include_text = False, False, False
+        current_contact_video_msg, current_contact_image_msg, current_contact_text_msg = [], [], []
+
+        # 检查存在的消息类型
         for message in messages:
             if message['msg_type'] == 'video':
                 include_video = True
-                break
+                current_contact_video_msg.append(message)
+                # break 
             elif message['msg_type'] == 'image':
                 include_image = True
+                current_contact_image_msg.append(message)
+            elif message['msg_type'] == 'text':
+                include_text = True
+                current_contact_text_msg.append(message)
             else:
                 pass
+        
+        # 保存消息
         if include_video:
-            include_video_msg[contact_name] = messages
+            include_video_msg[contact_name] = current_contact_video_msg
         elif include_image:
-            include_image_msg[contact_name] = messages
+            include_image_msg[contact_name] = current_contact_image_msg
+        elif include_text:
+            include_text_msg[contact_name] = current_contact_text_msg
         else:
-            include_text_msg[contact_name] = messages
+            # 重新拼接为dict
+            temp_dict = {contact_name: messages}
+            print(f'[ERROR] 未知消息对话:{temp_dict}')
     
     # 缓存到XCOM
     need_handle_tasks = []
@@ -90,7 +104,9 @@ def monitor_chats(**context):
 
     if include_text_msg:
         context['ti'].xcom_push(key=f'text_msg_{task_index}', value=include_text_msg)
-        need_handle_tasks.append(f'wx_text_handler_{task_index}')
+        # 如果仅有文本消息，则直接执行文本消息处理
+        if not need_handle_tasks:
+            need_handle_tasks.append(f'wx_text_handler_{task_index}')
     
     print(f"[WATCHER] 需要处理的任务: {need_handle_tasks}")
     return need_handle_tasks
@@ -239,7 +255,20 @@ with DAG(
     # wx_watcher_1 >> wx_text_handler_1
     # wx_watcher_2 >> wx_text_handler_2
 
-    wx_watcher_0 >> wx_image_handler_0
+    '''
+        目前讨论文本消息和图片消息的处理。
+
+        情况1：无图片消息，无文本消息。处理：无需处理，下游任务跳过
+        情况2：有图片消息，无文本消息。处理：处理图片消息，再处理文本消息，处理文本消息时判空结束
+        情况3：无图片消息，有文本消息。处理：处理文本消息
+        情况4：有图片消息，有文本消息。处理：处理图片消息，再处理文本消息
+
+
+        当图片消息存在时，先处理图片消息，再处理文本任务，对图片消息一并处理。此时文本消息可能不存在，在handle_text_messages中对任务已经进行判空检查
+        由于wx_watcher是分支操作，所以可以只执行上述的任务链，或者执行下面的任务链
+    '''
+    wx_watcher_0 >> wx_image_handler_0 >> wx_text_handler_0
+    
 
     # wx_watcher_0 >> wx_video_handler_0
     # wx_watcher_1 >> wx_video_handler_1
