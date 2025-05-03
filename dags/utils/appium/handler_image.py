@@ -29,9 +29,8 @@ def get_image_path(device_ip, username, password, device_serial, port=22):
         # 连接到远程服务器
         ssh_client.connect(hostname=device_ip, username=username, password=password, port=port)
         
-        # 构建adb shell命令（指定设备） //TODO 由于PATH环境变量问题，adb命令不能直接使用，需要使用绝对路径，待解决不同机器上执行不一致的问题
-        adb_command = f"~/androidSDK/platform-tools/adb -s {device_serial} shell ls -t {wx_image_dir}"
-        
+        # 构建adb shell命令（指定设备） 
+        adb_command = f"bash -l -c 'adb -s {device_serial} shell ls -t {wx_image_dir}' "
         # 执行命令
         stdin, stdout, stderr = ssh_client.exec_command(adb_command)
 
@@ -104,8 +103,8 @@ def pull_image_from_device(device_ip, username, password, device_serial, device_
             if error:
                 print(f"Failed to create directory on remote server: {error}")
         
-        # 构建adb shell命令（指定设备） //TODO 由于PATH环境变量问题，adb命令不能直接使用，需要使用绝对路径，待解决不同机器上执行不一致的问题
-        adb_command = f"~/androidSDK/platform-tools/adb -s {device_serial} pull {device_path} {local_path}"
+        # 构建adb shell命令（指定设备）
+        adb_command = f"bash -l -c 'adb -s {device_serial} pull {device_path} {local_path}' "
         
         # 执行命令
         stdin, stdout, stderr = ssh_client.exec_command(adb_command)
@@ -159,8 +158,8 @@ def push_image_to_device(device_ip, username, password, device_serial, local_pat
         wx_image_dir = "/sdcard/Pictures/WeiXin"
         device_path = f"{wx_image_dir}/{filename}"
         
-        # 构建adb shell命令（指定设备） //TODO 由于PATH环境变量问题，adb命令不能直接使用，需要使用绝对路径，待解决不同机器上执行不一致的问题
-        adb_command = f"~/androidSDK/platform-tools/adb -s {device_serial} push {local_path} {device_path}"
+        # 构建adb shell命令（指定设备） 
+        adb_command = f"bash -l -c 'adb -s {device_serial} push {local_path} {device_path}' "
         
         # 执行命令
         stdin, stdout, stderr = ssh_client.exec_command(adb_command)
