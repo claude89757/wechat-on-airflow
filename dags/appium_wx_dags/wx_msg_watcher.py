@@ -30,6 +30,7 @@ from utils.appium.handler_video import upload_file_to_device_via_sftp
 # 从handlers导入不同任务的handler
 from appium_wx_dags.handlers.handler_image_msg import handle_image_messages
 from appium_wx_dags.handlers.handler_text_msg import handle_text_messages
+from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 
 
 def monitor_chats(**context):
@@ -58,12 +59,12 @@ def monitor_chats(**context):
     print(f"[WATCHER] 获取最近的新消息: {recent_new_msg}")
 
     # 用作保存消息的字典
-    include_video_msg, include_image_msg, include_text_msg = {}, {}, {}
+    include_video_msg, include_image_msg, include_text_msg, include_voice_msg = {}, {}, {}, {}
 
     for contact_name, messages in recent_new_msg.items():
         # 消息类型状态符
-        include_video, include_image, include_text = False, False, False
-        current_contact_video_msg, current_contact_image_msg, current_contact_text_msg = [], [], []
+        include_video, include_image, include_text, include_voice = False, False, False, False
+        current_contact_video_msg, current_contact_image_msg, current_contact_text_msg, current_contact_voice_msg = [], [], [], []
 
         # 检查存在的消息类型
         for message in messages:
@@ -77,6 +78,9 @@ def monitor_chats(**context):
             elif message['msg_type'] == 'text':
                 include_text = True
                 current_contact_text_msg.append(message)
+            elif message['msg_type'] == 'voice':
+                include_voice = True
+                current_contact_voice_msg.append(message)
             else:
                 pass
         
@@ -90,6 +94,8 @@ def monitor_chats(**context):
         if include_text:
             include_text_msg[contact_name] = current_contact_text_msg
 
+        if include_voice:
+            include_voice_msg[contact_name] = current_contact_voice_msg
     
     # 缓存到XCOM
     need_handle_tasks = []
@@ -100,6 +106,10 @@ def monitor_chats(**context):
     if include_image_msg:
         context['ti'].xcom_push(key=f'image_msg_{task_index}', value=include_image_msg)
         need_handle_tasks.append(f'wx_image_handler_{task_index}')
+
+    if include_voice_msg:
+        context['ti'].xcom_push(key=f'voice_msg_{task_index}', value=include_voice_msg)
+        need_handle_tasks.append(f'wx_voice_handler_{task_index}')
 
     if include_text_msg:
         context['ti'].xcom_push(key=f'text_msg_{task_index}', value=include_text_msg)
@@ -244,6 +254,9 @@ with DAG(
     # wx_image_handler_1 = PythonOperator(task_id='wx_image_handler_1', python_callable=handle_image_messages)
     # wx_image_handler_2 = PythonOperator(task_id='wx_image_handler_2', python_callable=handle_image_messages)
 
+    # 处理语音消息
+    wx_voice_handler_0 = PythonOperator(task_id='wx_voice_handler_0', python_callable=handle_voice_messages)
+
     # 处理视频消息
     # wx_video_handler_0 = PythonOperator(task_id='wx_video_handler_0', python_callable=handle_video_messages)
     # wx_video_handler_1 = PythonOperator(task_id='wx_video_handler_1', python_callable=handle_video_messages)
@@ -268,6 +281,7 @@ with DAG(
     '''
     wx_watcher_0 >> wx_image_handler_0 >> wx_text_handler_0
     
+    wx_watcher_0 >> wx_voice_handler_0 >> wx_text_handler_0
 
     # wx_watcher_0 >> wx_video_handler_0
     # wx_watcher_1 >> wx_video_handler_1
