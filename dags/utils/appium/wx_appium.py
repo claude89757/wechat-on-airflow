@@ -22,7 +22,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from appium.options.android import UiAutomator2Options
 from xml.etree import ElementTree
 
-from .handler_video import (
+from utils.appium.handler_video import (
     save_video,
     clear_mp4_files_in_directory,
     pull_file_from_device,
@@ -31,7 +31,7 @@ from .handler_video import (
 )
 
 
-from .handler_image import (
+from utils.appium.handler_image import (
     save_image,
     get_image_path,
     pull_image_from_device

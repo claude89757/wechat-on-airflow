@@ -1,6 +1,6 @@
 from airflow.models import Variable
 
-from handler_text_msg import handle_msg_by_ai
+from appium_wx_dags.handlers.handler_text_msg import handle_msg_by_ai
 from utils.appium.wx_appium import send_wx_msg_by_appium
 
 '''
