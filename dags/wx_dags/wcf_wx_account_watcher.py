@@ -37,7 +37,7 @@ def check_wx_account_status(**context):
         **context: Airflow上下文参数，包含dag_run等信息
     """
     # 获取当前已缓存的用户信息
-    wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
+    wx_account_list = Variable.get("    ", default_var=[], deserialize_json=True)
     print(f"当前已缓存的用户信息: {len(wx_account_list)}")
 
     # 更新微信账号信息

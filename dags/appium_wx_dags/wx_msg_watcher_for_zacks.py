@@ -312,7 +312,7 @@ with DAG(
     dag_id='appium_wx_msg_watcher_for_zacks',
     default_args={'owner': 'claude89757'},
     description='使用Appium SDK自动化微信操作',
-    schedule=timedelta(seconds=60),
+    schedule=timedelta(seconds=15),
     start_date=datetime(2025, 4, 22),
     max_active_runs=1,
     catchup=False,
