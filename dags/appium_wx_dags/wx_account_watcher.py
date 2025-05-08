@@ -41,7 +41,10 @@ def check_wx_account_info(**context):
         wx_account_list = []
         # 遍历所有设备，检查账号信息
         for device_id in device_list:
-            wx_name, wxid= get_wx_account_info_by_appium(appium_server_url=appium_url, device_name=device_id, login_info=login_info)
+            wx_account = get_wx_account_info_by_appium(appium_server_url=appium_url, device_name=device_id, login_info=login_info)
+
+            wx_name = wx_account['wx_name']
+            wxid = wx_account['wxid']
             print(f"[INFO] 设备{device_id}的微信账号为{wx_name}，微信id为{wxid}")
 
             # 缓存账号信息
