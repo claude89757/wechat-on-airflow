@@ -60,6 +60,7 @@ def check_wx_account_info(**context):
                     "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "is_online": True,
+                    "mobile": '13888888888' # TODO: 这里应该从微信服务器获取手机号
                 })
             else:
                 # 更新缓存的用户信息
