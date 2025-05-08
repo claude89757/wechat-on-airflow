@@ -25,8 +25,13 @@ def check_wx_account_info(**context):
     # 获取Appium服务地址
     appium_server_url_list = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)
 
+    # 获取已缓存微信账号的id
+    wx_account_vxid_list = [wx_account['wxid'] for wx_account in wx_account_list]
+
+    # 假设所有用户都不在线
+    for wx_account in wx_account_list: wx_account['is_online'] = False
+
     # 巡检Appium Server上的微信账号
-    all_wx_account = []
     for appium_server in appium_server_url_list:
 
         appium_url = appium_server['appium_url']
@@ -38,25 +43,35 @@ def check_wx_account_info(**context):
         # 获取所有连接设备
         device_list = get_device_id_by_adb(host=host, port=login_info['port'], username=login_info['username'], password=login_info['password'])
 
-        wx_account_list = []
         # 遍历所有设备，检查账号信息
         for device_id in device_list:
-            wx_account = get_wx_account_info_by_appium(appium_server_url=appium_url, device_name=device_id, login_info=login_info)
+            wx_account_info = get_wx_account_info_by_appium(appium_server_url=appium_url, device_name=device_id, login_info=login_info)
 
-            wx_name = wx_account['wx_name']
-            wxid = wx_account['wxid']
-            print(f"[INFO] 设备{device_id}的微信账号为{wx_name}，微信id为{wxid}")
+            # 提取微信名称和id
+            wx_name = wx_account_info['wx_name']
+            wxid = wx_account_info['wxid']
+            print(f"[INFO] 设备{device_id}的微信账号:{wx_name}，微信id:{wxid}")
 
-            # 缓存账号信息
-            wx_account_list.append({
-                "device_id": device_id,
-                "wx_name": wx_name,
-                "wxid": wxid
-            })
+            if wxid not in wx_account_vxid_list:
+                # 新增用户信息
+                wx_account_list.append({
+                    "name": wx_name,
+                    "wxid": wxid,
+                    "create_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "is_online": True,
+                })
+            else:
+                # 更新缓存的用户信息
+                for wx_account in wx_account_list:
+                    if wx_account['wxid'] == wxid:
+                        wx_account['name'] = wx_name
+                        wx_account['update_time'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        wx_account['is_online'] = True
+                        break
 
-        all_wx_account.append({appium_url: wx_account_list})
     # 更新缓存的用户信息
-    Variable.set("WX_ACCOUNT_LIST", all_wx_account, serialize_json=True)
+    Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
 
 
 with DAG(
