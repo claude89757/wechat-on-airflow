@@ -32,8 +32,11 @@ def check_wx_account_info(**context):
         appium_url = appium_server['appium_url']
         login_info = appium_server['login_info']
 
+        # 提取IP或者域名部分
+        host = appium_url.split('//')[-1].split(':')[0]
+
         # 获取所有连接设备
-        device_list = get_device_id_by_adb(host=appium_url, port=login_info['port'], username=login_info['username'], password=login_info['password'])
+        device_list = get_device_id_by_adb(host=host, port=login_info['port'], username=login_info['username'], password=login_info['password'])
 
         wx_account_list = []
         # 遍历所有设备，检查账号信息
