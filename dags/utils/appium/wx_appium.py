@@ -1302,6 +1302,51 @@ class WeChatOperator:
                 
             return {}
 
+    def get_wx_account_info(self):
+        """
+        获取微信账号信息
+        """
+        try:
+            # 确保在微信主页面
+            if not self.is_at_main_page():
+                self.return_to_chats()
+                time.sleep(1)
+            
+            # 进入个人信息页面
+            self.driver.find_element(
+                by=AppiumBy.XPATH,
+                value="//android.widget.TextView[@text='我']"
+            ).click()
+            time.sleep(1)
+
+            # 获取微信名称
+            wx_name = self.driver.find_element(
+                by=AppiumBy.XPATH,
+                value="//android.view.View[@resource-id='com.tencent.mm:id/kbb']"
+            ).text.strip()
+            
+            # 获取微信号
+            wxid = self.driver.find_element(
+                by=AppiumBy.XPATH,
+                value="//android.widget.TextView[@resource-id='com.tencent.mm:id/ouv']"
+            ).text.strip().split("：")[-1]
+
+            print(f'[INFO] 微信名称: {wx_name}, 微信ID: {wxid}')
+
+            # 返回聊天页面
+            self.driver.find_element(
+                by=AppiumBy.XPATH,
+                value="//android.widget.TextView[@text='微信']"
+            ).click()
+
+            return {"wx_name": wx_name, "wxid": wxid}
+        
+        except Exception as e:
+            print(f"[ERROR] 进入个人信息页面时出错: {str(e)}")
+            import traceback
+            print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+            return {}
+
     def close(self):
         """
         关闭微信操作器
@@ -1433,6 +1478,51 @@ def send_top_n_image_or_video_msg_by_appium(appium_server_url: str, device_name:
         if wx_operator:
             wx_operator.close()
 
+def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, login_info: dict) -> dict:
+    '''
+        获取微信账号信息
+        appium_server_url: Appium服务器URL
+        device_name: 设备名称
+        login_info: 登录信息
+
+        return: wx_account_info: 微信账号信息
+    '''
+    # 获取消息
+    wx_operator = None
+    try:
+        # 首先尝试不重启应用
+        print("[INFO] 尝试不重启应用，检查当前是否在微信...")
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False, login_info=login_info)
+        time.sleep(1)
+        
+        # 检查是否在微信主页面
+        if wx_operator.is_at_main_page():
+            print("[INFO] 已在微信主页面，无需重启应用")
+        else:
+            # 不在主页面，可能需要关闭当前实例并重启
+            print("[INFO] 不在微信主页面，将关闭当前实例并重启应用")
+            if wx_operator:
+                wx_operator.close()
+                wx_operator = None
+                time.sleep(1)
+            
+            # 重新启动微信
+            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True, login_info=login_info)
+            time.sleep(3)
+        
+        # 获取微信账号信息
+        result = wx_operator.get_wx_account_info()
+
+        return result
+    except Exception as e:
+        print(f"[ERROR] 获取消息时出错: {str(e)}")
+        import traceback
+        print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+        return {}
+    finally:
+        # 关闭操作器
+        if wx_operator:
+            wx_operator.close()
 
 # 测试代码
 if __name__ == "__main__":    
