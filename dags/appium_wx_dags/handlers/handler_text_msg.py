@@ -162,7 +162,7 @@ def save_text_msg_to_db(**context):
             save_msg['msg_timestamp'] = convert_time_to_timestamp(message['msg_time'])
             save_msg['msg_datetime'] = datetime.fromtimestamp(save_msg['msg_timestamp']).strftime('%Y-%m-%d %H:%M')
             save_msg['wx_user_name'] = wx_account_info_list[task_index]['name']
-            save_msg['wx_user_id'] = wx_account_info_list[task_index]['wx_id']
+            save_msg['wx_user_id'] = wx_account_info_list[task_index]['wxid']
             save_msg['room_id'] = ''
             save_msg['room_name'] = contact_name
             save_msg['sender_id'] = ''
