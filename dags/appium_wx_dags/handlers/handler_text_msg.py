@@ -27,6 +27,7 @@ def handle_text_messages(**context):
     # 获取XCOM
     recent_new_msg = context['ti'].xcom_pull(key=f'text_msg_{task_index}', task_ids=f'wx_watcher_{task_index}')
 
+    response_msg = {}
     # 检查是否有消息任务，有则处理
     if recent_new_msg:
         print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
@@ -39,16 +40,18 @@ def handle_text_messages(**context):
 
             # AI 回复
             response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
-
+            
             if response_msg_list:
                 send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
+                # 构建回复消息字典
+                response_msg[contact_name] = response_msg_list
             else:
                 print(f"[HANDLE] 没有AI回复")
     else:
         print(f"[HANDLE] 没有文本消息处理任务")
 
     # 回复内容保存到XCOM
-    context['ti'].xcom_push(key=f'text_msg_response_{task_index}', value=response_msg_list)
+    context['ti'].xcom_push(key=f'text_msg_response_{task_index}', value=response_msg)
 
     return recent_new_msg
 
@@ -167,6 +170,29 @@ def save_text_msg_to_db(**context):
             save_msg['room_name'] = contact_name
             save_msg['sender_id'] = ''
             save_msg['sender_name'] = message['sender']
+            save_msg['source_ip'] = ''
+
+            print(f"[SAVE] 发送者: {save_msg['sender_name']}, 消息内容: {save_msg['content']},")
+            save_data_to_db(save_msg)
+
+    # 保存回复的信息
+    response_msg = context['ti'].xcom_pull(key=f'text_msg_response_{task_index}')
+    for contact_name, msg_list in response_msg.items(): 
+        for message in msg_list:
+            save_msg = {}
+            save_msg['content'] = message
+            save_msg['msg_type'] = 1 # 文本消息
+            save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], f"未知类型({save_msg['msg_type']})")
+            save_msg['is_self'] = True # 是否自己发送的消息
+            save_msg['is_group'] = False # 是否群消息
+            save_msg['msg_timestamp'] = datetime.now().timestamp() # 没有相关数据 直接使用当前时间
+            save_msg['msg_datetime'] = datetime.fromtimestamp(save_msg['msg_timestamp']).strftime('%Y-%m-%d %H:%M')
+            save_msg['wx_user_name'] = wx_account_info_list[task_index]['name']
+            save_msg['wx_user_id'] = wx_account_info_list[task_index]['wxid']
+            save_msg['room_id'] = ''
+            save_msg['room_name'] = contact_name
+            save_msg['sender_id'] = ''
+            save_msg['sender_name'] = wx_account_info_list[task_index]['name']
             save_msg['source_ip'] = ''
 
             print(f"[SAVE] 发送者: {save_msg['sender_name']}, 消息内容: {save_msg['content']},")
