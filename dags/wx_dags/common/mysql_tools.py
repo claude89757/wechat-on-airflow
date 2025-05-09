@@ -123,7 +123,7 @@ def save_data_to_db(msg_data: dict):
     msg_datetime = msg_data.get('msg_datetime', '')
 
     # 插入数据SQL
-    insert_sql = """INSERT INTO `wx_chat_records` 
+    insert_sql = f"""INSERT INTO `{wx_user_id}_wx_chat_records` 
     (msg_id, 
     wx_user_id, 
     wx_user_name, 

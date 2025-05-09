@@ -8,6 +8,7 @@ from airflow.operators.python import PythonOperator
 
 from utils.appium.ssh_appium_control import get_device_id_by_adb
 from utils.appium.wx_appium import get_wx_account_info_by_appium
+from wx_dags.common.mysql_tools import init_wx_chat_records_table
 
 DAG_ID = "appium_wx_account_watcher"
 
@@ -19,8 +20,6 @@ def check_wx_account_info(**context):
     # 获取当前已缓存的用户信息
     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
     print(f"当前已缓存的用户信息: {len(wx_account_list)}")
-
-    #########################以上似乎不需要了###################################################################
 
     # 获取Appium服务地址
     appium_server_url_list = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)
@@ -62,6 +61,13 @@ def check_wx_account_info(**context):
                     "is_online": True,
                     "mobile": '13888888888' # TODO: 这里应该从微信服务器获取手机号
                 })
+
+                # 初始化新用户的聊天记录表
+                try:
+                    init_wx_chat_records_table(wxid)
+                except Exception as error:
+                    print(f"[WATCHER] 初始化新用户聊天记录表失败: {error}")
+
             else:
                 # 更新缓存的用户信息
                 for wx_account in wx_account_list:

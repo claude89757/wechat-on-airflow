@@ -29,7 +29,7 @@ from utils.appium.handler_video import upload_file_to_device_via_sftp
 
 # 从handlers导入不同任务的handler
 from appium_wx_dags.handlers.handler_image_msg import handle_image_messages
-from appium_wx_dags.handlers.handler_text_msg import handle_text_messages
+from appium_wx_dags.handlers.handler_text_msg import handle_text_messages, save_text_msg_to_db
 from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 
 
@@ -241,31 +241,26 @@ with DAG(
 
     # 监控聊天消息
     wx_watcher_0 = BranchPythonOperator(task_id='wx_watcher_0', python_callable=monitor_chats)
-    # wx_watcher_1 = BranchPythonOperator(task_id='wx_watcher_1', python_callable=monitor_chats)
-    # wx_watcher_2 = BranchPythonOperator(task_id='wx_watcher_2', python_callable=monitor_chats)
 
     # 处理文本消息
     wx_text_handler_0 = PythonOperator(task_id='wx_text_handler_0', python_callable=handle_text_messages, trigger_rule='none_failed_min_one_success')
-    # wx_text_handler_1 = PythonOperator(task_id='wx_text_handler_1', python_callable=handle_text_messages)
-    # wx_text_handler_2 = PythonOperator(task_id='wx_text_handler_2', python_callable=handle_text_messages)
 
     # 处理图片消息
     wx_image_handler_0 = PythonOperator(task_id='wx_image_handler_0', python_callable=handle_image_messages)
-    # wx_image_handler_1 = PythonOperator(task_id='wx_image_handler_1', python_callable=handle_image_messages)
-    # wx_image_handler_2 = PythonOperator(task_id='wx_image_handler_2', python_callable=handle_image_messages)
 
     # 处理语音消息
     wx_voice_handler_0 = PythonOperator(task_id='wx_voice_handler_0', python_callable=handle_voice_messages)
 
     # 处理视频消息
     # wx_video_handler_0 = PythonOperator(task_id='wx_video_handler_0', python_callable=handle_video_messages)
-    # wx_video_handler_1 = PythonOperator(task_id='wx_video_handler_1', python_callable=handle_video_messages)
-    # wx_video_handler_2 = PythonOperator(task_id='wx_video_handler_2', python_callable=handle_video_messages)
+
+    # 保存文本消息到数据库
+    save_text_msg_to_db_0 = PythonOperator(task_id='save_text_msg_to_db_0', python_callable=save_text_msg_to_db)
+
+    
 
     # 设置依赖关系
-    wx_watcher_0 >> wx_text_handler_0
-    # wx_watcher_1 >> wx_text_handler_1
-    # wx_watcher_2 >> wx_text_handler_2
+    wx_watcher_0 >> wx_text_handler_0 >> save_text_msg_to_db_0
 
     '''
         目前讨论文本消息和图片消息的处理。
