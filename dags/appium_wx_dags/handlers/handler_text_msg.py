@@ -1,5 +1,6 @@
 # 标准库
 import re
+import uuid
 from datetime import datetime
 
 # airflow库
@@ -157,6 +158,7 @@ def save_text_msg_to_db(**context):
     for contact_name, messages in recent_new_msg.items():
         for message in messages:
             save_msg = {}
+            save_msg['msg_id'] = str(uuid.uuid4())
             save_msg['content'] = message['msg']
             save_msg['msg_type'] = 1 # 文本消息
             save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], f"未知类型({save_msg['msg_type']})")
@@ -180,6 +182,7 @@ def save_text_msg_to_db(**context):
     for contact_name, msg_list in response_msg.items(): 
         for message in msg_list:
             save_msg = {}
+            save_msg['msg_id'] = str(uuid.uuid4())
             save_msg['content'] = message
             save_msg['msg_type'] = 1 # 文本消息
             save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'], f"未知类型({save_msg['msg_type']})")
