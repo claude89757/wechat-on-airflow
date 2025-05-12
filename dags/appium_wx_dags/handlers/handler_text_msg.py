@@ -9,8 +9,8 @@ from airflow.models import Variable
 from utils.dify_sdk import DifyAgent
 # 自定义库
 from utils.appium.wx_appium import send_wx_msg_by_appium
-from olds.wx_dags.common.wx_tools import WX_MSG_TYPES
-from olds.wx_dags.common.mysql_tools import save_data_to_db
+from appium_wx_dags.common.wx_tools import WX_MSG_TYPES
+from appium_wx_dags.common.mysql_tools import save_data_to_db
 
 def handle_text_messages(**context):
     """处理文本消息"""
