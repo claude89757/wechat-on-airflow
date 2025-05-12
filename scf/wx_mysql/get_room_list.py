@@ -83,8 +83,10 @@ def main_handler(event, context):
             conn = get_db_connection()
             cursor = conn.cursor()
             
+            table_name = f'{wx_user_id}_wx_chat_records'
+
             # 使用子查询找到每个聊天室的最新消息
-            query = """
+            query = f"""
             WITH room_messages AS (
                 SELECT 
                     room_id,
@@ -99,7 +101,7 @@ def main_handler(event, context):
                     msg_type,
                     is_group,
                     ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY msg_datetime DESC) as rn
-                FROM wx_chat_records
+                FROM {table_name}
                 WHERE wx_user_id = %s
             )
             SELECT 

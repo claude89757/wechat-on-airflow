@@ -104,7 +104,7 @@ def main_handler(event, context):
         params.append(end_time)
     
     # 构建SQL查询
-    sql = "SELECT * FROM wx_chat_records"
+    sql = f"SELECT * FROM {wx_user_id}_wx_chat_records"
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
     
@@ -113,7 +113,7 @@ def main_handler(event, context):
     params.extend([limit, offset])
     
     # 查询总记录数
-    count_sql = "SELECT COUNT(*) as total FROM wx_chat_records"
+    count_sql = f"SELECT COUNT(*) as total FROM {wx_user_id}_wx_chat_records"
     if conditions:
         count_sql += " WHERE " + " AND ".join(conditions)
     
