@@ -29,8 +29,12 @@ from utils.appium.handler_video import upload_file_to_device_via_sftp
 
 # 从handlers导入不同任务的handler
 from appium_wx_dags.handlers.handler_image_msg import handle_image_messages
-from appium_wx_dags.handlers.handler_text_msg import handle_text_messages, save_text_msg_to_db
+from appium_wx_dags.handlers.handler_text_msg import handle_text_messages
 from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
+
+# 导入saver
+from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
+from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
 
 
 def monitor_chats(**context):
@@ -257,6 +261,11 @@ with DAG(
     # 保存文本消息到数据库
     save_text_msg_to_db_0 = PythonOperator(task_id='save_text_msg_to_db_0', python_callable=save_text_msg_to_db)
 
+    # 保存图片消息到数据库
+    save_image_msg_to_db_0 = PythonOperator(task_id='save_image_msg_to_db_0', python_callable=save_image_msg_to_db)
+
+    # 保存图片到腾讯云对象存储
+    save_image_to_cos_0 = PythonOperator(task_id='save_image_to_cos_0', python_callable=save_image_to_cos)
     
 
     # 设置依赖关系
@@ -264,8 +273,9 @@ with DAG(
 
     wx_watcher_0 >> wx_image_handler_0 >> wx_text_handler_0
     
-    wx_watcher_0 >> wx_voice_handler_0 >> wx_text_handler_0
+    wx_image_handler_0 >> save_image_to_cos_0 >> save_image_msg_to_db_0
 
+    wx_watcher_0 >> wx_voice_handler_0
     # wx_watcher_0 >> wx_video_handler_0
     # wx_watcher_1 >> wx_video_handler_1
     # wx_watcher_2 >> wx_video_handler_2

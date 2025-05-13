@@ -612,7 +612,7 @@ class WeChatOperator:
             # 在主机上从手机上pull图片
             directory_path = image_path
             image_name = os.path.basename(directory_path)
-            local_path = f"/tmp/image_output/{image_name}"
+            local_path = f"/tmp/image_downloads/{image_name}"
             print(f"[INFO] 从手机上pull图片: {local_path}")
             pull_image_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
 
