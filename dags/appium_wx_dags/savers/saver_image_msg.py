@@ -25,7 +25,8 @@ def save_image_to_cos(**context):
 
     for contact_name, messages in new_image_msg.items():
         for i, message in enumerate(messages):
-            image_file_path = str.split(message['msg'], ':')[-1]
+            image_file_path = message['msg'].split(':')[-1]
+            print(f"[UPLOAD] 图片路径: {image_file_path}")
             room_id = contact_name # 暂时用会话名称代替房间ID
         try:
             # 上传到COS存储
