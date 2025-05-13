@@ -31,7 +31,7 @@ from utils.appium.handler_video import (
 )
 
 
-from utils.appium.ssh_appium_control import (
+from utils.appium.ssh_control import (
     get_image_path,
     pull_image_from_device
 )
