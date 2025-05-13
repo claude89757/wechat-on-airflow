@@ -16,10 +16,10 @@ def save_image_to_cos(**context):
     """
     task_index = int(context['task_instance'].task_id.split('_')[-1])
 
-    # 获取微信账号信息
-    wx_account_info = context.get('task_instance').xcom_pull(key='wx_account_info')
-    wx_user_name = wx_account_info['name']
-    wx_user_id = wx_account_info['wxid']
+    # 获取账号信息
+    wx_account_info_list = Variable.get("WX_ACCOUNT_LIST", default_var={}, deserialize_json=True)
+    wx_user_name = wx_account_info_list['name']
+    wx_user_id = wx_account_info_list['wxid']
 
     new_image_msg = context['ti'].xcom_pull(key=f'image_msg_{task_index}')  
 
