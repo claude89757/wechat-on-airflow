@@ -25,7 +25,7 @@ def exec_cmd_by_ssh(host, port, username, password, cmd):
 
     except Exception as e:
         print(e)
-        return None
+        return None, None
     finally:
         # 保证ssh连接关闭
         ssh.close()
