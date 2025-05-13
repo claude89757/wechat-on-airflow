@@ -31,8 +31,7 @@ from utils.appium.handler_video import (
 )
 
 
-from utils.appium.handler_image import (
-    save_image,
+from utils.appium.ssh_appium_control import (
     get_image_path,
     pull_image_from_device
 )
@@ -591,8 +590,21 @@ class WeChatOperator:
 
             # 保存图片到本地
             print(f"[INFO] 正在保存图片...")
-            save_image(self.driver, img_elem)
-            print(f"[INFO] 图片保存成功")
+
+            try:
+                img_elem.click()
+                time.sleep(1)
+                WebDriverWait(self.driver, 60).until(
+                    EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, '更多信息'))).click()
+
+                WebDriverWait(self.driver, 60). \
+                    until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
+                # 返回聊天页面
+                self.driver.press_keycode(4)
+                print(f"[INFO] 图片保存成功")
+            except Exception as e:
+                print(f"[ERROR] 保存图片失败: {e}")
+            
 
             # 提取login信息
             if self.login_info:
