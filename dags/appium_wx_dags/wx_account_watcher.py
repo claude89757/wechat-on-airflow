@@ -6,7 +6,7 @@ from airflow import DAG
 from airflow.models.variable import Variable
 from airflow.operators.python import PythonOperator
 
-from utils.appium.ssh_appium_control import get_device_id_by_adb
+from utils.appium.ssh_control import get_device_id_by_adb
 from utils.appium.wx_appium import get_wx_account_info_by_appium
 from appium_wx_dags.common.mysql_tools import init_wx_chat_records_table
 
