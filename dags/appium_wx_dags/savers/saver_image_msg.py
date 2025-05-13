@@ -18,8 +18,8 @@ def save_image_to_cos(**context):
 
     # 获取账号信息
     wx_account_info_list = Variable.get("WX_ACCOUNT_LIST", default_var={}, deserialize_json=True)
-    wx_user_name = wx_account_info_list['name']
-    wx_user_id = wx_account_info_list['wxid']
+    wx_user_name = wx_account_info_list[task_index]['name']
+    wx_user_id = wx_account_info_list[task_index]['wxid']
 
     new_image_msg = context['ti'].xcom_pull(key=f'image_msg_{task_index}')  
 
