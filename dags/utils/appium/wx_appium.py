@@ -47,7 +47,7 @@ class WeChatOperator:
         """
         capabilities = dict(
             platformName='Android',
-            automationName='UiAutomator2',
+            automationName='uiautomator2',
             udid=device_name,
             # deviceName=device_name,
             appPackage='com.tencent.mm',  # 微信的包名
