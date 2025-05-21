@@ -74,7 +74,22 @@ def check_proxy(proxy_url, proxy_url_infos):
     使用 requests 检查代理是否可用
     """
     try:
-        target_url = 'https://wxsports.ydmap.cn/srv200/api/pub/basic/getConfig'
+        target_url = 'https://wxsports.ydmap.cn/srv100140/api/pub/sport/venue/getVenueOrderList?salesItemId=109870&curDate=1747843200000&venueGroupId=&t=1747844455961&timestamp__1762=eqjx0DcDRDniYqGqGNuCDUhhwQN4xYvAhdx'
+        
+        headers = {
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'cross-token': '',
+            'entry-tag': '',
+            'openid-token': '',
+            'priority': 'u=1, i',
+            'referer': 'https://wxsports.ydmap.cn/booking/schedule/107515?salesItemId=109870',
+            'server-reflexive-ip': '120.229.31.158',
+            'tab-id': 'ydmap_029a79686858f0ddaa682abc6fe611e9',
+            'timestamp': '1747844456053',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+            'visitor-id': '123456789'
+        }
         
         proxies = {
             'http': f'http://{proxy_url}',
@@ -83,6 +98,7 @@ def check_proxy(proxy_url, proxy_url_infos):
         
         response = requests.get(
             target_url,
+            headers=headers,
             proxies=proxies,
             timeout=3,
             verify=False
@@ -90,13 +106,14 @@ def check_proxy(proxy_url, proxy_url_infos):
         
         response_text = response.text
         
-        if response.status_code == 200 and "在线订场" in response_text:
+        # 判断返回内容是否包含"签名错误"，表示代理IP可用
+        if "签名错误" in response_text and "接口未签名" in response_text:
             print(f"[{proxy_url}] 发现可用代理, 返回内容: {response_text}")
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             print(f"[{now}] 发现可用代理: {proxy_url}")
             return True
             
-    except Exception:
+    except Exception as e:
         pass
     return False
 
