@@ -230,11 +230,6 @@ def download_file():
     从GitHub下载代理文件，确保不覆盖现有代理
     """
     try:
-        # 检查本地文件是否存在
-        if os.path.exists(LOCAL_FILENAME):
-            print(f"本地文件 {LOCAL_FILENAME} 已存在，跳过下载")
-            return
-            
         # 从GitHub获取文件内容
         token = Variable.get('GIT_TOKEN')
         headers = {
