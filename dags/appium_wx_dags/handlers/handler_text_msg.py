@@ -135,6 +135,10 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
     response_msg_list = []
     for response_part in re.split(r'\\n\\n|\n\n', full_answer):
         response_part = response_part.replace('\\n', '\n')
+
+        # TODO: 转人工的逻辑，这里暂时剔除掉关键字
+        response_part = response_part.replace('#转人工#', '')
+
         if response_part and response_part != "#沉默#":  # 忽略沉默
             response_msg_list.append(response_part)
 
