@@ -104,8 +104,9 @@ def handle_zacks_up_for_send_msg(**context):
             send_wx_msg_by_appium(zacks_appium_url, zacks_device_name, msg_info['room_name'], [msg_info['msg']])
         except Exception as e:
             print(f"[HANDLE] 发送消息失败: {e}")
-    
 
+    # 清空Zacks的待发送消息
+    Variable.set(f"ZACKS_UP_FOR_SEND_MSG_LIST", [], serialize_json=True)
 
 def handle_text_messages(**context):
     """处理文本消息"""
