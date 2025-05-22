@@ -91,8 +91,8 @@ with DAG(
     default_args={'owner': 'airflow'},
     start_date=datetime(2025, 5, 8),
     max_active_runs=1,
-    schedule_interval=timedelta(minutes=2),
-    dagrun_timeout=timedelta(minutes=1),
+    schedule_interval=timedelta(minutes=15),
+    dagrun_timeout=timedelta(minutes=3),
     catchup=False,
     tags=['个人微信'],
     description='使用appium监控个人微信账号'
