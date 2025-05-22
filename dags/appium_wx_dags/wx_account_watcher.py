@@ -33,6 +33,8 @@ def check_wx_account_info(**context):
     # 巡检Appium Server上的微信账号
     for appium_server in appium_server_url_list:
 
+        print(f"[WATCHER] 巡检Appium Server: {appium_server}")
+
         appium_url = appium_server['appium_url']
         login_info = appium_server['login_info']
 
