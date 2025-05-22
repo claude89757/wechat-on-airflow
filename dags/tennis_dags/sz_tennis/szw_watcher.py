@@ -323,16 +323,16 @@ def check_tennis_courts():
 
         if up_for_send_msg_list:
             all_in_one_msg = "\n".join(up_for_send_msg_list)
+            
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
-            appium_url = Variable.get("ZACKS_APPIUM_URL")
-            device_name = Variable.get("ZACKS_DEVICE_NAME")
+            zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
             for contact_name in str(chat_names).splitlines():
-                try:
-                    send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
-                    time.sleep(10)
-                except Exception as e:
-                    print(f"Error sending message to {contact_name}: {e}")
+                zacks_up_for_send_msg_list.append({
+                    "room_name": contact_name,
+                    "msg": all_in_one_msg
+                })
+            Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
             
             sended_msg_list.extend(up_for_send_msg_list)
 

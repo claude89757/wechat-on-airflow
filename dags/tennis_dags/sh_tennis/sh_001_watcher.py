@@ -254,13 +254,18 @@ def check_tennis_courts():
         if up_for_send_msg_list:
             all_in_one_msg = "\n".join(up_for_send_msg_list)
             chat_names = Variable.get("SH_TENNIS_CHATROOMS", default_var="")
-            appium_url = Variable.get("ZACKS_APPIUM_URL")
-            device_name = Variable.get("ZACKS_DEVICE_NAME")
-            for contact_name in str(chat_names).splitlines():
-                send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
-                sended_msg_list.extend(up_for_send_msg_list)
-                time.sleep(10)
 
+            zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
+            for contact_name in str(chat_names).splitlines():
+                # send_wx_msg_by_appium(appium_url, device_name, contact_name, [all_in_one_msg])
+                sended_msg_list.extend(up_for_send_msg_list)
+
+                zacks_up_for_send_msg_list.append({
+                    "room_name": contact_name,
+                    "msg": all_in_one_msg
+                })
+            Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+        
         # 更新缓存信息
         description = f"上海卢湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         Variable.set(

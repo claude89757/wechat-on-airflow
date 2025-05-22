@@ -76,9 +76,35 @@ def monitor_chats(**context):
     if include_text_msg:
         context['ti'].xcom_push(key=f'text_msg_{task_index}', value=include_text_msg)
         need_handle_tasks.append(f'wx_text_handler_{task_index}')
+
+    if Variable.get(f"ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[]) and task_index == 0:
+        need_handle_tasks.append('handle_zacks_up_for_send_msg')
+
+        # 传递下appium_url
+        context['ti'].xcom_push(key=f'zacks_appium_url', value=appium_url)
+        context['ti'].xcom_push(key=f'zacks_device_name', value=device_name)
     
     print(f"[WATCHER] 需要处理的任务: {need_handle_tasks}")
     return need_handle_tasks
+
+
+def handle_zacks_up_for_send_msg(**context):
+    """处理Zacks的待发送消息"""
+    print(f"[HANDLE] 处理Zacks的待发送消息")
+    zacks_up_for_send_msg_list = Variable.get(f"ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
+    print(f"[HANDLE] Zacks的待发送消息: {zacks_up_for_send_msg_list}")
+
+    # 发送消息
+    zacks_appium_url = context['ti'].xcom_pull(key=f'zacks_appium_url')
+    zacks_device_name = context['ti'].xcom_pull(key=f'zacks_device_name')
+    print(f"[HANDLE] 获取XCOM: {zacks_appium_url}, {zacks_device_name}")
+    for msg_info in zacks_up_for_send_msg_list:
+        print(f"[HANDLE] 发送消息: {msg_info}")
+        try:
+            send_wx_msg_by_appium(zacks_appium_url, zacks_device_name, msg_info['room_name'], [msg_info['msg']])
+        except Exception as e:
+            print(f"[HANDLE] 发送消息失败: {e}")
+    
 
 
 def handle_text_messages(**context):
@@ -334,6 +360,9 @@ with DAG(
     wx_video_handler_1 = PythonOperator(task_id='wx_video_handler_1', python_callable=handle_video_messages)
     wx_video_handler_2 = PythonOperator(task_id='wx_video_handler_2', python_callable=handle_video_messages)
 
+    # 处理Zacks的待发送消息
+    handle_zacks_up_for_send_msg = PythonOperator(task_id='handle_zacks_up_for_send_msg', python_callable=handle_zacks_up_for_send_msg)
+
     # 设置依赖关系
     wx_watcher_0 >> wx_text_handler_0
     wx_watcher_1 >> wx_text_handler_1
@@ -342,3 +371,6 @@ with DAG(
     wx_watcher_0 >> wx_video_handler_0
     wx_watcher_1 >> wx_video_handler_1
     wx_watcher_2 >> wx_video_handler_2
+    
+    # 仅第一个账号是处理Zacks的待发送消息
+    wx_watcher_0 >> handle_zacks_up_for_send_msg
