@@ -77,7 +77,9 @@ def monitor_chats(**context):
         context['ti'].xcom_push(key=f'text_msg_{task_index}', value=include_text_msg)
         need_handle_tasks.append(f'wx_text_handler_{task_index}')
 
-    if Variable.get(f"ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[]) and task_index == 0:
+    # 处理Zacks的待发送消息
+    zacks_up_for_send_msg_list = Variable.get(f"ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+    if zacks_up_for_send_msg_list and task_index == 0:
         need_handle_tasks.append('handle_zacks_up_for_send_msg')
 
         # 传递下appium_url
