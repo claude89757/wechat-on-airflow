@@ -142,4 +142,10 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
         if response_part and response_part != "#沉默#":  # 忽略沉默
             response_msg_list.append(response_part)
 
+    try:
+        # 清除在线图片信息
+        Variable.set(f"{wx_user_name}_{room_id}_online_img_info", {}, serialize_json=True)
+    except Exception as e:
+        print(f"[WATCHER] 清除在线图片信息失败: {e}")
+
     return response_msg_list
