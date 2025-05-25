@@ -77,21 +77,26 @@ def check_proxy(proxy_url, proxy_url_infos):
     使用 requests 检查代理是否可用
     """
     try:
-        target_url = 'https://wxsports.ydmap.cn/srv100140/api/pub/sport/venue/getVenueOrderList?salesItemId=109870&curDate=1747843200000&venueGroupId=&t=1747844455961&timestamp__1762=eqjx0DcDRDniYqGqGNuCDUhhwQN4xYvAhdx'
+        target_url = 'https://ftty.ydmap.cn/srv100241/api/pub/sport/venue/getVenueOrderList?salesItemId=100341&curDate=1748188800000&venueGroupId=&t=1748187760876&type__1295=n4%2BxnDR70%3DK7wqWqY5DsD7fmKD54sO2g8S4rTD'
         
         headers = {
-            'accept': 'application/json, text/plain, */*',
-            'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-            'cross-token': '',
+            'Host': 'ftty.ydmap.cn',
+            'server-reflexive-ip': '1.1.1.1',
             'entry-tag': '',
-            'openid-token': '',
-            'priority': 'u=1, i',
-            'referer': 'https://wxsports.ydmap.cn/booking/schedule/107515?salesItemId=109870',
-            'server-reflexive-ip': '120.229.31.158',
-            'tab-id': 'ydmap_029a79686858f0ddaa682abc6fe611e9',
-            'timestamp': '1747844456053',
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-            'visitor-id': '123456789'
+            'access-token': '',
+            'visitor-id': 'xxxxxx',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
+            'accept': 'application/json, text/plain, */*',
+            'timestamp': '1748187760918',
+            'signature': 'xxxxxx',
+            'tab-id': 'ydmap_fb21e370a0f048acfef6a518e9952c02',
+            'x-requested-with': 'XMLHttpRequest',
+            'cross-token': '',
+            'sec-fetch-site': 'same-origin',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-dest': 'empty',
+            'referer': 'https://ftty.ydmap.cn/booking/schedule/101332?salesItemId=100341',
+            'accept-language': 'zh-CN,zh;q=0.9'
         }
         
         proxies = {
