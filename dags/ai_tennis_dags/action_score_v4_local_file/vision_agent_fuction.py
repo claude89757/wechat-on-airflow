@@ -231,7 +231,7 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
                 combined_frames[i] = overlay_bounding_boxes(frame, boxes)
         
         # 保存综合检测视频，确保颜色正确
-        combined_video_path = os.path.join(videos_dir, "combined_detection.mp4")
+        combined_video_path = os.path.join(output_dir, "combined_detection.mp4")
         save_video(combined_frames, combined_video_path, fps=30)
         print(f"  综合检测视频已保存至: {combined_video_path}")
         
