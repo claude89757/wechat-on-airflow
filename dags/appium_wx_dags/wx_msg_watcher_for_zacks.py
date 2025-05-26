@@ -168,84 +168,90 @@ def handle_video_messages(**context):
         # 通知用户
         send_wx_msg_by_appium(appium_url, device_name, contact_name, ["收到视频，AI分析中...🔄"])
 
-        video_url = ""
-        for message in messages:
-            if message['msg_type'] == 'video':
-                video_url = message['msg'].split(":")[-1].strip()
-                break
-        print(f"[HANDLE] 视频路径: {video_url}")
-
-        # 创建DAG
-        timestamp = int(time.time())
-        print(f"[HANDLE] {contact_name} 收到视频消息, 触发AI视频处理DAG")
-        dag_run_id = f'ai_tennis_{timestamp}'
-        trigger_dag(
-            dag_id='tennis_action_score_v4_local_file',
-            conf={"video_url": video_url},
-            run_id=dag_run_id,
-        )
-
-        # 循环等待dag运行完成
-        while True:
-            dag_run_list = DagRun.find(dag_id="tennis_action_score_v4_local_file", run_id=dag_run_id)
-            print(f"dag_run_list: {dag_run_list}")
-            if dag_run_list and (dag_run_list[0].state == 'success' or dag_run_list[0].state == 'failed'):
-                break
-            print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run_list[0].state if dag_run_list else 'None'}")
-            time.sleep(5)
-        
-        # 从XCom获取DAG的输出结果
-        session = settings.Session()
         try:
-            # 使用XCom.get_one获取return_value
-            file_infos = XCom.get_one(
+
+            video_url = ""
+            for message in messages:
+                if message['msg_type'] == 'video':
+                    video_url = message['msg'].split(":")[-1].strip()
+                    break
+            print(f"[HANDLE] 视频路径: {video_url}")
+
+            # 创建DAG
+            timestamp = int(time.time())
+            print(f"[HANDLE] {contact_name} 收到视频消息, 触发AI视频处理DAG")
+            dag_run_id = f'ai_tennis_{timestamp}'
+            trigger_dag(
+                dag_id='tennis_action_score_v4_local_file',
+                conf={"video_url": video_url},
                 run_id=dag_run_id,
-                key="return_value",
-                dag_id="tennis_action_score_v4_local_file",
-                task_id="process_ai_video",
-                session=session
             )
-            print(f"[HANDLE] 从XCom获取AI视频处理结果: {file_infos}")
+
+            # 循环等待dag运行完成
+            while True:
+                dag_run_list = DagRun.find(dag_id="tennis_action_score_v4_local_file", run_id=dag_run_id)
+                print(f"dag_run_list: {dag_run_list}")
+                if dag_run_list and (dag_run_list[0].state == 'success' or dag_run_list[0].state == 'failed'):
+                    break
+                print(f"[HANDLE] 等待DAG运行完成，当前状态: {dag_run_list[0].state if dag_run_list else 'None'}")
+                time.sleep(5)
+            
+            # 从XCom获取DAG的输出结果
+            session = settings.Session()
+            try:
+                # 使用XCom.get_one获取return_value
+                file_infos = XCom.get_one(
+                    run_id=dag_run_id,
+                    key="return_value",
+                    dag_id="tennis_action_score_v4_local_file",
+                    task_id="process_ai_video",
+                    session=session
+                )
+                print(f"[HANDLE] 从XCom获取AI视频处理结果: {file_infos}")
+            finally:
+                session.close()
+
+            # 推送图片和视频到手机上
+            device_ip = login_info['device_ip']
+            username = login_info['username']
+            password = login_info['password']
+            port = login_info['port']
+            analysis_image_path = file_infos['analysis_image']
+            slow_action_video_path = file_infos['slow_action_video']
+            analysis_image_name = analysis_image_path.split('/')[-1]
+            slow_action_video_name = slow_action_video_path.split('/')[-1]
+
+            # 先上传到管控手机的主机中
+            print(f"[HANDLE] 上传图片到主机: {analysis_image_path}")
+            upload_file_to_device_via_sftp(device_ip, username, password, analysis_image_path, analysis_image_path, port=port)
+            print("-"*100)
+            print(f"[HANDLE] 上传视频到主机: {slow_action_video_path}")
+            upload_file_to_device_via_sftp(device_ip, username, password, slow_action_video_path, slow_action_video_path, port=port)
+            print("-"*100)
+
+            # 再通过主机的adb命令上传到手机中
+            print(f"[HANDLE] 上传图片到手机: {analysis_image_path}")
+            result_push_analysis_image = push_file_to_device(device_ip, username, password, device_name, 
+                                                            analysis_image_path, f"/storage/emulated/0/Pictures/WeiXin/{analysis_image_name}", port=port)   
+            print("-"*100)
+            print(f"[HANDLE] 上传视频到手机: {slow_action_video_path}")
+            result_push_slow_action_video = push_file_to_device(device_ip, username, password, device_name, 
+                                                                slow_action_video_path, f"/storage/emulated/0/DCIM/WeiXin/{slow_action_video_name}", port=port)
+            print("-"*100)
+
+            # 发送图片和视频到微信
+            print(f"[HANDLE] 发送图片和视频到微信")
+            if result_push_analysis_image and result_push_slow_action_video:
+                send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=2)
+            else:
+                print(f"[HANDLE] 上传图片或视频到手机失败")
+        except Exception as e:
+            print(f"[HANDLE] 处理视频消息失败: {e}")
+            send_wx_msg_by_appium(appium_url, device_name, contact_name, [f"AI分析失败，请稍后再试(>_<)...\n(错误信息: {e})"])
         finally:
-            session.close()
-
-        # 推送图片和视频到手机上
-        device_ip = login_info['device_ip']
-        username = login_info['username']
-        password = login_info['password']
-        port = login_info['port']
-        analysis_image_path = file_infos['analysis_image']
-        slow_action_video_path = file_infos['slow_action_video']
-        analysis_image_name = analysis_image_path.split('/')[-1]
-        slow_action_video_name = slow_action_video_path.split('/')[-1]
-
-        # 先上传到管控手机的主机中
-        print(f"[HANDLE] 上传图片到主机: {analysis_image_path}")
-        upload_file_to_device_via_sftp(device_ip, username, password, analysis_image_path, analysis_image_path, port=port)
-        print("-"*100)
-        print(f"[HANDLE] 上传视频到主机: {slow_action_video_path}")
-        upload_file_to_device_via_sftp(device_ip, username, password, slow_action_video_path, slow_action_video_path, port=port)
-        print("-"*100)
-
-        # 再通过主机的adb命令上传到手机中
-        print(f"[HANDLE] 上传图片到手机: {analysis_image_path}")
-        result_push_analysis_image = push_file_to_device(device_ip, username, password, device_name, 
-                                                         analysis_image_path, f"/storage/emulated/0/Pictures/WeiXin/{analysis_image_name}", port=port)   
-        print("-"*100)
-        print(f"[HANDLE] 上传视频到手机: {slow_action_video_path}")
-        result_push_slow_action_video = push_file_to_device(device_ip, username, password, device_name, 
-                                                            slow_action_video_path, f"/storage/emulated/0/DCIM/WeiXin/{slow_action_video_name}", port=port)
-        print("-"*100)
-
-        # 发送图片和视频到微信
-        print(f"[HANDLE] 发送图片和视频到微信")
-        if result_push_analysis_image and result_push_slow_action_video:
-            send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=2)
-        else:
-            print(f"[HANDLE] 上传图片或视频到手机失败")
-
-        # 清理视频缓存
-        # clear_mp4_files_in_directory(device_ip, username, password, device_name, "/sdcard/DCIM/WeiXin/", port=port)
+            pass
+            # 清理视频缓存
+            # clear_mp4_files_in_directory(device_ip, username, password, device_name, "/sdcard/DCIM/WeiXin/", port=port)
 
     return recent_new_msg
 

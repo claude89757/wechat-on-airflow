@@ -695,6 +695,9 @@ class WeChatOperator:
                         # 在主机上从主机上下载视频(路径均相同)
                         print(f"[INFO] 从主机上下载视频: {local_path}")
                         video_url = download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
+                        if not video_url:
+                            print(f"[ERROR] 从主机上下载视频失败")
+                            video_url = "下载视频失败"
                         print(f"[INFO] 从主机上下载视频: {video_url}")
                     except Exception as e:
                         print(f"[ERROR] 从主机上下载视频失败: {e}")
