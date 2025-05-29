@@ -208,7 +208,7 @@ def create_venue_check_function(venue_key, venue_config):
 
         # 处理通知逻辑
         if up_for_send_data_list:
-            cache_key = f"爱深圳_{venue_key}_网球场"
+            cache_key = f"ISZ_{venue_key}_网球场"
             sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
             up_for_send_msg_list = []
             
@@ -223,7 +223,7 @@ def create_venue_check_function(venue_key, venue_config):
                 weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
                 
                 for free_slot in free_slot_list:
-                    notification = f"【{venue_name}#{venue_id}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                    notification = f"【{venue_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                     if notification not in sended_msg_list:
                         up_for_send_msg_list.append(notification)
 
