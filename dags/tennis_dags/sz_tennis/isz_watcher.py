@@ -142,7 +142,7 @@ def create_venue_check_function(venue_key, venue_config):
         """检查指定场地的网球场"""
         if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
             print_with_timestamp("每天0点-8点不巡检")
-            return
+            # return
         
         run_start_time = time.time()
         print_with_timestamp(f"开始检查{venue_config['venue_name']}...")
