@@ -89,7 +89,7 @@ def get_proxy_list():
             print_with_timestamp("未配置系统代理，直接访问")
 
         # 获取代理列表
-        url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
+        url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/isz_https_proxies.txt"
         print_with_timestamp(f"正在获取代理列表: {url}")
         
         response = requests.get(url, proxies=proxies, timeout=30)
