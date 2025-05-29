@@ -120,21 +120,18 @@ def get_proxy_list():
         random.shuffle(proxy_list)
         print_with_timestamp(f"成功加载 {len(proxy_list)} 个有效代理")
         
-        # 如果没有可用代理，返回None表示直连
+        # 如果没有可用代理，返回空列表
         if not proxy_list:
-            print_with_timestamp("警告: 没有可用代理，将尝试直连")
-            return [None]  # None表示直连
+            print_with_timestamp("❌ 错误: 没有可用代理，无法进行请求")
+            return []
             
-        # 在代理列表前面添加直连选项作为备选
-        proxy_list.insert(0, None)
-        print_with_timestamp(f"代理列表准备完成，包含直连选项，总计 {len(proxy_list)} 个选项")
-        
+        print_with_timestamp(f"代理列表准备完成，总计 {len(proxy_list)} 个代理")
         return proxy_list
         
     except Exception as e:
         print_with_timestamp(f"获取代理列表失败: {e}")
-        print_with_timestamp("将使用直连模式")
-        return [None]  # 返回直连选项
+        print_with_timestamp("❌ 错误: 无法获取代理，无法进行请求")
+        return []
 
 def create_venue_check_function(venue_key, venue_config):
     """为每个场地创建专门的检查函数"""
