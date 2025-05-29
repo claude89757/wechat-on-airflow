@@ -33,6 +33,7 @@ def str_to_timestamp(date_str: str):
 def check_proxy_for_isz(proxy_url):
     """
     验证代理是否可用于isz请求（参考ydmap_https_proxy_watcher.py的快速验证方式）
+    注意：proxy_url参数应该是 "ip:port" 格式的字符串
     """
     try:
         # 使用固定的测试URL，包含已知有效的参数
@@ -49,6 +50,7 @@ def check_proxy_for_isz(proxy_url):
             'x-requested-with': 'XMLHttpRequest'
         }
         
+        # 确保proxy_url是ip:port格式，构造标准的代理字典
         proxies = {
             'http': f'http://{proxy_url}',
             'https': f'http://{proxy_url}'
@@ -244,45 +246,43 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     validated_proxies = []
     if proxy_list and len(proxy_list) > 0:
         print(f"======开始验证代理列表，共 {len(proxy_list)} 个代理")
+        print(f"代理列表格式示例: {proxy_list[0] if proxy_list else 'None'}")
         
-        # 使用并发方式快速验证代理
-        max_workers = min(20, len(proxy_list))  # 限制并发数量，避免过多连接
-        validated_proxies_lock = threading.Lock()
-        
-        def check_and_add_proxy(i, proxy_str):
-            try:
-                # proxy_str 格式为 "ip:port"
-                proxy_url = proxy_str.strip()
-                
-                # 快速验证代理
-                if check_proxy_for_isz(proxy_url):
-                    # 构造代理配置字典
-                    proxy_config = {
-                        'http': f'http://{proxy_url}',
-                        'https': f'http://{proxy_url}'
-                    }
-                    with validated_proxies_lock:
-                        validated_proxies.append(proxy_config)
-                    print(f"✅ [{i+1}/{len(proxy_list)}] 代理验证成功: {proxy_url}")
-                else:
-                    print(f"❌ [{i+1}/{len(proxy_list)}] 代理验证失败: {proxy_url}")
-                        
-            except Exception as e:
-                print(f"❌ [{i+1}/{len(proxy_list)}] 代理验证异常: {e}")
-        
-        # 使用线程池并发验证代理
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(check_and_add_proxy, i, proxy_str) 
-                      for i, proxy_str in enumerate(proxy_list)]
+        # 简化验证逻辑，只处理字典格式的代理
+        for i, proxy_item in enumerate(proxy_list):
+            print(f"\n[{i+1}/{len(proxy_list)}] 处理代理项: {proxy_item}")
+            print(f"代理项类型: {type(proxy_item)}")
             
-            # 等待所有验证完成
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"代理验证过程中出现异常: {e}")
-                 
-        print(f"======代理验证完成，可用代理数量: {len(validated_proxies)}")
+            try:
+                # 假设代理格式为: {"https": "http://ip:port"}
+                if isinstance(proxy_item, dict):
+                    proxy_url_full = proxy_item.get('https', '')
+                    print(f"提取到的完整代理URL: {proxy_url_full}")
+                    
+                    if proxy_url_full.startswith('http://'):
+                        proxy_ip_port = proxy_url_full.replace('http://', '')
+                        print(f"提取到的IP:PORT: {proxy_ip_port}")
+                        
+                        # 验证代理
+                        print(f"开始验证代理: {proxy_ip_port}")
+                        if check_proxy_for_isz(proxy_ip_port):
+                            validated_proxies.append(proxy_item)
+                            print(f"✅ 代理验证成功: {proxy_ip_port}")
+                        else:
+                            print(f"❌ 代理验证失败: {proxy_ip_port}")
+                    else:
+                        print(f"❌ 代理URL格式错误，不是http://开头: {proxy_url_full}")
+                else:
+                    print(f"❌ 不支持的代理格式，期望dict，实际: {type(proxy_item)}")
+                    
+            except Exception as e:
+                print(f"❌ 代理验证异常: {e}")
+                import traceback
+                print(f"异常详情: {traceback.format_exc()}")
+                
+        print(f"\n======代理验证完成，可用代理数量: {len(validated_proxies)}")
+        if validated_proxies:
+            print(f"可用代理示例: {validated_proxies[0]}")
     else:
         print(f"代理列表为空，将直接使用直连模式")
     
@@ -290,31 +290,41 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     if not validated_proxies:
         print(f"❌ 没有可用的代理，使用直连模式")
         validated_proxies = [None]  # 添加直连选项作为备选
+        print(f"最终代理列表: [None] (直连模式)")
+    else:
+        print(f"最终代理列表数量: {len(validated_proxies)}")
     
     # 第二步：使用验证过的代理进行请求
     response = None
     success = False
     
+    print(f"\n======开始发送请求，可选代理数量: {len(validated_proxies)}")
     for i, proxy_config in enumerate(validated_proxies):
+        print(f"\n[{i+1}/{len(validated_proxies)}] 准备发送请求")
+        print(f"当前使用的代理配置: {proxy_config}")
+        
         try:
             # 每次请求前重新生成签名
-            print(f"\n[{i+1}/{len(validated_proxies)}] 重新生成签名信息...")
+            print(f"重新生成签名信息...")
             nonce, timestamp, signature, full_url_with_timestamp, current_time = generate_signature_and_url(salesItemId, curDate)
             
             if not all([nonce, timestamp, signature, full_url_with_timestamp]):
                 print(f"❌ 签名生成失败，跳过此次请求")
                 continue
             
+            print(f"签名生成成功:")
+            print(f"  nonce: {nonce}")
+            print(f"  timestamp: {timestamp}")
+            print(f"  signature: {signature[:20]}...")
+            print(f"  完整URL: {full_url_with_timestamp[:100]}...")
+            
             # 构建请求头
             headers = {
                 'Host': 'isz.ydmap.cn',
-                # 'Cookie': '',
                 'nonce': nonce,
-                # 'openid-token': '',
-                # 'server-reflexive-ip': '',
                 'entry-tag': '',
                 'access-token': '',
-                'visitor-id': nonce,  # 随便赋值
+                'visitor-id': nonce,
                 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
                 'accept': 'application/json, text/plain, */*',
                 'timestamp': timestamp,
@@ -325,30 +335,33 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                 'sec-fetch-site': 'same-origin',
                 'sec-fetch-mode': 'cors',
                 'sec-fetch-dest': 'empty',
-                # 'referer': '',
                 'accept-language': 'zh-CN,zh;q=0.9'
             }
             
             if proxy_config is None:
-                print(f"[{i+1}/{len(validated_proxies)}] 使用直连进行请求")
+                print(f"使用直连进行请求")
                 response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
             else:
                 proxy_str = proxy_config.get('https', 'Unknown')
-                print(f"[{i+1}/{len(validated_proxies)}] 使用代理进行请求: {proxy_str}")
+                print(f"使用代理进行请求: {proxy_str}")
                 response = requests.get(full_url_with_timestamp, headers=headers, timeout=15, proxies=proxy_config)
+            
+            print(f"收到响应，状态码: {response.status_code}")
+            print(f"响应内容前200字符: {response.text[:200]}")
             
             # 检查响应
             if response.status_code == 200:
                 try:
                     response_json = response.json()
                     if isinstance(response_json, dict):
-                        print(f"✅ 请求成功！使用{'直连' if proxy_config is None else proxy_config.get('https')}")
+                        print(f"✅ 请求成功！")
+                        print(f"响应数据: {response_json}")
                         success = True
                         break
                     else:
                         print(f"❌ 响应格式不正确: {type(response_json)}")
                 except json.JSONDecodeError:
-                    print(f"❌ 响应不是有效JSON: {response.text[:200]}")
+                    print(f"❌ 响应不是有效JSON")
             else:
                 print(f"❌ HTTP状态码错误: {response.status_code}")
                     
@@ -358,9 +371,12 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
             print(f"❌ 连接错误")
         except Exception as e:
             print(f"❌ 请求异常: {e}")
+            import traceback
+            print(f"异常详情: {traceback.format_exc()}")
             
         # 如果不是最后一个代理，稍等一下再试下一个
         if i < len(validated_proxies) - 1:
+            print(f"等待1秒后尝试下一个代理...")
             time.sleep(1)
     
     if not success or response is None:
