@@ -5,7 +5,6 @@ import time
 import datetime
 from tennis_dags.sz_tennis.isz_tools.sign_url_utls import ydmap_sign_url
 from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS
-from tennis_dags.sz_tennis.isz_tools.get_isz_proxies_list import get_proxy_list_for_isz
 
 from airflow.models.variable import Variable
 
@@ -116,83 +115,78 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     :param proxy_list: 代理列表（如果为None则自动获取）
     :return: 场地订单列表(表示已经被预订的场地)
     """
-    
-    # 第一步：获取可用代理列表
-    if proxy_list is None:
-        print("======自动获取ISZ可用代理列表======")
-        validated_proxies = get_proxy_list_for_isz()
-    else:
-        print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
-        validated_proxies = proxy_list
-    
-    # 第二步：使用代理进行请求
+    print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
+    # 使用代理进行请求
     response = None
     success = False
-    
-    print(f"\n======开始发送请求，可选代理数量: {len(validated_proxies)}======")
-    for i, proxy_config in enumerate(validated_proxies):
-        try:
-            # 每次请求前重新生成签名
-            print(f"[{i+1}/{len(validated_proxies)}] 重新生成签名并发送请求...")
-            nonce, timestamp, signature, full_url_with_timestamp, current_time = generate_signature_and_url(salesItemId, curDate)
-            
-            if not all([nonce, timestamp, signature, full_url_with_timestamp]):
-                print(f"❌ 签名生成失败，跳过此次请求")
-                continue
-            
-            # 构建请求头
-            headers = {
-                'Host': 'isz.ydmap.cn',
-                'nonce': nonce,
-                'entry-tag': '',
-                'access-token': '',
-                'visitor-id': nonce,
-                'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
-                'accept': 'application/json, text/plain, */*',
-                'timestamp': timestamp,
-                'signature': signature,
-                'tab-id': 'ydmap_7158e4920308caceb125209cb5ca945d',
-                'x-requested-with': 'XMLHttpRequest',
-                'cross-token': '',
-                'sec-fetch-site': 'same-origin',
-                'sec-fetch-mode': 'cors',
-                'sec-fetch-dest': 'empty',
-                'accept-language': 'zh-CN,zh;q=0.9'
-            }
-            
-            if proxy_config is None:
-                print(f"使用直连模式")
-                response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
-            else:
-                # 使用代理（参考jdwx_watcher.py的做法）
-                print(f"使用代理: {proxy_config}")
-                response = requests.get(full_url_with_timestamp, headers=headers, timeout=15, proxies=proxy_config)
-            
-            # 检查响应
-            if response.status_code == 200:
-                try:
-                    response_json = response.json()
-                    if isinstance(response_json, dict):
-                        print(f"✅ 请求成功！")
-                        success = True
-                        break
-                    else:
-                        print(f"❌ 响应格式错误")
-                except json.JSONDecodeError:
-                    print(f"❌ 响应不是JSON格式")
-            else:
-                print(f"❌ HTTP状态码: {response.status_code}")
-                    
-        except requests.exceptions.Timeout:
-            print(f"❌ 请求超时")
-        except requests.exceptions.ConnectionError:
-            print(f"❌ 连接错误")
-        except Exception as e:
-            print(f"❌ 请求异常: {e}")
-            
-        # 如果不是最后一个代理，稍等一下再试下一个
-        if i < len(validated_proxies) - 1:
-            time.sleep(1)
+    print(f"\n======开始发送请求，可选代理数量: {len(proxy_list)}======")
+    if proxy_list:
+        for i, proxy_config in enumerate(proxy_list):
+            try:
+                # 每次请求前重新生成签名
+                print(f"[{i+1}/{len(proxy_list)}] 重新生成签名并发送请求...")
+                nonce, timestamp, signature, full_url_with_timestamp, current_time = generate_signature_and_url(salesItemId, curDate)
+                
+                if not all([nonce, timestamp, signature, full_url_with_timestamp]):
+                    print(f"❌ 签名生成失败，跳过此次请求")
+                    continue
+                
+                # 构建请求头
+                headers = {
+                    'Host': 'isz.ydmap.cn',
+                    'nonce': nonce,
+                    'entry-tag': '',
+                    'access-token': '',
+                    'visitor-id': nonce,
+                    'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
+                    'accept': 'application/json, text/plain, */*',
+                    'timestamp': timestamp,
+                    'signature': signature,
+                    'tab-id': 'ydmap_7158e4920308caceb125209cb5ca945d',
+                    'x-requested-with': 'XMLHttpRequest',
+                    'cross-token': '',
+                    'sec-fetch-site': 'same-origin',
+                    'sec-fetch-mode': 'cors',
+                    'sec-fetch-dest': 'empty',
+                    'accept-language': 'zh-CN,zh;q=0.9'
+                }
+                
+                if proxy_config is None:
+                    print(f"使用直连模式")
+                    response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
+                else:
+                    # 使用代理（参考jdwx_watcher.py的做法）
+                    print(f"使用代理: {proxy_config}")
+                    response = requests.get(full_url_with_timestamp, headers=headers, timeout=15, proxies=proxy_config)
+                
+                # 检查响应
+                if response.status_code == 200:
+                    try:
+                        response_json = response.json()
+                        if isinstance(response_json, dict):
+                            print(f"✅ 请求成功！")
+                            success = True
+                            break
+                        else:
+                            print(f"❌ 响应格式错误")
+                    except json.JSONDecodeError:
+                        print(f"❌ 响应不是JSON格式")
+                else:
+                    print(f"❌ HTTP状态码: {response.status_code}")
+                        
+            except requests.exceptions.Timeout:
+                print(f"❌ 请求超时")
+            except requests.exceptions.ConnectionError:
+                print(f"❌ 连接错误")
+            except Exception as e:
+                print(f"❌ 请求异常: {e}")
+                
+            # 如果不是最后一个代理，稍等一下再试下一个
+            if i < len(proxy_list) - 1:
+                time.sleep(1)
+    else:
+        print(f"❌ 没有可用的代理，使用直连模式")
+        response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
     
     if not success or response is None:
         print(f"❌ 所有代理和直连都失败")
@@ -331,18 +325,3 @@ if __name__ == "__main__":
     free_venue_list = get_free_venue_list(salesItemId="100341", check_date="2025-05-30")
     print(f"free_venue_list: {free_venue_list}")
     
-    # 测试代理模块
-    print("\n测试代理模块...")
-    proxy_list = get_proxy_list_for_isz()
-    print(f"获取到的代理数量: {len(proxy_list)}")
-    if proxy_list:
-        print(f"代理示例: {proxy_list[0]}")
-        
-        # 使用获取到的代理测试场地查询
-        print("\n使用代理测试场地查询...")
-        free_venue_list_with_proxy = get_free_venue_list(
-            salesItemId="100341", 
-            check_date="2025-05-30",
-            proxy_list=proxy_list[:5]  # 只使用前5个代理测试
-        )
-        print(f"使用代理查询的结果: {free_venue_list_with_proxy}")
