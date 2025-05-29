@@ -3,6 +3,8 @@ import os
 import json
 import time
 import datetime
+import threading
+import concurrent.futures
 from tennis_dags.sz_tennis.isz_tools.sign_url_utls import ydmap_sign_url
 from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS
 
@@ -30,20 +32,21 @@ def str_to_timestamp(date_str: str):
 
 def check_proxy_for_isz(proxy_url):
     """
-    验证代理是否可用于isz请求
+    验证代理是否可用于isz请求（参考ydmap_https_proxy_watcher.py的快速验证方式）
     """
     try:
-        target_url = 'https://isz.ydmap.cn/srv100352/api/pub/sport/venue/getVenueOrderList?salesItemId=100341&curDate=1748188800000&venueGroupId=&t=1748187760876'
+        # 使用固定的测试URL，包含已知有效的参数
+        target_url = 'https://isz.ydmap.cn/srv100352/api/pub/sport/venue/getVenueOrderList?salesItemId=100341&curDate=1748188800000&venueGroupId=&t=1748187760876&md5__1182=n4%2BxnDR70%3DK7wqWqY5DsD7fmKD54sO2g8S4rTD'
         
+        # 使用最简化的headers，减少验证时间
         headers = {
             'Host': 'isz.ydmap.cn',
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
             'accept': 'application/json, text/plain, */*',
-            'x-requested-with': 'XMLHttpRequest',
-            'sec-fetch-site': 'same-origin',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-dest': 'empty',
-            'accept-language': 'zh-CN,zh;q=0.9'
+            'timestamp': '1748187760918',
+            'signature': 'xxxxxx',
+            'visitor-id': 'xxxxxx',
+            'x-requested-with': 'XMLHttpRequest'
         }
         
         proxies = {
@@ -55,21 +58,21 @@ def check_proxy_for_isz(proxy_url):
             target_url,
             headers=headers,
             proxies=proxies,
-            timeout=5,
+            timeout=3,  # 减少超时时间到3秒，提高验证速度
             verify=False
         )
         
         response_text = response.text
         
-        # 判断返回内容是否包含"签名错误"或其他可接受的响应，表示代理IP可用
+        # 判断返回内容是否包含期望的响应，表示代理IP可用
         if (("签名错误" in response_text and "接口未签名" in response_text) or 
-            ("访问验证" in response_text) or 
-            response.status_code == 200):
-            print(f"[{proxy_url}] 代理验证成功")
+            ("访问验证" in response_text) or
+            ("操作成功" in response_text)):
             return True
             
     except Exception as e:
-        print(f"[{proxy_url}] 代理验证失败: {e}")
+        # 简化异常处理，不打印详细错误信息以提高速度
+        pass
     return False
 
 
@@ -240,39 +243,53 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     # 第一步：验证代理可用性
     validated_proxies = []
     if proxy_list and len(proxy_list) > 0:
-        print(f"======开始验证代理列表，共 {len(proxy_list)} 个选项（包含直连）")
+        print(f"======开始验证代理列表，共 {len(proxy_list)} 个代理")
         
-        for i, proxy_config in enumerate(proxy_list):
+        # 使用并发方式快速验证代理
+        max_workers = min(20, len(proxy_list))  # 限制并发数量，避免过多连接
+        validated_proxies_lock = threading.Lock()
+        
+        def check_and_add_proxy(i, proxy_str):
             try:
-                if proxy_config is None:
-                    print(f"[{i+1}/{len(proxy_list)}] 添加直连选项（无代理）")
-                    validated_proxies.append(None)
-                else:
-                    proxy_str = proxy_config.get('https', 'Unknown')
-                    if 'http://' in proxy_str:
-                        proxy_url = proxy_str.replace('http://', '')
-                    else:
-                        proxy_url = proxy_str
-                    
-                    print(f"[{i+1}/{len(proxy_list)}] 验证代理: {proxy_url}")
-                    if check_proxy_for_isz(proxy_url):
+                # proxy_str 格式为 "ip:port"
+                proxy_url = proxy_str.strip()
+                
+                # 快速验证代理
+                if check_proxy_for_isz(proxy_url):
+                    # 构造代理配置字典
+                    proxy_config = {
+                        'http': f'http://{proxy_url}',
+                        'https': f'http://{proxy_url}'
+                    }
+                    with validated_proxies_lock:
                         validated_proxies.append(proxy_config)
-                        print(f"✅ 代理验证成功: {proxy_url}")
-                    else:
-                        print(f"❌ 代理验证失败: {proxy_url}")
+                    print(f"✅ [{i+1}/{len(proxy_list)}] 代理验证成功: {proxy_url}")
+                else:
+                    print(f"❌ [{i+1}/{len(proxy_list)}] 代理验证失败: {proxy_url}")
                         
             except Exception as e:
-                print(f"❌ 代理验证异常: {e}")
-                
+                print(f"❌ [{i+1}/{len(proxy_list)}] 代理验证异常: {e}")
+        
+        # 使用线程池并发验证代理
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(check_and_add_proxy, i, proxy_str) 
+                      for i, proxy_str in enumerate(proxy_list)]
+            
+            # 等待所有验证完成
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"代理验证过程中出现异常: {e}")
+                 
         print(f"======代理验证完成，可用代理数量: {len(validated_proxies)}")
     else:
-        print(f"代理列表为空，使用直连模式")
-        validated_proxies = [None]
+        print(f"代理列表为空，将直接使用直连模式")
     
-    # 如果没有可用代理，返回空结果
+    # 如果有可用代理，使用代理；否则使用直连
     if not validated_proxies:
-        print(f"❌ 没有可用的代理，无法继续请求")
-        return {}
+        print(f"❌ 没有可用的代理，使用直连模式")
+        validated_proxies = [None]  # 添加直连选项作为备选
     
     # 第二步：使用验证过的代理进行请求
     response = None
