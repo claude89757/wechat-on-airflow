@@ -12,3 +12,4 @@
 test_*.py
 /.idea
 __pycache__
+raw.txt
