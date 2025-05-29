@@ -3,10 +3,9 @@ import os
 import json
 import time
 import datetime
-import threading
-import concurrent.futures
 from tennis_dags.sz_tennis.isz_tools.sign_url_utls import ydmap_sign_url
 from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS
+from tennis_dags.sz_tennis.isz_tools.get_isz_proxies_list import get_proxy_list_for_isz
 
 from airflow.models.variable import Variable
 
@@ -28,59 +27,6 @@ def timestamp_to_clock(timestamp: int) -> str:
 def str_to_timestamp(date_str: str):
     """将字符串日期转换为时间戳, 比如2025-05-30 转换为 1717008000000"""
     return int(datetime.datetime.strptime(date_str, '%Y-%m-%d').timestamp() * 1000)
-
-
-def check_proxy_for_isz(proxy_url):
-    """
-    验证代理是否可用于isz请求（参考ydmap_https_proxy_watcher.py的快速验证方式）
-    注意：proxy_url参数应该是 "ip:port" 格式的字符串
-    """
-    try:
-        # 使用固定的测试URL，包含已知有效的参数
-        target_url = 'https://isz.ydmap.cn/srv100352/api/pub/sport/venue/getVenueOrderList?salesItemId=100341&curDate=1748188800000&venueGroupId=&t=1748187760876&md5__1182=n4%2BxnDR70%3DK7wqWqY5DsD7fmKD54sO2g8S4rTD'
-        
-        # 使用最简化的headers，减少验证时间
-        headers = {
-            'Host': 'isz.ydmap.cn',
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
-            'accept': 'application/json, text/plain, */*',
-            'timestamp': '1748187760918',
-            'signature': 'xxxxxx',
-            'visitor-id': 'xxxxxx',
-            'x-requested-with': 'XMLHttpRequest'
-        }
-        
-        # 确保proxy_url是ip:port格式，构造标准的代理字典
-        proxies = {
-            'http': f'http://{proxy_url}',
-            'https': f'http://{proxy_url}'
-        }
-        
-        response = requests.get(
-            target_url,
-            headers=headers,
-            proxies=proxies,
-            timeout=3,  # 减少超时时间到3秒，提高验证速度
-            verify=False
-        )
-        
-        response_text = response.text
-        print(f"[DEBUG] 代理 {proxy_url} 响应状态: {response.status_code}")
-        print(f"[DEBUG] 响应内容前100字符: {response_text[:100]}")
-        
-        # 判断返回内容是否包含期望的响应，表示代理IP可用
-        if (("签名错误" in response_text and "接口未签名" in response_text) or 
-            ("访问验证" in response_text) or
-            ("操作成功" in response_text)):
-            print(f"[DEBUG] 代理 {proxy_url} 验证成功，匹配到预期响应")
-            return True
-        else:
-            print(f"[DEBUG] 代理 {proxy_url} 验证失败，未匹配到预期响应")
-            return False
-            
-    except Exception as e:
-        print(f"[DEBUG] 代理 {proxy_url} 验证异常: {e}")
-        return False
 
 
 def generate_signature_and_url(salesItemId: str, curDate: str):
@@ -167,152 +113,23 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     获取isz的场地订单列表
     :param salesItemId: 场地ID
     :param curDate: 日期（时间戳）
-    :return: 场地订单列表(表示已经被预订的场地), 格式如下
-    {
-    "code": 0,
-    "data": [
-        {
-            "createTime": 1748510527000,
-            "dataId": 46041770,
-            "dealPlatformId": null,
-            "dealPlatformType": 3,
-            "dealServiceUserList": [],
-            "dealState": null,
-            "endTime": 1357005600000,
-            "fightDeclaration": null,
-            "fightMobile": null,
-            "isFightDeal": null,
-            "lockId": 46041770,
-            "orderId": null,
-            "orderId2": null,
-            "platformSubIds": "",
-            "relType": 222,
-            "sellerMessage": "",
-            "sportTeamColorRgb": null,
-            "sportTeamColorValue": null,
-            "sportTeamName": null,
-            "startTime": 1357002000000,
-            "venueId": 120018
-        },
-        {
-            "createTime": 1748442693000,
-            "dataId": 46021372,
-            "dealPlatformId": null,
-            "dealPlatformType": 3,
-            "dealServiceUserList": [],
-            "dealState": null,
-            "endTime": 1357002000000,
-            "fightDeclaration": null,
-            "fightMobile": null,
-            "isFightDeal": null,
-            "lockId": 46021372,
-            "orderId": null,
-            "orderId2": null,
-            "platformSubIds": "",
-            "relType": 222,
-            "sellerMessage": "",
-            "sportTeamColorRgb": null,
-            "sportTeamColorValue": null,
-            "sportTeamName": null,
-            "startTime": 1356994800000,
-            "venueId": 120018
-        },
-        {
-            "createTime": 1716895159000,
-            "dataId": 235867,
-            "dealPlatformId": null,
-            "dealPlatformType": 3,
-            "dealServiceUserList": [],
-            "dealState": null,
-            "endTime": 1357048800000,
-            "fightDeclaration": null,
-            "fightMobile": null,
-            "isFightDeal": null,
-            "lockId": 32157488,
-            "orderId": null,
-            "orderId2": null,
-            "platformSubIds": "",
-            "relType": 43,
-            "sellerMessage": "",
-            "sportTeamColorRgb": null,
-            "sportTeamColorValue": null,
-            "sportTeamName": null,
-            "startTime": 1357030800000,
-            "venueId": 120018
-        }
-    ],
-    "msg": "操作成功",
-    "requestId": "1928156774436954112",
-    "timestamp": 1748543373225
-    }   
+    :param proxy_list: 代理列表（如果为None则自动获取）
+    :return: 场地订单列表(表示已经被预订的场地)
     """
     
-    # 第一步：验证代理可用性
-    validated_proxies = []
-    if proxy_list and len(proxy_list) > 0:
-        print(f"======开始验证代理列表，共 {len(proxy_list)} 个代理")
-        
-        # 使用并发方式快速验证代理
-        max_workers = min(20, len(proxy_list))
-        validated_proxies_lock = threading.Lock()
-        
-        def check_and_add_proxy(proxy_item):
-            try:
-                print(f"[DEBUG] 处理代理项: {proxy_item}, 类型: {type(proxy_item)}")
-                
-                # 处理字典格式代理: {"https": "http://ip:port"}
-                if isinstance(proxy_item, dict):
-                    proxy_url_full = proxy_item.get('https', '')
-                    print(f"[DEBUG] 提取到完整代理URL: {proxy_url_full}")
-                    
-                    if proxy_url_full.startswith('http://'):
-                        proxy_ip_port = proxy_url_full.replace('http://', '')
-                        print(f"[DEBUG] 提取到IP:PORT: {proxy_ip_port}")
-                        
-                        # 验证代理
-                        print(f"[DEBUG] 开始验证代理: {proxy_ip_port}")
-                        if check_proxy_for_isz(proxy_ip_port):
-                            with validated_proxies_lock:
-                                validated_proxies.append(proxy_item)
-                            print(f"✅ 代理验证成功: {proxy_ip_port}")
-                        else:
-                            print(f"❌ 代理验证失败: {proxy_ip_port}")
-                    else:
-                        print(f"[DEBUG] 代理URL格式错误，不是http://开头: {proxy_url_full}")
-                else:
-                    print(f"[DEBUG] 不支持的代理格式，期望dict，实际: {type(proxy_item)}")
-                    
-            except Exception as e:
-                print(f"[DEBUG] 代理验证流程异常: {e}")
-                import traceback
-                print(f"[DEBUG] 异常详情: {traceback.format_exc()}")
-        
-        # 使用线程池并发验证代理
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(check_and_add_proxy, proxy_item) 
-                      for proxy_item in proxy_list]
-            
-            # 等待所有验证完成
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    pass  # 忽略异常，减少输出
-                 
-        print(f"======代理验证完成，可用代理数量: {len(validated_proxies)}")
+    # 第一步：获取可用代理列表
+    if proxy_list is None:
+        print("======自动获取ISZ可用代理列表======")
+        validated_proxies = get_proxy_list_for_isz()
     else:
-        print(f"代理列表为空，将直接使用直连模式")
+        print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
+        validated_proxies = proxy_list
     
-    # 如果有可用代理，使用代理；否则使用直连
-    if not validated_proxies:
-        print(f"❌ 没有可用的代理，使用直连模式")
-        validated_proxies = [None]  # 添加直连选项作为备选
-    
-    # 第二步：使用验证过的代理进行请求
+    # 第二步：使用代理进行请求
     response = None
     success = False
     
-    print(f"\n======开始发送请求，可选代理数量: {len(validated_proxies)}")
+    print(f"\n======开始发送请求，可选代理数量: {len(validated_proxies)}======")
     for i, proxy_config in enumerate(validated_proxies):
         try:
             # 每次请求前重新生成签名
@@ -347,12 +164,9 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                 print(f"使用直连模式")
                 response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
             else:
-                # 确保代理URL格式正确，参考jdwx_watcher.py的做法
-                proxy_url_full = proxy_config.get('https', '')
-                print(f"使用代理: {proxy_url_full}")
-                # 构造标准的代理字典
-                proxies = {"https": proxy_url_full, "http": proxy_url_full}
-                response = requests.get(full_url_with_timestamp, headers=headers, timeout=15, proxies=proxies)
+                # 使用代理（参考jdwx_watcher.py的做法）
+                print(f"使用代理: {proxy_config}")
+                response = requests.get(full_url_with_timestamp, headers=headers, timeout=15, proxies=proxy_config)
             
             # 检查响应
             if response.status_code == 200:
@@ -410,13 +224,14 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     else:
         print(f"❌ 请求失败，状态码: {response.status_code}")
         return {}
-    
+
 
 def get_free_venue_list(salesItemId: str, check_date: str, proxy_list: list = None):
     """
     查询空闲场地列表
     :param salesItemId: 销售项目ID
-    :param curDate: 日期 格式为 2025-05-30
+    :param check_date: 日期 格式为 2025-05-30
+    :param proxy_list: 代理列表（如果为None则自动获取）
     :return: 场地列表
     格式如下:
     {
@@ -510,15 +325,24 @@ def find_available_slots(booked_slots, time_range):
 
 
 if __name__ == "__main__":
-    print("开始测试aq函数联合ydmap_sign_url的完整签名功能...")
-    # 今天
-    # import datetime
-    # today = datetime.datetime.now().strftime("%Y-%m-%d")
-    # format_today = str_to_timestamp(today)
-    # print(format_today)
-    # result = get_isz_venue_order_list(salesItemId="100341", curDate=format_today)
-    # print(result)
-
+    print("开始测试ISZ数据获取功能...")
+    
+    # 测试获取场地空闲列表
     free_venue_list = get_free_venue_list(salesItemId="100341", check_date="2025-05-30")
-    print(f"free_venue_list:============")
-    print(free_venue_list)
+    print(f"free_venue_list: {free_venue_list}")
+    
+    # 测试代理模块
+    print("\n测试代理模块...")
+    proxy_list = get_proxy_list_for_isz()
+    print(f"获取到的代理数量: {len(proxy_list)}")
+    if proxy_list:
+        print(f"代理示例: {proxy_list[0]}")
+        
+        # 使用获取到的代理测试场地查询
+        print("\n使用代理测试场地查询...")
+        free_venue_list_with_proxy = get_free_venue_list(
+            salesItemId="100341", 
+            check_date="2025-05-30",
+            proxy_list=proxy_list[:5]  # 只使用前5个代理测试
+        )
+        print(f"使用代理查询的结果: {free_venue_list_with_proxy}")
