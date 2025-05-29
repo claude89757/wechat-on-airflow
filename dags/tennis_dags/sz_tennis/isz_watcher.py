@@ -254,6 +254,8 @@ def create_venue_check_function(venue_key, venue_config):
                 serialize_json=True
             )
             print_with_timestamp(f"更新{cache_key}缓存，共{len(sended_msg_list)}条消息")
+        else:
+            print_with_timestamp(f"{venue_config['venue_name']}没有空场")
 
         run_end_time = time.time()
         execution_time = run_end_time - run_start_time
