@@ -65,17 +65,22 @@ def check_proxy_for_isz(proxy_url):
         )
         
         response_text = response.text
+        print(f"[DEBUG] 代理 {proxy_url} 响应状态: {response.status_code}")
+        print(f"[DEBUG] 响应内容前100字符: {response_text[:100]}")
         
         # 判断返回内容是否包含期望的响应，表示代理IP可用
         if (("签名错误" in response_text and "接口未签名" in response_text) or 
             ("访问验证" in response_text) or
             ("操作成功" in response_text)):
+            print(f"[DEBUG] 代理 {proxy_url} 验证成功，匹配到预期响应")
             return True
+        else:
+            print(f"[DEBUG] 代理 {proxy_url} 验证失败，未匹配到预期响应")
+            return False
             
     except Exception as e:
-        # 简化异常处理，不打印详细错误信息以提高速度
-        pass
-    return False
+        print(f"[DEBUG] 代理 {proxy_url} 验证异常: {e}")
+        return False
 
 
 def generate_signature_and_url(salesItemId: str, curDate: str):
@@ -253,24 +258,34 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
         
         def check_and_add_proxy(proxy_item):
             try:
+                print(f"[DEBUG] 处理代理项: {proxy_item}, 类型: {type(proxy_item)}")
+                
                 # 处理字典格式代理: {"https": "http://ip:port"}
                 if isinstance(proxy_item, dict):
                     proxy_url_full = proxy_item.get('https', '')
+                    print(f"[DEBUG] 提取到完整代理URL: {proxy_url_full}")
+                    
                     if proxy_url_full.startswith('http://'):
                         proxy_ip_port = proxy_url_full.replace('http://', '')
+                        print(f"[DEBUG] 提取到IP:PORT: {proxy_ip_port}")
                         
                         # 验证代理
+                        print(f"[DEBUG] 开始验证代理: {proxy_ip_port}")
                         if check_proxy_for_isz(proxy_ip_port):
                             with validated_proxies_lock:
                                 validated_proxies.append(proxy_item)
                             print(f"✅ 代理验证成功: {proxy_ip_port}")
-                        # 失败的代理不打印，减少输出
-                    # URL格式错误的代理不打印，减少输出
-                # 格式错误的代理不打印，减少输出
+                        else:
+                            print(f"❌ 代理验证失败: {proxy_ip_port}")
+                    else:
+                        print(f"[DEBUG] 代理URL格式错误，不是http://开头: {proxy_url_full}")
+                else:
+                    print(f"[DEBUG] 不支持的代理格式，期望dict，实际: {type(proxy_item)}")
                     
             except Exception as e:
-                # 异常情况不打印详细信息，减少输出
-                pass
+                print(f"[DEBUG] 代理验证流程异常: {e}")
+                import traceback
+                print(f"[DEBUG] 异常详情: {traceback.format_exc()}")
         
         # 使用线程池并发验证代理
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
