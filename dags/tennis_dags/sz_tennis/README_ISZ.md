@@ -102,6 +102,8 @@ isz_tools/
 4. 配置必要的Airflow Variables
 5. **网络配置**: 确保能访问GitHub获取代理列表（可选）
 
+**重要**: 本版本已修复Airflow导入问题，使用绝对导入路径确保稳定性。
+
 ## 注意事项
 
 - 每个DAG有15分钟的超时限制
@@ -109,3 +111,11 @@ isz_tools/
 - 错误会被记录但不会中断执行
 - 消息缓存最多保留100条
 - **代理优化**: 系统会自动选择最佳网络路径，无需手动干预
+
+## 故障排除
+
+### 导入错误
+如果遇到`ImportError: attempted relative import with no known parent package`错误：
+- ✅ 本版本已修复此问题
+- 使用绝对导入路径：`from tennis_dags.sz_tennis.isz_tools.xxx import xxx`
+- 确保所有包目录都有`__init__.py`文件

@@ -3,8 +3,8 @@ import os
 import json
 import time
 import datetime
-from .sign_url_utls import ydmap_sign_url
-from .config import CD_TIME_RANGE_INFOS
+from tennis_dags.sz_tennis.isz_tools.sign_url_utls import ydmap_sign_url
+from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS
 
 from airflow.models.variable import Variable
 
