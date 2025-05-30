@@ -18,7 +18,7 @@ import requests
 
 # 修复导入路径 - 使用绝对导入
 from tennis_dags.sz_tennis.isz_tools.get_isz_data import get_free_venue_list
-from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS
+from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS, COURT_NAME_INFOS
 
 # 场地配置信息 - 参考config.py中的静态配置
 VENUE_CONFIGS = {
@@ -223,7 +223,8 @@ def create_venue_check_function(venue_key, venue_config):
                 weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
                 
                 for free_slot in free_slot_list:
-                    notification = f"【{venue_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                    court_name = COURT_NAME_INFOS.get(venue_id, "")
+                    notification = f"【{venue_name}{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                     if notification not in sended_msg_list:
                         up_for_send_msg_list.append(notification)
 
