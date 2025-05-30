@@ -52,14 +52,24 @@ def generate_signature_and_url(salesItemId: str, curDate: str):
         },
         "aV": "get",
         "aW": None,
-        "aX": {},
+        "aX": {
+            "accept": "application/json, text/plain, */*",
+            "x-requested-with": "XMLHttpRequest",
+            "access-token": "",
+            "openid-token": "",
+            "cross-token": "",
+            "entry-tag": "",
+            "server-reflexive-ip": "",
+            "visitor-id": "b155abaaa9a5f08e163488ec9ea9bdff",
+            "tab-id": "ydmap_ba7112f995c3b8c6dc2379b3b39acb3f"
+        },
         "aY": None
     }
     
     # 调用aq接口获取签名信息
     aq_data = {
         "group": "sign",
-        "action": "aq", 
+        "action": "ap", 
         "param": json.dumps(test_data)
     }
     print(f"\n步骤2: 通过jsrpc服务调用aq函数生成header签名信息...")
@@ -137,12 +147,12 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                     'nonce': nonce,
                     'entry-tag': '',
                     'access-token': '',
-                    'visitor-id': nonce,
+                    'visitor-id': "b155abaaa9a5f08e163488ec9ea9bdff",
                     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
                     'accept': 'application/json, text/plain, */*',
                     'timestamp': timestamp,
                     'signature': signature,
-                    'tab-id': 'ydmap_7158e4920308caceb125209cb5ca945d',
+                    'tab-id': 'ydmap_ba7112f995c3b8c6dc2379b3b39acb3f',
                     'x-requested-with': 'XMLHttpRequest',
                     'cross-token': '',
                     'sec-fetch-site': 'same-origin',
