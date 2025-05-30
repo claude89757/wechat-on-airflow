@@ -27,7 +27,7 @@ VENUE_CONFIGS = {
         "venue_name": "香蜜体育",
         "dag_id": "isz_xiangmi_tennis_watcher",
         "description": "爱深圳香蜜体育网球场巡检",
-        "schedule_interval": "2,10,18,26,34,42,50,58 * * * *",  # 每小时的2,10,18,26,34,42,50,58分执行
+        "schedule_interval": "*/3 * * * *",  # 每3分钟执行一次
         "time_range": CD_TIME_RANGE_INFOS.get("香蜜体育", {"start_time": "07:00", "end_time": "22:30"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("香蜜体育", 2)
     },
@@ -36,7 +36,7 @@ VENUE_CONFIGS = {
         "venue_name": "黄木岗",
         "dag_id": "isz_huangmugang_tennis_watcher",
         "description": "爱深圳黄木岗网球场巡检",
-        "schedule_interval": "4,12,20,28,36,44,52 * * * *",  # 每小时的4,12,20,28,36,44,52分执行，错开2分钟
+        "schedule_interval": "1-59/3 * * * *",  # 每3分钟执行一次，从第1分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("黄木岗", {"start_time": "07:00", "end_time": "22:30"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("黄木岗", 2)
     },
@@ -45,7 +45,7 @@ VENUE_CONFIGS = {
         "venue_name": "网羽中心", 
         "dag_id": "isz_wangyu_tennis_watcher",
         "description": "爱深圳网羽中心网球场巡检",
-        "schedule_interval": "6,14,22,30,38,46,54 * * * *",  # 每小时的6,14,22,30,38,46,54分执行，错开4分钟
+        "schedule_interval": "2-59/3 * * * *",  # 每3分钟执行一次，从第2分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("网羽中心", {"start_time": "07:00", "end_time": "23:00"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("网羽中心", 2)
     },
@@ -54,7 +54,7 @@ VENUE_CONFIGS = {
         "venue_name": "华侨城",
         "dag_id": "isz_huaqiaocheng_tennis_watcher", 
         "description": "爱深圳华侨城体育中心网球场巡检",
-        "schedule_interval": "8,16,24,32,40,48,56 * * * *",  # 每小时的8,16,24,32,40,48,56分执行，错开6分钟
+        "schedule_interval": "0-59/3 * * * *",  # 每3分钟执行一次，从第0分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("华侨城", {"start_time": "07:00", "end_time": "22:00"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("华侨城", 3)
     }
