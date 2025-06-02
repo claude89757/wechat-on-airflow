@@ -17,8 +17,8 @@ import random
 import requests
 
 # 修复导入路径 - 使用绝对导入
-from tennis_dags.sz_tennis.isz_tools.get_isz_data import get_free_venue_list
-from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS, COURT_NAME_INFOS
+from sz_tennis.isz_tools.get_isz_data import get_free_venue_list
+from sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS, COURT_NAME_INFOS
 
 # 场地配置信息 - 参考config.py中的静态配置
 VENUE_CONFIGS = {
@@ -137,8 +137,8 @@ def create_venue_check_function(venue_key, venue_config):
     """为每个场地创建专门的检查函数"""
     def check_venue_courts():
         """检查指定场地的网球场"""
-        if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
-            print_with_timestamp("每天0点-8点不巡检")
+        if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(7, 0):
+            print_with_timestamp("每天0点-7点不巡检")
             return
         
         run_start_time = time.time()

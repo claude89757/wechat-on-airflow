@@ -10,9 +10,7 @@ import time
 import datetime
 import requests
 import random
-import concurrent.futures
-from typing import List, Tuple
-import uuid
+from typing import List
 import ssl
 import urllib3
 from urllib3.util.ssl_ import create_urllib3_context
@@ -22,9 +20,6 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
-
-from utils.wechat_channl import send_wx_msg
-from utils.appium.wx_appium import send_wx_msg_by_appium
 
 
 # DAG的默认参数

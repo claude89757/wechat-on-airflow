@@ -6,8 +6,7 @@
 @File    : tennis_court_watcher.py
 @Software: PyCharm
 """
-import os
-import json
+
 import time
 import datetime
 import requests
@@ -19,8 +18,6 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
-from utils.wechat_channl import send_wx_msg
-from utils.appium.wx_appium import send_wx_msg_by_appium
 
 # DAG的默认参
 default_args = {
