@@ -7,16 +7,11 @@ import requests
 import tempfile
 from pillow_heif import register_heif_opener
 
-# 动态处理OpenCV导入
-try:
-    import cv2
-except ImportError as e:
-    if "libGL.so.1" in str(e):
-        # 设置headless模式后重新导入
-        os.environ['OPENCV_HEADLESS'] = '1'
-        import cv2
-    else:
-        raise e
+# 设置OpenCV为headless模式，避免GUI依赖
+os.environ['OPENCV_HEADLESS'] = '1'
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+
+import cv2
 
 register_heif_opener()
 

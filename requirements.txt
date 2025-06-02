@@ -17,6 +17,6 @@ opencv-python-headless
 pydub
 ffmpeg-python
 dashscope
-vision_agent
 cos-python-sdk-v5
 paramiko
+ope
