@@ -17,8 +17,6 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
-from utils.wechat_channl import send_wx_msg
-from utils.appium.wx_appium import send_wx_msg_by_appium
 from utils.tencent_sms import send_sms_for_news
 
 # DAG的默认参数
