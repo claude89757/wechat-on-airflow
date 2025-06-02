@@ -15,7 +15,7 @@ networks:
 #===============================================================================
 x-airflow-common: &airflow-common
   <<: *common
-  image: bitnami/airflow:latest
+  image: bitnami/airflow:3.0.1
   volumes: &airflow-volumes
     - ./dags:/opt/bitnami/airflow/dags
     - ./logs:/opt/bitnami/airflow/logs
@@ -183,31 +183,4 @@ services:
       <<: *airflow-env
       AIRFLOW_COMPONENT_TYPE: triggerer
 
-  # # Nginx 服务, 用于接收WCF回调
-  # nginx_for_wcf:
-  #   <<: *common
-  #   image: openresty/openresty:1.21.4.1-6-alpine-fat
-  #   ports:
-  #     - "5000:5000"
-  #   volumes:
-  #     - ./nginx/wcf/conf.d/nginx.conf:/etc/nginx/templates/nginx.conf.template
-  #     - ./nginx/wcf/lua:/usr/local/openresty/nginx/lua
-  #     - ./nginx/wcf/start.sh:/start.sh
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-  #   environment:
-  #     - TZ=Asia/Shanghai
-  #     - AIRFLOW_BASE_URL=${AIRFLOW_BASE_URL}
-  #     - AIRFLOW_USERNAME=${AIRFLOW_USERNAME}
-  #     - AIRFLOW_PASSWORD=${AIRFLOW_PASSWORD}
-  #     - WX_MSG_WATCHER_DAG_ID=${WX_MSG_WATCHER_DAG_ID:-wx_msg_watcher}
-  #   user: root
-  #   command: /start.sh
-  #   healthcheck:
-  #     test: ["CMD", "nginx", "-t"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+
