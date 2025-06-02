@@ -3,7 +3,7 @@ import os
 from openai import OpenAI
 import base64
 
-from tennis_dags.ai_tennis_dags.action_score_v4_local_file.vision_agent_fuction import process_tennis_video
+from tennis_dags.ai_tennis_dags.action_score_v4_local_file.vision_agent_fuction_by_api import process_tennis_video
 
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np

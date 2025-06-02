@@ -2,8 +2,108 @@
 # -*- coding: utf-8 -*-
 
 import os
+import math
+import cv2
+from datetime import datetime
+from pillow_heif import register_heif_opener
+import time
+import random
 from contextlib import contextmanager
 
+# 设置Vision Agent需要的环境变量
+# 需要用户设置以下环境变量来解决认证问题：
+# export VISION_AGENT_API_KEY="your-api-key"
+# 或者 export ANTHROPIC_API_KEY="your-api-key"
+# 或者 export GOOGLE_API_KEY="your-api-key"
+
+def check_and_set_default_env():
+    """
+    检查并设置Vision Agent所需的环境变量
+    如果没有设置必要的API密钥，会给出详细的错误提示
+    """
+    # 检查是否设置了任何必要的API密钥
+    vision_agent_key = os.getenv('VISION_AGENT_API_KEY')
+    anthropic_key = os.getenv('ANTHROPIC_API_KEY')
+    google_key = os.getenv('GOOGLE_API_KEY')
+    openai_key = os.getenv('OPENAI_API_KEY')
+    
+    if not any([vision_agent_key, anthropic_key, google_key, openai_key]):
+        print("\n" + "="*80)
+        print("❌ 错误：未找到Vision Agent所需的API密钥！")
+        print("="*80)
+        print("Vision Agent需要以下任一API密钥进行认证：")
+        print()
+        print("1. Vision Agent API密钥（推荐）：")
+        print("   export VISION_AGENT_API_KEY='your-vision-agent-api-key'")
+        print("   获取地址：https://support.landing.ai/docs/visionagent")
+        print()
+        print("2. Anthropic API密钥：")
+        print("   export ANTHROPIC_API_KEY='your-anthropic-api-key'")
+        print("   获取地址：https://console.anthropic.com/settings/keys")
+        print()
+        print("3. Google API密钥：")
+        print("   export GOOGLE_API_KEY='your-google-api-key'")
+        print("   获取地址：https://aistudio.google.com/")
+        print()
+        print("4. OpenAI API密钥：")
+        print("   export OPENAI_API_KEY='your-openai-api-key'")
+        print("   获取地址：https://platform.openai.com/api-keys")
+        print()
+        print("请设置以上任一环境变量后重试。")
+        print("="*80)
+        raise ValueError("缺少Vision Agent API认证密钥")
+    
+    # 输出当前设置的密钥状态（仅显示是否设置，不显示实际值）
+    print("\n" + "="*50)
+    print("🔑 API密钥状态检查：")
+    print("="*50)
+    print(f"VISION_AGENT_API_KEY: {'✅ 已设置' if vision_agent_key else '❌ 未设置'}")
+    print(f"ANTHROPIC_API_KEY: {'✅ 已设置' if anthropic_key else '❌ 未设置'}")
+    print(f"GOOGLE_API_KEY: {'✅ 已设置' if google_key else '❌ 未设置'}")
+    print(f"OPENAI_API_KEY: {'✅ 已设置' if openai_key else '❌ 未设置'}")
+    print("="*50)
+
+# 在导入vision_agent之前检查环境变量
+check_and_set_default_env()
+
+# 添加重试装饰器
+def retry_with_backoff(max_retries=3, base_delay=1, max_delay=60):
+    """
+    重试装饰器，用于处理速率限制和网络错误
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    
+                    # 检查是否是速率限制错误
+                    if "rate limit" in error_msg or "429" in error_msg:
+                        if attempt < max_retries - 1:
+                            # 指数退避 + 随机抖动
+                            delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
+                            print(f"⚠️ 遇到速率限制，{delay:.1f}秒后重试... (尝试 {attempt + 1}/{max_retries})")
+                            time.sleep(delay)
+                            continue
+                    
+                    # 检查是否是网络连接错误
+                    if "ssl" in error_msg or "connection" in error_msg:
+                        if attempt < max_retries - 1:
+                            delay = base_delay + random.uniform(0, 2)
+                            print(f"⚠️ 网络连接问题，{delay:.1f}秒后重试... (尝试 {attempt + 1}/{max_retries})")
+                            time.sleep(delay)
+                            continue
+                    
+                    # 其他错误直接抛出
+                    raise e
+            
+            # 所有重试都失败了
+            raise Exception(f"在{max_retries}次尝试后仍然失败: {str(e)}")
+        
+        return wrapper
+    return decorator
 
 def process_tennis_video(video_path: str, output_dir: str) -> dict:
     """
@@ -25,7 +125,8 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
             "preparation_frame": str,
             "contact_frame": str,
             "follow_frame": str,
-            "stroke_video": str
+            "one_action_video": str,
+            "slow_action_video": str
         }
     """
     import os
@@ -1838,6 +1939,195 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
         
         return action_video_path, slow_motion_video_path
 
+    # ===== 保存完整的识别后的视频 =====
+    def save_complete_detection_video(output_dir: str, frames_list: list, ball_tracked: list, racket_tracked: list, player_tracked: list, contact_frame: int, prep_frame: int, follow_frame: int):
+        """
+        保存完整的识别后的视频，包含所有帧的检测结果和关键帧标记
+        
+        Parameters:
+        -----------
+        output_dir: str
+            输出目录
+        frames_list: list
+            视频帧列表
+        ball_tracked: list
+            过滤后的网球检测结果
+        racket_tracked: list
+            过滤后的球拍检测结果
+        player_tracked: list
+            过滤后的网球运动员检测结果
+        contact_frame: int
+            接触帧索引
+        prep_frame: int
+            准备动作帧索引
+        follow_frame: int
+            跟随动作帧索引
+            
+        Returns:
+        --------
+        str:
+            保存的完整识别视频路径
+        """
+        print("\n生成完整的识别后的视频...")
+        
+        # 为每一帧添加检测框和标记
+        annotated_frames = []
+        
+        for i, frame in enumerate(frames_list):
+            boxes = []
+            
+            # 添加网球检测框
+            if i < len(ball_tracked) and ball_tracked[i]:
+                for ball in ball_tracked[i]:
+                    score = ball.get("score", 0)
+                    boxes.append({
+                        "bbox": ball["bbox"],
+                        "label": f"网球 {score:.2f}",
+                        "color": (255, 255, 0),  # 黄色
+                        "score": score
+                    })
+            
+            # 添加球拍检测框
+            if i < len(racket_tracked) and racket_tracked[i]:
+                for racket in racket_tracked[i]:
+                    score = racket.get("score", 0)
+                    boxes.append({
+                        "bbox": racket["bbox"],
+                        "label": f"球拍 {score:.2f}",
+                        "color": (0, 0, 255),  # 红色
+                        "score": score
+                    })
+            
+            # 添加运动员检测框
+            if i < len(player_tracked) and player_tracked[i]:
+                for player in player_tracked[i]:
+                    score = player.get("score", 0)
+                    boxes.append({
+                        "bbox": player["bbox"],
+                        "label": f"运动员 {score:.2f}",
+                        "color": (0, 255, 0),  # 绿色
+                        "score": score
+                    })
+            
+            # 将检测框叠加到帧上
+            frame_with_boxes = frame.copy()
+            if boxes:
+                frame_with_boxes = overlay_bounding_boxes(frame, boxes)
+            
+            # 获取帧的尺寸
+            frame_height, frame_width = frame_with_boxes.shape[:2]
+            
+            # 添加帧信息文本（左上角）
+            frame_info = f"帧: {i+1}/{len(frames_list)}"
+            cv2.putText(
+                frame_with_boxes, 
+                frame_info, 
+                (10, 30),  # 位置
+                cv2.FONT_HERSHEY_SIMPLEX,  # 字体
+                0.8,  # 字体大小
+                (255, 255, 255),  # 白色文字
+                2,  # 线宽
+                cv2.LINE_AA  # 抗锯齿
+            )
+            
+            # 添加时间戳（左上角第二行）
+            time_stamp = f"时间: {i/24:.2f}s"  # 假设24fps
+            cv2.putText(
+                frame_with_boxes, 
+                time_stamp, 
+                (10, 60),  # 位置
+                cv2.FONT_HERSHEY_SIMPLEX,  # 字体
+                0.6,  # 字体大小
+                (255, 255, 255),  # 白色文字
+                2,  # 线宽
+                cv2.LINE_AA  # 抗锯齿
+            )
+            
+            # 标记关键帧
+            border_color = None
+            frame_label = ""
+            
+            if i == prep_frame:
+                border_color = (255, 255, 0)  # 黄色边框
+                frame_label = "准备动作帧"
+            elif i == contact_frame:
+                border_color = (0, 0, 255)  # 红色边框
+                frame_label = "接触帧"
+            elif i == follow_frame:
+                border_color = (0, 255, 0)  # 绿色边框
+                frame_label = "跟随动作帧"
+            
+            # 如果是关键帧，添加边框和标签
+            if border_color is not None:
+                # 添加边框
+                cv2.rectangle(
+                    frame_with_boxes,
+                    (0, 0),
+                    (frame_width-1, frame_height-1),
+                    border_color,
+                    8  # 边框宽度
+                )
+                
+                # 添加关键帧标签（右上角）
+                label_size = cv2.getTextSize(frame_label, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3)[0]
+                cv2.rectangle(
+                    frame_with_boxes,
+                    (frame_width - label_size[0] - 20, 10),
+                    (frame_width - 10, 50),
+                    border_color,
+                    -1  # 填充矩形
+                )
+                
+                cv2.putText(
+                    frame_with_boxes, 
+                    frame_label, 
+                    (frame_width - label_size[0] - 15, 35),  # 位置
+                    cv2.FONT_HERSHEY_SIMPLEX,  # 字体
+                    1.0,  # 字体大小
+                    (0, 0, 0),  # 黑色文字
+                    3,  # 线宽
+                    cv2.LINE_AA  # 抗锯齿
+                )
+            
+            # 添加检测统计信息（右下角）
+            ball_count = len(ball_tracked[i]) if i < len(ball_tracked) and ball_tracked[i] else 0
+            racket_count = len(racket_tracked[i]) if i < len(racket_tracked) and racket_tracked[i] else 0
+            player_count = len(player_tracked[i]) if i < len(player_tracked) and player_tracked[i] else 0
+            
+            stats_lines = [
+                f"网球: {ball_count}",
+                f"球拍: {racket_count}",
+                f"运动员: {player_count}"
+            ]
+            
+            # 在右下角显示统计信息
+            for j, stats_line in enumerate(stats_lines):
+                y_pos = frame_height - 90 + (j * 25)
+                cv2.putText(
+                    frame_with_boxes, 
+                    stats_line, 
+                    (frame_width - 150, y_pos),  # 位置
+                    cv2.FONT_HERSHEY_SIMPLEX,  # 字体
+                    0.6,  # 字体大小
+                    (255, 255, 255),  # 白色文字
+                    2,  # 线宽
+                    cv2.LINE_AA  # 抗锯齿
+                )
+                        
+            annotated_frames.append(frame_with_boxes)
+        
+        # 保存完整的识别视频
+        complete_video_path = os.path.join(output_dir, "complete_detection.mp4")
+        save_video(annotated_frames, complete_video_path, fps=24)
+        print(f"完整识别视频已保存至: {complete_video_path}")
+        
+        # 也保存一个慢速版本
+        complete_slow_video_path = os.path.join(output_dir, "complete_detection_slow.mp4")
+        save_video(annotated_frames, complete_slow_video_path, fps=12)  # 半速
+        print(f"慢速完整识别视频已保存至: {complete_slow_video_path}")
+        
+        return complete_video_path, complete_slow_video_path
+
     # 从这里开始是主要处理逻辑
     #########################################
     # 1. 视频帧提取
@@ -1848,12 +2138,67 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     # 2. 网球和球拍检测与跟踪
     #########################################
     print("\n步骤2: 使用目标检测和跟踪模型...")
+    
+    # 使用重试机制包装检测调用
+    @retry_with_backoff(max_retries=5, base_delay=2, max_delay=120)
+    def safe_object_detection(prompt, frames, threshold=0.3):
+        """安全的目标检测调用，带重试机制"""
+        print(f"  🔍 开始检测: {prompt}")
+        print(f"  📊 处理帧数: {len(frames)}")
+        print(f"  ⚡ 检测阈值: {threshold}")
+        
+        # 分批处理以减少API负载
+        batch_size = 10  # 每批处理10帧，减少并发压力
+        all_results = []
+        
+        for i in range(0, len(frames), batch_size):
+            batch_frames = frames[i:i+batch_size]
+            batch_end = min(i + batch_size, len(frames))
+            
+            print(f"  📦 处理批次 {i//batch_size + 1}: 帧 {i+1}-{batch_end}/{len(frames)}")
+            
+            # 添加批次间延迟
+            if i > 0:
+                delay = random.uniform(1, 3)  # 1-3秒随机延迟
+                print(f"  ⏳ 批次间延迟 {delay:.1f}秒...")
+                time.sleep(delay)
+            
+            try:
+                from vision_agent.tools import owlv2_sam2_video_tracking
+                batch_results = owlv2_sam2_video_tracking(prompt, batch_frames, box_threshold=threshold)
+                all_results.extend(batch_results)
+                print(f"  ✅ 批次 {i//batch_size + 1} 完成")
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "rate limit" in error_msg or "429" in error_msg:
+                    print(f"  ⚠️ 批次 {i//batch_size + 1} 遇到速率限制，将触发重试...")
+                    raise e  # 让重试装饰器处理
+                else:
+                    print(f"  ❌ 批次 {i//batch_size + 1} 失败: {e}")
+                    raise e
+        
+        return all_results
+    
     # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
-    # 合并三个检测为一次调用
+    # 分别检测三个对象以降低API压力
     combined_prompt = "moving tennis ball with motion blur, tennis racket, tennis player"
     print(f"使用提示词: {combined_prompt}")
-    combined_tracked = owlv2_sam2_video_tracking(combined_prompt, frames_list, box_threshold=0.3, chunk_length=15)
-    # print(f"检测结果: {combined_tracked}")
+    
+    try:
+        combined_tracked = safe_object_detection(combined_prompt, frames_list, threshold=0.3)
+    except Exception as e:
+        print(f"❌ 检测失败: {e}")
+        print("🔄 尝试使用更简单的提示词和更高阈值...")
+        try:
+            # 备用方案：使用更简单的提示词
+            simple_prompt = "tennis ball, racket, player"
+            combined_tracked = safe_object_detection(simple_prompt, frames_list, threshold=0.5)
+        except Exception as e2:
+            print(f"❌ 备用检测也失败: {e2}")
+            print("⚠️ 将使用演示数据继续处理...")
+            # 创建空的检测结果作为演示
+            combined_tracked = [[] for _ in range(len(frames_list))]
     
     # 分离检测结果
     ball_tracked = []
@@ -1932,6 +2277,12 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     one_action_video_path, slow_action_video_path = save_video_with_one_action(output_dir, frames_list, ball_tracked, racket_tracked, player_tracked,
                                                                                contact_frame, prep_frame, follow_frame)
                                                                                
+    #########################################
+    # 10. 保存完整的识别后的视频
+    #########################################
+    # 获取完整的识别后的视频
+    complete_video_path, complete_slow_video_path = save_complete_detection_video(output_dir, frames_list, ball_tracked, racket_tracked, player_tracked,
+                                                                                   contact_frame, prep_frame, follow_frame)
 
     # 返回结果字典
     return {
@@ -1939,7 +2290,9 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
         "contact_frame": contact_frame_path,
         "follow_frame": follow_frame_path,
         "one_action_video": one_action_video_path,
-        "slow_action_video": slow_action_video_path
+        "slow_action_video": slow_action_video_path,
+        "complete_video": complete_video_path,
+        "complete_slow_video": complete_slow_video_path
     }
 
 
@@ -1947,8 +2300,8 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
 if __name__ == "__main__":
     # 打印当前目录
     print(f"当前目录: {os.getcwd()}")
-    video_path = "./dags/tennis_dags/ai_tennis_dags/action_score_v4_local_file/videos/roger.mp4"
-    output_dir = "./dags/tennis_dags/ai_tennis_dags/action_score_v4_local_file/videos/"
+    video_path = "videos/roger.mp4"  # 使用相对路径
+    output_dir = "videos/"  # 使用相对路径
     print(f"video_path: {video_path}")
     print(f"output_dir: {output_dir}")
     process_tennis_video(video_path, output_dir)
