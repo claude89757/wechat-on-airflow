@@ -15,7 +15,7 @@ networks:
 #===============================================================================
 x-airflow-common: &airflow-common
   <<: *common
-  image: bitnami/airflow:3.0.1
+  image: bitnami/airflow:3
   volumes: &airflow-volumes
     - ./dags:/opt/bitnami/airflow/dags
     - ./logs:/opt/bitnami/airflow/logs
