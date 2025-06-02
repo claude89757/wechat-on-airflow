@@ -3,12 +3,23 @@
 
 import os
 import math
-import cv2
 import requests
 import tempfile
 from pillow_heif import register_heif_opener
 
+# 动态处理OpenCV导入
+try:
+    import cv2
+except ImportError as e:
+    if "libGL.so.1" in str(e):
+        # 设置headless模式后重新导入
+        os.environ['OPENCV_HEADLESS'] = '1'
+        import cv2
+    else:
+        raise e
+
 register_heif_opener()
+
 
 def get_video_info(video_path: str) -> dict:
     """获取视频基本信息"""
