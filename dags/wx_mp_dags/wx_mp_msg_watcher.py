@@ -42,7 +42,7 @@ from utils.dify_sdk import DifyAgent
 from utils.wechat_mp_channl import WeChatMPBot
 from utils.tts import text_to_speech
 from utils.redis import RedisHandler
-from wx_dags.common.mysql_tools import save_token_usage_to_db
+from wx_mp_dags.common.mysql_tools import save_token_usage_to_db
 from wx_mp_dags.common.wx_mp_tools import get_mp_account_info
 
 
