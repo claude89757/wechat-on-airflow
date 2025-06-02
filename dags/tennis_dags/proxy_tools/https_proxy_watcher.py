@@ -38,7 +38,7 @@ def generate_proxies():
 
     for url in urls:
         print(f"getting proxy list for {url}")
-        response = make_request('get', url)
+        response = requests.get(url)
         text = response.text.strip()
         lines = text.split("\n")
         lines = [line.strip() for line in lines if is_valid_proxy(line)]
@@ -63,13 +63,7 @@ def check_proxy(candidate_proxy, proxy_url_infos):
     """检查代理是否可用"""
     try:
         # 检查代理时不使用系统代理
-        response = make_request(
-            'get',
-            "https://www.baidu.com/",
-            use_proxy=False,
-            proxies={"https": candidate_proxy},
-            timeout=3
-        )
+        response = requests.get("https://www.baidu.com/", proxies={"https": candidate_proxy}, timeout=3)
         if response.status_code == 200:
             print(f"[OK]  {candidate_proxy}, from {proxy_url_infos.get(candidate_proxy)}")
             return candidate_proxy
@@ -124,7 +118,7 @@ def upload_file_to_github(filename):
         'content': base64.b64encode(content).decode('utf-8'),
         'sha': get_file_sha(REMOTE_FILENAME, headers)
     }
-    response = make_request('put', REMOTE_FILENAME, headers=headers, json=data)
+    response = requests.put(REMOTE_FILENAME, headers=headers, json=data)
     if response.status_code == 200:
         print("File uploaded successfully.")
     else:
@@ -132,7 +126,7 @@ def upload_file_to_github(filename):
 
 def download_file():
     try:
-        response = make_request('get', REMOTE_FILENAME)
+        response = requests.get(REMOTE_FILENAME)
         response.raise_for_status()
         
         # GitHub API 返回的是 JSON 格式，包含 base64 编码的内容
@@ -155,7 +149,7 @@ def download_file():
             pass
 
 def get_file_sha(url, headers):
-    response = make_request('get', url, headers=headers)
+    response = requests.get(url, headers=headers)
     if response.status_code == 200:
         return response.json()['sha']
     return None
