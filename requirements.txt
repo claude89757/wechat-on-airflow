@@ -19,4 +19,3 @@ ffmpeg-python
 dashscope
 cos-python-sdk-v5
 paramiko
-ope
