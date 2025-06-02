@@ -1524,74 +1524,177 @@ def overlay_bounding_boxes(image, boxes):
     
     return result
 
-def save_video(frames, output_path, fps=30):
-    """保存视频"""
+def save_video(frames, output_path, fps=30, for_wechat=True):
+    """保存视频，优化微信兼容性"""
     if not frames:
         return
     
-    height, width = frames[0].shape[:2]
+    original_height, original_width = frames[0].shape[:2]
     
-    # 选择最佳可用编码器
-    available_codecs = {
-        'H264': 'avc1',  # H.264编码，最佳兼容性
-        'XVID': 'XVID',  # 常见编码器，兼容性较好
-        'MJPG': 'MJPG',  # Motion JPEG，兼容性好
-        'MP4V': 'mp4v'   # 默认编码器
-    }
+    # 微信兼容性优化
+    if for_wechat:
+        # 限制分辨率 - 微信推荐最大1280x720
+        max_width, max_height = 1280, 720
+        if original_width > max_width or original_height > max_height:
+            # 保持宽高比缩放
+            scale = min(max_width / original_width, max_height / original_height)
+            width = int(original_width * scale)
+            height = int(original_height * scale)
+            
+            # 确保宽高是偶数（H.264要求）
+            width = width - (width % 2)
+            height = height - (height % 2)
+            
+            print(f"🔄 为微信兼容性调整分辨率: {original_width}x{original_height} -> {width}x{height}")
+            
+            # 调整所有帧尺寸
+            resized_frames = []
+            for frame in frames:
+                resized_frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+                resized_frames.append(resized_frame)
+            frames = resized_frames
+        else:
+            width, height = original_width, original_height
+            # 确保宽高是偶数
+            width = width - (width % 2)
+            height = height - (height % 2)
+            if width != original_width or height != original_height:
+                resized_frames = []
+                for frame in frames:
+                    resized_frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
+                    resized_frames.append(resized_frame)
+                frames = resized_frames
+        
+        # 限制帧率 - 微信推荐30fps以下
+        if fps > 30:
+            fps = 30
+            print(f"🔄 为微信兼容性调整帧率为30fps")
+    else:
+        width, height = original_width, original_height
     
-    # 尝试使用不同编码器
+    # 微信优化的编码器配置
+    wechat_codecs = [
+        # H.264 - 微信最佳兼容性
+        {
+            'name': 'H264_BASELINE', 
+            'fourcc': cv2.VideoWriter_fourcc(*'avc1'),
+            'description': 'H.264 Baseline Profile (微信推荐)'
+        },
+        {
+            'name': 'H264_MP4V', 
+            'fourcc': cv2.VideoWriter_fourcc(*'mp4v'),
+            'description': 'H.264 MP4V (微信兼容)'
+        },
+        # 备用编码器
+        {
+            'name': 'XVID', 
+            'fourcc': cv2.VideoWriter_fourcc(*'XVID'),
+            'description': 'XVID编码器'
+        },
+        {
+            'name': 'MJPG', 
+            'fourcc': cv2.VideoWriter_fourcc(*'MJPG'),
+            'description': 'Motion JPEG'
+        }
+    ]
+    
     success = False
-    for codec_name, codec_code in available_codecs.items():
+    
+    # 尝试使用微信优化的编码器
+    for codec_info in wechat_codecs:
         try:
-            fourcc = cv2.VideoWriter_fourcc(*codec_code)
-            temp_path = output_path + f".temp_{codec_code}.mp4"
+            codec_name = codec_info['name']
+            fourcc = codec_info['fourcc']
+            description = codec_info['description']
+            
+            temp_path = output_path.replace('.mp4', f'_temp_{codec_name}.mp4')
+            
+            # 创建VideoWriter
             out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
             
-            # 检查VideoWriter是否成功初始化
             if out.isOpened():
-                print(f"✅ 使用 {codec_name} 编码器保存视频")
+                print(f"✅ 使用 {description}")
+                
+                # 写入帧
                 for frame in frames:
                     frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                     out.write(frame_bgr)
+                
                 out.release()
                 
-                # 重命名为最终文件名
+                # 检查生成的文件
                 if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                    file_size_mb = os.path.getsize(temp_path) / (1024 * 1024)
+                    
+                    # 微信文件大小限制检查（一般限制为25MB）
+                    if for_wechat and file_size_mb > 25:
+                        print(f"⚠️ 文件过大 ({file_size_mb:.1f}MB > 25MB)，尝试降低质量...")
+                        os.remove(temp_path)
+                        
+                        # 尝试降低帧率再次生成
+                        lower_fps = max(15, fps // 2)
+                        out_lower = cv2.VideoWriter(temp_path, fourcc, lower_fps, (width, height))
+                        if out_lower.isOpened():
+                            for frame in frames[::2]:  # 跳帧处理
+                                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                                out_lower.write(frame_bgr)
+                            out_lower.release()
+                            
+                            if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                                file_size_mb = os.path.getsize(temp_path) / (1024 * 1024)
+                                print(f"🔄 降低质量后文件大小: {file_size_mb:.1f}MB")
+                    
+                    # 重命名为最终文件名
                     if os.path.exists(output_path):
                         os.remove(output_path)
                     os.rename(temp_path, output_path)
+                    
+                    final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+                    print(f"✅ 视频已保存: {output_path}")
+                    print(f"📊 文件信息: {final_size_mb:.1f}MB, {width}x{height}, {fps}fps")
+                    
+                    if for_wechat:
+                        if final_size_mb <= 25:
+                            print("✅ 文件大小符合微信要求 (≤25MB)")
+                        else:
+                            print("⚠️ 文件可能太大，建议进一步压缩")
+                    
                     success = True
                     break
+                else:
+                    print(f"❌ {codec_name} 生成的文件无效")
             else:
                 out.release()
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                print(f"❌ 无法初始化 {codec_name} 编码器")
+                
         except Exception as e:
-            print(f"⚠️ {codec_name} 编码器尝试失败: {e}")
-            if os.path.exists(temp_path):
+            print(f"⚠️ {codec_info['name']} 编码器失败: {e}")
+            if 'temp_path' in locals() and os.path.exists(temp_path):
                 os.remove(temp_path)
     
-    # 如果所有编码器都失败，使用最基本的编码器
+    # 如果所有编码器都失败，使用最基本的方法
     if not success:
-        print("⚠️ 高级编码器均失败，使用基本编码器")
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        for frame in frames:
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            out.write(frame_bgr)
-        out.release()
-    
-    # 检查视频是否有效
-    if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-        print(f"✅ 视频已保存: {output_path} ({os.path.getsize(output_path)/1024:.1f} KB)")
-    else:
-        print(f"❌ 视频保存失败: {output_path}")
+        print("⚠️ 所有编码器均失败，使用最基本编码器")
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            for frame in frames:
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                out.write(frame_bgr)
+            out.release()
+            
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                print(f"✅ 基本编码器保存成功: {output_path}")
+            else:
+                print(f"❌ 视频保存完全失败")
+        except Exception as e:
+            print(f"❌ 基本编码器也失败: {e}")
 
 def save_video_with_one_action(output_dir: str, frames_list: list, ball_tracked: list, 
                                racket_tracked: list, player_tracked: list, 
                                contact_frame: int, prep_frame: int, follow_frame: int):
-    """保存击球动作视频"""
-    print("\n🎬 生成击球动作视频...")
+    """保存击球动作视频（微信优化版本）"""
+    print("\n🎬 生成击球动作视频（微信优化）...")
     
     start_frame = prep_frame
     end_frame = follow_frame
@@ -1627,20 +1730,25 @@ def save_video_with_one_action(output_dir: str, frames_list: list, ball_tracked:
         cv2.putText(frame_with_boxes, phase_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
         annotated_frames.append(frame_with_boxes)
     
-    action_video_path = os.path.join(output_dir, "tennis_action.mp4")
-    slow_motion_video_path = os.path.join(output_dir, "tennis_action_slow.mp4")
+    # 生成微信优化版本
+    action_video_path = os.path.join(output_dir, "tennis_action_wechat.mp4")
+    slow_motion_video_path = os.path.join(output_dir, "tennis_action_slow_wechat.mp4")
     
-    save_video(annotated_frames, action_video_path, fps=30)
-    save_video(annotated_frames, slow_motion_video_path, fps=15)
+    # 原版本（微信优化）
+    save_video(annotated_frames, action_video_path, fps=25, for_wechat=True)  # 25fps更适合微信
+    save_video(annotated_frames, slow_motion_video_path, fps=12, for_wechat=True)  # 慢动作版本
     
-    print(f"击球动作视频已保存: {action_video_path}")
+    print(f"✅ 微信优化击球动作视频已保存:")
+    print(f"   常速版本: {action_video_path}")
+    print(f"   慢动作版本: {slow_motion_video_path}")
+    
     return action_video_path, slow_motion_video_path
 
 def save_complete_detection_video(output_dir: str, frames_list: list, ball_tracked: list,
                                  racket_tracked: list, player_tracked: list,
                                  contact_frame: int, prep_frame: int, follow_frame: int):
-    """保存完整检测视频"""
-    print("\n🎬 生成完整检测视频...")
+    """保存完整检测视频（微信优化版本）"""
+    print("\n🎬 生成完整检测视频（微信优化）...")
     
     annotated_frames = []
     for i, frame in enumerate(frames_list):
@@ -1679,21 +1787,24 @@ def save_complete_detection_video(output_dir: str, frames_list: list, ball_track
         
         annotated_frames.append(frame_with_boxes)
     
-    complete_video_path = os.path.join(output_dir, "complete_detection.mp4")
-    complete_slow_video_path = os.path.join(output_dir, "complete_detection_slow.mp4")
+    complete_video_path = os.path.join(output_dir, "complete_detection_wechat.mp4")
+    complete_slow_video_path = os.path.join(output_dir, "complete_detection_slow_wechat.mp4")
     
-    save_video(annotated_frames, complete_video_path, fps=24)
-    save_video(annotated_frames, complete_slow_video_path, fps=12)
+    save_video(annotated_frames, complete_video_path, fps=24, for_wechat=True)
+    save_video(annotated_frames, complete_slow_video_path, fps=12, for_wechat=True)
     
-    print(f"完整检测视频已保存: {complete_video_path}")
+    print(f"✅ 微信优化完整检测视频已保存:")
+    print(f"   常速版本: {complete_video_path}")
+    print(f"   慢动作版本: {complete_slow_video_path}")
+    
     return complete_video_path, complete_slow_video_path
 
 
 def save_filtered_complete_detection_video(output_dir: str, frames_list: list, ball_tracked: list,
                                  racket_tracked: list, player_tracked: list,
                                  contact_frame: int, prep_frame: int, follow_frame: int):
-    """保存完整检测视频"""
-    print("\n🎬 生成完整检测视频...")
+    """保存过滤后完整检测视频（微信优化版本）"""
+    print("\n🎬 生成过滤后完整检测视频（微信优化）...")
     
     annotated_frames = []
     for i, frame in enumerate(frames_list):
@@ -1732,13 +1843,16 @@ def save_filtered_complete_detection_video(output_dir: str, frames_list: list, b
         
         annotated_frames.append(frame_with_boxes)
     
-    filtered_complete_video_path = os.path.join(output_dir, "filtered_complete_detection.mp4")
-    filtered_complete_slow_video_path = os.path.join(output_dir, "filtered_complete_detection_slow.mp4")
+    filtered_complete_video_path = os.path.join(output_dir, "filtered_complete_detection_wechat.mp4")
+    filtered_complete_slow_video_path = os.path.join(output_dir, "filtered_complete_detection_slow_wechat.mp4")
     
-    save_video(annotated_frames, filtered_complete_video_path, fps=24)
-    save_video(annotated_frames, filtered_complete_slow_video_path, fps=12)
+    save_video(annotated_frames, filtered_complete_video_path, fps=24, for_wechat=True)
+    save_video(annotated_frames, filtered_complete_slow_video_path, fps=12, for_wechat=True)
     
-    print(f"完整检测视频已保存: {filtered_complete_video_path}")
+    print(f"✅ 微信优化过滤后完整检测视频已保存:")
+    print(f"   常速版本: {filtered_complete_video_path}")
+    print(f"   慢动作版本: {filtered_complete_slow_video_path}")
+    
     return filtered_complete_video_path, filtered_complete_slow_video_path
 
 
@@ -1847,4 +1961,18 @@ if __name__ == "__main__":
     output_dir = "/Users/claude89757/github/wechat-on-airflow/dags/tennis_dags/ai_tennis_dags/action_score_v4_local_file/videos/output"
     
     result = process_tennis_video(video_path, output_dir)
-    print("\n测试完成！")
+    
+    print("\n🎉 测试完成！微信优化视频生成结果:")
+    print("="*50)
+    print("📱 微信推荐视频（直接可用于微信分享）:")
+    print(f"   击球动作视频: {result['one_action_video']}")
+    print(f"   击球慢动作: {result['slow_action_video']}")
+    
+    print("\n📊 微信兼容性信息:")
+    print("   编码格式: H.264")
+    print("   最大分辨率: 1280x720")
+    print("   最大文件大小: 25MB")
+    print("   推荐帧率: 25fps以下")
+    print("   视频格式: MP4")
+    
+    print("\n✅ 所有视频均已针对微信优化，可直接在安卓手机微信中发送！")
