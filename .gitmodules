@@ -1,0 +1,3 @@
+[submodule "vision-agent"]
+	path = vision-agent
+	url = https://github.com/landing-ai/vision-agent.git
