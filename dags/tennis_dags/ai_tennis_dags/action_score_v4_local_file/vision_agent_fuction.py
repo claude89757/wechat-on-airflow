@@ -5,45 +5,6 @@ import os
 from contextlib import contextmanager
 
 
-@contextmanager
-def proxy_context():
-    """
-    代理设置的上下文管理器
-    """
-    # 保存原始代理设置
-    original_http_proxy = os.environ.get('HTTP_PROXY')
-    original_https_proxy = os.environ.get('HTTPS_PROXY')
-    
-    try:
-        # 设置新代理
-        try: 
-            from airflow.models import Variable
-            proxy_url = Variable.get('PROXY_URL')
-            if not proxy_url:
-                raise
-        except:
-            proxy_url = os.environ.get('PROXY_URL')
-
-        if proxy_url:
-            os.environ['HTTPS_PROXY'] = proxy_url
-            os.environ['HTTP_PROXY'] = proxy_url
-        else:
-            os.environ.pop('HTTP_PROXY', None)
-            os.environ.pop('HTTPS_PROXY', None)
-        yield
-    finally:
-        # 恢复原始代理
-        if original_http_proxy:
-            os.environ['HTTP_PROXY'] = original_http_proxy
-        else:
-            os.environ.pop('HTTP_PROXY', None)
-            
-        if original_https_proxy:
-            os.environ['HTTPS_PROXY'] = original_https_proxy
-        else:
-            os.environ.pop('HTTPS_PROXY', None)
-
-
 def process_tennis_video(video_path: str, output_dir: str) -> dict:
     """
     Processes a tennis video to find a complete stroke that includes
@@ -72,7 +33,6 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     import cv2
     from datetime import datetime
     from pillow_heif import register_heif_opener
-    import vision_agent as va
     from vision_agent.tools import (
         extract_frames_and_timestamps,
         save_image,
@@ -1888,39 +1848,38 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
     # 2. 网球和球拍检测与跟踪
     #########################################
     print("\n步骤2: 使用目标检测和跟踪模型...")
-    with proxy_context():
-        # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
-        # 合并三个检测为一次调用
-        combined_prompt = "moving tennis ball with motion blur, tennis racket, tennis player"
-        print(f"使用提示词: {combined_prompt}")
-        combined_tracked = owlv2_sam2_video_tracking(combined_prompt, frames_list, box_threshold=0.3, chunk_length=15)
-        # print(f"检测结果: {combined_tracked}")
+    # 使用更精确的提示词，专注于运动中、带拖影、模糊的网球
+    # 合并三个检测为一次调用
+    combined_prompt = "moving tennis ball with motion blur, tennis racket, tennis player"
+    print(f"使用提示词: {combined_prompt}")
+    combined_tracked = owlv2_sam2_video_tracking(combined_prompt, frames_list, box_threshold=0.3, chunk_length=15)
+    # print(f"检测结果: {combined_tracked}")
+    
+    # 分离检测结果
+    ball_tracked = []
+    racket_tracked = []
+    player_tracked = []
+    
+    for frame_detections in combined_tracked:
+        frame_ball = []
+        frame_racket = []
+        frame_player = []
         
-        # 分离检测结果
-        ball_tracked = []
-        racket_tracked = []
-        player_tracked = []
+        for detection in frame_detections:
+            if "tennis ball" in detection['label'].lower():
+                frame_ball.append(detection)
+            elif "racket" in detection['label'].lower():
+                frame_racket.append(detection)
+            elif "player" in detection['label'].lower():
+                frame_player.append(detection)
         
-        for frame_detections in combined_tracked:
-            frame_ball = []
-            frame_racket = []
-            frame_player = []
-            
-            for detection in frame_detections:
-                if "tennis ball" in detection['label'].lower():
-                    frame_ball.append(detection)
-                elif "racket" in detection['label'].lower():
-                    frame_racket.append(detection)
-                elif "player" in detection['label'].lower():
-                    frame_player.append(detection)
-            
-            ball_tracked.append(frame_ball)
-            racket_tracked.append(frame_racket)
-            player_tracked.append(frame_player)
-        
-        print(f"  检测到网球数量: {sum(len(frame) for frame in ball_tracked)}")
-        print(f"  检测到球拍数量: {sum(len(frame) for frame in racket_tracked)}")
-        print(f"  检测到运动员数量: {sum(len(frame) for frame in player_tracked)}")
+        ball_tracked.append(frame_ball)
+        racket_tracked.append(frame_racket)
+        player_tracked.append(frame_player)
+    
+    print(f"  检测到网球数量: {sum(len(frame) for frame in ball_tracked)}")
+    print(f"  检测到球拍数量: {sum(len(frame) for frame in racket_tracked)}")
+    print(f"  检测到运动员数量: {sum(len(frame) for frame in player_tracked)}")
 
     #########################################
     # 4. 过滤和整理检测结果（逻辑： 仅保留一个网球拍和网球的轨迹）
@@ -1982,3 +1941,14 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
         "one_action_video": one_action_video_path,
         "slow_action_video": slow_action_video_path
     }
+
+
+# 测试
+if __name__ == "__main__":
+    # 打印当前目录
+    print(f"当前目录: {os.getcwd()}")
+    video_path = "./dags/tennis_dags/ai_tennis_dags/action_score_v4_local_file/videos/roger.mp4"
+    output_dir = "./dags/tennis_dags/ai_tennis_dags/action_score_v4_local_file/videos/"
+    print(f"video_path: {video_path}")
+    print(f"output_dir: {output_dir}")
+    process_tennis_video(video_path, output_dir)
