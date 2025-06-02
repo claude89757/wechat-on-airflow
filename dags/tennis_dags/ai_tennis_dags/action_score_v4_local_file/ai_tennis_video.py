@@ -11,7 +11,7 @@ import shutil
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from ai_tennis_dags.action_score_v4_local_file.llm_score import get_tennis_action_score
+from tennis_dags.ai_tennis_dags.action_score_v4_local_file.llm_score import get_tennis_action_score
 
 
 DAG_ID = "tennis_action_score_v4_local_file"

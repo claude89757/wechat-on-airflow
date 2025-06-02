@@ -10,8 +10,8 @@ import requests
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from ai_tennis_dags.action_score_v3_by_url.llm_score import get_tennis_action_score
-from ai_tennis_dags.action_score_v3_by_url.tencent_cos import TencentCosClient
+from tennis_dags.ai_tennis_dags.action_score_v3_by_url.llm_score import get_tennis_action_score
+from tennis_dags.ai_tennis_dags.action_score_v3_by_url.tencent_cos import TencentCosClient
 
 DAG_ID = "tennis_action_score_v3"
 
