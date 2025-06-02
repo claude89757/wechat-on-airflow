@@ -17,8 +17,8 @@ import random
 import requests
 
 # 修复导入路径 - 使用绝对导入
-from .isz_tools.get_isz_data import get_free_venue_list
-from .isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS, COURT_NAME_INFOS
+from sz_tennis.isz_tools.get_isz_data import get_free_venue_list
+from sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS, COURT_NAME_INFOS
 
 # 场地配置信息 - 参考config.py中的静态配置
 VENUE_CONFIGS = {
