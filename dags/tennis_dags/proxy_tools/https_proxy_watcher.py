@@ -19,8 +19,6 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models.variable import Variable
 
-from utils.new_request import make_request
-
 
 # 常量定义
 LOCAL_FILENAME = "/tmp/https_proxies.txt"

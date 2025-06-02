@@ -23,8 +23,6 @@ from airflow.models.variable import Variable  # 需要保留这个导入，因�
 import urllib3
 import warnings
 
-from utils.new_request import make_request
-
 
 # 禁用所有与未验证HTTPS请求相关的警告
 urllib3.disable_warnings()
@@ -50,7 +48,7 @@ def generate_proxies():
     print("开始获取代理列表...")
     for url in urls:
         try:
-            response = make_request('get', url)
+            response = requests.get(url)
             text = response.text.strip()
             lines = text.split("\n")
             lines = [line.strip() for line in lines if is_valid_proxy(line)]
