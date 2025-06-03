@@ -19,4 +19,5 @@ cos-python-sdk-v5
 paramiko
 opencv-python-headless
 pillow_heif
+av
 # ultralytics>=8.0.0
