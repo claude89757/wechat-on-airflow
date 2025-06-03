@@ -217,7 +217,7 @@ def handle_video_messages(**context):
             password = login_info['password']
             port = login_info['port']
             analysis_image_path = file_infos['analysis_image']
-            slow_action_video_path = file_infos['slow_action_video']
+            slow_action_video_path = file_infos['filtered_output_video']
             analysis_image_name = analysis_image_path.split('/')[-1]
             slow_action_video_name = slow_action_video_path.split('/')[-1]
 
