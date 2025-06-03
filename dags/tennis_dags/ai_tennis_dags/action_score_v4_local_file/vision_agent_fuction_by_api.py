@@ -297,6 +297,7 @@ def filter_tennis_ball(ball_tracked: list, racket_tracked: list) -> list:
     过滤网球，仅保留一个网球。要求：
     1. 保证运动轨迹连续的网球
     2. 一定过滤掉和网球拍重叠的网球
+    3. 过滤掉置信度小于0.3的网球
 
     Parameters:
     -----------
@@ -346,6 +347,11 @@ def filter_tennis_ball(ball_tracked: list, racket_tracked: list) -> list:
             continue
             
         for ball in ball_tracked[i]:
+            # 首先检查置信度，过滤掉置信度小于0.3的网球
+            confidence = ball.get("score", 0)
+            if confidence < 0.3:
+                continue
+                
             ball_center = [
                 (ball["bbox"][0] + ball["bbox"][2]) / 2,
                 (ball["bbox"][1] + ball["bbox"][3]) / 2
@@ -365,7 +371,6 @@ def filter_tennis_ball(ball_tracked: list, racket_tracked: list) -> list:
                         break
             
             # 如果不重叠并且有足够高的置信度
-            confidence = ball.get("score", 0)
             if not overlaps_with_racket and confidence > 0.2:
                 reference_frame_idx = i
                 reference_ball = ball
@@ -390,37 +395,39 @@ def filter_tennis_ball(ball_tracked: list, racket_tracked: list) -> list:
         if reference_ball:
             break
     
-    # 如果没找到参考网球，选择第一个检测到的网球
+    # 如果没找到参考网球，选择第一个检测到的网球（仍需满足置信度要求）
     if reference_ball is None:
         for i in range(len(ball_tracked)):
             if ball_tracked[i]:
-                reference_frame_idx = i
-                reference_ball = ball_tracked[i][0]
-                filtered_ball[i] = [reference_ball]
-                
-                # 记录网球中心位置
-                ball_center = [
-                    (reference_ball["bbox"][0] + reference_ball["bbox"][2]) / 2,
-                    (reference_ball["bbox"][1] + reference_ball["bbox"][3]) / 2
-                ]
-                position_history = [ball_center] * history_length
-                
-                # 记录球的尺寸
-                ball_size = (
-                    reference_ball["bbox"][2] - reference_ball["bbox"][0],
-                    reference_ball["bbox"][3] - reference_ball["bbox"][1]
-                )
-                size_history = [ball_size] * history_length
-                
-                # 初始化速度历史为零
-                velocity_history = [(0, 0)] * (history_length - 1)
-                
-                print(f"未找到高质量参考网球，使用第一个检测到的网球! 帧索引: {i}")
-                break
+                valid_balls = [ball for ball in ball_tracked[i] if ball.get("score", 0) >= 0.3]
+                if valid_balls:
+                    reference_frame_idx = i
+                    reference_ball = valid_balls[0]
+                    filtered_ball[i] = [reference_ball]
+                    
+                    # 记录网球中心位置
+                    ball_center = [
+                        (reference_ball["bbox"][0] + reference_ball["bbox"][2]) / 2,
+                        (reference_ball["bbox"][1] + reference_ball["bbox"][3]) / 2
+                    ]
+                    position_history = [ball_center] * history_length
+                    
+                    # 记录球的尺寸
+                    ball_size = (
+                        reference_ball["bbox"][2] - reference_ball["bbox"][0],
+                        reference_ball["bbox"][3] - reference_ball["bbox"][1]
+                    )
+                    size_history = [ball_size] * history_length
+                    
+                    # 初始化速度历史为零
+                    velocity_history = [(0, 0)] * (history_length - 1)
+                    
+                    print(f"未找到高质量参考网球，使用第一个满足置信度要求的网球! 帧索引: {i}")
+                    break
     
     # 如果仍然没有找到任何网球，返回空结果
     if reference_ball is None:
-        print("错误: 未能找到任何网球！")
+        print("错误: 未能找到任何满足置信度要求的网球！")
         return [[] for _ in range(len(ball_tracked))]
     
     # 前向遍历，从参考帧向后处理
@@ -461,6 +468,11 @@ def filter_tennis_ball(ball_tracked: list, racket_tracked: list) -> list:
         best_score = -1
         
         for ball in ball_tracked[i]:
+            # 首先检查置信度，过滤掉置信度小于0.3的网球
+            confidence = ball.get("score", 0)
+            if confidence < 0.3:
+                continue
+                
             ball_center = [
                 (ball["bbox"][0] + ball["bbox"][2]) / 2,
                 (ball["bbox"][1] + ball["bbox"][3]) / 2
@@ -610,6 +622,11 @@ def filter_tennis_ball(ball_tracked: list, racket_tracked: list) -> list:
         best_score = -1
         
         for ball in ball_tracked[i]:
+            # 首先检查置信度，过滤掉置信度小于0.3的网球
+            confidence = ball.get("score", 0)
+            if confidence < 0.3:
+                continue
+                
             ball_center = [
                 (ball["bbox"][0] + ball["bbox"][2]) / 2,
                 (ball["bbox"][1] + ball["bbox"][3]) / 2
@@ -712,16 +729,15 @@ def filter_tennis_ball(ball_tracked: list, racket_tracked: list) -> list:
 # ===== 过滤球拍，仅保留一个球拍 =====
 def filter_racket(racket_tracked: list, player_tracked: list) -> list:
     """
-    过滤球拍，仅保留一个球拍。要求如下
-    1. 选择和网球运动员距离较近的球拍
-    2. 运动轨迹连续的球拍
+    过滤球拍，仅保留一个球拍。
+    简化逻辑：在每帧中选择置信度最高的球拍，剔除置信度小于0.3的球拍。
     
     Parameters:
     -----------
     racket_tracked: list
         owlv2_sam2_video_tracking返回的球拍检测结果
     player_tracked: list
-        过滤后的网球运动员检测结果，用于辅助球拍选择
+        过滤后的网球运动员检测结果（此参数保留但不使用）
         
     Returns:
     --------
@@ -744,257 +760,40 @@ def filter_racket(racket_tracked: list, player_tracked: list) -> list:
     print(f"检测到的球拍总数: {total_rackets}, 平均每帧: {total_rackets/len(racket_tracked):.2f}")
     
     # 初始化结果列表
-    filtered_racket = [[] for _ in range(len(racket_tracked))]
+    filtered_racket = []
     
-    # 寻找合适的参考球拍
-    reference_racket = None
-    reference_frame_idx = None
-    reference_racket_center = None
-    
-    # 首先尝试在有运动员的帧中寻找参考球拍
+    # 对每一帧进行处理
     for i in range(len(racket_tracked)):
-        if racket_tracked[i] and player_tracked[i]:
-            # 获取运动员中心位置
-            player = player_tracked[i][0]
-            player_center = [
-                (player["bbox"][0] + player["bbox"][2]) / 2,
-                (player["bbox"][1] + player["bbox"][3]) / 2
-            ]
-            
-            # 获取运动员右侧边缘位置 (假设持拍手)
-            player_right = player["bbox"][2]
-            player_middle_y = (player["bbox"][1] + player["bbox"][3]) / 2
-            
-            # 计算每个球拍到运动员的距离
-            best_distance = float('inf')
-            best_racket = None
-            
-            for racket in racket_tracked[i]:
-                # 计算球拍中心
-                racket_center = [
-                    (racket["bbox"][0] + racket["bbox"][2]) / 2,
-                    (racket["bbox"][1] + racket["bbox"][3]) / 2
-                ]
-                
-                # 计算到运动员右手的估计距离
-                hand_distance = math.sqrt(
-                    (racket_center[0] - player_right)**2 + 
-                    (racket_center[1] - player_middle_y)**2
-                )
-                
-                # 也考虑与运动员中心的距离
-                center_distance = math.sqrt(
-                    (racket_center[0] - player_center[0])**2 + 
-                    (racket_center[1] - player_center[1])**2
-                )
-                
-                # 综合距离 (偏重手部距离)
-                combined_distance = 0.7 * hand_distance + 0.3 * center_distance
-                
-                if combined_distance < best_distance:
-                    best_distance = combined_distance
-                    best_racket = racket
-            
-            if best_racket:
-                reference_racket = best_racket
-                reference_frame_idx = i
-                reference_racket_center = [
-                    (reference_racket["bbox"][0] + reference_racket["bbox"][2]) / 2,
-                    (reference_racket["bbox"][1] + reference_racket["bbox"][3]) / 2
-                ]
-                filtered_racket[i] = [best_racket]
-                print(f"找到参考球拍! 帧索引: {i}, 距离: {best_distance:.2f}")
-                break
-    
-    # 如果没有找到参考球拍，尝试使用大小合适的球拍作为参考
-    if reference_racket is None:
-        print("未找到与运动员关联的球拍，尝试基于尺寸选择参考球拍...")
-        for i in range(len(racket_tracked)):
-            if racket_tracked[i]:
-                # 选择面积适中的球拍 (网球拍通常有一定尺寸)
-                best_racket = None
-                best_score = -1
-                
-                for racket in racket_tracked[i]:
-                    width = racket["bbox"][2] - racket["bbox"][0]
-                    height = racket["bbox"][3] - racket["bbox"][1]
-                    area = width * height
-                    
-                    # 网球拍通常是长条状的，宽高比大约为 0.3-0.4
-                    aspect_ratio = min(width, height) / max(width, height)
-                    expected_ratio = 0.35
-                    ratio_score = 1 - abs(aspect_ratio - expected_ratio)
-                    
-                    # 网球拍区域通常在一定范围内
-                    # 假设理想区域是图像的 1/20 到 1/10
-                    frame_area = 1920 * 1080  # 假设标准尺寸
-                    expected_area = frame_area / 15
-                    area_score = 1 - min(1, abs(area - expected_area) / expected_area)
-                    
-                    total_score = 0.6 * ratio_score + 0.4 * area_score
-                    
-                    if total_score > best_score:
-                        best_score = total_score
-                        best_racket = racket
-                
-                if best_racket and best_score > 0.7:  # 要求较高分数
-                    reference_racket = best_racket
-                    reference_frame_idx = i
-                    reference_racket_center = [
-                        (reference_racket["bbox"][0] + reference_racket["bbox"][2]) / 2,
-                        (reference_racket["bbox"][1] + reference_racket["bbox"][3]) / 2
-                    ]
-                    filtered_racket[i] = [best_racket]
-                    print(f"找到基于尺寸的参考球拍! 帧索引: {i}, 分数: {best_score:.2f}")
-                    break
-    
-    # 如果仍然没有找到参考球拍，使用第一个检测到的球拍
-    if reference_racket is None:
-        print("未能找到合适的参考球拍，使用第一个检测到的球拍...")
-        for i in range(len(racket_tracked)):
-            if racket_tracked[i]:
-                reference_racket = racket_tracked[i][0]
-                reference_frame_idx = i
-                reference_racket_center = [
-                    (reference_racket["bbox"][0] + reference_racket["bbox"][2]) / 2,
-                    (reference_racket["bbox"][1] + reference_racket["bbox"][3]) / 2
-                ]
-                filtered_racket[i] = [reference_racket]
-                print(f"使用第一个检测到的球拍作为参考! 帧索引: {i}")
-                break
-    
-    # 如果依然没有找到任何球拍，返回空结果
-    if reference_racket is None:
-        print("错误: 未能找到任何球拍！")
-        return [[] for _ in range(len(racket_tracked))]
-    
-    # 记录参考球拍的尺寸
-    reference_width = reference_racket["bbox"][2] - reference_racket["bbox"][0]
-    reference_height = reference_racket["bbox"][3] - reference_racket["bbox"][1]
-    
-    # 前向遍历，从参考帧向后处理
-    last_good_center = reference_racket_center
-    for i in range(reference_frame_idx + 1, len(racket_tracked)):
-        if not racket_tracked[i]:
+        frame_rackets = racket_tracked[i]
+        
+        # 如果当前帧没有检测到球拍
+        if not frame_rackets:
+            filtered_racket.append([])
             continue
-            
+        
+        # 先过滤掉置信度小于0.3的球拍
+        valid_rackets = [racket for racket in frame_rackets if racket.get("score", 0) >= 0.3]
+        
+        # 如果过滤后没有有效的球拍
+        if not valid_rackets:
+            filtered_racket.append([])
+            continue
+        
+        # 在有效的球拍中找到置信度最高的球拍
         best_racket = None
-        best_score = 0
+        max_confidence = -1
         
-        # 是否有运动员在这一帧
-        has_player = bool(player_tracked[i])
-        
-        for racket in racket_tracked[i]:
-            racket_center = [
-                (racket["bbox"][0] + racket["bbox"][2]) / 2,
-                (racket["bbox"][1] + racket["bbox"][3]) / 2
-            ]
-            
-            # 计算与上一个好球拍的距离分数
-            dist_to_last = math.sqrt(
-                (racket_center[0] - last_good_center[0])**2 + 
-                (racket_center[1] - last_good_center[1])**2
-            )
-            position_score = 1.0 / (1.0 + 0.01 * dist_to_last)
-            
-            # 计算尺寸相似度分数
-            width = racket["bbox"][2] - racket["bbox"][0]
-            height = racket["bbox"][3] - racket["bbox"][1]
-            width_ratio = min(width, reference_width) / max(width, reference_width)
-            height_ratio = min(height, reference_height) / max(height, reference_height)
-            size_score = (width_ratio + height_ratio) / 2
-            
-            # 基础总分
-            total_score = 0.7 * position_score + 0.3 * size_score
-            
-            # 如果有运动员，额外考虑与运动员的距离
-            if has_player:
-                player = player_tracked[i][0]
-                player_right = player["bbox"][2]
-                player_middle_y = (player["bbox"][1] + player["bbox"][3]) / 2
-                
-                hand_dist = math.sqrt(
-                    (racket_center[0] - player_right)**2 + 
-                    (racket_center[1] - player_middle_y)**2
-                )
-                
-                player_score = 1.0 / (1.0 + 0.005 * hand_dist)
-                
-                # 重新计算总分，加入与运动员的关系
-                total_score = 0.5 * total_score + 0.5 * player_score
-            
-            if total_score > best_score:
-                best_score = total_score
+        for racket in valid_rackets:
+            confidence = racket.get("score", 0)
+            if confidence > max_confidence:
+                max_confidence = confidence
                 best_racket = racket
         
+        # 添加置信度最高的球拍到结果中
         if best_racket:
-            filtered_racket[i] = [best_racket]
-            last_good_center = [
-                (best_racket["bbox"][0] + best_racket["bbox"][2]) / 2,
-                (best_racket["bbox"][1] + best_racket["bbox"][3]) / 2
-            ]
-    
-    # 后向遍历，从参考帧向前处理
-    last_good_center = reference_racket_center
-    for i in range(reference_frame_idx - 1, -1, -1):
-        if not racket_tracked[i]:
-            continue
-            
-        best_racket = None
-        best_score = 0
-        
-        # 是否有运动员在这一帧
-        has_player = bool(player_tracked[i])
-        
-        for racket in racket_tracked[i]:
-            racket_center = [
-                (racket["bbox"][0] + racket["bbox"][2]) / 2,
-                (racket["bbox"][1] + racket["bbox"][3]) / 2
-            ]
-            
-            # 计算与上一个好球拍的距离分数
-            dist_to_last = math.sqrt(
-                (racket_center[0] - last_good_center[0])**2 + 
-                (racket_center[1] - last_good_center[1])**2
-            )
-            position_score = 1.0 / (1.0 + 0.01 * dist_to_last)
-            
-            # 计算尺寸相似度分数
-            width = racket["bbox"][2] - racket["bbox"][0]
-            height = racket["bbox"][3] - racket["bbox"][1]
-            width_ratio = min(width, reference_width) / max(width, reference_width)
-            height_ratio = min(height, reference_height) / max(height, reference_height)
-            size_score = (width_ratio + height_ratio) / 2
-            
-            # 基础总分
-            total_score = 0.7 * position_score + 0.3 * size_score
-            
-            # 如果有运动员，额外考虑与运动员的距离
-            if has_player:
-                player = player_tracked[i][0]
-                player_right = player["bbox"][2]
-                player_middle_y = (player["bbox"][1] + player["bbox"][3]) / 2
-                
-                hand_dist = math.sqrt(
-                    (racket_center[0] - player_right)**2 + 
-                    (racket_center[1] - player_middle_y)**2
-                )
-                
-                player_score = 1.0 / (1.0 + 0.005 * hand_dist)
-                
-                # 重新计算总分，加入与运动员的关系
-                total_score = 0.5 * total_score + 0.5 * player_score
-            
-            if total_score > best_score:
-                best_score = total_score
-                best_racket = racket
-        
-        if best_racket:
-            filtered_racket[i] = [best_racket]
-            last_good_center = [
-                (best_racket["bbox"][0] + best_racket["bbox"][2]) / 2,
-                (best_racket["bbox"][1] + best_racket["bbox"][3]) / 2
-            ]
+            filtered_racket.append([best_racket])
+        else:
+            filtered_racket.append([])
     
     # 统计过滤结果
     frames_with_filtered_rackets = sum(1 for frame in filtered_racket if frame)
