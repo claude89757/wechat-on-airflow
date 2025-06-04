@@ -23,9 +23,14 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
         - 手腕固定：手腕是否保持稳定不松散
         - 肩部旋转：肩膀是否充分转动带动上半身
         - 握拍姿势：是否使用适合该击球的标准握法
+        
+        **宽松识别标准**：
+        - 图片中有举起网球拍的动作即可认定为引拍动作
+        - 不要求引拍动作必须完美标准
+        - 允许各种准备击球的拍子举起姿态
         """ 
-        specific_focus = "重点关注身体重心转移和拍面准备位置"
-        common_issues = "常见问题：引拍幅度不足、手腕过于松散、重心未转移"
+        specific_focus = "重点关注是否有举拍准备动作，识别标准可适当放宽"
+        common_issues = "常见问题：引拍幅度、手腕稳定性"
     elif action_type == "击球动作":
         action_standard = """
         击球动作评判标准：
@@ -50,9 +55,14 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
         - 重心转移：重心是否自然向前转移
         - 收拍流畅度：是否平稳自然地完成收拍
         - 恢复能力：是否迅速恢复到击球后的准备姿态
+        
+        **宽松识别标准**：
+        - 图片中有举起网球拍的动作即可认定为随挥动作
+        - 不要求随挥动作必须完美标准
+        - 允许各种击球后的拍子挥动姿态
         """
-        specific_focus = "重点关注随挥完整性和身体平衡"
-        common_issues = "常见问题：随挥不充分、收拍过急、身体失衡"
+        specific_focus = "重点关注是否有举拍挥动动作，识别标准可适当放宽"
+        common_issues = "常见问题：随挥完整性、收拍稳定性"
     else:
         raise ValueError(f"不支持的动作类型: {action_type}")
 
@@ -69,10 +79,18 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
 ## 评估重点
 {specific_focus}
 
+## 常见问题
+{common_issues}
+
 # Reasoning Steps
-1. **动作确认**：确认图片显示的是否为{action_type}
-2. **技术评估**：基于关键特征快速评分
-3. **简要建议**：给出最重要的改进点
+请按以下步骤进行系统分析：
+
+1. **动作识别**：首先判断图片中是否有网球运动员和网球拍
+2. **动作分类**：确认当前动作是否符合{action_type}的特征
+3. **技术要点检查**：逐项对照技术标准进行评估
+4. **常见问题识别**：检查是否存在该动作类型的常见问题
+5. **等级判定**：基于技术表现综合评定等级
+6. **建议制定**：针对发现的问题给出最关键的改进建议
 
 # Output Format - 必须严格遵守
 **重要：必须严格按照以下格式输出，不得添加任何其他内容！**
@@ -126,6 +144,7 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
 - 当前目标：评估{action_type}
 - 要求：输出简洁、评估准确、格式标准
 - 重点：{specific_focus}
+- 注意：{common_issues}
 
 # Final Instructions
 **格式要求再次强调：**
@@ -398,19 +417,27 @@ def get_tennis_action_score(video_path: str, output_dir: str):
     preparation_image = result["preparation_frame"]
     contact_image = result["contact_frame"]
     follow_image = result["follow_frame"]
+    
+    score_result_list = []
 
     # 获取准备动作得分
     preparation_score = get_tennis_action_comment(preparation_image, action_type="引拍动作")
     print(f"preparation_score: {preparation_score}")
+    score_result_list.append(f"## 引拍动作: \n{preparation_score}")
 
     # 获取击球动作得分
     contact_score = get_tennis_action_comment(contact_image, action_type="击球动作")
     print(f"contact_score: {contact_score}")
+    score_result_list.append(f"## 击球动作: \n{contact_score}")
 
     # 获取跟随动作得分
     follow_score = get_tennis_action_comment(follow_image, action_type="随挥动作")
     print(f"follow_score: {follow_score}")
-    
+    score_result_list.append(f"## 随挥动作: \n{follow_score}")
+
+    # 将评分结果列表转换为字符串
+    score_result_text = "\n\n".join(score_result_list)
+
     # 合并三张图片和评分
     output_image = merge_images_with_scores(
         preparation_image, preparation_score,
@@ -423,4 +450,5 @@ def get_tennis_action_score(video_path: str, output_dir: str):
     result["analysis_image"] = output_image
 
     print(f"result: {result}")
-    return result
+    print(f"score_result_text: {score_result_text}")
+    return result, score_result_text

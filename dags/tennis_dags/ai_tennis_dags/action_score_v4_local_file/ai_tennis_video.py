@@ -26,8 +26,9 @@ def process_ai_video(**context):
 
     # 获取网球动作得分
     output_dir = f"/tmp/tennis_video_output/{run_id}"
-    file_infos = get_tennis_action_score(video_url, output_dir)
+    file_infos, score_result_text = get_tennis_action_score(video_url, output_dir)
     print(f"file_infos: {file_infos}")
+    print(f"score_result_text: {score_result_text}")
 
     return file_infos
     
