@@ -398,19 +398,27 @@ def get_tennis_action_score(video_path: str, output_dir: str):
     preparation_image = result["preparation_frame"]
     contact_image = result["contact_frame"]
     follow_image = result["follow_frame"]
+    
+    score_result_list = []
 
     # 获取准备动作得分
     preparation_score = get_tennis_action_comment(preparation_image, action_type="引拍动作")
     print(f"preparation_score: {preparation_score}")
+    score_result_list.append(f"## 引拍动作: \n{preparation_score}")
 
     # 获取击球动作得分
     contact_score = get_tennis_action_comment(contact_image, action_type="击球动作")
     print(f"contact_score: {contact_score}")
+    score_result_list.append(f"## 击球动作: \n{contact_score}")
 
     # 获取跟随动作得分
     follow_score = get_tennis_action_comment(follow_image, action_type="随挥动作")
     print(f"follow_score: {follow_score}")
-    
+    score_result_list.append(f"## 随挥动作: \n{follow_score}")
+
+    # 将评分结果列表转换为字符串
+    score_result_text = "\n\n".join(score_result_list)
+
     # 合并三张图片和评分
     output_image = merge_images_with_scores(
         preparation_image, preparation_score,
@@ -423,4 +431,5 @@ def get_tennis_action_score(video_path: str, output_dir: str):
     result["analysis_image"] = output_image
 
     print(f"result: {result}")
-    return result
+    print(f"score_result_text: {score_result_text}")
+    return result, score_result_text

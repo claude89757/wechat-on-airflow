@@ -34,8 +34,9 @@ def process_ai_video(**context):
 
     # 获取网球动作得分
     output_dir = f"/tmp/tennis_video_output/{run_id}"
-    file_infos = get_tennis_action_score(local_file_path, output_dir)
+    file_infos, score_result_text = get_tennis_action_score(local_file_path, output_dir)
     print(f"file_infos: {file_infos}")
+    print(f"score_result_text: {score_result_text}")
     
     # 上传视频到腾讯云COS, 并返回视频的URL
     # file_infos: {'preparation_frame': '/tmp/tennis_video_output/416_1742834282.mp4_2025-04-13_03:51:51/prep_frame.jpg', 
@@ -68,7 +69,7 @@ def process_ai_video(**context):
     # 将结果保存到XCom
     context['ti'].xcom_push(key='output_video_url', value=file_urls["filtered_output_video"])
     context['ti'].xcom_push(key='output_image_url', value=file_urls["analysis_image"])
-    context['ti'].xcom_push(key='output_text', value="AI网球动作分析完成, 请查看视频和图片")
+    context['ti'].xcom_push(key='output_text', value=score_result_text)
 
     # 删除临时文件
     try:    
@@ -85,7 +86,7 @@ def process_ai_video(**context):
     return {
         "output_video_url": file_urls["filtered_output_video"],
         "output_image_url": file_urls["analysis_image"],
-        "output_text": "AI网球动作分析完成, 请查看视频和图片"
+        "output_text": score_result_text
     }
 
 # 创建DAG
