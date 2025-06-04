@@ -11,16 +11,12 @@ import re
 from airflow.models import Variable
 
 
-def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl-max-latest", action_type: str = "击球动作") -> str:
+def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl-max", action_type: str = "击球动作") -> str:
     """
     通过阿里云的AI模型，获取网球动作的评论
     """
     if action_type == "引拍动作":
         action_standard = """
-        **引拍动作的识别标准**：
-        - 不要求引拍动作必须完美标准
-        - 允许各种准备击球的拍子举起姿态
-
         **引拍动作的评分标准**：
         - 重心转移：身体重心是否自然向后转移
         - 拍头路线：拍面是否拉开到位，形成合适的引拍弧线
@@ -28,14 +24,10 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
         - 肩部旋转：肩膀是否充分转动带动上半身
         - 握拍姿势：是否使用适合该击球的标准握法
         """ 
-        specific_focus = "重点关注是否有举拍准备动作，识别标准可适当放宽"
+        specific_focus = "重点关注引拍技术要点，给出准确评分"
         common_issues = "常见问题：引拍幅度、手腕稳定性"
     elif action_type == "击球动作":
         action_standard = """
-        **击球动作的识别标准**：
-        - 不要求动作必须完美标准
-        - 允许各种击球姿态（正手、反手、截击等）
-
         **击球动作的评分标准**：
         - 击球点：是否在合理区域内完成击球（允许一定偏差）
         - 拍面控制：击球时拍面方向是否基本正确
@@ -43,14 +35,10 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
         - 力量传递：身体是否有基本的协调发力
         - 视线跟踪：是否大致朝向球的方向
         """
-        specific_focus = "重点关注是否有网球拍击球场景，标准可适当放宽"
+        specific_focus = "重点关注击球技术要点，给出准确评分"
         common_issues = "常见问题：击球时机把握、拍面稳定性"
     elif action_type == "随挥动作":
         action_standard = """
-        **随挥动作的识别标准**：
-        - 不要求随挥动作必须完美标准
-        - 允许各种持拍姿态和动作阶段
-
         **随挥动作的评分标准**：
         - 动作完整性：是否完成充分的随挥跟随动作
         - 平衡保持：击球后身体是否保持平衡
@@ -58,7 +46,7 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
         - 收拍流畅度：是否平稳自然地完成收拍
         - 恢复能力：是否迅速恢复到击球后的准备姿态
         """
-        specific_focus = "重点关注是否有网球拍出现，识别标准极度放宽"
+        specific_focus = "重点关注随挥技术要点，给出准确评分"
         common_issues = "常见问题：随挥完整性、收拍稳定性"
     else:
         raise ValueError(f"不支持的动作类型: {action_type}")
@@ -67,10 +55,10 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
 你是专业网球教练，负责快速准确评估运动员的{action_type}。
 
 # Instructions
-观察图片中的网球运动员，重点识别当前动作是否为{action_type}。
+观察图片中的网球运动员，对其{action_type}进行专业评分。
 
-## 动作识别要点
-{action_type}的关键特征：
+## 评分标准
+{action_type}的技术要点：
 {action_standard}
 
 ## 评估重点
@@ -82,43 +70,41 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
 # Reasoning Steps
 请按以下步骤进行系统分析：
 
-1. **动作识别**：首先判断图片中是否有网球运动员和网球拍
-2. **动作分类**：确认当前动作是否符合{action_type}的特征
-3. **技术要点检查**：逐项对照技术标准进行评估
-4. **常见问题识别**：检查是否存在该动作类型的常见问题
-5. **等级判定**：基于技术表现综合评定等级
-6. **建议制定**：针对发现的问题给出最关键的改进建议
+1. **技术要点检查**：逐项对照技术标准进行评估
+2. **常见问题识别**：检查是否存在该动作类型的常见问题
+3. **等级判定**：基于技术表现综合评定等级
+4. **建议制定**：针对发现的问题给出最关键的改进建议
 
 # Output Format - 必须严格遵守
 **重要：必须严格按照以下格式输出，不得添加任何其他内容！**
 
 ```
-评分等级：[S/A/B/C/无效]
-动作评价：[6-8字简明评价]
-动作建议：[6-8字关键建议]
+评分等级：[S/A/B/C]
+动作评价：[10-20字简明评价]
+动作建议：[10-20字关键建议]
 ```
 
 ## 格式要求：
 - 只输出上述三行内容，不得添加其他文字
 - 每行必须以指定的标签开头
-- 评价和建议严格控制在6-8个字
+- 评价和建议严格控制在10-20个字
 - 不要添加括号、引号或其他符号
 - 不要添加详细解释或分析
 
 # Examples
 
-## 有效动作示例
+## 优秀动作示例
 ```
 评分等级：A
 动作评价：技术规范到位
 动作建议：保持稳定发挥
 ```
 
-## 无效图片示例
+## 需要改进示例
 ```
-评分等级：无效
-动作评价：非{action_type}或无法识别
-动作建议：提供清晰动作图片
+评分等级：C
+动作评价：技术有待提升
+动作建议：加强基础练习
 ```
 
 ## 错误格式示例（禁止使用）
@@ -147,10 +133,10 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
 **格式要求再次强调：**
 1. 只输出三行指定内容
 2. 严格按照"标签：内容"格式
-3. 内容简洁，6-8字限制
+3. 内容简洁，10-20字限制
 4. 不要添加任何解释、分析或其他文字
 
-请快速识别图片中的动作类型，如果确认是{action_type}则进行评分，否则标记为无效。
+请根据图片中的{action_type}表现进行评分分析。
 
 开始分析："""
 
