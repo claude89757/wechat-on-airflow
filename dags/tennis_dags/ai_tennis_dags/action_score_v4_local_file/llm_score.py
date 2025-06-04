@@ -18,7 +18,6 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
     if action_type == "引拍动作":
         action_standard = """
         **引拍动作的识别标准**：
-        - 图片中有网球拍即可认定为随挥动作
         - 不要求引拍动作必须完美标准
         - 允许各种准备击球的拍子举起姿态
 
@@ -34,7 +33,6 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
     elif action_type == "击球动作":
         action_standard = """
         **击球动作的识别标准**：
-        - 图片中同时出现网球和网球拍即可认定为击球动作
         - 不要求动作必须完美标准
         - 允许各种击球姿态（正手、反手、截击等）
 
@@ -50,7 +48,6 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
     elif action_type == "随挥动作":
         action_standard = """
         **随挥动作的识别标准**：
-        - 图片中有网球拍即可认定为随挥动作
         - 不要求随挥动作必须完美标准
         - 允许各种持拍姿态和动作阶段
 
@@ -157,6 +154,8 @@ def get_tennis_action_comment(action_image_path: str, model_name: str = "qwen-vl
 
 开始分析："""
 
+    print(f"system_prompt: \n{system_prompt}")
+    
     #  base 64 编码格式
     def encode_image(image_path):
         with open(image_path, "rb") as image_file:
