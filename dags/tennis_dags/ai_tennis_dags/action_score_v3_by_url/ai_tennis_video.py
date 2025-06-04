@@ -66,7 +66,7 @@ def process_ai_video(**context):
 
 
     # 将结果保存到XCom
-    context['ti'].xcom_push(key='output_video_url', value=file_urls["slow_action_video"])
+    context['ti'].xcom_push(key='output_video_url', value=file_urls["output_video"])
     context['ti'].xcom_push(key='output_image_url', value=file_urls["analysis_image"])
     context['ti'].xcom_push(key='output_text', value="AI网球动作分析完成, 请查看视频和图片")
 
