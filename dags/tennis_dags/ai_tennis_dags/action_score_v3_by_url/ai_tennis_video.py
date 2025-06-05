@@ -95,7 +95,7 @@ dag = DAG(
     default_args={'owner': 'claude89757'},
     start_date=datetime(2025, 1, 1),
     schedule_interval=None,
-    max_active_runs=1,
+    max_active_runs=3,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
     tags=['AI网球'],
