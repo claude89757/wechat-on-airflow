@@ -1,7 +1,36 @@
+# For disable Content-Security-Policy
+
+```python
+# csp_patch.py
+from mitmproxy import http
+import re
+
+TARGET = "wxsports.ydmap.cn"
+
+def response(flow: http.HTTPFlow):
+    if TARGET in flow.request.host:
+        h = flow.response.headers
+        if "Content-Security-Policy" in h:
+            print("del Content-Security-Policy")
+            del h["Content-Security-Policy"]
+```
+
+# Start mitmproxy in pi
+```shell
+# 调试模式
+mitmproxy -p 8888 -s ~/csp_patch.py
+
+# 后台运行
+nohup mitmdump -p 8888 -s ~/csp_patch.py >/dev/null 2>&1 & 
+```
+
+
 # debugger disable
 ```js
 Function.prototype.constructor = function() { return () => {} }
 ```
+or use other way.
+
 
 # Configure jsrpc
 Open JsEnv and copy-paste into website console (Note: You can inject the environment when the browser starts, don't inject during debugging breakpoints)

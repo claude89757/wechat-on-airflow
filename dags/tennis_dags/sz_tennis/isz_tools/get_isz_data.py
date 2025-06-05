@@ -114,7 +114,7 @@ def generate_signature_and_url(salesItemId: str, curDate: str):
         print(f"生成md5__1182参数出错: {e}")
         return None, None, None, None, None
     
-    return nonce, timestamp, signature, full_url_with_timestamp, current_time
+    return nonce, timestamp, signature, full_url_with_timestamp
 
 
 def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = None):
@@ -125,17 +125,16 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     :param proxy_list: 代理列表（如果为None则自动获取）
     :return: 场地订单列表(表示已经被预订的场地)
     """
-    print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
-    # 使用代理进行请求
     response = None
     success = False
-    print(f"\n======开始发送请求，可选代理数量: {len(proxy_list)}======")
     if proxy_list:
+        # 使用代理进行请求
+        print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
         for i, proxy_config in enumerate(proxy_list):
             try:
                 # 每次请求前重新生成签名
                 print(f"[{i+1}/{len(proxy_list)}] 重新生成签名并发送请求...")
-                nonce, timestamp, signature, full_url_with_timestamp, current_time = generate_signature_and_url(salesItemId, curDate)
+                nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate)
                 
                 if not all([nonce, timestamp, signature, full_url_with_timestamp]):
                     print(f"❌ 签名生成失败，跳过此次请求")
@@ -196,11 +195,27 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                 time.sleep(1)
     else:
         print(f"❌ 没有可用的代理，使用直连模式")
+        nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate)
+        # 构建请求头
+        headers = {
+            'Host': 'isz.ydmap.cn',
+            'nonce': nonce,
+            'entry-tag': '',
+            'access-token': '',
+            'visitor-id': "b155abaaa9a5f08e163488ec9ea9bdff",
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
+            'accept': 'application/json, text/plain, */*',
+            'timestamp': timestamp,
+            'signature': signature,
+            'tab-id': 'ydmap_ba7112f995c3b8c6dc2379b3b39acb3f',
+            'x-requested-with': 'XMLHttpRequest',
+            'cross-token': '',
+            'sec-fetch-site': 'same-origin',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-dest': 'empty',
+            'accept-language': 'zh-CN,zh;q=0.9'
+        }
         response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
-    
-    if not success or response is None:
-        print(f"❌ 所有代理和直连都失败")
-        return {}
         
     print(f"目标API响应状态码: {response.status_code}")
     print(f"目标API响应内容前500字符: {response.text[:500]}")
@@ -226,7 +241,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                 print("✅ 联合签名验证成功！API返回非JSON响应")
                 return {}
     else:
-        print(f"❌ 请求失败，状态码: {response.status_code}")
+        print(f"❌ 请求失败，状态码: {response.text}")
         return {}
 
 
@@ -332,6 +347,8 @@ if __name__ == "__main__":
     print("开始测试ISZ数据获取功能...")
     
     # 测试获取场地空闲列表
-    free_venue_list = get_free_venue_list(salesItemId="100341", check_date="2025-05-30")
+    import datetime
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    free_venue_list = get_free_venue_list(salesItemId="100341", check_date=today)
     print(f"free_venue_list: {free_venue_list}")
     
