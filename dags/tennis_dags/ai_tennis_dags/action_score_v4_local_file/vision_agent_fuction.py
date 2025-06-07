@@ -2300,8 +2300,8 @@ def process_tennis_video(video_path: str, output_dir: str) -> dict:
 if __name__ == "__main__":
     # 打印当前目录
     print(f"当前目录: {os.getcwd()}")
-    video_path = "videos/roger.mp4"  # 使用相对路径
-    output_dir = "videos/"  # 使用相对路径
+    video_path = "./dags/tennis_dags/ai_tennis_dags/action_score_v4_local_file/videos/roger.mp4"
+    output_dir = "./dags/tennis_dags/ai_tennis_dags/action_score_v4_local_file/videos/"
     print(f"video_path: {video_path}")
     print(f"output_dir: {output_dir}")
     process_tennis_video(video_path, output_dir)

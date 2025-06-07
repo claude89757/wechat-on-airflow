@@ -19,6 +19,7 @@ import requests
 # 修复导入路径 - 使用绝对导入
 from tennis_dags.sz_tennis.isz_tools.get_isz_data import get_free_venue_list
 from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS, COURT_NAME_INFOS
+from tennis_dags.sz_tennis.isz_tools.proxy_manager import get_proxy_list
 
 # 场地配置信息 - 参考config.py中的静态配置
 VENUE_CONFIGS = {
@@ -94,62 +95,7 @@ def print_with_timestamp(*args, **kwargs):
     timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]", time.localtime())
     print(timestamp, *args, **kwargs)
 
-def get_proxy_list():
-    """获取代理列表"""
-    try:
-        # 获取系统代理
-        system_proxy = Variable.get("PROXY_URL", default_var="")
-        if system_proxy:
-            proxies = {"https": system_proxy}
-            print_with_timestamp(f"使用系统代理: {system_proxy}")
-        else:
-            proxies = None
-            print_with_timestamp("未配置系统代理，直接访问")
 
-        # 获取代理列表
-        url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/isz_https_proxies.txt"
-        print_with_timestamp(f"正在获取代理列表: {url}")
-        
-        response = requests.get(url, proxies=proxies, timeout=30)
-        if response.status_code != 200:
-            print_with_timestamp(f"获取代理列表失败，状态码: {response.status_code}")
-            return []
-            
-        text = response.text.strip()
-        if not text:
-            print_with_timestamp("代理列表为空")
-            return []
-            
-        # 处理代理格式，确保格式正确
-        proxy_lines = [line.strip() for line in text.split("\n") if line.strip() and ":" in line.strip()]
-        proxy_list = []
-        
-        for line in proxy_lines:
-            try:
-                # 验证代理格式 ip:port
-                parts = line.split(":")
-                if len(parts) == 2 and parts[0] and parts[1].isdigit():
-                    proxy_dict = {"https": f"http://{line}"}
-                    proxy_list.append(proxy_dict)
-            except Exception as e:
-                print_with_timestamp(f"跳过无效代理格式: {line}, 错误: {e}")
-                continue
-        
-        random.shuffle(proxy_list)
-        print_with_timestamp(f"成功加载 {len(proxy_list)} 个有效代理")
-        
-        # 如果没有可用代理，返回空列表
-        if not proxy_list:
-            print_with_timestamp("❌ 错误: 没有可用代理，无法进行请求")
-            return []
-            
-        print_with_timestamp(f"代理列表准备完成，总计 {len(proxy_list)} 个代理")
-        return proxy_list
-        
-    except Exception as e:
-        print_with_timestamp(f"获取代理列表失败: {e}")
-        print_with_timestamp("❌ 错误: 无法获取代理，无法进行请求")
-        return []
 
 def create_venue_check_function(venue_key, venue_config):
     """为每个场地创建专门的检查函数"""
@@ -162,7 +108,7 @@ def create_venue_check_function(venue_key, venue_config):
         run_start_time = time.time()
         print_with_timestamp(f"开始检查{venue_config['venue_name']}...")
 
-        # 获取代理列表
+        # 获取代理列表（包含缓存的成功代理）
         proxy_list = get_proxy_list()
         
         # 要发送的通知列表

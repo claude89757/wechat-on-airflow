@@ -17,10 +17,10 @@ def response(flow: http.HTTPFlow):
 
 # Start mitmproxy in pi
 ```shell
-# 调试模式
+# debug mode
 mitmproxy -p 8888 -s ~/csp_patch.py
 
-# 后台运行
+# 后
 nohup mitmdump -p 8888 -s ~/csp_patch.py >/dev/null 2>&1 & 
 ```
 

@@ -5,6 +5,7 @@ import time
 import datetime
 from tennis_dags.sz_tennis.isz_tools.sign_url_utls import ydmap_sign_url
 from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS
+from tennis_dags.sz_tennis.isz_tools.proxy_manager import update_successful_proxies, remove_failed_proxy
 
 from airflow.models.variable import Variable
 
@@ -126,7 +127,8 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     :return: 场地订单列表(表示已经被预订的场地)
     """
     response = None
-    success = False
+    successful_proxy = None
+    
     if proxy_list:
         # 使用代理进行请求
         print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
@@ -174,7 +176,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                         response_json = response.json()
                         if isinstance(response_json, dict):
                             print(f"✅ 请求成功！")
-                            success = True
+                            successful_proxy = proxy_config
                             break
                         else:
                             print(f"❌ 响应格式错误")
@@ -190,9 +192,17 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
             except Exception as e:
                 print(f"❌ 请求异常: {e}")
                 
+            # 如果使用了代理但请求失败，从缓存中移除
+            if proxy_config is not None:
+                remove_failed_proxy(proxy_config)
+                
             # 如果不是最后一个代理，稍等一下再试下一个
             if i < len(proxy_list) - 1:
                 time.sleep(1)
+        
+        # 如果有成功的代理，添加到缓存
+        if successful_proxy is not None:
+            update_successful_proxies(successful_proxy)
     else:
         print(f"❌ 没有可用的代理，使用直连模式")
         nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate)
