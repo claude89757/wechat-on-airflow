@@ -26,7 +26,6 @@ VENUE_CONFIGS = {
         "sales_item_id": "100341",
         "venue_name": "香蜜体育",
         "dag_id": "isz_xiangmi_tennis_watcher",
-        "description": "I深圳香蜜体育网球场巡检",
         "schedule_interval": "*/3 * * * *",  # 每3分钟执行一次
         "time_range": CD_TIME_RANGE_INFOS.get("香蜜体育", {"start_time": "07:00", "end_time": "22:30"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("香蜜体育", 2)
@@ -35,7 +34,6 @@ VENUE_CONFIGS = {
         "sales_item_id": "100344", 
         "venue_name": "黄木岗",
         "dag_id": "isz_huangmugang_tennis_watcher",
-        "description": "I深圳黄木岗网球场巡检",
         "schedule_interval": "1-59/3 * * * *",  # 每3分钟执行一次，从第1分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("黄木岗", {"start_time": "07:00", "end_time": "22:30"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("黄木岗", 2)
@@ -44,7 +42,6 @@ VENUE_CONFIGS = {
         "sales_item_id": "100704",
         "venue_name": "网羽中心", 
         "dag_id": "isz_wangyu_tennis_watcher",
-        "description": "I深圳网羽中心网球场巡检",
         "schedule_interval": "2-59/3 * * * *",  # 每3分钟执行一次，从第2分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("网羽中心", {"start_time": "07:00", "end_time": "23:00"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("网羽中心", 2)
@@ -53,16 +50,14 @@ VENUE_CONFIGS = {
         "sales_item_id": "102913",
         "venue_name": "简上",
         "dag_id": "isz_jianshang_tennis_watcher", 
-        "description": "I深圳简上体育中心网球场巡检",
         "schedule_interval": "0-59/3 * * * *",  # 每3分钟执行一次，从第0分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("简上", {"start_time": "07:00", "end_time": "22:00"}),
-        "active_days": CD_ACTIVE_DAY_INFOS.get("简上", 3)
+        "active_days": CD_ACTIVE_DAY_INFOS.get("简上", 2)
     },
     "深云文体": {
         "sales_item_id": "105127",
         "venue_name": "深云文体",
         "dag_id": "isz_shenyunwenxue_tennis_watcher", 
-        "description": "I深圳深云文体中心网球场巡检",
         "schedule_interval": "0-59/3 * * * *",  # 每3分钟执行一次，从第0分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("深云文体", {"start_time": "07:00", "end_time": "22:00"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("深云文体", 3)
@@ -71,7 +66,6 @@ VENUE_CONFIGS = {
         "sales_item_id": "105143",
         "venue_name": "华侨城",
         "dag_id": "isz_huaqiaocheng_tennis_watcher", 
-        "description": "I深圳华侨城体育中心网球场巡检",
         "schedule_interval": "0-59/3 * * * *",  # 每3分钟执行一次，从第0分钟开始
         "time_range": CD_TIME_RANGE_INFOS.get("华侨城", {"start_time": "07:00", "end_time": "22:00"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("华侨城", 3)
@@ -223,6 +217,12 @@ def create_venue_check_function(venue_key, venue_config):
             except Exception as e:
                 print_with_timestamp(f"查询{venue_config['venue_name']} {input_date}场地信息出错: {str(e)}")
                 continue
+        
+        print("-"*100)
+        print(f"up_for_send_data_list: {len(up_for_send_data_list)}")
+        for data in up_for_send_data_list:
+            print(data)
+        print("-"*100)
 
         # 处理通知逻辑
         if up_for_send_data_list:
