@@ -14,7 +14,6 @@ GitHub仓库巡检DAG
 # 标准库导入
 from datetime import datetime, timedelta
 import json
-import os
 
 # 第三方库导入
 import requests
@@ -23,8 +22,6 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from redis import Redis
 
-# 导入微信消息发送功能
-from utils.wechat_channl import send_wx_msg
 # 导入LLM功能
 from utils.openrouter import OpenRouter
 
@@ -54,11 +51,7 @@ DAILY_SUMMARY_DAG_ID = "github_daily_summary"
 # 最大保存的提交记录数量
 MAX_COMMITS = 1000
 
-# 微信配置
-WECHAT_CONFIG = {
-    "WCF_IP": Variable.get("DEV_WCF_IP", default_var="10.1.8.5"),
-    "GITHUB_ROOM_ID_LIST": Variable.get("GITHUB_ROOM_ID_LIST", deserialize_json=True, default_var=["56234805102@chatroom"])
-}
+
 
 def get_latest_commits(**context):
     """
@@ -146,7 +139,7 @@ def get_latest_commits(**context):
                 print(f"已将仓库 {owner}/{repo} 的最新提交记录缓存到Redis，键名: {redis_key}")
                 
                 # 如果有新提交，发送到微信群
-                if has_new_commits and WECHAT_CONFIG["WCF_IP"] and WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
+                if has_new_commits:
                     send_github_commits_to_wechat(truly_new_commits)
             else:
                 print(f"仓库 {owner}/{repo} 没有新的提交记录")
@@ -204,17 +197,13 @@ def send_github_commits_to_wechat(commits):
         message = '\n'.join(msg_list)
         
         # 发送消息到每个群
-        for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-            try:
-                send_wx_msg(
-                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
-                    message=message,
-                    receiver=room_id,
-                    aters=''
-                )
-                print(f"已发送仓库 {repo_key} 的{commit_count}个新提交记录到微信群: {room_id}")
-            except Exception as e:
-                print(f"发送仓库 {repo_key} 的GitHub提交记录到微信群失败: {e}")
+        chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
+        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+        zacks_up_for_send_msg_list.append({
+            "room_name": chat_name,
+            "msg": message
+        })
+        Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
 
 
 def generate_daily_summary(**context):
@@ -283,16 +272,13 @@ def generate_daily_summary(**context):
     # 如果没有今天的提交，返回
     if not all_commits_today:
         print("今天没有任何仓库有提交记录")
-        for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-            try:
-                send_wx_msg(
-                    wcf_ip=WECHAT_CONFIG["WCF_IP"],
-                    message=f"【GitHub日报】{today}\n今天无提交记录。",
-                    receiver=room_id,
-                    aters=''
-                )
-            except Exception as e:
-                print(f"发送GitHub日报到微信群失败: {e}")
+        chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
+        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+        zacks_up_for_send_msg_list.append({
+            "room_name": chat_name,
+            "msg": f"【GitHub日报】{today}\n今天无提交记录。"
+        })
+        Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
         return
     
     # 准备所有仓库的提交信息，用于生成综合摘要
@@ -332,11 +318,12 @@ def generate_daily_summary(**context):
 {all_repos_text}
 
 要求：
-1. 以团队整体开发进展为视角，提取所有仓库的关键变更点（总计3-5点）
-2. 按重要性排序，重点突出功能新增、架构改进、问题修复等内容
-3. 使用专业技术术语，简明扼要描述变更要点
-4. 适当使用项目符号提高可读性
-5. 可根据实际情况灵活组织内容结构
+1. 体现每个团队成员的贡献，不要遗漏
+2. 以团队整体开发进展为视角，提取所有仓库的关键变更点（总计3-5点）
+3. 按重要性排序，重点突出功能新增、架构改进、问题修复等内容
+4. 使用专业技术术语，简明扼要描述变更要点
+5. 适当使用项目符号提高可读性
+6. 可根据实际情况灵活组织内容结构
 
 总结必须简洁明了，控制在250字以内，突出团队整体进展。"""
 
@@ -356,17 +343,13 @@ def generate_daily_summary(**context):
         return
     
     # 发送综合摘要到微信群
-    for room_id in WECHAT_CONFIG["GITHUB_ROOM_ID_LIST"]:
-        try:
-            send_wx_msg(
-                wcf_ip=WECHAT_CONFIG["WCF_IP"],
-                message=f"【GitHub日报】{today}\n{summary}",
-                receiver=room_id,
-                aters=''
-            )
-            print(f"已发送所有仓库的综合每日摘要到微信群: {room_id}")
-        except Exception as e:
-            print(f"发送所有仓库的综合每日摘要到微信群失败: {e}")
+    chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
+    zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+    zacks_up_for_send_msg_list.append({
+        "room_name": chat_name,
+        "msg": f"【GitHub日报】{today}\n{summary}"
+    })
+    Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
 
 # 定义实时监控DAG参数
 default_args = {
