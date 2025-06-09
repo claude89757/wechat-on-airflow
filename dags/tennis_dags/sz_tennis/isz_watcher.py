@@ -243,7 +243,7 @@ def create_venue_dag(venue_key, venue_config):
         description=venue_config['description'],
         schedule_interval=venue_config['schedule_interval'],
         max_active_runs=1,
-        dagrun_timeout=timedelta(minutes=15),
+        dagrun_timeout=timedelta(minutes=5),
         catchup=False,
         tags=['深圳', '爱深圳', '网球场', venue_key]
     )

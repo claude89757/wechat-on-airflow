@@ -1,12 +1,11 @@
 import requests
 import os
 import json
-import uuid
 import time
 import datetime
-from tennis_dags.sz_tennis.isz_tools.sign_url_utls import ydmap_sign_url
-from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS
-from tennis_dags.sz_tennis.isz_tools.proxy_manager import update_successful_proxies, remove_failed_proxy
+from tennis_dags.sz_tennis.ydmap_tools.sign_url_utls import ydmap_sign_url
+from tennis_dags.sz_tennis.ydmap_tools.config import CD_TIME_RANGE_INFOS
+from tennis_dags.sz_tennis.ydmap_tools.proxy_manager import update_successful_proxies, remove_failed_proxy
 
 from airflow.models.variable import Variable
 
@@ -30,7 +29,7 @@ def str_to_timestamp(date_str: str):
     return int(datetime.datetime.strptime(date_str, '%Y-%m-%d').timestamp() * 1000)
 
 
-def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
+def generate_signature_and_url(salesItemId: str, curDate: str):
     """
     生成签名信息和完整URL
     """
@@ -38,7 +37,7 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
     current_time = int(time.time() * 1000)
     
     # 构造基础URL（不包含type__1295参数）
-    base_url = f"https://isz.ydmap.cn/srv100352/api/pub/sport/venue/getVenueOrderList?" \
+    base_url = f"https://octscc.ydmap.cn/srv100352/api/pub/sport/venue/getVenueOrderList?" \
                f"salesItemId={salesItemId}&curDate={curDate}&venueGroupId=&t={current_time}"
     
     print(f"步骤1: 生成基础URL（使用实时时间戳）...")
@@ -62,7 +61,7 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
             "cross-token": "",
             "entry-tag": "",
             "server-reflexive-ip": "",
-            "visitor-id": visitor_id,
+            "visitor-id": "b155abaaa9a5f08e163488ec9ea9bdff",
             "tab-id": "ydmap_ba7112f995c3b8c6dc2379b3b39acb3f"
         },
         "aY": None
@@ -109,7 +108,7 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
     print(f"\n步骤3: 使用ydmap_sign_url函数生成md5__1182参数...")
     try:
         # 注意：ydmap_sign_url函数会打印调试信息并返回完整URL
-        full_url_with_timestamp = ydmap_sign_url(base_url, current_time, "md5__1182")
+        full_url_with_timestamp = ydmap_sign_url(base_url, current_time, "md5__1479")
         print(f"生成的完整URL: {full_url_with_timestamp}")
         
     except Exception as e:
@@ -129,9 +128,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     """
     response = None
     successful_proxy = None
-
-    # 随机生成一个uuid作为visitor_id
-    visitor_id = str(uuid.uuid4())
+    
     if proxy_list:
         # 使用代理进行请求
         print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
@@ -139,7 +136,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
             try:
                 # 每次请求前重新生成签名
                 print(f"[{i+1}/{len(proxy_list)}] 重新生成签名并发送请求...")
-                nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate, visitor_id)
+                nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate)
                 
                 if not all([nonce, timestamp, signature, full_url_with_timestamp]):
                     print(f"❌ 签名生成失败，跳过此次请求")
@@ -147,11 +144,11 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                 
                 # 构建请求头
                 headers = {
-                    'Host': 'isz.ydmap.cn',
+                    'Host': 'octscc.ydmap.cn',
                     'nonce': nonce,
                     'entry-tag': '',
                     'access-token': '',
-                    'visitor-id': visitor_id,
+                    'visitor-id': "b155abaaa9a5f08e163488ec9ea9bdff",
                     'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
                     'accept': 'application/json, text/plain, */*',
                     'timestamp': timestamp,
@@ -208,14 +205,14 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
             update_successful_proxies(successful_proxy)
     else:
         print(f"❌ 没有可用的代理，使用直连模式")
-        nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate, visitor_id)
+        nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate)
         # 构建请求头
         headers = {
-            'Host': 'isz.ydmap.cn',
+            'Host': 'octscc.ydmap.cn',
             'nonce': nonce,
             'entry-tag': '',
             'access-token': '',
-            'visitor-id': visitor_id,
+            'visitor-id': "b155abaaa9a5f08e163488ec9ea9bdff",
             'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
             'accept': 'application/json, text/plain, */*',
             'timestamp': timestamp,
@@ -362,6 +359,6 @@ if __name__ == "__main__":
     # 测试获取场地空闲列表
     import datetime
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    free_venue_list = get_free_venue_list(salesItemId="100341", check_date=today)
+    free_venue_list = get_free_venue_list(salesItemId="105347", check_date=today)
     print(f"free_venue_list: {free_venue_list}")
     
