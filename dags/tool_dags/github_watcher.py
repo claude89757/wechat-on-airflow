@@ -193,7 +193,7 @@ def send_github_commits_to_wechat(commits):
         
         # 发送消息到每个群
         chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
-        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
         zacks_up_for_send_msg_list.append({
             "room_name": chat_name,
             "msg": message
@@ -268,7 +268,7 @@ def generate_daily_summary(**context):
     if not all_commits_today:
         print("今天没有任何仓库有提交记录")
         chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
-        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
         zacks_up_for_send_msg_list.append({
             "room_name": chat_name,
             "msg": f"【GitHub日报】{today}\n今天无提交记录。"
@@ -339,7 +339,7 @@ def generate_daily_summary(**context):
     
     # 发送综合摘要到微信群
     chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
-    zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+    zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
     zacks_up_for_send_msg_list.append({
         "room_name": chat_name,
         "msg": f"【GitHub日报】{today}\n{summary}"
