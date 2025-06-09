@@ -79,75 +79,70 @@ def get_latest_commits(**context):
         # 为每个仓库构建唯一的Redis键
         redis_key = f"github_{owner}_{repo}_recent_commits"
         
-        try:
-            # 构建API URL
-            api_url = f"https://api.github.com/repos/{owner}/{repo}/commits"
-            
-            # 设置请求头
-            headers = {
-                "Accept": "application/vnd.github.v3+json"
-            }
-            
-            # 请求GitHub API
-            response = requests.get(api_url, headers=headers, params={"per_page": 10})
-            response.raise_for_status()
-            
-            # 解析响应
-            commits = response.json()
-            
-            if not commits or not isinstance(commits, list):
-                print(f"未获取到仓库 {owner}/{repo} 的有效提交记录")
-                continue
-            
-            # 获取现有的提交记录
-            existing_commits_json = redis_client.get(redis_key)
-            existing_commits = json.loads(existing_commits_json) if existing_commits_json else []
-            
-            # 获取现有提交的SHA列表，用于快速查找
-            existing_commit_shas = set(commit["sha"] for commit in existing_commits)
-            
-            # 比较获取真正的新提交
-            truly_new_commits = []
-            
-            for commit in commits:
-                # 只处理真正的新提交（不在现有提交中的）
-                if commit["sha"] not in existing_commit_shas:
-                    commit_info = {
-                        "sha": commit["sha"],
-                        "message": commit["commit"]["message"],
-                        "author": commit["commit"]["author"]["name"],
-                        "date": commit["commit"]["author"]["date"],
-                        "url": commit["html_url"],
-                        "owner": owner,
-                        "repo": repo,
-                        "description": description
-                    }
-                    truly_new_commits.append(commit_info)
-            
-            # 检查是否有新提交
-            if truly_new_commits:
-                has_new_commits = True
-                has_any_new_commits = True
-                print(f"发现仓库 {owner}/{repo} 的新提交记录: {len(truly_new_commits)}个")
-                
-                # 合并现有提交和新提交，并限制数量
-                merged_commits = truly_new_commits + existing_commits
-                merged_commits = merged_commits[:MAX_COMMITS]
-                
-                # 更新Redis
-                redis_client.set(redis_key, json.dumps(merged_commits))
-                print(f"已将仓库 {owner}/{repo} 的最新提交记录缓存到Redis，键名: {redis_key}")
-                
-                # 如果有新提交，发送到微信群
-                if has_new_commits:
-                    send_github_commits_to_wechat(truly_new_commits)
-            else:
-                print(f"仓库 {owner}/{repo} 没有新的提交记录")
+        # 构建API URL
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/commits"
         
-        except requests.RequestException as e:
-            print(f"请求仓库 {owner}/{repo} 的GitHub API失败: {e}")
-        except Exception as e:
-            print(f"处理仓库 {owner}/{repo} 的提交记录时出错: {e}")
+        # 设置请求头
+        headers = {
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        # 请求GitHub API
+        response = requests.get(api_url, headers=headers, params={"per_page": 10})
+        response.raise_for_status()
+        
+        # 解析响应
+        commits = response.json()
+        
+        if not commits or not isinstance(commits, list):
+            print(f"未获取到仓库 {owner}/{repo} 的有效提交记录")
+            continue
+        
+        # 获取现有的提交记录
+        existing_commits_json = redis_client.get(redis_key)
+        existing_commits = json.loads(existing_commits_json) if existing_commits_json else []
+        
+        # 获取现有提交的SHA列表，用于快速查找
+        existing_commit_shas = set(commit["sha"] for commit in existing_commits)
+        
+        # 比较获取真正的新提交
+        truly_new_commits = []
+        
+        for commit in commits:
+            # 只处理真正的新提交（不在现有提交中的）
+            if commit["sha"] not in existing_commit_shas:
+                commit_info = {
+                    "sha": commit["sha"],
+                    "message": commit["commit"]["message"],
+                    "author": commit["commit"]["author"]["name"],
+                    "date": commit["commit"]["author"]["date"],
+                    "url": commit["html_url"],
+                    "owner": owner,
+                    "repo": repo,
+                    "description": description
+                }
+                truly_new_commits.append(commit_info)
+        
+        # 检查是否有新提交
+        if truly_new_commits:
+            has_new_commits = True
+            has_any_new_commits = True
+            print(f"发现仓库 {owner}/{repo} 的新提交记录: {len(truly_new_commits)}个")
+            
+            # 合并现有提交和新提交，并限制数量
+            merged_commits = truly_new_commits + existing_commits
+            merged_commits = merged_commits[:MAX_COMMITS]
+            
+            # 更新Redis
+            redis_client.set(redis_key, json.dumps(merged_commits))
+            print(f"已将仓库 {owner}/{repo} 的最新提交记录缓存到Redis，键名: {redis_key}")
+            
+            # 如果有新提交，发送到微信群
+            if has_new_commits:
+                send_github_commits_to_wechat(truly_new_commits)
+        else:
+            print(f"仓库 {owner}/{repo} 没有新的提交记录")
+        
     
     return has_any_new_commits
 
