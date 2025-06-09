@@ -13,8 +13,9 @@ import random
 from typing import List
 import ssl
 import urllib3
-from urllib3.util.ssl_ import create_urllib3_context
 from urllib3.poolmanager import PoolManager
+
+from utils.tencent_sms import send_sms_for_news
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -284,6 +285,7 @@ def check_tennis_courts():
             continue
 
     # 处理通知逻辑
+    up_for_send_sms_list = []
     if up_for_send_data_list:
         cache_key = "深圳湾网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
@@ -301,6 +303,12 @@ def check_tennis_courts():
                 notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
+                    up_for_send_sms_list.append({
+                        "date": date,
+                        "court_name": court_name,
+                        "start_time": free_slot[0],
+                        "end_time": free_slot[1]
+                    })
 
         # 获取微信发送配置
         # wcf_ip = Variable.get("WCF_IP", default_var="")
@@ -318,6 +326,14 @@ def check_tennis_courts():
 
         if up_for_send_msg_list:
             all_in_one_msg = "\n".join(up_for_send_msg_list)
+
+            # 发送短信
+            phone_num_list = Variable.get("SZW_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
+            for data in up_for_send_sms_list:
+                try:
+                    send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
+                except Exception as e:
+                    print(f"Error sending sms: {e}")
             
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
