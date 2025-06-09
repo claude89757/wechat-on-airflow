@@ -8,6 +8,7 @@ Date: 2025-04-22
 import re
 import os
 import time
+import random
 
 from datetime import datetime, timedelta
 
@@ -95,6 +96,9 @@ def handle_zacks_up_for_send_msg(**context):
     print(f"[HANDLE] 处理Zacks的待发送消息")
     zacks_up_for_send_msg_list = Variable.get(f"ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
     print(f"[HANDLE] Zacks的待发送消息: {zacks_up_for_send_msg_list}")
+
+    # 乱序待发送的消息列表，保证每个群的优先级是随机的
+    random.shuffle(zacks_up_for_send_msg_list)
 
     # 发送消息
     zacks_appium_url = context['ti'].xcom_pull(key=f'zacks_appium_url')
