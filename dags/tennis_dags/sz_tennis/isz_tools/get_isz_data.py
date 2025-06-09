@@ -130,8 +130,9 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     response = None
     successful_proxy = None
 
-    # 随机生成一个uuid作为visitor_id
-    visitor_id = str(uuid.uuid4())
+    # 使用当日的日期作为visitor_id
+    visitor_id = datetime.datetime.now().strftime("visitor_%Y%m%d%H")
+
     if proxy_list:
         # 使用代理进行请求
         print(f"======使用提供的代理列表，共 {len(proxy_list)} 个代理======")
