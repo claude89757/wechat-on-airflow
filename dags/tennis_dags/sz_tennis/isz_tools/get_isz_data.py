@@ -131,7 +131,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     successful_proxy = None
 
     # 使用当日的日期作为visitor_id
-    visitor_id = datetime.datetime.now().strftime("visitor_%Y%m%d%H")
+    visitor_id = str(uuid.uuid4())
 
     if proxy_list:
         # 使用代理进行请求
