@@ -144,6 +144,7 @@ def get_proxy_list():
             return []
             
         print_with_timestamp(f"代理列表准备完成，总计 {len(final_proxy_list)} 个代理（缓存: {len(cached_proxies)}, 新代理: {len(final_proxy_list) - len(cached_proxies)}）")
+        print_with_timestamp(f"代理列表: {final_proxy_list}")
         return final_proxy_list
         
     except Exception as e:
