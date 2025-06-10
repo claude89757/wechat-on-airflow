@@ -101,8 +101,10 @@ def create_venue_check_function(venue_key, venue_config):
     """为每个场地创建专门的检查函数"""
     def check_venue_courts():
         """检查指定场地的网球场"""
-        if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(7, 0):
-            print_with_timestamp("每天0点-7点不巡检")
+        if datetime.time(9, 5) <= datetime.datetime.now().time() < datetime.time(23, 15):
+            pass
+        else:
+            print("没到上班时间")
             return
         
         run_start_time = time.time()
