@@ -175,6 +175,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                     response = requests.get(full_url_with_timestamp, headers=headers, timeout=15, proxies=proxy_config)
                 
                 # 检查响应
+                print(f"raw response: {str(response.text)[:200]}")
                 if response.status_code == 200:
                     try:
                         response_json = response.json()
