@@ -193,6 +193,16 @@ def task_check_proxies():
     update_proxy_file(LOCAL_FILENAME, available_proxies)
     upload_file_to_github(LOCAL_FILENAME)
 
+    # 更新到airflow的变量中
+    isz_successful_proxies = Variable.get('ISZ_SUCCESSFUL_PROXIES', deserialize_json=True, default_var=[])
+    for proxy in available_proxies:
+        if proxy not in isz_successful_proxies:
+            isz_successful_proxies.append({
+                "https": f"http://{proxy}",
+            })
+    Variable.set('ISZ_SUCCESSFUL_PROXIES', isz_successful_proxies, serialize_json=True, 
+                 description=f"update by ydmap_https_proxy_watcher at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
 def upload_file_to_github(filename):
     """
     将代理文件上传到GitHub
