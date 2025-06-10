@@ -225,9 +225,9 @@ def check_tennis_courts():
             all_in_one_msg = "\n".join(up_for_send_msg_list) 
 
             # 发送短信
-            phone_num_list = Variable.get("JDWX_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
             for data in up_for_send_sms_list:
                 try:
+                    phone_num_list = Variable.get("JDWX_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
                     send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
                 except Exception as e:
                     print(f"Error sending sms: {e}")

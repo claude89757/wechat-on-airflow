@@ -328,9 +328,9 @@ def check_tennis_courts():
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
             # 发送短信
-            phone_num_list = Variable.get("SZW_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
             for data in up_for_send_sms_list:
                 try:
+                    phone_num_list = Variable.get("SZW_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
                     send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
                 except Exception as e:
                     print(f"Error sending sms: {e}")
@@ -366,7 +366,7 @@ dag = DAG(
     '深圳湾网球场巡检',
     default_args=default_args,
     description='深圳湾网球场巡检',
-    schedule_interval='*/5 * * * *',  # 每5分钟执行一次
+    schedule_interval='*/2 * * * *',  # 每5分钟执行一次
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,

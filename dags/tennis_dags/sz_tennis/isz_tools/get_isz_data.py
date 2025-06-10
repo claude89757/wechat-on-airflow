@@ -199,10 +199,11 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                     response = requests.get(full_url_with_timestamp, headers=headers, timeout=15, proxies=proxy_config)
                 
                 # 检查响应
+                print(f"raw response: {str(response.text)[:200]}")
                 if response.status_code == 200:
                     try:
                         response_json = response.json()
-                        if isinstance(response_json, dict):
+                        if isinstance(response_json, dict) and response_json.get('code') == 0:
                             print(f"✅ 请求成功！")
                             successful_proxy = proxy_config
                             break
@@ -265,6 +266,9 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
             print(result)
             if result.get('code') == -1 and '签名错误' in result.get('msg', ''):
                 print("❌ 签名验证失败，仍然提示签名错误")
+                return {}
+            elif "访问过于频繁" in str(result):
+                print("❌ 访问过于频繁，请稍后再试")
                 return {}
             else:
                 print("✅ 联合签名验证成功！API返回正常JSON响应")
