@@ -4,6 +4,8 @@ import json
 import uuid
 import time
 import datetime
+import hashlib
+import random
 from tennis_dags.sz_tennis.isz_tools.sign_url_utls import ydmap_sign_url
 from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS
 from tennis_dags.sz_tennis.isz_tools.proxy_manager import update_successful_proxies, remove_failed_proxy
@@ -14,6 +16,28 @@ try:
     jsrpc_url = Variable.get("JSRPC_URL")
 except Exception as e:
     jsrpc_url = os.getenv("JSRPC_URL")
+
+
+def generate_visitor_id() -> str:
+    """
+    生成类似于 fdcf82874330f089fca31ca93040472f 格式的visitor_id
+    使用随机数据生成32位十六进制字符串
+    
+    Returns:
+        str: 32位十六进制字符串
+    """
+    # 方法1: 使用uuid4去掉连字符
+    # visitor_id = str(uuid.uuid4()).replace('-', '')
+    
+    # 方法2: 使用MD5哈希随机数据（更接近原格式）
+    random_data = f"{time.time()}_{random.randint(100000, 999999)}_{os.urandom(8).hex()}"
+    visitor_id = hashlib.md5(random_data.encode()).hexdigest()
+    
+    # 方法3: 直接生成32位随机十六进制字符串
+    # visitor_id = ''.join(random.choices('0123456789abcdef', k=32))
+    
+    print(f"生成的visitor_id: {visitor_id}")
+    return visitor_id
 
 
 def timestamp_to_clock(timestamp: int) -> str:
@@ -131,7 +155,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
     successful_proxy = None
 
     # 使用当日的日期作为visitor_id
-    visitor_id = str(uuid.uuid4())
+    visitor_id = generate_visitor_id()
 
     if proxy_list:
         # 使用代理进行请求
