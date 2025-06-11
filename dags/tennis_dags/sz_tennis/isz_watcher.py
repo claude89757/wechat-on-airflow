@@ -28,7 +28,7 @@ VENUE_CONFIGS = {
         "venue_name": "香蜜体育",
         "dag_id": "isz_xiangmi_tennis_watcher",
         "description": "I深圳香蜜体育网球场巡检",
-        "schedule_interval": "*/4 * * * *",  # 每3分钟执行一次
+        "schedule_interval": "*/2 * * * *",  # 每2分钟执行一次 (0,2,4,6分钟...)
         "time_range": CD_TIME_RANGE_INFOS.get("香蜜体育", {"start_time": "07:00", "end_time": "22:30"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("香蜜体育", 2)
     },
@@ -37,7 +37,7 @@ VENUE_CONFIGS = {
         "venue_name": "黄木岗",
         "dag_id": "isz_huangmugang_tennis_watcher",
         "description": "I深圳黄木岗网球场巡检",
-        "schedule_interval": "1-59/4 * * * *",  # 每3分钟执行一次，从第1分钟开始
+        "schedule_interval": "1-59/2 * * * *",  # 每2分钟执行一次 (1,3,5,7分钟...)
         "time_range": CD_TIME_RANGE_INFOS.get("黄木岗", {"start_time": "07:00", "end_time": "22:30"}),
         "active_days": CD_ACTIVE_DAY_INFOS.get("黄木岗", 2)
     },
@@ -46,18 +46,20 @@ VENUE_CONFIGS = {
         "venue_name": "网羽中心", 
         "dag_id": "isz_wangyu_tennis_watcher",
         "description": "I深圳网羽中心网球场巡检",
-        "schedule_interval": "2-59/4 * * * *",  # 每3分钟执行一次，从第2分钟开始
+        "schedule_interval": "*/2 * * * *",  # 每2分钟执行一次 (0,2,4,6分钟...)，延迟30秒启动
         "time_range": CD_TIME_RANGE_INFOS.get("网羽中心", {"start_time": "07:00", "end_time": "23:00"}),
-        "active_days": CD_ACTIVE_DAY_INFOS.get("网羽中心", 2)
+        "active_days": CD_ACTIVE_DAY_INFOS.get("网羽中心", 2),
+        "delay_seconds": 30  # 延迟30秒执行
     },
     "简上": {
         "sales_item_id": "102913",
         "venue_name": "简上",
         "dag_id": "isz_jianshang_tennis_watcher", 
         "description": "I深圳简上体育中心网球场巡检",
-        "schedule_interval": "3-59/4 * * * *",  # 每3分钟执行一次，从第3分钟开始
+        "schedule_interval": "1-59/2 * * * *",  # 每2分钟执行一次 (1,3,5,7分钟...)，延迟30秒启动
         "time_range": CD_TIME_RANGE_INFOS.get("简上", {"start_time": "07:00", "end_time": "22:00"}),
-        "active_days": CD_ACTIVE_DAY_INFOS.get("简上", 2)
+        "active_days": CD_ACTIVE_DAY_INFOS.get("简上", 2),
+        "delay_seconds": 30  # 延迟30秒执行
     },
     "深云文体": {
         "sales_item_id": "105127",
@@ -101,6 +103,12 @@ def create_venue_check_function(venue_key, venue_config):
     """为每个场地创建专门的检查函数"""
     def check_venue_courts():
         """检查指定场地的网球场"""
+        # 如果配置了延迟，先等待
+        if 'delay_seconds' in venue_config:
+            delay_seconds = venue_config['delay_seconds']
+            print_with_timestamp(f"{venue_config['venue_name']}延迟{delay_seconds}秒后开始执行...")
+            time.sleep(delay_seconds)
+        
         if datetime.time(9, 5) <= datetime.datetime.now().time() < datetime.time(23, 15):
             pass
         else:
