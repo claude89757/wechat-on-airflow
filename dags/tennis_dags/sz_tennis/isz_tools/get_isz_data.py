@@ -87,7 +87,7 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
             "entry-tag": "",
             "server-reflexive-ip": "",
             "visitor-id": visitor_id,
-            "tab-id": "ydmap_ba7112f995c3b8c6dc2379b3b39acb3f"
+            "tab-id": "ydmap_ae807e5264e3b0c115684a313fac2c7e"
         },
         "aY": None
     }
@@ -173,21 +173,25 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                 # 构建请求头
                 headers = {
                     'Host': 'isz.ydmap.cn',
-                    'nonce': nonce,
-                    'entry-tag': '',
-                    'access-token': '',
-                    'visitor-id': visitor_id,
-                    'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
-                    'accept': 'application/json, text/plain, */*',
-                    'timestamp': timestamp,
-                    'signature': signature,
-                    'tab-id': 'ydmap_ba7112f995c3b8c6dc2379b3b39acb3f',
+                    # 'Cookie': '',
+                    'referer': 'https://isz.ydmap.cn/booking/schedule/101332?salesItemId=100341',
                     'x-requested-with': 'XMLHttpRequest',
+                    'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148/openweb=paschybrid/SZSMT_IOS,VERSION:4.9.9',
+                    'openid-token': '',
+                    'entry-tag': '',
+                    'visitor-id': visitor_id,
+                    'signature': signature,
+                    'sec-fetch-dest': 'empty',
                     'cross-token': '',
                     'sec-fetch-site': 'same-origin',
-                    'sec-fetch-mode': 'cors',
-                    'sec-fetch-dest': 'empty',
-                    'accept-language': 'zh-CN,zh;q=0.9'
+                    'nonce': nonce,
+                    'tab-id': 'ydmap_ae807e5264e3b0c115684a313fac2c7e',
+                    'timestamp': timestamp,
+                    'accept-language': 'zh-CN,zh-Hans;q=0.9',
+                    # 'access-token': '',
+                    'accept': 'application/json, text/plain, */*',
+                    'server-reflexive-ip': '',
+                    'sec-fetch-mode': 'cors'
                 }
                 
                 if proxy_config is None:
@@ -238,21 +242,25 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
         # 构建请求头
         headers = {
             'Host': 'isz.ydmap.cn',
-            'nonce': nonce,
-            'entry-tag': '',
-            'access-token': '',
-            'visitor-id': visitor_id,
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue',
-            'accept': 'application/json, text/plain, */*',
-            'timestamp': timestamp,
-            'signature': signature,
-            'tab-id': 'ydmap_ba7112f995c3b8c6dc2379b3b39acb3f',
+            'Cookie': 'ssxmod_itna=eqjOAKDK7IxmgDUxBPBtiOD2DuxYqjIqGdq+Dgn==exiwoDtd55jjXqjTtIfrDlc74DZDGKGFDQeDvI7nF+oI+iGaeT/Wj7b6e/Q1GGNU/zrBpXUi1Qxi8DG+YGyDB9p6TDeeDBnqG6dDD4D5gKDaguz/PYDo=5Dwo+tjBwqgDpF5BuD=l+oj0DaTjGooiTedji4qA+qL0ipff+jLIDD=g08eA+DD===; ssxmod_itna2=eqjOAKDK7IxmgDUxBPBtiOD2DuxYqjIqGdq+Dgn==exiwoDtd55jjXqjTtIDnxnIwHjKDGXxQDjbwxYqtmAq5YTAChr4TL8nWTpjGRbEF5hqXBLqj5KLI=buAwn1hcPWpbvB4gWNTWRkY1W4e1ykIieD60RzYZ4Hr2+qP+W+RoopoUFzWEEHO+va1K3WIYpmdGexrYw+bpBOa2qDwgierl4pyAe4=1kUQ2ACv69xIexpW277r=iUyO4FXC0df8b4ebaxR1WfPD2mQ66Gor0xsmr44D==; tfstk=gq0mXSMqMJYnVEp824aXYxQfM1MDlra_UAQTBPew48ySMZIt_FPieA2TbKGtElDrFrhx6qHuQAkqDVFxBNDu65PVu-rNG0MKTZ3vcPQgkPawppLpJSGb5P8_cLOchzP3gFF47-zbz2inL_LpJjGVyozSwe39NYFLURza0PSza8NG7OkaggRu_5BVbZkwZQVgTS7a3S7zUSNQ7Rka7QczF5zagAzw_p7UHjljzLhsOPc_q_0zio2Eg-5Pa0rFpRc4ENSe6SqcDjyl7Nurj0pRg-9ciJmKOVDmUC7aI0o-T8Dy_Nyi4cuYcPsrygSUJ5Q_aC3lfgE4N72dtbg_Bf6sJGAkZMr707Ny2QAlfGZ4N72pZQjeOoP7a3C..; acw_sc__v3=684c5f1da5b77e3b2321c6056383c6664b1f599b; Hm_lpvt_2e26229fff5c7d4d4029787caaf3d50b=1749835545; Hm_lvt_2e26229fff5c7d4d4029787caaf3d50b=1749695779,1749729683,1749819407,1749828283; acw_tc=ac11000117498355379155547e006ee5e8b3cc87f2de00ce1a0893d916eedc; HMACCOUNT=91FD09D28A72BAB9; _c_WBKFRo=ynF9Q0rYCLh3xnTUC6A2uDKdnCaKTMKV0j4tSn5S; gdxidpyhxdE=eqB%2F4WnId0sHDQ3B19tK3bkmuNXJdrKqbHD5XgQ4Raa3qeVTdpAU6IG5smd7Vk%5Cq7GOanEVufEsdKvvYav2LAU4%2BjQg0CgCW%5CaTfS6nCSAAaZyTbnWlK2nODDeKbWWDzZjgI5j5GjY2pGc9d3QX2nMgc9Txcxt0CL%2FEUyIeKj%2B%2F%5CP%2FzS%3A1749644351976; YdmapKey-100352=A69DF084ACB81EFA75E5C91F13DA147178D5481CA763F22FD73BD2C8697D71DC040E38A265EEB4A2F35FD1136888BE39EB63A8C242512C5D8CCCEF73E22C9F16E6B45F2D09B49EB4408D00CB22173CC3AE7F3C3DEFD40734D0B8F5651B8609BDE6310D2E3F8BAB5327D41B5C93E4F0030B7E2EE3F6F872C789B0854E184025900229C4253D8B933731963FAF638ECC36115F0CE4D1479B86AC8EB8BA30EBA5A9187BEF75C2EA2C14DB7164DDEF9D3EE2430D41697CE63850C114DFE09F4C2B9FC9F1268626ABF98C6C84001A15A7AAEB97FF4DD9E6E5A995C3DDB4ED2F7567E1280701319CF9E8E5EFDD1DEA9238D738DB7F0318E4EF1A133A787DF241CFB2D8F7A3B5ADE58A278A406404983139B7D28F43CBA0296FE8C6A7D8DFC996E823BDFFC363B9587FCCA4315C11C8F06511E57751A90F5F5BD6C43428339C280FD9A989E0D63BDF28C914A3F182D99E2CBB93',
+            'referer': 'https://isz.ydmap.cn/booking/schedule/101332?salesItemId=100341',
             'x-requested-with': 'XMLHttpRequest',
+            'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148/openweb=paschybrid/SZSMT_IOS,VERSION:4.9.9',
+            'openid-token': '',
+            'entry-tag': '',
+            'visitor-id': visitor_id,
+            'signature': signature,
+            'sec-fetch-dest': 'empty',
             'cross-token': '',
             'sec-fetch-site': 'same-origin',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-dest': 'empty',
-            'accept-language': 'zh-CN,zh;q=0.9'
+            'nonce': nonce,
+            'tab-id': 'ydmap_ae807e5264e3b0c115684a313fac2c7e',
+            'timestamp': timestamp,
+            'accept-language': 'zh-CN,zh-Hans;q=0.9',
+            # 'access-token': 'eyJhbGciOiJIUzI1NiIsInppcCI6IkRFRiJ9.eJyNj7sKwkAQRf9l6rDsrPtKagWDYAStbMKarBIfG8kmYhT_3bEQLJ1iiplzLtwnNDFCRvvBxvrirqwKkIC_XyFDo4zUhiaBY98QJZ1LuZJ7ox1KUdlUK4mVtdzUKlVGk9nEqd8NB8j27hx9Ap0LdXtZ-JF0JaRGwSVhQ_Tdpj358F_quT00YRZuROfrLR36j5vXP6Elcj5RosQvnlMFQBQsNcwKhhP7_RSfxvlqXixn8HoDZdhGgg.ziVgByeX8pAnHaaDZt8VZ-98dOWLodCus9Xi9DeOTFw',
+            'accept': 'application/json, text/plain, */*',
+            'server-reflexive-ip': '',
+            'sec-fetch-mode': 'cors'
         }
         response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
         
