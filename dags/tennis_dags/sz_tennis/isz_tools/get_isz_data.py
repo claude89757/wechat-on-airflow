@@ -265,7 +265,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
         response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
         
     print(f"目标API响应状态码: {response.status_code}")
-    print(f"目标API响应内容前500字符: {response.text[:500]}")
+    print(f"目标API响应内容: \n--------\n{response.text}\n--------\n")
     
     # 检查是否还有签名错误
     if response.status_code == 200:
