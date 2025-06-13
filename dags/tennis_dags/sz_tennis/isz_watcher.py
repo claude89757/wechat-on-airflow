@@ -113,7 +113,7 @@ def create_venue_check_function(venue_key, venue_config):
             pass
         else:
             print("没到上班时间")
-            return
+            # return
         
         run_start_time = time.time()
         print_with_timestamp(f"开始检查{venue_config['venue_name']}...")
@@ -161,7 +161,7 @@ def create_venue_check_function(venue_key, venue_config):
                                 
                             if is_weekend:
                                 # 周末关注下午和晚上的场地（15-21点）
-                                if 15 <= start_hour <= 21:
+                                if 12 <= start_hour <= 21:
                                     filtered_slots.append(slot)
                             else:
                                 # 工作日关注晚上的场地（18-21点）
