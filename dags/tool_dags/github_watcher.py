@@ -42,6 +42,11 @@ GITHUB_REPOS = [
         "repo": "crawler_on_airflow",
         "description": "爬虫Airflow项目"
     },
+    {
+        "owner": "YuChanGongzhu",
+        "repo": "x_agent_webui",
+        "description": "爬虫Airflow前端项目"
+    },
 ]
 
 # DAG ID
