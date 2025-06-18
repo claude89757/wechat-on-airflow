@@ -48,8 +48,8 @@ def check_wx_account_info(**context):
         for device_id in device_list:
             
             # TODO: claude 临时代码，后续删除下, 限制只检查一个设备
-            if device_id != '0864cf720705':
-                continue
+            # if device_id != '0864cf720705':
+            #     continue
 
             wx_account_info = get_wx_account_info_by_appium(appium_server_url=appium_url, device_name=device_id, login_info=login_info)
 
