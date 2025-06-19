@@ -493,10 +493,6 @@ class WeChatOperator:
             
             # 如果还没回到主界面，使用Android返回键
             # self.driver.press_keycode(4)
-            self.driver.find_element(
-                        AppiumBy.XPATH
-                        ,"//android.widget.TextView[@text='微信']"  # 返回按钮ID
-                    ).click()
             time.sleep(0.5)
             
             if not self.is_at_main_page():
