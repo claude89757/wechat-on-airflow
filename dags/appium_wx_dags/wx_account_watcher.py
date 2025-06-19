@@ -48,7 +48,7 @@ def check_wx_account_info(**context):
         for device_id in device_list:
             
             # TODO: claude 临时代码，后续删除下, 限制只检查一个设备
-            if device_id != 'ZY22FX4H65':
+            if device_id != 'ZY22GVV5Z2':
                 continue
 
             wx_account_info = get_wx_account_info_by_appium(appium_server_url=appium_url, device_name=device_id, login_info=login_info)
