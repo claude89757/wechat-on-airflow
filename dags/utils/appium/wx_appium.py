@@ -481,6 +481,7 @@ class WeChatOperator:
                         by=AppiumBy.XPATH,
                         value="//android.widget.TextView[@resource-id='com.tencent.mm:id/icon_tv' and @text='微信']"  # 返回按钮ID
                     )
+                    print(back_btn)
                     back_btn.click()
                     time.sleep(0.5)
                     
