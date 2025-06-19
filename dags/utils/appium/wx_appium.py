@@ -57,8 +57,8 @@ class WeChatOperator:
             forceAppLaunch=force_app_launch,  # 是否强制重启应用
             autoGrantPermissions=True,  # 自动授予权限
             newCommandTimeout=60,  # 命令超时时间
-            # unicodeKeyboard=True,  # 使用 Unicode 输入法
-            # resetKeyboard=True,  # 重置输入法
+            unicodeKeyboard=True,  # 使用 Unicode 输入法
+            resetKeyboard=True,  # 重置输入法
         )
         
         # 登录信息
@@ -478,7 +478,7 @@ class WeChatOperator:
             for _ in range(max_attempts):
                 try:
                     back_btn = self.driver.find_element(
-                        by=AppiumBy.ID,
+                       by=AppiumBy.ID,
                         value="com.tencent.mm:id/g"  # 返回按钮ID
                     )
                     print(back_btn)
@@ -493,6 +493,10 @@ class WeChatOperator:
             
             # 如果还没回到主界面，使用Android返回键
             # self.driver.press_keycode(4)
+            self.driver.find_element(
+                        AppiumBy.XPATH
+                        ,"//android.widget.TextView[@text='微信']"  # 返回按钮ID
+                    ).click()
             time.sleep(0.5)
             
             if not self.is_at_main_page():
