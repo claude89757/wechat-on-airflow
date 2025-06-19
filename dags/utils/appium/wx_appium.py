@@ -507,13 +507,18 @@ class WeChatOperator:
         """
         try:
             # 检查主界面特有元素
-            elements = [
-                "//android.widget.TextView[@text='微信']",
-                "//android.widget.TextView[@text='通讯录']",
-                "//android.widget.TextView[@text='发现']",
-                "//android.widget.TextView[@text='我']"
+            # elements = [
+            #     "//android.widget.TextView[@text='微信']",
+            #     "//android.widget.TextView[@text='通讯录']",
+            #     "//android.widget.TextView[@text='发现']",
+            #     "//android.widget.TextView[@text='我']"
+            # ]
+            elements=[
+                "//android.widget.TextView[@resource-id='com.tencent.mm:id/icon_tv' and @text='我']",
+                "//android.widget.TextView[@resource-id='com.tencent.mm:id/icon_tv' and @text='发现']",
+                "//android.widget.TextView[@resource-id='com.tencent.mm:id/icon_tv' and @text='通讯录']",
+                "//android.widget.TextView[@resource-id='com.tencent.mm:id/icon_tv' and @text='微信']"
             ]
-            
             for xpath in elements:
                 self.driver.find_element(AppiumBy.XPATH, xpath)
             return True
