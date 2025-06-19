@@ -478,8 +478,8 @@ class WeChatOperator:
             for _ in range(max_attempts):
                 try:
                     back_btn = self.driver.find_element(
-                        by=AppiumBy.XPATH,
-                        value="//android.widget.TextView[contains(@text,'微信')]"  # 返回按钮ID
+                        AppiumBy.XPATH
+                        ,"//android.widget.TextView[@resource-id='com.tencent.mm:id/icon_tv' and @text='微信']"  # 返回按钮ID
                     )
                     print(back_btn)
                     back_btn.click()
