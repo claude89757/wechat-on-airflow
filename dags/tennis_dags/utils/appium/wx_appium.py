@@ -57,6 +57,7 @@ class WeChatOperator:
             forceAppLaunch=force_app_launch,  # 是否强制重启应用
             autoGrantPermissions=True,  # 自动授予权限
             newCommandTimeout=60,  # 命令超时时间
+            unicodeKeyboard=True,  # 使用 Unicode 输入法
             resetKeyboard=True,  # 重置输入法
         )
         
