@@ -1353,7 +1353,7 @@ class WeChatOperator:
                 by=AppiumBy.XPATH,
                 value="//android.widget.TextView[@text='微信']"
             ).click()
-
+            print({"wx_name": wx_name, "wxid": wxid})
             return {"wx_name": wx_name, "wxid": wxid}
         
         except Exception as e:
