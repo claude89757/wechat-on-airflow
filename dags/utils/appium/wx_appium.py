@@ -522,6 +522,7 @@ class WeChatOperator:
             ]
             for xpath in elements:
                 self.driver.find_element(AppiumBy.XPATH, xpath)
+                print('定位成功')
             return True
         except:
             return False
