@@ -492,7 +492,7 @@ class WeChatOperator:
                     break
             
             # 如果还没回到主界面，使用Android返回键
-            self.driver.press_keycode(4)
+            # self.driver.press_keycode(4)
             time.sleep(0.5)
             
             if not self.is_at_main_page():
