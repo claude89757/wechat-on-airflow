@@ -98,7 +98,7 @@ def handle_zacks_up_for_send_msg(**context):
     print(f"[HANDLE] Zacks的待发送消息: {zacks_up_for_send_msg_list}")
 
     # 乱序待发送的消息列表，保证每个群的优先级是随机的
-    random.shuffle(zacks_up_for_send_msg_list)
+    # random.shuffle(zacks_up_for_send_msg_list)
 
     # 发送消息
     zacks_appium_url = context['ti'].xcom_pull(key=f'zacks_appium_url')
@@ -110,6 +110,7 @@ def handle_zacks_up_for_send_msg(**context):
             send_wx_msg_by_appium(zacks_appium_url, zacks_device_name, msg_info['room_name'], [msg_info['msg']])
         except Exception as e:
             print(f"[HANDLE] 发送消息失败: {e}")
+        time.sleep(10)
 
     # 清空Zacks的待发送消息
     Variable.set(f"ZACKS_UP_FOR_SEND_MSG_LIST", [], serialize_json=True)
