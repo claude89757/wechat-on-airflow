@@ -378,27 +378,30 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         if place_name not in all_courts_info:
             all_courts_info[place_name] = []
         
-        # 判断是否可预约的逻辑
-        is_available = (appoint_flag == 1 and remain_num > 0)
+        # 检查锁定状态
+        lock_remark = slot.get('lockRemark', '')
+        lock_object_type = slot.get('lockObjectType', 0)
+        is_locked = bool(lock_remark or lock_object_type)
+        
+        # 判断是否可预约的逻辑：需要appointFlag=1、有剩余数量、且未被锁定
+        is_available = (appoint_flag == 1 and remain_num > 0 and not is_locked)
         
         # 添加调试信息验证判断逻辑（重点关注问题时段）
         if place_name in ['3号场', '4号场', '7号场'] and start_time in ['13', '18', '19', '20', '21']:
-            print(f"🔍 DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, is_available={is_available}, price={price}")
+            lock_info = f", locked={is_locked}"
+            if is_locked:
+                lock_info += f"('{lock_remark}', type={lock_object_type})"
+            print(f"🔍 DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, is_available={is_available}, price={price}{lock_info}")
         
         all_courts_info[place_name].append({
             'time': f"{start_time}-{end_time}",
             'appointFlag': appoint_flag,
             'price': price,
             'remainNum': remain_num,
-            'available': is_available
+            'available': is_available,
+            'locked': is_locked,
+            'lockRemark': lock_remark
         })
-        
-        # 添加调试信息以便排查问题
-        # if place_name in ['3号场', '4号场'] and start_time in ['07', '08', '09']:
-        #     print(f"DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, available={is_available}")
-        
-        # 检查是否可预约 (appointFlag=1 表示可预约，remainnum>0 表示有剩余)
-        # is_available = (appoint_flag == 1 and remain_num > 0)  # 这行已经移到上面了
         
         if is_available:
             available_count += 1
@@ -406,9 +409,6 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
                 if place_name not in courts_by_name:
                     courts_by_name[place_name] = []
                 courts_by_name[place_name].append([start_time, end_time])
-                # 调试信息
-                # if place_name in ['3号场', '4号场'] and start_time in ['07', '08', '09']:
-                #     print(f"DEBUG: 添加可用时段 {place_name}: [{start_time}, {end_time}]")
         else:
             unavailable_count += 1
     
@@ -431,7 +431,10 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         if unavailable_slots:
             for slot in unavailable_slots[:3]:  # 只显示前3个，避免日志太长
                 # 修正状态判断逻辑
-                if slot['appointFlag'] == 1 and slot['remainNum'] == 0:
+                if slot.get('locked', False):
+                    lock_remark = slot.get('lockRemark', '')
+                    status = f"锁定({lock_remark})" if lock_remark else "锁定"
+                elif slot['appointFlag'] == 1 and slot['remainNum'] == 0:
                     status = "已满"
                 elif slot['appointFlag'] == 2:
                     status = "不开放" 
@@ -466,8 +469,8 @@ def verify_court_logic(all_courts_info):
     logic_errors = []
     for court_name, court_slots in all_courts_info.items():
         for slot in court_slots:
-            # 预期的可用性
-            expected_available = (slot['appointFlag'] == 1 and slot['remainNum'] > 0)
+            # 预期的可用性：需要appointFlag=1、有剩余数量、且未被锁定
+            expected_available = (slot['appointFlag'] == 1 and slot['remainNum'] > 0 and not slot.get('locked', False))
             actual_available = slot['available']
             
             if expected_available != actual_available:
@@ -721,17 +724,32 @@ def check_tennis_courts():
                         # 安全地解析时间格式
                         try:
                             start_time_str = slot[0]
-                            if ':' in start_time_str:
-                                hour_num = int(start_time_str.split(':')[0])
-                            else:
-                                hour_num = int(start_time_str)
+                            end_time_str = slot[1]
                             
-                            if is_weekend:
-                                if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
-                                    filtered_slots.append(slot)
+                            # 解析开始和结束时间
+                            if ':' in start_time_str:
+                                start_hour = int(start_time_str.split(':')[0])
                             else:
-                                if 18 <= hour_num <= 21:  # 工作日关注18点到21点的场地
-                                    filtered_slots.append(slot)
+                                start_hour = int(start_time_str)
+                            
+                            if ':' in end_time_str:
+                                end_hour = int(end_time_str.split(':')[0])
+                            else:
+                                end_hour = int(end_time_str)
+                            
+                            # 检查时段是否与目标时间有重叠
+                            if is_weekend:
+                                target_start, target_end = 15, 21  # 周末关注15点到21点
+                            else:
+                                target_start, target_end = 18, 21  # 工作日关注18点到21点
+                            
+                            # 判断时段重叠：如果时段的结束时间 > 目标开始时间 且 时段的开始时间 < 目标结束时间
+                            if end_hour > target_start and start_hour < target_end:
+                                filtered_slots.append(slot)
+                                print(f"      ✅ 匹配时段: {slot[0]}-{slot[1]} (时段{start_hour}-{end_hour}h 与 目标{target_start}-{target_end}h 有重叠)")
+                            else:
+                                print(f"      ❌ 跳过时段: {slot[0]}-{slot[1]} (时段{start_hour}-{end_hour}h 与 目标{target_start}-{target_end}h 无重叠)")
+                                
                         except (ValueError, IndexError) as e:
                             print(f"      ⚠️ 解析时间格式失败: {slot}, 错误: {e}")
                             continue
