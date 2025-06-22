@@ -68,6 +68,11 @@ def get_latest_commits(**context):
     Returns:
         None
     """
+    # 每天0点-8点不巡检
+    if datetime.now().hour < 8 or datetime.now().hour > 22:
+        print("每天0点-8点、22点-24点不巡检GitHub")
+        return  
+    
     has_any_new_commits = False
     
     # 连接Redis
