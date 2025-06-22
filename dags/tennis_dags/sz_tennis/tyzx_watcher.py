@@ -293,7 +293,15 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         dict: 按场地名称组织的可用时间段
     """
     if not court_data.get('body'):
+        print("📋 API响应中没有场地数据")
         return {}
+    
+    print(f"📊 API返回了 {len(court_data['body'])} 个时段数据")
+    
+    # 统计所有场地和时段信息
+    all_courts_info = {}
+    available_count = 0
+    unavailable_count = 0
     
     # 按场地名称分组
     courts_by_name = {}
@@ -301,36 +309,86 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         place_name = slot.get('placeName', '未知场地')
         start_time = slot.get('startTime', '').replace(':00', '')  # 去掉秒
         end_time = slot.get('endTime', '').replace(':00', '')
+        appoint_flag = slot.get('appointFlag', 0)
+        price_info = slot.get('priceInfoList', [])
+        
+        # 检查价格和剩余数量信息
+        if price_info and len(price_info) > 0:
+            price = price_info[0].get('price', 0)
+            remain_num = price_info[0].get('remainnum', 0)
+        else:
+            price = 0
+            remain_num = 0
+        
+        # 记录所有场地信息（用于统计）
+        if place_name not in all_courts_info:
+            all_courts_info[place_name] = []
+        all_courts_info[place_name].append({
+            'time': f"{start_time}-{end_time}",
+            'appointFlag': appoint_flag,
+            'price': price,
+            'remainNum': remain_num,
+            'available': appoint_flag == 1 and remain_num > 0
+        })
         
         # 检查是否可预约 (appointFlag=1 表示可预约，remainnum>0 表示有剩余)
-        is_available = (slot.get('appointFlag') == 1 and 
-                       slot.get('priceInfoList') and
-                       len(slot.get('priceInfoList', [])) > 0 and
-                       slot['priceInfoList'][0].get('remainnum', 0) > 0)
+        is_available = (appoint_flag == 1 and remain_num > 0)
         
-        if is_available and start_time and end_time:
-            if place_name not in courts_by_name:
-                courts_by_name[place_name] = []
-            courts_by_name[place_name].append([start_time, end_time])
+        if is_available:
+            available_count += 1
+            if start_time and end_time:
+                if place_name not in courts_by_name:
+                    courts_by_name[place_name] = []
+                courts_by_name[place_name].append([start_time, end_time])
+        else:
+            unavailable_count += 1
     
-    # 合并每个场地的时间段
+    # 打印详细统计信息
+    print(f"📈 场地状态统计: 可预约 {available_count} 个时段, 不可预约 {unavailable_count} 个时段")
+    
+    # 打印每个场地的详细信息
+    print("🏟️ 各场地详细信息:")
+    for court_name, court_slots in all_courts_info.items():
+        available_slots = [slot for slot in court_slots if slot['available']]
+        unavailable_slots = [slot for slot in court_slots if not slot['available']]
+        
+        print(f"  📍 {court_name}:")
+        print(f"    ✅ 可预约: {len(available_slots)} 个时段")
+        if available_slots:
+            for slot in available_slots:
+                print(f"      {slot['time']} (¥{slot['price']}, 剩余{slot['remainNum']}个)")
+        
+        print(f"    ❌ 不可预约: {len(unavailable_slots)} 个时段")
+        if unavailable_slots:
+            for slot in unavailable_slots[:3]:  # 只显示前3个，避免日志太长
+                status = "已满" if slot['appointFlag'] == 1 else "不开放"
+                print(f"      {slot['time']} ({status}, ¥{slot['price']})")
+            if len(unavailable_slots) > 3:
+                print(f"      ... 还有{len(unavailable_slots)-3}个不可预约时段")
+    
+    # 合并每个场地的可用时间段
     available_slots_infos = {}
     for court_name, time_slots in courts_by_name.items():
-        available_slots_infos[court_name] = merge_time_ranges(time_slots)
+        merged_slots = merge_time_ranges(time_slots)
+        available_slots_infos[court_name] = merged_slots
+        print(f"🔀 {court_name} 合并后可用时段: {merged_slots}")
+    
+    print(f"📝 最终可用场地: {len(available_slots_infos)} 个场地有空闲时段")
     
     return available_slots_infos
 
 def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
     """从深圳市体育中心获取可预订的场地信息"""
+    print(f"🌐 开始查询 {date} 的场地信息，共有 {len(proxy_list)} 个代理可用")
+    
     got_response = False
     result = None
     index_list = list(range(len(proxy_list)))
     random.shuffle(index_list)
-    print(f"代理索引列表: {index_list}")
     
     for index in index_list:
         proxy = proxy_list[index]
-        print(f"尝试第 {index} 次使用代理 {proxy}")
+        print(f"🔄 尝试第 {index+1} 个代理: {proxy}")
         
         try:
             api = TennisCourtAPI()
@@ -346,21 +404,24 @@ def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
             )
             
             if 'error' not in result and result.get('body'):
-                print(f"成功使用代理 {proxy}")
+                print(f"✅ 代理 {proxy} 请求成功!")
+                print(f"📦 API响应摘要: code={result.get('code')}, msg='{result.get('msg')}', 数据条数={len(result.get('body', []))}")
                 got_response = True
                 time.sleep(1)
                 break
             else:
-                print(f"代理 {proxy} 响应无效: {result}")
+                print(f"❌ 代理 {proxy} 响应无效: code={result.get('code', 'N/A')}, msg='{result.get('msg', 'N/A')}'")
                 continue
                 
         except Exception as e:
-            print(f"代理 {proxy} 失败: {e}")
+            print(f"❌ 代理 {proxy} 请求失败: {e}")
             continue
     
     if got_response and result:
+        print(f"🔍 开始解析 {date} 的场地数据...")
         return parse_tyzx_court_data(result)
     else:
+        print(f"🚫 所有 {len(proxy_list)} 个代理都失败了")
         raise Exception("所有代理都失败了")
 
 def check_tennis_courts():
@@ -382,21 +443,43 @@ def check_tennis_courts():
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
-    for index in range(0, 3):  # 查询今天、明天、后天
+    
+    print(f"\n🗓️ 开始查询未来4天的场地信息...")
+    print("=" * 60)
+    
+    for index in range(0, 4):  # 查询今天、明天、后天、大后天
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
-        print(f"检查日期 {input_date}...")
+        check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
+        is_weekend = check_date.weekday() >= 5
+        weekday_str = ["一", "二", "三", "四", "五", "六", "日"][check_date.weekday()]
+        day_type = "周末" if is_weekend else "工作日"
+        
+        print(f"\n📅 检查日期: {input_date} (星期{weekday_str}, {day_type})")
+        print("-" * 40)
         
         try:
             court_data = get_free_tennis_court_infos_for_tyzx(input_date, proxy_list)
             time.sleep(1)
             
+            if not court_data:
+                print(f"📭 {input_date} 没有可用的场地")
+                continue
+            
+            print(f"🎾 {input_date} 场地筛选结果:")
+            total_available_slots = 0
+            total_filtered_slots = 0
+            
             for court_name, free_slots in court_data.items():
                 if free_slots:
+                    total_available_slots += len(free_slots)
                     filtered_slots = []
-                    check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
-                    is_weekend = check_date.weekday() >= 5
                     
+                    print(f"  🏟️ {court_name}: 原始可用时段 {len(free_slots)} 个")
+                    for slot in free_slots:
+                        print(f"    📍 {slot[0]}-{slot[1]}")
+                    
+                    # 根据工作日/周末筛选时段
                     for slot in free_slots:
                         hour_num = int(slot[0].split(':')[0])
                         if is_weekend:
@@ -407,23 +490,46 @@ def check_tennis_courts():
                                 filtered_slots.append(slot)
                     
                     if filtered_slots:
+                        total_filtered_slots += len(filtered_slots)
+                        print(f"    ✅ 筛选后符合时段要求: {len(filtered_slots)} 个")
+                        for slot in filtered_slots:
+                            print(f"      ⭐ {slot[0]}-{slot[1]}")
+                        
                         up_for_send_data_list.append({
                             "date": inform_date,
                             "court_name": f"体育中心{court_name}",
                             "free_slot_list": filtered_slots
                         })
+                    else:
+                        print(f"    ❌ 筛选后无符合时段要求的场地 (需要{day_type}{'15-21点' if is_weekend else '18-21点'})")
+            
+            time_filter = "15:00-21:00" if is_weekend else "18:00-21:00"
+            print(f"📊 {input_date} 统计: 总可用{total_available_slots}个时段, 符合{time_filter}条件{total_filtered_slots}个时段")
+            
         except Exception as e:
-            print(f"检查日期 {input_date} 时出错: {str(e)}")
+            print(f"❌ 检查日期 {input_date} 时出错: {str(e)}")
             continue
     
-    print(f"待发送数据列表: {up_for_send_data_list}")
+    print(f"\n" + "=" * 60)
+    print(f"🎯 查询完成, 共找到 {len(up_for_send_data_list)} 个符合条件的场地时段")
     
     # 处理通知逻辑
     if up_for_send_data_list:
+        print(f"\n📢 开始处理通知逻辑...")
+        print("-" * 40)
+        
         cache_key = "深圳市体育中心网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
         up_for_send_msg_list = []
         up_for_send_sms_list = []
+        
+        print(f"📝 历史已发送通知数量: {len(sended_msg_list)}")
+        if sended_msg_list:
+            print(f"📋 最近发送的通知 (最多显示3条):")
+            for msg in sended_msg_list[-3:]:
+                print(f"  💬 {msg}")
+        
+        print(f"\n🔍 开始检查新通知...")
         
         for data in up_for_send_data_list:
             date = data['date']
@@ -434,9 +540,12 @@ def check_tennis_courts():
             weekday = date_obj.weekday()
             weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
             
+            print(f"📅 处理 {court_name} 在 {date} (星期{weekday_str}) 的 {len(free_slot_list)} 个时段:")
+            
             for free_slot in free_slot_list:
                 notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                 if notification not in sended_msg_list:
+                    print(f"  ✅ 新通知: {notification}")
                     up_for_send_msg_list.append(notification)
                     up_for_send_sms_list.append({
                         "date": date,
@@ -444,27 +553,47 @@ def check_tennis_courts():
                         "start_time": free_slot[0],
                         "end_time": free_slot[1]
                     })
+                else:
+                    print(f"  ⏭️ 已发送过: {notification}")
 
         if up_for_send_msg_list:
+            print(f"\n📨 准备发送 {len(up_for_send_msg_list)} 条新通知:")
+            for i, msg in enumerate(up_for_send_msg_list, 1):
+                print(f"  {i}. {msg}")
+            
             all_in_one_msg = "\n".join(up_for_send_msg_list) 
 
             # # 发送短信
+            # print(f"\n📱 准备发送短信...")
             # for data in up_for_send_sms_list:
             #     try:
             #         phone_num_list = Variable.get("TYZX_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
+            #         print(f"📞 发送短信到 {len(phone_num_list)} 个号码: {data['court_name']} {data['start_time']}-{data['end_time']}")
             #         send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
             #     except Exception as e:
-            #         print(f"发送短信失败: {e}")
+            #         print(f"❌ 发送短信失败: {e}")
 
             # 发送微信消息
+            print(f"\n💬 准备发送微信消息...")
             chat_names = Variable.get("SZ_TYZX_TENNIS_CHATROOMS", default_var="")
-            zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-            for contact_name in str(chat_names).splitlines():
-                zacks_up_for_send_msg_list.append({
-                    "room_name": contact_name,
-                    "msg": all_in_one_msg
-                })
-            Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+            if chat_names.strip():
+                chat_list = [name.strip() for name in str(chat_names).splitlines() if name.strip()]
+                print(f"📋 目标微信群: {len(chat_list)} 个")
+                for chat_name in chat_list:
+                    print(f"  💬 {chat_name}")
+                
+                zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
+                for contact_name in chat_list:
+                    zacks_up_for_send_msg_list.append({
+                        "room_name": contact_name,
+                        "msg": all_in_one_msg
+                    })
+                    print(f"✅ 已加入发送队列: {contact_name}")
+                
+                Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+                print(f"📤 微信消息队列已更新, 当前队列长度: {len(zacks_up_for_send_msg_list)}")
+            else:
+                print(f"⚠️ 未配置微信群聊 (SZ_TYZX_TENNIS_CHATROOMS为空)")
                     
             sended_msg_list.extend(up_for_send_msg_list)
 
@@ -476,9 +605,17 @@ def check_tennis_courts():
             description=description,
             serialize_json=True
         )
-        print(f"更新缓存 {cache_key}: {sended_msg_list}")
+        print(f"\n💾 更新通知缓存:")
+        print(f"   📝 缓存键: {cache_key}")
+        print(f"   📊 保留记录数: {len(sended_msg_list[-10:])}/10")
+        print(f"   🕐 更新时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        if up_for_send_msg_list:
+            print(f"   ✅ 本次新增: {len(up_for_send_msg_list)} 条通知")
+        else:
+            print(f"   ℹ️ 本次无新通知")
     else:
-        print("没有可用的场地信息")
+        print(f"\n📭 本次巡检结果: 未发现符合条件的空闲场地")
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
