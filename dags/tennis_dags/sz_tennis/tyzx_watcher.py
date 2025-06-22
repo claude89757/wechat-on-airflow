@@ -381,9 +381,9 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         # 判断是否可预约的逻辑
         is_available = (appoint_flag == 1 and remain_num > 0)
         
-        # 添加调试信息验证判断逻辑（特别针对7号场）
-        if place_name == '7号场' and start_time in ['13', '20']:
-            print(f"🔍 DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, is_available={is_available}")
+        # 添加调试信息验证判断逻辑（重点关注问题时段）
+        if place_name in ['3号场', '4号场', '7号场'] and start_time in ['13', '18', '19', '20', '21']:
+            print(f"🔍 DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, is_available={is_available}, price={price}")
         
         all_courts_info[place_name].append({
             'time': f"{start_time}-{end_time}",
@@ -487,15 +487,18 @@ def verify_court_logic(all_courts_info):
     else:
         print("✅ 场地判断逻辑验证通过，没有发现错误")
     
-    # 特别验证7号场的示例数据
+    # 特别验证关键场地和时段的数据
+    print(f"\n🎾 验证关键场地数据:")
+    
+    # 验证7号场示例数据
     seven_court_slots = all_courts_info.get('7号场', [])
-    test_cases = [
+    test_cases_7 = [
         {'time': '13-14', 'expected_flag': 1, 'expected_remain': 1, 'expected_available': True},
         {'time': '20-21', 'expected_flag': 2, 'expected_remain': 0, 'expected_available': False}
     ]
     
-    print(f"\n🎾 验证7号场示例数据:")
-    for test_case in test_cases:
+    print(f"  📍 7号场:")
+    for test_case in test_cases_7:
         matching_slots = [slot for slot in seven_court_slots if slot['time'] == test_case['time']]
         if matching_slots:
             slot = matching_slots[0]
@@ -504,13 +507,35 @@ def verify_court_logic(all_courts_info):
             available_match = slot['available'] == test_case['expected_available']
             
             if flag_match and remain_match and available_match:
-                print(f"  ✅ {test_case['time']}: appointFlag={slot['appointFlag']}, remainNum={slot['remainNum']}, available={slot['available']}")
+                print(f"    ✅ {test_case['time']}: appointFlag={slot['appointFlag']}, remainNum={slot['remainNum']}, available={slot['available']}")
             else:
-                print(f"  ❌ {test_case['time']}: 数据不匹配")
-                print(f"      预期: flag={test_case['expected_flag']}, remain={test_case['expected_remain']}, available={test_case['expected_available']}")
-                print(f"      实际: flag={slot['appointFlag']}, remain={slot['remainNum']}, available={slot['available']}")
+                print(f"    ❌ {test_case['time']}: 数据不匹配")
+                print(f"        预期: flag={test_case['expected_flag']}, remain={test_case['expected_remain']}, available={test_case['expected_available']}")
+                print(f"        实际: flag={slot['appointFlag']}, remain={slot['remainNum']}, available={slot['available']}")
         else:
-            print(f"  ⚠️ {test_case['time']}: 未找到对应时段数据")
+            print(f"    ⚠️ {test_case['time']}: 未找到对应时段数据")
+    
+    # 检查3号和4号场地的18-21时段
+    suspect_courts = ['3号场', '4号场']
+    suspect_times = ['18-19', '19-20', '20-21']
+    
+    for court_name in suspect_courts:
+        court_slots = all_courts_info.get(court_name, [])
+        print(f"  📍 {court_name} 18-21时段检查:")
+        
+        for time_str in suspect_times:
+            matching_slots = [slot for slot in court_slots if slot['time'] == time_str]
+            if matching_slots:
+                slot = matching_slots[0]
+                status = "✅ 可预约" if slot['available'] else "❌ 不可预约"
+                print(f"    {time_str}: {status} (flag={slot['appointFlag']}, remain={slot['remainNum']}, price=¥{slot['price']})")
+            else:
+                print(f"    {time_str}: ⚠️ 未找到数据")
+        
+        # 统计该场地18-21时段可预约的数量
+        available_evening_slots = [slot for slot in court_slots 
+                                 if slot['time'] in suspect_times and slot['available']]
+        print(f"    📊 18-21时段可预约: {len(available_evening_slots)}/3 个时段")
 
 def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
     """从深圳市体育中心获取可预订的场地信息"""
