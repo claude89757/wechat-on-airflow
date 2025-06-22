@@ -457,7 +457,7 @@ def check_tennis_courts():
             #         print(f"发送短信失败: {e}")
 
             # 发送微信消息
-            chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+            chat_names = Variable.get("SZ_TYZX_TENNIS_CHATROOMS", default_var="")
             zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
             for contact_name in str(chat_names).splitlines():
                 zacks_up_for_send_msg_list.append({
