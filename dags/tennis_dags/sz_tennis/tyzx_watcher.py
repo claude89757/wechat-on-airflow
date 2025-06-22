@@ -264,8 +264,45 @@ def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
         return data
     
     print(f"合并时间段: {data}")
-    data_in_minutes = sorted([(int(start[:2]) * 60 + int(start[3:]), int(end[:2]) * 60 + int(end[3:]))
-                              for start, end in data])
+    
+    def parse_time_to_minutes(time_str: str) -> int:
+        """将时间字符串转换为分钟数
+        支持多种格式: "07", "07:00", "7", "7:00"
+        """
+        time_str = time_str.strip()
+        if ':' in time_str:
+            # 格式: "07:00"
+            parts = time_str.split(':')
+            hour = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+        else:
+            # 格式: "07"
+            hour = int(time_str)
+            minute = 0
+        return hour * 60 + minute
+    
+    def minutes_to_time_str(minutes: int) -> str:
+        """将分钟数转换为时间字符串"""
+        hour = minutes // 60
+        minute = minutes % 60
+        return f'{hour:02d}:{minute:02d}'
+    
+    # 转换为分钟数并排序
+    data_in_minutes = []
+    for start, end in data:
+        try:
+            start_minutes = parse_time_to_minutes(start)
+            end_minutes = parse_time_to_minutes(end)
+            data_in_minutes.append((start_minutes, end_minutes))
+        except Exception as e:
+            print(f"❌ 解析时间段失败: [{start}, {end}], 错误: {e}")
+            continue
+    
+    if not data_in_minutes:
+        print("❌ 没有有效的时间段可以合并")
+        return []
+    
+    data_in_minutes = sorted(data_in_minutes)
 
     merged_data = []
     start, end = data_in_minutes[0]
@@ -278,7 +315,7 @@ def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
             start, end = next_start, next_end
     merged_data.append((start, end))
 
-    result = [[f'{start // 60:02d}:{start % 60:02d}', f'{end // 60:02d}:{end % 60:02d}'] for start, end in merged_data]
+    result = [[minutes_to_time_str(start), minutes_to_time_str(end)] for start, end in merged_data]
     print(f"合并后: {result}")
     return result
 
@@ -307,8 +344,25 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
     courts_by_name = {}
     for slot in court_data['body']:
         place_name = slot.get('placeName', '未知场地')
-        start_time = slot.get('startTime', '').replace(':00', '')  # 去掉秒
-        end_time = slot.get('endTime', '').replace(':00', '')
+        # 处理时间格式，确保统一性
+        raw_start_time = slot.get('startTime', '')
+        raw_end_time = slot.get('endTime', '')
+        
+        # 标准化时间格式：从 "07:00:00" 或 "07:00" 格式提取小时
+        def extract_hour(time_str):
+            if not time_str:
+                return ''
+            # 分割时间字符串，取第一部分（小时）
+            hour_part = time_str.split(':')[0] if ':' in time_str else time_str
+            return hour_part.zfill(2)  # 确保两位数格式
+        
+        start_time = extract_hour(raw_start_time)
+        end_time = extract_hour(raw_end_time)
+        
+        # 添加调试信息（可选）
+        # if place_name in ['3号场', '4号场'] and raw_start_time in ['07:00:00', '08:00:00', '09:00:00']:
+        #     print(f"DEBUG: {place_name} 原始时间 {raw_start_time}-{raw_end_time} -> 处理后时间 {start_time}-{end_time}")
+        
         appoint_flag = slot.get('appointFlag', 0)
         price_info = slot.get('priceInfoList', [])
         
@@ -323,16 +377,24 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         # 记录所有场地信息（用于统计）
         if place_name not in all_courts_info:
             all_courts_info[place_name] = []
+        
+        # 判断是否可预约的逻辑
+        is_available = (appoint_flag == 1 and remain_num > 0)
+        
         all_courts_info[place_name].append({
             'time': f"{start_time}-{end_time}",
             'appointFlag': appoint_flag,
             'price': price,
             'remainNum': remain_num,
-            'available': appoint_flag == 1 and remain_num > 0
+            'available': is_available
         })
         
+        # 添加调试信息以便排查问题
+        # if place_name in ['3号场', '4号场'] and start_time in ['07', '08', '09']:
+        #     print(f"DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, available={is_available}")
+        
         # 检查是否可预约 (appointFlag=1 表示可预约，remainnum>0 表示有剩余)
-        is_available = (appoint_flag == 1 and remain_num > 0)
+        # is_available = (appoint_flag == 1 and remain_num > 0)  # 这行已经移到上面了
         
         if is_available:
             available_count += 1
@@ -340,6 +402,9 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
                 if place_name not in courts_by_name:
                     courts_by_name[place_name] = []
                 courts_by_name[place_name].append([start_time, end_time])
+                # 调试信息
+                # if place_name in ['3号场', '4号场'] and start_time in ['07', '08', '09']:
+                #     print(f"DEBUG: 添加可用时段 {place_name}: [{start_time}, {end_time}]")
         else:
             unavailable_count += 1
     
@@ -361,7 +426,15 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         print(f"    ❌ 不可预约: {len(unavailable_slots)} 个时段")
         if unavailable_slots:
             for slot in unavailable_slots[:3]:  # 只显示前3个，避免日志太长
-                status = "已满" if slot['appointFlag'] == 1 else "不开放"
+                # 修正状态判断逻辑
+                if slot['appointFlag'] == 1 and slot['remainNum'] == 0:
+                    status = "已满"
+                elif slot['appointFlag'] == 2:
+                    status = "不开放" 
+                elif slot['appointFlag'] == 1 and slot['remainNum'] > 0:
+                    status = "异常(应该可预约)"  # 这种情况不应该出现在不可预约列表中
+                else:
+                    status = f"未知状态(flag={slot['appointFlag']},remain={slot['remainNum']})"
                 print(f"      {slot['time']} ({status}, ¥{slot['price']})")
             if len(unavailable_slots) > 3:
                 print(f"      ... 还有{len(unavailable_slots)-3}个不可预约时段")
@@ -435,11 +508,88 @@ def check_tennis_courts():
 
     # 获取代理列表
     url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
-    response = requests.get(url)
-    text = response.text.strip()
-    proxy_list = [line.strip() for line in text.split("\n")]
-    random.shuffle(proxy_list)
-    print(f"从 {url} 加载了 {len(proxy_list)} 个代理")
+    print(f"🌐 正在获取代理列表: {url}")
+    
+    try:
+        response = requests.get(url, timeout=10)
+        print(f"📡 代理列表请求状态: {response.status_code}")
+        
+        if response.status_code == 200:
+            text = response.text.strip()
+            print(f"📄 原始响应内容长度: {len(text)} 字符")
+            print(f"📋 原始响应前500字符:\n{text[:500]}")
+            
+            # 分割并过滤空行，同时验证代理格式
+            all_lines = text.split("\n")
+            raw_proxies = [line.strip() for line in all_lines if line.strip()]
+            
+            # 简单验证代理格式 (应该包含 : 表示端口)
+            proxy_list = []
+            invalid_lines = []
+            
+            for proxy in raw_proxies:
+                if ':' in proxy and len(proxy.split(':')) >= 2:
+                    # 检查是否包含协议前缀，如果没有则添加
+                    if not proxy.startswith(('http://', 'https://')):
+                        proxy = f"http://{proxy}"
+                    proxy_list.append(proxy)
+                else:
+                    invalid_lines.append(proxy)
+            
+            if invalid_lines:
+                print(f"⚠️ 发现 {len(invalid_lines)} 个格式无效的行:")
+                for invalid in invalid_lines[:3]:  # 只显示前3个
+                    print(f"   ❌ '{invalid}'")
+                if len(invalid_lines) > 3:
+                    print(f"   ... 还有 {len(invalid_lines) - 3} 个无效行")
+            
+            print(f"📊 代理处理统计:")
+            print(f"   🔢 总行数: {len(all_lines)}")
+            print(f"   📝 非空行数: {len(raw_proxies)}")
+            print(f"   ✅ 有效代理: {len(proxy_list)}")
+            print(f"   ❌ 无效格式: {len(invalid_lines)}")
+            print(f"   📭 空行数: {len(all_lines) - len(raw_proxies)}")
+            
+            if proxy_list:
+                print(f"📝 代理示例 (显示前5个):")
+                for i, proxy in enumerate(proxy_list[:5], 1):
+                    print(f"   {i}. {proxy}")
+                if len(proxy_list) > 5:
+                    print(f"   ... 还有 {len(proxy_list) - 5} 个代理")
+            else:
+                print(f"⚠️ 警告: 没有获取到任何有效代理!")
+                
+            random.shuffle(proxy_list)
+            print(f"🔀 代理列表已随机打乱")
+            
+        else:
+            print(f"❌ 代理列表请求失败: HTTP {response.status_code}")
+            print(f"📄 错误响应: {response.text[:200]}")
+            proxy_list = []
+            
+    except Exception as e:
+        print(f"❌ 获取代理列表异常: {e}")
+        proxy_list = []
+    
+    print(f"🎯 最终加载的代理数量: {len(proxy_list)}")
+    
+    # 检查代理数量并处理异常情况
+    if len(proxy_list) == 0:
+        print(f"🚨 没有获取到任何代理!")
+        print(f"🔄 尝试使用备用代理列表...")
+        # 使用一些备用代理
+        backup_proxies = [
+            "http://proxy1.example.com:8080",
+            "http://proxy2.example.com:8080",
+            "http://proxy3.example.com:8080"
+        ]
+        proxy_list = backup_proxies
+        print(f"🆘 使用 {len(proxy_list)} 个备用代理")
+    elif len(proxy_list) < 10:
+        print(f"⚠️ 代理数量较少 ({len(proxy_list)} 个)，可能影响成功率")
+        print(f"💡 建议检查代理源是否正常: {url}")
+    else:
+        print(f"✅ 代理数量充足: {len(proxy_list)} 个")
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
@@ -481,13 +631,23 @@ def check_tennis_courts():
                     
                     # 根据工作日/周末筛选时段
                     for slot in free_slots:
-                        hour_num = int(slot[0].split(':')[0])
-                        if is_weekend:
-                            if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
-                                filtered_slots.append(slot)
-                        else:
-                            if 18 <= hour_num <= 21:  # 工作日关注18点到21点的场地
-                                filtered_slots.append(slot)
+                        # 安全地解析时间格式
+                        try:
+                            start_time_str = slot[0]
+                            if ':' in start_time_str:
+                                hour_num = int(start_time_str.split(':')[0])
+                            else:
+                                hour_num = int(start_time_str)
+                            
+                            if is_weekend:
+                                if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
+                                    filtered_slots.append(slot)
+                            else:
+                                if 18 <= hour_num <= 21:  # 工作日关注18点到21点的场地
+                                    filtered_slots.append(slot)
+                        except (ValueError, IndexError) as e:
+                            print(f"      ⚠️ 解析时间格式失败: {slot}, 错误: {e}")
+                            continue
                     
                     if filtered_slots:
                         total_filtered_slots += len(filtered_slots)
