@@ -381,6 +381,10 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         # 判断是否可预约的逻辑
         is_available = (appoint_flag == 1 and remain_num > 0)
         
+        # 添加调试信息验证判断逻辑（特别针对7号场）
+        if place_name == '7号场' and start_time in ['13', '20']:
+            print(f"🔍 DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, is_available={is_available}")
+        
         all_courts_info[place_name].append({
             'time': f"{start_time}-{end_time}",
             'appointFlag': appoint_flag,
@@ -432,7 +436,8 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
                 elif slot['appointFlag'] == 2:
                     status = "不开放" 
                 elif slot['appointFlag'] == 1 and slot['remainNum'] > 0:
-                    status = "异常(应该可预约)"  # 这种情况不应该出现在不可预约列表中
+                    status = "⚠️ 异常(应该可预约)"  # 这种情况不应该出现在不可预约列表中
+                    print(f"      ⚠️ 发现逻辑错误: {court_name} {slot['time']} appointFlag=1但remainNum={slot['remainNum']}>0 却被标记为不可预约!")
                 else:
                     status = f"未知状态(flag={slot['appointFlag']},remain={slot['remainNum']})"
                 print(f"      {slot['time']} ({status}, ¥{slot['price']})")
@@ -448,7 +453,64 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
     
     print(f"📝 最终可用场地: {len(available_slots_infos)} 个场地有空闲时段")
     
+    # 验证逻辑正确性（针对用户提供的示例数据）
+    verify_court_logic(all_courts_info)
+    
     return available_slots_infos
+
+def verify_court_logic(all_courts_info):
+    """验证场地判断逻辑的正确性"""
+    print(f"\n🔍 验证场地判断逻辑:")
+    
+    # 检查是否有逻辑错误
+    logic_errors = []
+    for court_name, court_slots in all_courts_info.items():
+        for slot in court_slots:
+            # 预期的可用性
+            expected_available = (slot['appointFlag'] == 1 and slot['remainNum'] > 0)
+            actual_available = slot['available']
+            
+            if expected_available != actual_available:
+                logic_errors.append({
+                    'court': court_name,
+                    'time': slot['time'],
+                    'appointFlag': slot['appointFlag'],
+                    'remainNum': slot['remainNum'],
+                    'expected': expected_available,
+                    'actual': actual_available
+                })
+    
+    if logic_errors:
+        print(f"❌ 发现 {len(logic_errors)} 个逻辑错误:")
+        for error in logic_errors[:5]:  # 只显示前5个
+            print(f"  - {error['court']} {error['time']}: flag={error['appointFlag']}, remain={error['remainNum']}, 预期={error['expected']}, 实际={error['actual']}")
+    else:
+        print("✅ 场地判断逻辑验证通过，没有发现错误")
+    
+    # 特别验证7号场的示例数据
+    seven_court_slots = all_courts_info.get('7号场', [])
+    test_cases = [
+        {'time': '13-14', 'expected_flag': 1, 'expected_remain': 1, 'expected_available': True},
+        {'time': '20-21', 'expected_flag': 2, 'expected_remain': 0, 'expected_available': False}
+    ]
+    
+    print(f"\n🎾 验证7号场示例数据:")
+    for test_case in test_cases:
+        matching_slots = [slot for slot in seven_court_slots if slot['time'] == test_case['time']]
+        if matching_slots:
+            slot = matching_slots[0]
+            flag_match = slot['appointFlag'] == test_case['expected_flag']
+            remain_match = slot['remainNum'] == test_case['expected_remain']
+            available_match = slot['available'] == test_case['expected_available']
+            
+            if flag_match and remain_match and available_match:
+                print(f"  ✅ {test_case['time']}: appointFlag={slot['appointFlag']}, remainNum={slot['remainNum']}, available={slot['available']}")
+            else:
+                print(f"  ❌ {test_case['time']}: 数据不匹配")
+                print(f"      预期: flag={test_case['expected_flag']}, remain={test_case['expected_remain']}, available={test_case['expected_available']}")
+                print(f"      实际: flag={slot['appointFlag']}, remain={slot['remainNum']}, available={slot['available']}")
+        else:
+            print(f"  ⚠️ {test_case['time']}: 未找到对应时段数据")
 
 def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
     """从深圳市体育中心获取可预订的场地信息"""
