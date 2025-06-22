@@ -244,19 +244,6 @@ class TennisCourtAPI:
 # DAG 巡检部分
 # ============================
 
-# DAG的默认参数
-default_args = {
-    'owner': 'claude89757',
-    'depends_on_past': False,
-    'start_date': datetime.datetime(2024, 1, 1),
-    'email_on_failure': False,
-    'email_on_retry': False,
-}
-
-def print_with_timestamp(*args, **kwargs):
-    """打印函数带上当前时间戳"""
-    timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]", time.localtime())
-    print(timestamp, *args, **kwargs)
 
 def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
     """将时间段合并"""
@@ -359,10 +346,6 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         start_time = extract_hour(raw_start_time)
         end_time = extract_hour(raw_end_time)
         
-        # 添加调试信息（可选）
-        # if place_name in ['3号场', '4号场'] and raw_start_time in ['07:00:00', '08:00:00', '09:00:00']:
-        #     print(f"DEBUG: {place_name} 原始时间 {raw_start_time}-{raw_end_time} -> 处理后时间 {start_time}-{end_time}")
-        
         appoint_flag = slot.get('appointFlag', 0)
         price_info = slot.get('priceInfoList', [])
         
@@ -385,13 +368,6 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
         
         # 判断是否可预约的逻辑：需要appointFlag=1、有剩余数量、且未被锁定
         is_available = (appoint_flag == 1 and remain_num > 0 and not is_locked)
-        
-        # 添加调试信息验证判断逻辑（重点关注问题时段）
-        if place_name in ['3号场', '4号场', '7号场'] and start_time in ['13', '18', '19', '20', '21']:
-            lock_info = f", locked={is_locked}"
-            if is_locked:
-                lock_info += f"('{lock_remark}', type={lock_object_type})"
-            print(f"🔍 DEBUG: {place_name} {start_time}-{end_time}: appointFlag={appoint_flag}, remainNum={remain_num}, is_available={is_available}, price={price}{lock_info}")
         
         all_courts_info[place_name].append({
             'time': f"{start_time}-{end_time}",
@@ -456,89 +432,8 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
     
     print(f"📝 最终可用场地: {len(available_slots_infos)} 个场地有空闲时段")
     
-    # 验证逻辑正确性（针对用户提供的示例数据）
-    verify_court_logic(all_courts_info)
-    
     return available_slots_infos
 
-def verify_court_logic(all_courts_info):
-    """验证场地判断逻辑的正确性"""
-    print(f"\n🔍 验证场地判断逻辑:")
-    
-    # 检查是否有逻辑错误
-    logic_errors = []
-    for court_name, court_slots in all_courts_info.items():
-        for slot in court_slots:
-            # 预期的可用性：需要appointFlag=1、有剩余数量、且未被锁定
-            expected_available = (slot['appointFlag'] == 1 and slot['remainNum'] > 0 and not slot.get('locked', False))
-            actual_available = slot['available']
-            
-            if expected_available != actual_available:
-                logic_errors.append({
-                    'court': court_name,
-                    'time': slot['time'],
-                    'appointFlag': slot['appointFlag'],
-                    'remainNum': slot['remainNum'],
-                    'expected': expected_available,
-                    'actual': actual_available
-                })
-    
-    if logic_errors:
-        print(f"❌ 发现 {len(logic_errors)} 个逻辑错误:")
-        for error in logic_errors[:5]:  # 只显示前5个
-            print(f"  - {error['court']} {error['time']}: flag={error['appointFlag']}, remain={error['remainNum']}, 预期={error['expected']}, 实际={error['actual']}")
-    else:
-        print("✅ 场地判断逻辑验证通过，没有发现错误")
-    
-    # 特别验证关键场地和时段的数据
-    print(f"\n🎾 验证关键场地数据:")
-    
-    # 验证7号场示例数据
-    seven_court_slots = all_courts_info.get('7号场', [])
-    test_cases_7 = [
-        {'time': '13-14', 'expected_flag': 1, 'expected_remain': 1, 'expected_available': True},
-        {'time': '20-21', 'expected_flag': 2, 'expected_remain': 0, 'expected_available': False}
-    ]
-    
-    print(f"  📍 7号场:")
-    for test_case in test_cases_7:
-        matching_slots = [slot for slot in seven_court_slots if slot['time'] == test_case['time']]
-        if matching_slots:
-            slot = matching_slots[0]
-            flag_match = slot['appointFlag'] == test_case['expected_flag']
-            remain_match = slot['remainNum'] == test_case['expected_remain']
-            available_match = slot['available'] == test_case['expected_available']
-            
-            if flag_match and remain_match and available_match:
-                print(f"    ✅ {test_case['time']}: appointFlag={slot['appointFlag']}, remainNum={slot['remainNum']}, available={slot['available']}")
-            else:
-                print(f"    ❌ {test_case['time']}: 数据不匹配")
-                print(f"        预期: flag={test_case['expected_flag']}, remain={test_case['expected_remain']}, available={test_case['expected_available']}")
-                print(f"        实际: flag={slot['appointFlag']}, remain={slot['remainNum']}, available={slot['available']}")
-        else:
-            print(f"    ⚠️ {test_case['time']}: 未找到对应时段数据")
-    
-    # 检查3号和4号场地的18-21时段
-    suspect_courts = ['3号场', '4号场']
-    suspect_times = ['18-19', '19-20', '20-21']
-    
-    for court_name in suspect_courts:
-        court_slots = all_courts_info.get(court_name, [])
-        print(f"  📍 {court_name} 18-21时段检查:")
-        
-        for time_str in suspect_times:
-            matching_slots = [slot for slot in court_slots if slot['time'] == time_str]
-            if matching_slots:
-                slot = matching_slots[0]
-                status = "✅ 可预约" if slot['available'] else "❌ 不可预约"
-                print(f"    {time_str}: {status} (flag={slot['appointFlag']}, remain={slot['remainNum']}, price=¥{slot['price']})")
-            else:
-                print(f"    {time_str}: ⚠️ 未找到数据")
-        
-        # 统计该场地18-21时段可预约的数量
-        available_evening_slots = [slot for slot in court_slots 
-                                 if slot['time'] in suspect_times and slot['available']]
-        print(f"    📊 18-21时段可预约: {len(available_evening_slots)}/3 个时段")
 
 def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
     """从深圳市体育中心获取可预订的场地信息"""
@@ -587,15 +482,9 @@ def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
         print(f"🚫 所有 {len(proxy_list)} 个代理都失败了")
         raise Exception("所有代理都失败了")
 
-def check_tennis_courts():
-    """主要检查逻辑"""
-    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
-        print("每天0点-8点不巡检")
-        return
-    
-    run_start_time = time.time()
-    print_with_timestamp("开始检查深圳市体育中心网球场...")
 
+def get_proxy_list():
+    """获取代理列表"""
     # 获取代理列表
     url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
     print(f"🌐 正在获取代理列表: {url}")
@@ -662,24 +551,19 @@ def check_tennis_courts():
         proxy_list = []
     
     print(f"🎯 最终加载的代理数量: {len(proxy_list)}")
+    return proxy_list
+
+
+def check_tennis_courts():
+    """主要检查逻辑"""
+    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
+        print("每天0点-8点不巡检")
+        return
     
-    # 检查代理数量并处理异常情况
-    if len(proxy_list) == 0:
-        print(f"🚨 没有获取到任何代理!")
-        print(f"🔄 尝试使用备用代理列表...")
-        # 使用一些备用代理
-        backup_proxies = [
-            "http://proxy1.example.com:8080",
-            "http://proxy2.example.com:8080",
-            "http://proxy3.example.com:8080"
-        ]
-        proxy_list = backup_proxies
-        print(f"🆘 使用 {len(proxy_list)} 个备用代理")
-    elif len(proxy_list) < 10:
-        print(f"⚠️ 代理数量较少 ({len(proxy_list)} 个)，可能影响成功率")
-        print(f"💡 建议检查代理源是否正常: {url}")
-    else:
-        print(f"✅ 代理数量充足: {len(proxy_list)} 个")
+    run_start_time = time.time()
+
+    # 获取代理列表
+    proxy_list = get_proxy_list()
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
@@ -828,16 +712,6 @@ def check_tennis_courts():
             
             all_in_one_msg = "\n".join(up_for_send_msg_list) 
 
-            # # 发送短信
-            # print(f"\n📱 准备发送短信...")
-            # for data in up_for_send_sms_list:
-            #     try:
-            #         phone_num_list = Variable.get("TYZX_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
-            #         print(f"📞 发送短信到 {len(phone_num_list)} 个号码: {data['court_name']} {data['start_time']}-{data['end_time']}")
-            #         send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
-            #     except Exception as e:
-            #         print(f"❌ 发送短信失败: {e}")
-
             # 发送微信消息
             print(f"\n💬 准备发送微信消息...")
             chat_names = Variable.get("SZ_TYZX_TENNIS_CHATROOMS", default_var="")
@@ -884,7 +758,7 @@ def check_tennis_courts():
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
-    print_with_timestamp(f"总耗时：{execution_time:.2f} 秒")
+    print(f"总耗时：{execution_time:.2f} 秒")
 
 # ============================
 # 创建DAG
@@ -892,7 +766,7 @@ def check_tennis_courts():
 
 dag = DAG(
     '深圳市体育中心网球场巡检',
-    default_args=default_args,
+    default_args={'owner': 'claude89757', 'start_date': datetime.datetime(2025, 1, 1)},
     description='深圳市体育中心网球场巡检',
     schedule_interval='*/2 * * * *',  # 每2分钟执行一次
     max_active_runs=1,
