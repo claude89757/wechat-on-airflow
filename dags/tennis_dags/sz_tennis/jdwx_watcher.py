@@ -113,9 +113,10 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
             for file_info in response.json()['data']['array']:
                 available_slots = []
                 for slot in file_info['daySource']:
-                    if not slot['occupy']:  # 修正：查找空闲时间段（occupy为False）
-                        available_slots.append([slot['startTime'], slot['endTime']])  # 修正：使用API返回的endTime
+                    if not slot['occupy']:
+                        available_slots.append([slot['startTime'], slot['endTime']])
                 available_slots_infos[file_info['fieldName']] = merge_time_ranges(available_slots)
+            print(f"available_slots_infos: {available_slots_infos}")
             return available_slots_infos
         else:
             raise Exception(response.text)
@@ -183,7 +184,10 @@ def check_tennis_courts():
                         
                         # 只处理1小时或以上的时间段
                         if duration_minutes < 60:
+                            print(f"slot: {slot}, duration_minutes: {duration_minutes}, skip")
                             continue
+                        else:
+                            print(f"slot: {slot}, duration_minutes: {duration_minutes}, process")
                             
                         if is_weekend:
                             if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
