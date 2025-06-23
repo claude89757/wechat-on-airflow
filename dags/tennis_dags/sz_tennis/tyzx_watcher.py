@@ -680,6 +680,7 @@ def check_tennis_courts():
         
         try:
             court_data = get_free_tennis_court_infos_for_tyzx(input_date, proxy_list)
+            print(f"court_data: {court_data}")
             time.sleep(1)
             
             if not court_data:
@@ -703,15 +704,22 @@ def check_tennis_courts():
                     for slot in free_slots:
                         # 安全地解析时间格式
                         try:
-                            start_hour_num = int(str(slot[0]).split(':')[0])                            
+                           # 检查时间段是否与目标时间范围有重叠
+                            start_time = datetime.datetime.strptime(slot[0], "%H:%M")
+                            end_time = datetime.datetime.strptime(slot[1], "%H:%M")
+                            
                             if is_weekend:
-                                # 周末关注下午和晚上的场地（15-21点）
-                                if 12 <= start_hour_num <= 21:
-                                    filtered_slots.append(slot)
+                                # 周末关注15点到21点的场地
+                                target_start = datetime.datetime.strptime("15:00", "%H:%M")
+                                target_end = datetime.datetime.strptime("21:00", "%H:%M")
                             else:
-                                # 工作日关注晚上的场地（18-21点）
-                                if 18 <= start_hour_num <= 21:
-                                    filtered_slots.append(slot)
+                                # 工作日关注18点到21点的场地
+                                target_start = datetime.datetime.strptime("18:00", "%H:%M")
+                                target_end = datetime.datetime.strptime("21:00", "%H:%M")
+                            
+                            # 判断时间段是否有重叠：max(start1, start2) < min(end1, end2)
+                            if max(start_time, target_start) < min(end_time, target_end):
+                                filtered_slots.append(slot)
                                 
                         except (ValueError, IndexError) as e:
                             print(f"      ⚠️ 解析时间格式失败: {slot}, 错误: {e}")

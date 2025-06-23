@@ -174,9 +174,7 @@ def check_tennis_courts():
                     check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
                     is_weekend = check_date.weekday() >= 5
                     
-                    for slot in free_slots:
-                        hour_num = int(slot[0].split(':')[0])
-                        
+                    for slot in free_slots:                        
                         # 计算时间段长度（分钟）
                         start_time = datetime.datetime.strptime(slot[0], "%H:%M")
                         end_time = datetime.datetime.strptime(slot[1], "%H:%M")
@@ -189,12 +187,22 @@ def check_tennis_courts():
                         else:
                             print(f"slot: {slot}, duration_minutes: {duration_minutes}, process")
                             
+                        # 检查时间段是否与目标时间范围有重叠
+                        start_time = datetime.datetime.strptime(slot[0], "%H:%M")
+                        end_time = datetime.datetime.strptime(slot[1], "%H:%M")
+                        
                         if is_weekend:
-                            if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
-                                filtered_slots.append(slot)
+                            # 周末关注15点到21点的场地
+                            target_start = datetime.datetime.strptime("15:00", "%H:%M")
+                            target_end = datetime.datetime.strptime("21:00", "%H:%M")
                         else:
-                            if 18 <= hour_num <= 21:  # 工作日仍然只关注18点到21点的场地
-                                filtered_slots.append(slot)
+                            # 工作日关注18点到21点的场地
+                            target_start = datetime.datetime.strptime("18:00", "%H:%M")
+                            target_end = datetime.datetime.strptime("21:00", "%H:%M")
+                        
+                        # 判断时间段是否有重叠：max(start1, start2) < min(end1, end2)
+                        if max(start_time, target_start) < min(end_time, target_end):
+                            filtered_slots.append(slot)
                     
                     if filtered_slots:
                         up_for_send_data_list.append({
