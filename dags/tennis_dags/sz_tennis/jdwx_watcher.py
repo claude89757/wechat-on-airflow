@@ -57,55 +57,104 @@ def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
     print(f"merged {result}")
     return result
 
+def update_proxy_cache(proxy: str, success: bool):
+    """更新代理缓存"""
+    cache_key = "JDWX_PROXY_CACHE"
+    try:
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+    except:
+        cached_proxies = []
+    
+    if success:
+        # 成功的代理加入缓存（如果不存在的话）
+        if proxy not in cached_proxies:
+            cached_proxies.insert(0, proxy)  # 插入到最前面
+            cached_proxies = cached_proxies[:10]  # 保持最多10个
+            print(f"添加成功代理到缓存: {proxy}")
+    else:
+        # 失败的代理从缓存中移除
+        if proxy in cached_proxies:
+            cached_proxies.remove(proxy)
+            print(f"从缓存中移除失败代理: {proxy}")
+    
+    Variable.set(cache_key, cached_proxies, serialize_json=True)
+    return cached_proxies
+
 def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
     """从弘金地获取可预订的场地信息"""
     got_response = False
     response = None
-    index_list = list(range(len(proxy_list)))
-    random.shuffle(index_list)
-    print(index_list)
-    for index in index_list:
-        params = {
-            "gymId": "1479063349546192897",
-            "sportsType": "1",
-            "reserveDate": date
-        }
-        headers = {
-            "Host": "gateway.gemdalesports.com",
-            "referer": "https://servicewechat.com/wxf7ae96551d92f600/34/page-frame.html",
-            "xweb_xhr": "1",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                          "(KHTML, like Gecko) Chrome/"
-                          "98.0.4758.102 Safari/537.36 MicroMessenger/6.8.0(0x16080000)"
-                          " NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF XWEB/30626",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "*/*",
-            "Sec-Fetch-Site": "cross-site",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Dest": "empty"
-        }
-        url = "https://gateway.gemdalesports.com/inside-frontend/api/field/fieldReserve"
-        proxy = proxy_list[index]
-        print(f"trying for {index} time for {proxy}")
+    successful_proxy = None
+    
+    # 获取缓存的代理
+    cache_key = "JDWX_PROXY_CACHE"
+    try:
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+    except:
+        cached_proxies = []
+    
+    print(f"缓存的代理数量: {len(cached_proxies)}")
+    
+    # 准备代理列表：优先使用缓存的代理，然后是其他代理
+    remaining_proxies = [p for p in proxy_list if p not in cached_proxies]
+    random.shuffle(remaining_proxies)
+    all_proxies_to_try = cached_proxies + remaining_proxies
+    
+    print(f"总共尝试代理数量: {len(all_proxies_to_try)} (缓存: {len(cached_proxies)}, 其他: {len(remaining_proxies)})")
+    
+    params = {
+        "gymId": "1479063349546192897",
+        "sportsType": "1",
+        "reserveDate": date
+    }
+    headers = {
+        "Host": "gateway.gemdalesports.com",
+        "referer": "https://servicewechat.com/wxf7ae96551d92f600/34/page-frame.html",
+        "xweb_xhr": "1",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/"
+                      "98.0.4758.102 Safari/537.36 MicroMessenger/6.8.0(0x16080000)"
+                      " NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF XWEB/30626",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "*/*",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty"
+    }
+    url = "https://gateway.gemdalesports.com/inside-frontend/api/field/fieldReserve"
+    
+    for index, proxy in enumerate(all_proxies_to_try):
+        is_cached_proxy = proxy in cached_proxies
+        print(f"尝试第 {index + 1} 个代理: {proxy} {'(缓存)' if is_cached_proxy else '(新)'}")
+        
         try:
             proxies = {"https": proxy}
             response = requests.get(url, headers=headers, params=params, proxies=proxies, verify=False, timeout=5)
             if response.status_code == 200 and response.json()['success']:
-                print(f"success for {proxy}")
+                print(f"代理成功: {proxy}")
                 print("--------------------------------")
                 print(response.text)
                 print(response.json())
                 print("--------------------------------")
                 got_response = True
+                successful_proxy = proxy
                 time.sleep(1)
                 break
             else:
-                print(f"failed for {proxy}: {response}")
+                print(f"代理失败: {proxy}, 响应: {response}")
+                # 更新代理缓存：标记为失败
+                update_proxy_cache(proxy, False)
                 continue
         except Exception as error:
-            print(f"failed for {proxy}: {error}")
+            print(f"代理异常: {proxy}, 错误: {error}")
+            # 更新代理缓存：标记为失败
+            update_proxy_cache(proxy, False)
             continue
+    
+    # 如果成功，更新代理缓存
+    if successful_proxy:
+        update_proxy_cache(successful_proxy, True)
 
     if got_response and response:
         if response.json()['data'].get('array'):
@@ -113,7 +162,7 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
             for file_info in response.json()['data']['array']:
                 available_slots = []
                 for slot in file_info['daySource']:
-                    if slot['occupy']:  # 修正：查找空闲时间段（occupy为False）
+                    if slot['occupy']:  # 这里是特殊的逻辑, occupy为True表示空闲
                         available_slots.append([slot['startTime'], slot['endTime']])
                 available_slots_infos[file_info['fieldName']] = merge_time_ranges(available_slots)
             print(f"available_slots_infos: {available_slots_infos}")
