@@ -261,61 +261,6 @@ def handle_video_messages(**context):
 
     return recent_new_msg
 
-
-
-# 定义 DAG
-with DAG(
-    dag_id='appium_wx_msg_watcher',
-    default_args={'owner': 'claude89757'},
-    description='使用Appium SDK自动化微信操作',
-    schedule=timedelta(seconds=20),
-    start_date=datetime(2025, 4, 22),
-    max_active_runs=1,
-    catchup=False,
-    tags=['个人微信'],
-) as dag:
-
-    # 监控聊天消息
-    wx_watcher = PythonOperator(task_id='wx_watcher', python_callable=monitor_chats)
-
-    # 处理文本消息
-    wx_text_handler = PythonOperator(task_id='wx_text_handler', python_callable=handle_text_messages, trigger_rule='none_failed_min_one_success')
-
-    # 处理图片消息
-    wx_image_handler = PythonOperator(task_id='wx_image_handler', python_callable=handle_image_messages)
-
-    # 处理语音消息
-    wx_voice_handler = PythonOperator(task_id='wx_voice_handler', python_callable=handle_voice_messages)
-
-    # 处理视频消息
-    # wx_video_handler_0 = PythonOperator(task_id='wx_video_handler_0', python_callable=handle_video_messages)
-
-    # 保存文本消息到数据库
-    save_text_msg_to_db = PythonOperator(task_id='save_text_msg_to_db', python_callable=save_text_msg_to_db)
-
-    # 保存图片消息到数据库
-    save_image_msg_to_db = PythonOperator(task_id='save_image_msg_to_db', python_callable=save_image_msg_to_db)
-
-    # 保存图片到腾讯云对象存储
-    save_image_to_cos = PythonOperator(task_id='save_image_to_cos', python_callable=save_image_to_cos)
-    
-
-    # 设置依赖关系
-    wx_watcher >> wx_text_handler >> save_text_msg_to_db
-
-    wx_watcher >> wx_image_handler >> wx_text_handler
-    
-    wx_image_handler >> save_image_to_cos >> save_image_msg_to_db
-
-    wx_watcher >> wx_voice_handler
-    # wx_watcher >> wx_video_handler_0
-    # wx_watcher_1 >> wx_video_handler_1
-    # wx_watcher_2 >> wx_video_handler_2
-
-for wx_key, wx_config in WX_CONFIGS.items():
-    dag_id = wx_config['dag_id']
-    globals()[dag_id] = create_wx_watcher_dag_function(wx_key,wx_config)
-
 def create_wx_watcher_dag_function(wx_key,wx_config):
     dag=DAG(
         dag_id=wx_config['dag_id'],
@@ -363,4 +308,10 @@ def create_wx_watcher_dag_function(wx_key,wx_config):
     wx_watcher >> wx_voice_handler
 
     return dag
+
+for wx_key, wx_config in WX_CONFIGS.items():
+    dag_id = wx_config['dag_id']
+    globals()[dag_id] = create_wx_watcher_dag_function(wx_key,wx_config)
+
+
     
