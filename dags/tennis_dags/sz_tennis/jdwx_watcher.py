@@ -113,7 +113,7 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
             for file_info in response.json()['data']['array']:
                 available_slots = []
                 for slot in file_info['daySource']:
-                    if not slot['occupy']:
+                    if slot['occupy']:  # 修正：查找空闲时间段（occupy为False）
                         available_slots.append([slot['startTime'], slot['endTime']])
                 available_slots_infos[file_info['fieldName']] = merge_time_ranges(available_slots)
             print(f"available_slots_infos: {available_slots_infos}")
