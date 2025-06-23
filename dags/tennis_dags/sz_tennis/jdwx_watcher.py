@@ -91,7 +91,7 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
         try:
             proxies = {"https": proxy}
             response = requests.get(url, headers=headers, params=params, proxies=proxies, verify=False, timeout=5)
-            if response.status_code == 200:
+            if response.status_code == 200 and response.json()['success']:
                 print(f"success for {proxy}")
                 print("--------------------------------")
                 print(response.text)
