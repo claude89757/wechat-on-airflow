@@ -623,9 +623,9 @@ def check_tennis_courts():
                             
                             # 检查时段是否与目标时间有重叠
                             if is_weekend:
-                                target_start, target_end = 15, 21  # 周末关注15点到21点
+                                target_start, target_end = 15, 23  # 周末关注15点到22点
                             else:
-                                target_start, target_end = 18, 21  # 工作日关注18点到21点
+                                target_start, target_end = 18, 23  # 工作日关注18点到22点
                             
                             # 判断时段重叠：如果时段的结束时间 > 目标开始时间 且 时段的开始时间 < 目标结束时间
                             if end_hour > target_start and start_hour < target_end:
