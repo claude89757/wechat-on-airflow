@@ -290,20 +290,20 @@ def create_wx_watcher_dag_function(wx_key,wx_config):
     # wx_video_handler = PythonOperator(task_id='wx_video_handler', python_callable=handle_video_messages, op_kwargs=op_kwargs, dag=dag)
 
     # 保存文本消息到数据库
-    save_text_msg_to_db = PythonOperator(task_id='save_text_msg_to_db', python_callable=save_text_msg_to_db, op_kwargs=op_kwargs, dag=dag)
+    save_text_msg_to_db_task = PythonOperator(task_id='save_text_msg_to_db', python_callable=save_text_msg_to_db, op_kwargs=op_kwargs, dag=dag)
 
     # 保存图片消息到数据库
-    save_image_msg_to_db = PythonOperator(task_id='save_image_msg_to_db', python_callable=save_image_msg_to_db, op_kwargs=op_kwargs, dag=dag)
+    save_image_msg_to_db_task = PythonOperator(task_id='save_image_msg_to_db', python_callable=save_image_msg_to_db, op_kwargs=op_kwargs, dag=dag)
 
     # 保存图片到腾讯云对象存储
-    save_image_to_cos = PythonOperator(task_id='save_image_to_cos', python_callable=save_image_to_cos, op_kwargs=op_kwargs, dag=dag)
+    save_image_to_cos_task = PythonOperator(task_id='save_image_to_cos', python_callable=save_image_to_cos, op_kwargs=op_kwargs, dag=dag)
     
     # 设置依赖关系
-    wx_watcher >> wx_text_handler >> save_text_msg_to_db
+    wx_watcher >> wx_text_handler >> save_text_msg_to_db_task
 
     wx_watcher >> wx_image_handler >> wx_text_handler
     
-    wx_image_handler >> save_image_to_cos >> save_image_msg_to_db
+    wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task
 
     wx_watcher >> wx_voice_handler
 
@@ -312,6 +312,3 @@ def create_wx_watcher_dag_function(wx_key,wx_config):
 for wx_key, wx_config in WX_CONFIGS.items():
     dag_id = wx_config['dag_id']
     globals()[dag_id] = create_wx_watcher_dag_function(wx_key,wx_config)
-
-
-    
