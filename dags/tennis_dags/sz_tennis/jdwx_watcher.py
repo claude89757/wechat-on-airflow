@@ -95,6 +95,7 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
                 print(f"success for {proxy}")
                 print("--------------------------------")
                 print(response.text)
+                print(response.json())
                 print("--------------------------------")
                 got_response = True
                 time.sleep(1)
