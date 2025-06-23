@@ -93,6 +93,9 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
             response = requests.get(url, headers=headers, params=params, proxies=proxies, verify=False, timeout=5)
             if response.status_code == 200:
                 print(f"success for {proxy}")
+                print("--------------------------------")
+                print(response.text)
+                print("--------------------------------")
                 got_response = True
                 time.sleep(1)
                 break
