@@ -113,11 +113,8 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
             for file_info in response.json()['data']['array']:
                 available_slots = []
                 for slot in file_info['daySource']:
-                    if slot['occupy']:
-                        time_obj = datetime.datetime.strptime(slot['startTime'], "%H:%M")
-                        new_time_obj = time_obj + datetime.timedelta(hours=1)
-                        end_time_str = new_time_obj.strftime("%H:%M")
-                        available_slots.append([slot['startTime'], end_time_str])
+                    if not slot['occupy']:  # 修正：查找空闲时间段（occupy为False）
+                        available_slots.append([slot['startTime'], slot['endTime']])  # 修正：使用API返回的endTime
                 available_slots_infos[file_info['fieldName']] = merge_time_ranges(available_slots)
             return available_slots_infos
         else:
@@ -150,6 +147,24 @@ def check_tennis_courts():
         print(f"checking {input_date}...")
         try:
             court_data = get_free_tennis_court_infos_for_hjd(input_date, proxy_list)
+            
+            # 打印网球场可预订场地详细信息
+            print_with_timestamp(f"=== {input_date} 可预订场地详细信息 ===")
+            if court_data:
+                for court_name, free_slots in court_data.items():
+                    print_with_timestamp(f"【{court_name}】:")
+                    if free_slots:
+                        for slot in free_slots:
+                            start_time = datetime.datetime.strptime(slot[0], "%H:%M")
+                            end_time = datetime.datetime.strptime(slot[1], "%H:%M")
+                            duration_minutes = (end_time - start_time).total_seconds() / 60
+                            print_with_timestamp(f"  - {slot[0]}-{slot[1]} (时长: {int(duration_minutes)}分钟)")
+                    else:
+                        print_with_timestamp("  - 无可预订时间段")
+            else:
+                print_with_timestamp("无可预订场地数据")
+            print_with_timestamp("=" * 50)
+            
             time.sleep(1)
             
             for court_name, free_slots in court_data.items():
@@ -160,6 +175,16 @@ def check_tennis_courts():
                     
                     for slot in free_slots:
                         hour_num = int(slot[0].split(':')[0])
+                        
+                        # 计算时间段长度（分钟）
+                        start_time = datetime.datetime.strptime(slot[0], "%H:%M")
+                        end_time = datetime.datetime.strptime(slot[1], "%H:%M")
+                        duration_minutes = (end_time - start_time).total_seconds() / 60
+                        
+                        # 只处理1小时或以上的时间段
+                        if duration_minutes < 60:
+                            continue
+                            
                         if is_weekend:
                             if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
                                 filtered_slots.append(slot)
