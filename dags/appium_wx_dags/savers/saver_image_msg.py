@@ -76,7 +76,7 @@ def save_image_msg_to_db(**context):
             save_msg['msg_timestamp'] = convert_time_to_timestamp(message['msg_time'])
             save_msg['msg_datetime'] = datetime.fromtimestamp(save_msg['msg_timestamp']).strftime('%Y-%m-%d %H:%M')
             save_msg['wx_user_name'] = wx_config['wx_name']
-            save_msg['wx_user_id'] = wx_config.get('wxid', '') # 兼容旧配置
+            save_msg['wx_user_id'] = wx_config['wx_user_id']
             save_msg['room_id'] = contact_name # 暂时用会话名称代替房间ID
             save_msg['room_name'] = contact_name
             save_msg['sender_id'] = message['sender'] # 发送者ID，暂时用发送者名称代替

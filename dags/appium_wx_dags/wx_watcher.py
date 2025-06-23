@@ -49,7 +49,8 @@ WX_CONFIGS={
                 "username": "a18100273137"
             },
             "wx_name": "Dr.Liu【ai客户猎手】",
-            "dag_id": "wx_watcher_11"
+            "wx_user_id":"zhuamaomao886",
+            "dag_id": "wx_zhuamaomao886_watcher"
         },
     "wxid2":{
             "appium_url": "http://42.193.193.179:6025",
@@ -63,7 +64,8 @@ WX_CONFIGS={
                 "username": "lucy"
             },
             "wx_name": "LucyAI",
-            "dag_id": "wx_watcher_22"
+            "wx_user_id": "LucyEinstein",
+            "dag_id": "wx_LucyEinstein_watcher"
         }       
 }
 
