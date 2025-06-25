@@ -855,7 +855,7 @@ dag = DAG(
     '深圳市体育中心网球场巡检',
     default_args={'owner': 'claude89757', 'start_date': datetime.datetime(2025, 1, 1)},
     description='深圳市体育中心网球场巡检',
-    schedule_interval='*/2 * * * *',  # 每2分钟执行一次
+    schedule_interval='*/1 * * * *',  # 每2分钟执行一次
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
