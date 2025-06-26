@@ -435,18 +435,88 @@ def parse_tyzx_court_data(court_data: dict) -> dict:
     return available_slots_infos
 
 
+def get_cached_successful_proxies():
+    """获取缓存的成功代理列表"""
+    cache_key = "TYZX_SUCCESSFUL_PROXIES_CACHE"
+    try:
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        print(f"📋 从缓存中获取到 {len(cached_proxies)} 个成功代理")
+        if cached_proxies:
+            print(f"   示例代理: {cached_proxies[:3]}")
+        return cached_proxies
+    except Exception as e:
+        print(f"❌ 获取缓存代理失败: {e}")
+        return []
+
+
+def update_successful_proxy_cache(successful_proxy):
+    """将成功的代理添加到缓存中"""
+    cache_key = "TYZX_SUCCESSFUL_PROXIES_CACHE"
+    try:
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        
+        # 如果代理已存在，先移除（为了更新顺序）
+        if successful_proxy in cached_proxies:
+            cached_proxies.remove(successful_proxy)
+        
+        # 将成功的代理添加到前面
+        cached_proxies.insert(0, successful_proxy)
+        
+        # 保持最多10个代理
+        cached_proxies = cached_proxies[:10]
+        
+        Variable.set(cache_key, cached_proxies, serialize_json=True)
+        print(f"✅ 代理缓存已更新: {successful_proxy} (缓存大小: {len(cached_proxies)})")
+        
+    except Exception as e:
+        print(f"❌ 更新代理缓存失败: {e}")
+
+
+def remove_failed_proxy_from_cache(failed_proxy):
+    """从缓存中移除失败的代理"""
+    cache_key = "TYZX_SUCCESSFUL_PROXIES_CACHE"
+    try:
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        
+        if failed_proxy in cached_proxies:
+            cached_proxies.remove(failed_proxy)
+            Variable.set(cache_key, cached_proxies, serialize_json=True)
+            print(f"🗑️ 已从缓存中移除失败代理: {failed_proxy} (缓存大小: {len(cached_proxies)})")
+        
+    except Exception as e:
+        print(f"❌ 移除失败代理缓存失败: {e}")
+
+
 def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
     """从深圳市体育中心获取可预订的场地信息"""
     print(f"🌐 开始查询 {date} 的场地信息，共有 {len(proxy_list)} 个代理可用")
     
+    # 获取缓存的成功代理，优先使用
+    cached_proxies = get_cached_successful_proxies()
+    
+    # 合并代理列表：缓存的代理在前，新的代理在后
+    all_proxies = cached_proxies.copy()
+    for proxy in proxy_list:
+        if proxy not in all_proxies:
+            all_proxies.append(proxy)
+    
+    print(f"📋 合并后代理总数: {len(all_proxies)} (缓存: {len(cached_proxies)}, 新增: {len(proxy_list) - len([p for p in proxy_list if p in cached_proxies])})")
+    
     got_response = False
     result = None
-    index_list = list(range(len(proxy_list)))
-    random.shuffle(index_list)
+    successful_proxy = None
     
-    for index in index_list:
-        proxy = proxy_list[index]
-        print(f"🔄 尝试第 {index+1} 个代理: {proxy}")
+    # 优先使用缓存的代理（不打乱顺序），然后随机使用其他代理
+    cached_indices = list(range(len(cached_proxies)))
+    other_indices = list(range(len(cached_proxies), len(all_proxies)))
+    random.shuffle(other_indices)
+    
+    all_indices = cached_indices + other_indices
+    
+    for i, index in enumerate(all_indices):
+        proxy = all_proxies[index]
+        proxy_type = "缓存" if index < len(cached_proxies) else "新"
+        print(f"🔄 尝试第 {i+1} 个代理: {proxy} ({proxy_type})")
         
         try:
             api = TennisCourtAPI()
@@ -465,30 +535,43 @@ def get_free_tennis_court_infos_for_tyzx(date: str, proxy_list: list) -> dict:
                 print(f"✅ 代理 {proxy} 请求成功!")
                 print(f"📦 API响应摘要: code={result.get('code')}, msg='{result.get('msg')}', 数据条数={len(result.get('body', []))}")
                 got_response = True
+                successful_proxy = proxy
                 time.sleep(1)
                 break
             else:
                 print(f"❌ 代理 {proxy} 响应无效: code={result.get('code', 'N/A')}, msg='{result.get('msg', 'N/A')}'")
+                # 如果是缓存的代理失败了，从缓存中移除
+                if proxy in cached_proxies:
+                    remove_failed_proxy_from_cache(proxy)
                 continue
                 
         except Exception as e:
             print(f"❌ 代理 {proxy} 请求失败: {e}")
+            # 如果是缓存的代理失败了，从缓存中移除
+            if proxy in cached_proxies:
+                remove_failed_proxy_from_cache(proxy)
             continue
     
-    if got_response and result:
+    if got_response and result and successful_proxy:
+        # 将成功的代理加入缓存
+        update_successful_proxy_cache(successful_proxy)
         print(f"🔍 开始解析 {date} 的场地数据...")
         return parse_tyzx_court_data(result)
     else:
-        print(f"🚫 所有 {len(proxy_list)} 个代理都失败了")
+        print(f"🚫 所有 {len(all_proxies)} 个代理都失败了")
         raise Exception("所有代理都失败了")
 
 
 def get_proxy_list():
-    """获取代理列表"""
-    # 获取代理列表
-    url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
-    print(f"🌐 正在获取代理列表: {url}")
+    """获取代理列表（包含缓存的代理和新获取的代理）"""
+    # 首先获取缓存的成功代理
+    cached_proxies = get_cached_successful_proxies()
     
+    # 获取新的代理列表
+    url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
+    print(f"🌐 正在获取新代理列表: {url}")
+    
+    new_proxy_list = []
     try:
         response = requests.get(url, timeout=10)
         print(f"📡 代理列表请求状态: {response.status_code}")
@@ -503,7 +586,6 @@ def get_proxy_list():
             raw_proxies = [line.strip() for line in all_lines if line.strip()]
             
             # 简单验证代理格式 (应该包含 : 表示端口)
-            proxy_list = []
             invalid_lines = []
             
             for proxy in raw_proxies:
@@ -511,7 +593,7 @@ def get_proxy_list():
                     # 检查是否包含协议前缀，如果没有则添加
                     if not proxy.startswith(('http://', 'https://')):
                         proxy = f"http://{proxy}"
-                    proxy_list.append(proxy)
+                    new_proxy_list.append(proxy)
                 else:
                     invalid_lines.append(proxy)
             
@@ -522,36 +604,50 @@ def get_proxy_list():
                 if len(invalid_lines) > 3:
                     print(f"   ... 还有 {len(invalid_lines) - 3} 个无效行")
             
-            print(f"📊 代理处理统计:")
+            print(f"📊 新代理处理统计:")
             print(f"   🔢 总行数: {len(all_lines)}")
             print(f"   📝 非空行数: {len(raw_proxies)}")
-            print(f"   ✅ 有效代理: {len(proxy_list)}")
+            print(f"   ✅ 有效代理: {len(new_proxy_list)}")
             print(f"   ❌ 无效格式: {len(invalid_lines)}")
             print(f"   📭 空行数: {len(all_lines) - len(raw_proxies)}")
             
-            if proxy_list:
-                print(f"📝 代理示例 (显示前5个):")
-                for i, proxy in enumerate(proxy_list[:5], 1):
+            if new_proxy_list:
+                print(f"📝 新代理示例 (显示前5个):")
+                for i, proxy in enumerate(new_proxy_list[:5], 1):
                     print(f"   {i}. {proxy}")
-                if len(proxy_list) > 5:
-                    print(f"   ... 还有 {len(proxy_list) - 5} 个代理")
+                if len(new_proxy_list) > 5:
+                    print(f"   ... 还有 {len(new_proxy_list) - 5} 个新代理")
             else:
-                print(f"⚠️ 警告: 没有获取到任何有效代理!")
+                print(f"⚠️ 警告: 没有获取到任何有效的新代理!")
                 
-            random.shuffle(proxy_list)
-            print(f"🔀 代理列表已随机打乱")
-            
         else:
             print(f"❌ 代理列表请求失败: HTTP {response.status_code}")
             print(f"📄 错误响应: {response.text[:200]}")
-            proxy_list = []
             
     except Exception as e:
         print(f"❌ 获取代理列表异常: {e}")
-        proxy_list = []
     
-    print(f"🎯 最终加载的代理数量: {len(proxy_list)}")
-    return proxy_list
+    # 合并代理列表：优先使用缓存代理，然后是新代理（去重）
+    final_proxy_list = cached_proxies.copy()
+    new_count = 0
+    for proxy in new_proxy_list:
+        if proxy not in final_proxy_list:
+            final_proxy_list.append(proxy)
+            new_count += 1
+    
+    # 对新代理部分进行随机打乱（保持缓存代理的优先顺序）
+    if len(final_proxy_list) > len(cached_proxies):
+        new_proxies = final_proxy_list[len(cached_proxies):]
+        random.shuffle(new_proxies)
+        final_proxy_list = cached_proxies + new_proxies
+    
+    print(f"📊 最终代理统计:")
+    print(f"   📋 缓存代理: {len(cached_proxies)}")
+    print(f"   🆕 新增代理: {new_count}")
+    print(f"   🎯 总代理数: {len(final_proxy_list)}")
+    print(f"   🔀 新代理已随机打乱")
+    
+    return final_proxy_list
 
 
 def check_tennis_courts():
@@ -584,6 +680,7 @@ def check_tennis_courts():
         
         try:
             court_data = get_free_tennis_court_infos_for_tyzx(input_date, proxy_list)
+            print(f"court_data: {court_data}")
             time.sleep(1)
             
             if not court_data:
@@ -607,32 +704,22 @@ def check_tennis_courts():
                     for slot in free_slots:
                         # 安全地解析时间格式
                         try:
-                            start_time_str = slot[0]
-                            end_time_str = slot[1]
+                           # 检查时间段是否与目标时间范围有重叠
+                            start_time = datetime.datetime.strptime(slot[0], "%H:%M")
+                            end_time = datetime.datetime.strptime(slot[1], "%H:%M")
                             
-                            # 解析开始和结束时间
-                            if ':' in start_time_str:
-                                start_hour = int(start_time_str.split(':')[0])
-                            else:
-                                start_hour = int(start_time_str)
-                            
-                            if ':' in end_time_str:
-                                end_hour = int(end_time_str.split(':')[0])
-                            else:
-                                end_hour = int(end_time_str)
-                            
-                            # 检查时段是否与目标时间有重叠
                             if is_weekend:
-                                target_start, target_end = 15, 21  # 周末关注15点到21点
+                                # 周末关注15点到21点的场地
+                                target_start = datetime.datetime.strptime("15:00", "%H:%M")
+                                target_end = datetime.datetime.strptime("21:00", "%H:%M")
                             else:
-                                target_start, target_end = 18, 21  # 工作日关注18点到21点
+                                # 工作日关注18点到21点的场地
+                                target_start = datetime.datetime.strptime("18:00", "%H:%M")
+                                target_end = datetime.datetime.strptime("21:00", "%H:%M")
                             
-                            # 判断时段重叠：如果时段的结束时间 > 目标开始时间 且 时段的开始时间 < 目标结束时间
-                            if end_hour > target_start and start_hour < target_end:
+                            # 判断时间段是否有重叠：max(start1, start2) < min(end1, end2)
+                            if max(start_time, target_start) < min(end_time, target_end):
                                 filtered_slots.append(slot)
-                                print(f"      ✅ 匹配时段: {slot[0]}-{slot[1]} (时段{start_hour}-{end_hour}h 与 目标{target_start}-{target_end}h 有重叠)")
-                            else:
-                                print(f"      ❌ 跳过时段: {slot[0]}-{slot[1]} (时段{start_hour}-{end_hour}h 与 目标{target_start}-{target_end}h 无重叠)")
                                 
                         except (ValueError, IndexError) as e:
                             print(f"      ⚠️ 解析时间格式失败: {slot}, 错误: {e}")
@@ -768,7 +855,7 @@ dag = DAG(
     '深圳市体育中心网球场巡检',
     default_args={'owner': 'claude89757', 'start_date': datetime.datetime(2025, 1, 1)},
     description='深圳市体育中心网球场巡检',
-    schedule_interval='*/2 * * * *',  # 每2分钟执行一次
+    schedule_interval='*/1 * * * *',  # 每2分钟执行一次
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
