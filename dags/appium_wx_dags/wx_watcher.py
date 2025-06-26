@@ -40,7 +40,7 @@ WX_CONFIGS={
     "wxid1":{
             "appium_url": "http://42.193.193.179:6079",
             "device_name": "ZY22G2V44N",
-            "dify_api_key": "app-JIuoukdsG1rFODEe0YoRWd30",
+            "dify_api_key": "app-TzGPT8eYQHkUyfldYV0CTS0i",
             "dify_api_url": "http://dify.lucyai.sale/v1",
             "login_info": {
                 "device_ip": "42.193.193.179",
