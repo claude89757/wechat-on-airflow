@@ -120,7 +120,7 @@ def get_free_tennis_court_infos_for_sy(date: str, proxy_list: list) -> dict:
         "Sec-Fetch-Site": "cross-site",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
-        "Referer": "https://servicewechat.com/wx4ac7a768ffcdd5ce/21/page-frame.html",
+        # "Referer": "https://servicewechat.com/wx4ac7a768ffcdd5ce/21/page-frame.html",
         "Accept-Language": "zh-CN,zh;q=0.9"
     }
     url = "https://wtt.huangxuansoft.cn/api/mini/venue/make"
@@ -193,7 +193,7 @@ def check_tennis_courts():
     """主要检查逻辑"""
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print("每天0点-8点不巡检")
-        return
+        # return
     
     run_start_time = time.time()
     print_with_timestamp("start to check...")
