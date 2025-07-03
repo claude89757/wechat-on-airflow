@@ -161,6 +161,9 @@ def get_free_tennis_court_infos_for_sk(date: str, proxy_list: list) -> dict:
             # 处理每个场地的可用时间段
             result_data = response_data['data']['result']
             for court_name, slots in result_data.items():
+                if court_name == '网球小场':
+                    # 网球小场不巡检
+                    continue
                 available_slots = []
                 for slot in slots:
                     if slot['status'] == 'Y':  # Y表示可预订
@@ -335,7 +338,7 @@ def check_tennis_courts():
 dag = DAG(
     '深圳蛇口网球场巡检',
     default_args={'owner': 'claude89757', 'start_date': datetime.datetime(2025, 7, 1)},
-    description='蛇口网球场巡检',
+    description='深圳蛇口网球场巡检',
     schedule_interval=timedelta(seconds=120), 
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
