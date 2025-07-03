@@ -36,38 +36,7 @@ from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
 from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
 
-WX_CONFIGS={
-    "wxid1":{
-            "appium_url": "http://42.193.193.179:6079",
-            "device_name": "ZY22G2V44N",
-            "dify_api_key": "app-TzGPT8eYQHkUyfldYV0CTS0i",
-            "dify_api_url": "http://dify.lucyai.sale/v1",
-            "login_info": {
-                "device_ip": "42.193.193.179",
-                "password": "18100273137@123",
-                "port": 10005,
-                "username": "a18100273137"
-            },
-            "wx_name": "Dr.Liu【ai客户猎手】",
-            "wx_user_id":"zhuamaomao886",
-            "dag_id": "wx_person_zhuamaomao886_watcher"
-        },
-    "wxid2":{
-            "appium_url": "http://42.193.193.179:6025",
-            "device_name": "0864cf720705",
-            "dify_api_key": "app-JIuoukdsG1rFODEe0YoRWd30",
-            "dify_api_url": "http://dify.lucyai.sale/v1",
-            "login_info": {
-                "device_ip": "42.193.193.179",
-                "password": "lucyai",
-                "port": 8667,
-                "username": "lucy"
-            },
-            "wx_name": "LucyAI",
-            "wx_user_id": "LucyEinstein",
-            "dag_id": "wx_person_LucyEinstein_watcher"
-        }       
-}
+WX_CONFIGS={}
 
 
 def monitor_chats(**context):
