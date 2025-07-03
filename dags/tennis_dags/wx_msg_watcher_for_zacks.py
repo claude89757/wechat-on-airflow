@@ -30,6 +30,10 @@ from utils.appium.handler_video import upload_file_to_device_via_sftp
 
 
 def monitor_chats(**context):
+    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
+        print("每天0点-8点不巡检")
+        return
+    
     """监控聊天消息"""
     print(f"[WATCHER] 监控聊天消息")
     task_index = int(context['task_instance'].task_id.split('_')[-1])
