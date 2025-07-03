@@ -183,7 +183,7 @@ def task_check_proxies():
     
     available_proxies = []
     max_workers = 50  # 并发线程数，避免过高对目标网站造成压力
-    target_proxy_count = 20  # 目标代理数量
+    target_proxy_count = 50  # 目标代理数量
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # 提交所有任务
