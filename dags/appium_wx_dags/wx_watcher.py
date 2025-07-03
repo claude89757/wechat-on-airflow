@@ -36,7 +36,7 @@ from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
 from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
 
-WX_CONFIGS={}
+WX_CONFIGS = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
 
 
 def monitor_chats(**context):
@@ -232,7 +232,7 @@ def handle_video_messages(**context):
 
     return recent_new_msg
 
-def create_wx_watcher_dag_function(wx_key,wx_config):
+def create_wx_watcher_dag_function(wx_config):
     dag=DAG(
         dag_id=wx_config['dag_id'],
         default_args={'owner': 'claude89757'},
@@ -291,9 +291,7 @@ def create_wx_watcher_dag_function(wx_key,wx_config):
     wx_watcher >> wx_voice_handler  
     return dag
 
-for wx_key, wx_config in WX_CONFIGS.items():
+# 动态创建DAG
+for wx_config in WX_CONFIGS:
     dag_id = wx_config['dag_id']
-    globals()[dag_id] = create_wx_watcher_dag_function(wx_key,wx_config)
-
-
-    
+    globals()[dag_id] = create_wx_watcher_dag_function(wx_config)
