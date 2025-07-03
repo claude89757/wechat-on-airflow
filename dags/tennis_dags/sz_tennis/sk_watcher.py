@@ -333,7 +333,7 @@ def check_tennis_courts():
 
 # 创建DAG
 dag = DAG(
-    '蛇口网球场巡检',
+    '深圳蛇口网球场巡检',
     default_args={'owner': 'claude89757', 'start_date': datetime.datetime(2025, 7, 1)},
     description='蛇口网球场巡检',
     schedule_interval=timedelta(seconds=120), 
