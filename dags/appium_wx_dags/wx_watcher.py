@@ -36,7 +36,7 @@ from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
 from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
 
-WX_CONFIGS = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
+WX_CONFIGS = Variable.get("WX_CONFIG_LIST", default_var=[], deserialize_json=True)
 
 
 def monitor_chats(**context):
