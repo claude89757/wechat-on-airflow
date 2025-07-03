@@ -271,7 +271,7 @@ def check_tennis_courts():
     print(f"up_for_send_data_list: {up_for_send_data_list}")
     # 处理通知逻辑
     if up_for_send_data_list:
-        cache_key = "蛇口网球场"
+        cache_key = "深圳蛇口网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
         up_for_send_msg_list = []
         up_for_send_sms_list = []
