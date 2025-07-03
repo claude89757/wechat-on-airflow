@@ -11,7 +11,9 @@
 import os
 import random
 import base64
+import concurrent.futures
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 第三方库导入
 import requests
@@ -59,8 +61,27 @@ def is_valid_proxy(proxy):
     ip, port = parts
     return ip.count('.') == 3 and port.isdigit()
 
+def check_proxy_with_info(proxy, proxy_url_infos):
+    """检查代理是否可用，返回详细信息"""
+    try:
+        # 检查代理时不使用系统代理
+        response = requests.get("https://www.baidu.com/", proxies={"https": proxy}, timeout=3)
+        if response.status_code == 200:
+            return {
+                'proxy': proxy,
+                'status': 'success',
+                'source': proxy_url_infos.get(proxy)
+            }
+    except Exception:
+        pass
+    return {
+        'proxy': proxy,
+        'status': 'failed',
+        'source': proxy_url_infos.get(proxy)
+    }
+
 def check_proxy(candidate_proxy, proxy_url_infos):
-    """检查代理是否可用"""
+    """检查代理是否可用（保留原函数以兼容）"""
     try:
         # 检查代理时不使用系统代理
         response = requests.get("https://www.baidu.com/", proxies={"https": candidate_proxy}, timeout=3)
@@ -97,7 +118,7 @@ def update_proxy_file(filename, available_proxies):
             all_proxies.append(proxy)
 
     # 只保留最新的100个代理
-    latest_proxies = all_proxies[:50]
+    latest_proxies = all_proxies[:100]
 
     # 写入文件
     with open(filename, "w") as file:
@@ -155,28 +176,54 @@ def get_file_sha(url, headers):
     return None
 
 def task_check_proxies():
-    """主任务函数"""
+    """主任务函数 - 使用并发检查代理"""
     download_file()
     proxies, proxy_url_infos = generate_proxies()
-    print(f"start checking {len(proxies)} proxies")
+    print(f"开始并发检查 {len(proxies)} 个代理")
     
     available_proxies = []
-    for proxy in proxies:
-        if check_proxy(proxy, proxy_url_infos):
-            available_proxies.append(proxy)
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            print(f"{now} Available proxies: {len(available_proxies)}")
-            
-            if len(available_proxies) >= 10:
-                # 当收集到足够的代理时才更新文件
-                update_proxy_file(LOCAL_FILENAME, available_proxies)
-                upload_file_to_github(LOCAL_FILENAME)
-                break
+    max_workers = 50  # 并发线程数，避免过高对目标网站造成压力
+    target_proxy_count = 20  # 目标代理数量
     
-    if not available_proxies:
-        print("No available proxies found, keeping existing ones")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_proxy = {
+            executor.submit(check_proxy_with_info, proxy, proxy_url_infos): proxy 
+            for proxy in proxies
+        }
+        
+        print(f"已提交 {len(future_to_proxy)} 个并发检查任务，最大并发数: {max_workers}")
+        
+        try:
+            for future in as_completed(future_to_proxy):
+                result = future.result()
+                if result['status'] == 'success':
+                    available_proxies.append(result['proxy'])
+                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"{now} [OK] {result['proxy']}, 来源: {result['source']}")
+                    print(f"{now} 已找到可用代理: {len(available_proxies)}/{target_proxy_count}")
+                    
+                    if len(available_proxies) >= target_proxy_count:
+                        print(f"已收集到足够的代理 ({len(available_proxies)}个)，停止检查")
+                        # 取消剩余未完成的任务
+                        for f in future_to_proxy:
+                            if not f.done():
+                                f.cancel()
+                        break
+                        
+        except KeyboardInterrupt:
+            print("检查被中断，正在取消剩余任务...")
+            for f in future_to_proxy:
+                f.cancel()
     
-    print("check end.")
+    if available_proxies:
+        print(f"更新代理文件，共 {len(available_proxies)} 个可用代理")
+        update_proxy_file(LOCAL_FILENAME, available_proxies)
+        upload_file_to_github(LOCAL_FILENAME)
+    else:
+        print("未找到可用代理，保持现有代理")
+    
+    print("代理检查完成")
 
 # DAG配置
 default_args = {
@@ -194,7 +241,7 @@ dag = DAG(
     dag_id='HTTPS可用代理巡检',
     default_args=default_args,
     description='A DAG to check and update HTTPS proxies (Sync version)',
-    schedule_interval='*/30 * * * *',
+    schedule_interval='*/5 * * * *',
     start_date=datetime(2024, 1, 1),
     dagrun_timeout=timedelta(minutes=30),
     max_active_runs=1,
