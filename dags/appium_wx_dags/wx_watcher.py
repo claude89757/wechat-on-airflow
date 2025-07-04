@@ -239,7 +239,7 @@ def create_wx_watcher_dag_function(wx_config):
         description='使用Appium SDK自动化微信操作',
         schedule=timedelta(seconds=20),
         start_date=datetime(2025, 4, 22),
-        max_active_runs=1,
+        max_active_runs=5,
         catchup=False,
         tags=['个人微信',wx_config['wx_name']],
     )

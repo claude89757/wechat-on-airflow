@@ -1306,7 +1306,7 @@ class WeChatOperator:
             # TODO(claude89757): 会话存在"有人@我"的消息, 则进入会话获取@我的消息
             
             print(f"[INFO] 发现 {unread_chats} 个带有未读消息的会话")
-            print(f"[INFO] 成功获取了 {len(result)} 个会话的新消息")
+            print(f"[INFO] 成功获取了 {len(result)} 个会话的新消息", result)
             return result
             
         except Exception as e:
