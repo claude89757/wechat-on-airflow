@@ -204,7 +204,7 @@ class WeChatOperator:
             )
             more_btn.click()
             print("[4] 点击更多功能按钮成功")
-            
+            time.sleep(1)# 等待更多功能菜单弹出
             # 点击相册按钮
             print("[5] 正在点击相册按钮...")
             album_btn = WebDriverWait(self.driver, 10).until(
