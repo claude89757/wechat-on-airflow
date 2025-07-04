@@ -29,6 +29,7 @@ from typing import Optional, List, Dict, Union, Tuple
 # 第三方库导入
 import requests
 from airflow import DAG
+import paramiko
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 from airflow.exceptions import AirflowException
