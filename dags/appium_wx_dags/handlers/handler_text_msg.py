@@ -73,7 +73,7 @@ def handle_text_messages(**context):
                         msg= f"{cos_directory}/{msg}"
                 
                 #构建回复消息字典
-                response_msg[contact_name] = response_msg_list
+                response_msg[contact_name] = response_image_list
                 print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg}")    
             else:
                 print(f"[HANDLE] 没有AI回复")
