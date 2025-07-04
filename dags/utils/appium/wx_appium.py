@@ -1195,6 +1195,7 @@ class WeChatOperator:
                             try:
                                 # 获取倒数第i+1条消息
                                 msg_elem = msg_elements[len(msg_elements) - 1 - i]
+                                print(f"[INFO] 获取到消息元素{len(msg_elements) - 1 - i}: {msg_elem}")
 
                                 # 获取消息内容
                                 cur_msg_text = ""
