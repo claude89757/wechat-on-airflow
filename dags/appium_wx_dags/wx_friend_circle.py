@@ -2,13 +2,12 @@ from utils.appium.wx_appium import search_contact_name
 
 with DAG(
     dag_id='friend_circle',
-    default_args={'owner': 'claude89757'},
-    description='使用Appium SDK自动化微信操作',
+    default_args={'owner': 'yuchangongzhu'},
     schedule=timedelta(seconds=20),
     start_date=datetime(2025, 4, 22),
     max_active_runs=1,
     catchup=False,
-    tags=['个人微信'],
+    tags=['个人微信',"/????????"],
 ) as dag:
 
     try:
