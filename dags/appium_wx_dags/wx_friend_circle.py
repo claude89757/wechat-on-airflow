@@ -1,7 +1,7 @@
 from utils.appium.wx_appium import search_contact_name
 
 with DAG(
-    dag_id='wx_friend_circle',
+    dag_id='friend_circle',
     default_args={'owner': 'claude89757'},
     description='使用Appium SDK自动化微信操作',
     schedule=timedelta(seconds=20),
