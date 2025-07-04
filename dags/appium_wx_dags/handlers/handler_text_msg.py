@@ -65,7 +65,7 @@ def handle_text_messages(**context):
                 if filtered_msg_list:
                     send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
                     # 构建回复消息字典
-                    response_msg[contact_name] = filtered_msg_list
+                    response_msg[contact_name] = response_image_list
                 
                
                     
