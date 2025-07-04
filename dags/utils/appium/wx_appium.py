@@ -202,6 +202,7 @@ class WeChatOperator:
                     "//android.widget.ImageButton[contains(@content-desc, '更多功能按钮')]"
                 ))
             )
+            print('更多功能按钮定位成功')
             more_btn.click()
             print("[4] 点击更多功能按钮成功")
             time.sleep(1)# 等待更多功能菜单弹出
