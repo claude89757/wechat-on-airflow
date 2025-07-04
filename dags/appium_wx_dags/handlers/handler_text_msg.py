@@ -66,8 +66,12 @@ def handle_text_messages(**context):
                 if filtered_msg_list:
                     send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
                     # 构建回复消息字典
-                    response_msg[contact_name] = response_image_list
-                
+                    response_msg[contact_name] = response_msg_list
+                #修改xcom中的图片视频消息的结构
+                for msg in response_image_list:
+                    if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
+                        msg= f"{cos_directory}//{msg}"
+                print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg_list}")
                
                     
             else:
