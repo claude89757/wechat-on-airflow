@@ -24,6 +24,7 @@ def handle_text_messages(**context):
     device_name = appium_server_info['device_name']
     appium_url = appium_server_info['appium_url']
     dify_api_url = appium_server_info['dify_api_url']
+    cos_directory = appium_server_info['cos_directory']
     dify_api_key = appium_server_info['dify_api_key']
     login_info = appium_server_info['login_info']
     print(f"[HANDLE] 获取登录信息: {login_info}")
@@ -59,7 +60,7 @@ def handle_text_messages(**context):
                     else:
                         filtered_msg_list.append(msg)
                 for img in response_image_list:
-                    cos_to_device_via_host(cos_url=f'{cos_base_url}{dify_api_key}\\{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
+                    cos_to_device_via_host(cos_url=f'{cos_base_url}{cos_directory}//{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
 
                 # 如果有非图片消息，发送文本消息
                 if filtered_msg_list:
