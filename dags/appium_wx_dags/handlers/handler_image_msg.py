@@ -9,9 +9,12 @@ from utils.appium.wx_appium import download_file_via_sftp
 def handle_image_messages(**context):
     """处理图片消息"""
     print(f"[HANDLE] 处理图片消息")
-    task_index = int(context['task_instance'].task_id.split('_')[-1])
-    appium_server_info = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)[task_index]
-    print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
+    try:
+        appium_server_info = context['wx_config']
+        print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
+    except KeyError:
+        print(f"[HANDLE] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")
+        return {}
 
     wx_name = appium_server_info['wx_name']
     device_name = appium_server_info['device_name']
@@ -21,7 +24,7 @@ def handle_image_messages(**context):
     login_info = appium_server_info['login_info']
 
     # 获取XCOM
-    recent_new_msg = context['ti'].xcom_pull(key=f'image_msg_{task_index}')
+    recent_new_msg = context['ti'].xcom_pull(key='image_msg')
     print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
     
     # 发送消息

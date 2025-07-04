@@ -13,9 +13,12 @@ from utils.appium.wx_appium import send_wx_msg_by_appium
 def handle_text_messages(**context):
     """处理文本消息"""
     print(f"[HANDLE] 处理文本消息")
-    task_index = int(context['task_instance'].task_id.split('_')[-1])
-    appium_server_info = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)[task_index]
-    print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
+    try:
+        appium_server_info = context['wx_config']
+        print(f"[HANDLE] 获取Appium服务器信息: {appium_server_info}")
+    except KeyError:
+        print(f"[HANDLE] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")
+        return {}
 
     wx_name = appium_server_info['wx_name']
     device_name = appium_server_info['device_name']
@@ -24,7 +27,7 @@ def handle_text_messages(**context):
     dify_api_key = appium_server_info['dify_api_key']
 
     # 获取XCOM
-    recent_new_msg = context['ti'].xcom_pull(key=f'text_msg_{task_index}')
+    recent_new_msg = context['ti'].xcom_pull(key='text_msg')
 
     response_msg = {}
     # 检查是否有消息任务，有则处理
@@ -65,7 +68,7 @@ def handle_text_messages(**context):
         print(f"[HANDLE] 没有文本消息处理任务")
 
     # 回复内容保存到XCOM
-    context['ti'].xcom_push(key=f'text_msg_response_{task_index}', value=response_msg)
+    context['ti'].xcom_push(key='text_msg_response', value=response_msg)
 
     return recent_new_msg
 

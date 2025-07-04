@@ -10,7 +10,7 @@ import os
 import time
 import random
 
-from datetime import datetime, timedelta
+import datetime
 
 from airflow import DAG
 from airflow.operators.python import BranchPythonOperator, PythonOperator
@@ -30,6 +30,10 @@ from utils.appium.handler_video import upload_file_to_device_via_sftp
 
 
 def monitor_chats(**context):
+    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
+        print("每天0点-8点不巡检")
+        return
+    
     """监控聊天消息"""
     print(f"[WATCHER] 监控聊天消息")
     task_index = int(context['task_instance'].task_id.split('_')[-1])
@@ -98,7 +102,7 @@ def handle_zacks_up_for_send_msg(**context):
     print(f"[HANDLE] Zacks的待发送消息: {zacks_up_for_send_msg_list}")
 
     # 乱序待发送的消息列表，保证每个群的优先级是随机的
-    random.shuffle(zacks_up_for_send_msg_list)
+    # random.shuffle(zacks_up_for_send_msg_list)
 
     # 发送消息
     zacks_appium_url = context['ti'].xcom_pull(key=f'zacks_appium_url')
@@ -110,6 +114,7 @@ def handle_zacks_up_for_send_msg(**context):
             send_wx_msg_by_appium(zacks_appium_url, zacks_device_name, msg_info['room_name'], [msg_info['msg']])
         except Exception as e:
             print(f"[HANDLE] 发送消息失败: {e}")
+        time.sleep(10)
 
     # 清空Zacks的待发送消息
     Variable.set(f"ZACKS_UP_FOR_SEND_MSG_LIST", [], serialize_json=True)
@@ -351,8 +356,8 @@ with DAG(
     dag_id='appium_wx_msg_watcher_for_zacks',
     default_args={'owner': 'claude89757'},
     description='使用Appium SDK自动化微信操作',
-    schedule=timedelta(seconds=15),
-    start_date=datetime(2025, 4, 22),
+    schedule=datetime.timedelta(seconds=15),
+    start_date=datetime.datetime(2025, 4, 22),
     max_active_runs=1,
     catchup=False,
     tags=['个人微信'],
