@@ -1082,7 +1082,7 @@ class WeChatOperator:
             if not self.is_at_main_page():
                 self.return_to_chats()
                 time.sleep(1)
-            
+                
             # 初始化结果字典
             result = {}
             
@@ -1174,20 +1174,20 @@ class WeChatOperator:
                     # 获取消息内容
                     messages = []
                     try:
-                        # 查找聊天消息列表 - 使用XPath筛选包含联系人头像的消息元素
+                        # 查找聊天消息列表
                         msg_elements = self.driver.find_elements(
                             by=AppiumBy.XPATH,
-                            value=f"//androidx.recyclerview.widget.RecyclerView/android.widget.RelativeLayout[.//android.widget.ImageView[@resource-id='com.tencent.mm:id/bk1' and contains(@content-desc, '{contact_name}')]]"
+                            value="//androidx.recyclerview.widget.RecyclerView/android.widget.RelativeLayout"
                         )
                         
                         # 如果没有找到，尝试另一种元素查找方式
                         if not msg_elements:
                             msg_elements = self.driver.find_elements(
                                 by=AppiumBy.XPATH,
-                                value=f"//android.widget.ListView/android.widget.LinearLayout[.//android.widget.ImageView[@resource-id='com.tencent.mm:id/bk1' and contains(@content-desc, '{contact_name}')]]"
+                                value="//android.widget.ListView/android.widget.LinearLayout"
                             )
                         
-                        print(f"[INFO] 找到 {len(msg_elements)} 条来自 {contact_name} 的消息元素")
+                        print(f"[INFO] 找到 {len(msg_elements)} 条消息元素")
                         
                         # 从最新的消息开始获取，最多获取未读消息数量
                         for i in range(min(unread_count, len(msg_elements))):
