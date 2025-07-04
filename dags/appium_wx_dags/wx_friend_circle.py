@@ -15,7 +15,7 @@ with DAG(
 ) as dag:
     
     # 直接从 Variable 获取配置
-    appium_server_info = Variable.get("wx_config", deserialize_json=True)
+    appium_server_info = Variable.get("WX_CONFIG_LIST", deserialize_json=True)
     
     # 定义操作参数
     op_kwargs = {
