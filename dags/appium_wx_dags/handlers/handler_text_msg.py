@@ -48,6 +48,7 @@ def handle_text_messages(**context):
 
             # AI 回复
             response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
+            print(f"[HANDLE] AI回复内容: {response_msg_list}")
             cos_base_url = Variable.get("COS_BASE_URL")
             if response_msg_list:
                 # 检查并分离图片信息
