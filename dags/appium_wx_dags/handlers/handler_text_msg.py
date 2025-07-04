@@ -54,7 +54,7 @@ def handle_text_messages(**context):
                 filtered_msg_list = []
                 
                 for msg in response_msg_list:
-                    if ".jpg" in msg or ".png" in msg:
+                    if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
                         response_image_list.append(msg)
                     else:
                         filtered_msg_list.append(msg)
