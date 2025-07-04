@@ -69,10 +69,10 @@ def handle_text_messages(**context):
                     
                     
                 #修改xcom中的图片视频消息的结构
-                for msg in response_msg_list:
-                    if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
-                        msg= f"{cos_directory}/{msg}"
-                
+                response_msg_list = [
+                f"{cos_directory}/{filename}"  if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
+                for filename in response_msg_list
+                    ]
                 #构建回复消息字典
                 response_msg[contact_name] = response_msg_list
                 print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg_list}")    
