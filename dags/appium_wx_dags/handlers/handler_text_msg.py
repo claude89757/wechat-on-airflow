@@ -41,9 +41,24 @@ def handle_text_messages(**context):
             response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
             
             if response_msg_list:
-                send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
-                # 构建回复消息字典
-                response_msg[contact_name] = response_msg_list
+                # 检查并分离图片信息
+                response_image_list = []
+                filtered_msg_list = []
+                
+                for msg in response_msg_list:
+                    if ".jpg" in msg or ".png" in msg:
+                        response_image_list.append(msg)
+                    else:
+                        filtered_msg_list.append(msg)
+                
+                # 如果有非图片消息，发送文本消息
+                if filtered_msg_list:
+                    send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
+                    # 构建回复消息字典
+                    response_msg[contact_name] = filtered_msg_list
+                
+               
+                    
             else:
                 print(f"[HANDLE] 没有AI回复")
     else:

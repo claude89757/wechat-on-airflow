@@ -1377,7 +1377,7 @@ class WeChatOperator:
             print('控制器已关闭。')
 
 
-def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name: str, messages: list[str]):
+def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name: str, messages: list[str], response_image_list: list[str]= None):
     """
     发送消息到微信, 支持多条消息
     appium_server_url: Appium服务器URL
@@ -1405,7 +1405,10 @@ def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name
             # 重新启动微信
             wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
             time.sleep(3)
-        
+        if response_image_list:
+            # 发送图片或视频消息
+            print(f"[INFO] 发送 {len(response_image_list)} 张图片或视频消息到 {contact_name}...")
+            wx_operator.send_top_n_image_or_video_msg(contact_name, top_n=len(response_image_list))
         wx_operator.send_message(contact_name=contact_name, messages=messages)
     except Exception as e:
         print(f"[ERROR] 发送消息时出错: {str(e)}")
