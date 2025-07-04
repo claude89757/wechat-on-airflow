@@ -1550,6 +1550,54 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
         if wx_operator:
             wx_operator.close()
 
+
+def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
+    try:
+        # 首先尝试不重启应用
+        print("[INFO] 尝试不重启应用，检查当前是否在微信...")
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False, login_info=login_info)
+        time.sleep(1)
+
+        # 点击搜索按钮
+        print("[1] 正在点击搜索按钮...")
+        search_btn = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
+        )
+        search_btn.click()
+        print("[1] 点击搜索按钮成功")
+            
+        # 输入联系人名称
+        print("[2] 正在输入联系人名称...")
+        search_input = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']"))
+        )
+        search_input.send_keys(contact_name)
+        print("[2] 输入联系人名称成功")
+
+        # 点击联系人
+        print("[3] 正在点击联系人...")
+        contact = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((
+                AppiumBy.XPATH,
+                f"//android.widget.TextView[@text='{contact_name}']"
+            ))
+        )
+        contact.click()
+        print("[3] 成功进入联系人聊天界面")
+        print("[4] 正在点击“更多信息”按钮...")
+        more_info_btn = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.ImageView[@content-desc='更多信息']"))
+        )
+        more_info_btn.click()
+        print("[4] 点击“更多信息”按钮成功")
+
+    except Exception as e:
+        print(f"[ERROR] 搜索联系人时出错: {str(e)}")
+        import traceback
+        print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+        
+
+
 # 测试代码
 if __name__ == "__main__":    
     # 获取Appium服务器URL
