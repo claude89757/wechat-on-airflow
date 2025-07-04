@@ -9,7 +9,7 @@ from airflow.models import Variable
 from utils.dify_sdk import DifyAgent
 # 自定义库
 from utils.appium.wx_appium import send_wx_msg_by_appium
-from common.wx_tools import cos_to_device_via_host
+from appium_wx_dags.common.wx_tools import cos_to_device_via_host
 def handle_text_messages(**context):
     """处理文本消息"""
     print(f"[HANDLE] 处理文本消息")
