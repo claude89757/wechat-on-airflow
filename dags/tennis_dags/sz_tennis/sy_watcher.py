@@ -258,8 +258,8 @@ def check_tennis_courts():
                         end_time = datetime.datetime.strptime(slot[1], "%H:%M")
                         
                         if is_weekend:
-                            # 周末关注15点到21点的场地
-                            target_start = datetime.datetime.strptime("15:00", "%H:%M")
+                            # 周末关注17点到21点的场地
+                            target_start = datetime.datetime.strptime("17:00", "%H:%M")
                             target_end = datetime.datetime.strptime("21:00", "%H:%M")
                         else:
                             # 工作日关注18点到21点的场地
