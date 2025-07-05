@@ -268,7 +268,7 @@ def check_tennis_courts():
                     for slot in free_slots:
                         hour_num = int(slot[0].split(':')[0])
                         if is_weekend:
-                            if 15 <= hour_num <= 21:  # 周末关注15点到21点的场地
+                            if 16 <= hour_num <= 21:  # 周末关注15点到21点的场地
                                 filtered_slots.append(slot)
                         else:
                             if 18 <= hour_num <= 21:  # 工作日仍然只关注18点到21点的场地
