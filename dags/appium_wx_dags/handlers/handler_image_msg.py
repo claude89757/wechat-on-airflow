@@ -4,8 +4,8 @@ from airflow.models import Variable
 # 自定义库
 from utils.dify_sdk import DifyAgent
 from utils.appium.wx_appium import download_file_via_sftp
-
-
+# from common.wx_tools import cos_to_device_via_host
+# from utils.appium.wx_appium import send_top_n_image_or_video_msg_by_appium
 def handle_image_messages(**context):
     """处理图片消息"""
     print(f"[HANDLE] 处理图片消息")
@@ -57,13 +57,23 @@ def handle_image_messages(**context):
         # 这里不发起聊天消息,缓存到Airflow的变量中,等待文字消息来触发
         Variable.set(f"{dify_user_id}_online_img_info", online_img_info, serialize_json=True)
         
-
+       
         # 以下是发送图片消息的逻辑，目前图片消息是缓存，等待文字触发后回复
-
+        # result = cos_to_device_via_host(
+        #     cos_url='https://wx-records-1347723456.cos.ap-guangzhou.myqcloud.com/wx%E5%9B%9E%E5%A4%8D%E5%9B%BE%E7%89%87%E6%A8%A1%E6%9D%BF/sssaaa.jpg',
+        #     host_address=device_ip,
+        #     host_username=username,
+        #     device_id=device_name,
+        #     host_password=password,
+        #     host_port=port
+        # )
+        # if result:
+        #     print(f"[HANDLE] 图片发送到设备成功: {result}")
+        #     send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=1)
         # 上传至appium服务器
         # upload_file_to_device_via_sftp(device_ip, username, password, image_url, image_url, port=port)
         # push_image_to_device(device_ip, username, password, device_name,image_url, image_url, port=port)
         # 发送图片到微信
-        # send_top_n_image_or_video_msg_by_appium(appium_url, device_name, contact_name, top_n=1)
+        
 
     return recent_new_msg

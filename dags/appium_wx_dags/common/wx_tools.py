@@ -22,11 +22,14 @@ from appium_wx_dags.common.mysql_tools import init_wx_chat_records_table
 # 标准库导入
 import os
 import time
+import logging
 from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Union, Tuple
 
 # 第三方库导入
 import requests
 from airflow import DAG
+import paramiko
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 from airflow.exceptions import AirflowException
@@ -39,7 +42,7 @@ from utils.wechat_channl import save_wx_audio
 # 第三方库导入
 from smbclient import register_session, open_file
 
-
+logger = logging.getLogger(__name__)
 # 微信消息类型定义
 WX_MSG_TYPES = {
     0: "朋友圈消息",
@@ -207,6 +210,261 @@ def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:
 
     print(f"返回联系人名称, wxid: {wxid}, 名称: {contact_name}")
     return contact_name
+
+
+
+def download_cos_to_host(
+    cos_url: str,
+    host_address: str,
+    host_username: str,
+    host_password: Optional[str] = None,
+    host_key_path: Optional[str] = None,
+    host_port: int =None,
+    host_save_path: Optional[str] = None
+) -> Optional[str]:
+    """
+    通过SSH在主机上执行命令，直接从腾讯云COS下载文件到主机
+    
+    Args:
+        cos_url: COS对象的URL（带签名的临时URL）
+        host_address: 主机IP地址
+        host_username: 主机用户名
+        host_password: 主机密码（与host_key_path二选一）
+        host_key_path: SSH密钥路径（与host_password二选一）
+        host_port: SSH端口，默认为22
+        host_save_path: 主机上的保存路径
+        
+    Returns:
+        str: 主机上的文件路径，失败则返回None
+    """
+    try:
+        # 创建SSH客户端
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        # 连接主机
+        if host_key_path:
+            private_key = paramiko.RSAKey.from_private_key_file(host_key_path)
+            ssh.connect(host_address, username=host_username, pkey=private_key,port=host_port)
+            logger.info(f"使用SSH密钥连接到主机 {host_address}")
+        else:
+            ssh.connect(host_address, username=host_username, password=host_password,port=host_port)
+            logger.info(f"使用密码连接到主机 {host_address}")
+        
+        # 确定保存路径
+        if not host_save_path:
+            # 获取用户主目录
+            stdin, stdout, stderr = ssh.exec_command("echo $HOME")
+            home_dir = stdout.read().decode().strip()
+            host_save_path = os.path.join(home_dir, "cos_downloads")
+            
+            # 确保目录存在
+            ssh.exec_command(f"mkdir -p {host_save_path}")
+            logger.info(f"在主机上创建目录: {host_save_path}")
+        
+        # 提取文件名
+        filename = cos_url.split('/')[-1].split('?')[0]
+        file_path = os.path.join(host_save_path, filename)
+        
+        # 使用curl下载
+        command = f"curl -s --globoff -o {file_path} '{cos_url}'"
+        logger.info(f"在主机上执行: {command}")
+        stdin, stdout, stderr = ssh.exec_command(command)
+        
+        # 检查是否成功
+        exit_status = stdout.channel.recv_exit_status()
+        if exit_status != 0:
+            error = stderr.read().decode()
+            logger.error(f"下载失败: {error}")
+            raise Exception(f"下载失败: {error}")
+        
+        # 确认文件存在
+        stdin, stdout, stderr = ssh.exec_command(f"ls -l {file_path}")
+        if not stdout.read():
+            logger.error(f"文件下载失败，{file_path}不存在")
+            raise Exception(f"文件下载失败，{file_path}不存在")
+        
+        # 关闭连接
+        ssh.close()
+        
+        logger.info(f"文件已成功下载到主机: {file_path}")
+        return file_path
+        
+    except Exception as e:
+        logger.error(f"下载文件到主机失败: {str(e)}")
+        return None
+
+
+def transfer_from_host_to_device(
+    host_address: str,
+    host_username: str,
+    device_id: str,
+    host_file_path: str,
+    device_path: str = "/sdcard/Pictures/",
+    host_password: Optional[str] = None,
+    host_key_path: Optional[str] = None,
+    host_port: int=None
+) -> Optional[str]:
+    """
+    通过SSH在主机上执行ADB命令，将文件传输到手机
+    
+    Args:
+        host_address: 主机IP地址
+        host_username: 主机用户名
+        device_id: 设备ID
+        host_file_path: 主机上的文件路径
+        device_path: 手机上的保存路径，默认为/sdcard/Pictures/
+        host_password: 主机密码（与host_key_path二选一）
+        host_key_path: 主机SSH密钥路径（与host_password二选一）
+        host_port: SSH端口，默认为22
+        
+    Returns:
+        str: 手机上的文件路径，失败则返回None
+    """
+    try:
+        # 创建SSH客户端
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        # 连接主机
+        if host_key_path:
+            private_key = paramiko.RSAKey.from_private_key_file(host_key_path)
+            ssh.connect(host_address, username=host_username, pkey=private_key,port=host_port)
+            logger.info(f"使用SSH密钥连接到主机 {host_address}")
+        else:
+            ssh.connect(host_address, username=host_username, password=host_password,port=host_port)
+            logger.info(f"使用密码连接到主机 {host_address}")
+        
+        # 构建ADB命令
+        filename = os.path.basename(host_file_path)
+        target_path = f"{device_path}{filename}"
+        push_command = f"adb -s {device_id} push {host_file_path} {target_path}"
+        refresh_command=f"adb -s {device_id} shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/DCIM/Camera/"
+        
+        # 执行ADB命令
+        logger.info(f"在主机上执行上传命令: {push_command}")
+        stdin, stdout, stderr = ssh.exec_command(push_command)
+        
+        # 检查结果
+        exit_status = stdout.channel.recv_exit_status()
+        error = stderr.read().decode()
+        if exit_status != 0 or ("error" in error.lower() and len(error) > 0):
+            logger.error(f"上传失败: {error}")
+            raise Exception(f"上传失败: {error}")
+        
+        # 执行刷新命令
+        logger.info(f"在主机上执行刷新命令: {refresh_command}")
+        refresh_stdin, refresh_stdout, refresh_stderr = ssh.exec_command(refresh_command)
+        
+        # 检查刷新结果
+        refresh_exit_status = refresh_stdout.channel.recv_exit_status()
+        refresh_error = refresh_stderr.read().decode()
+        if refresh_exit_status != 0 or ("error" in refresh_error.lower() and len(refresh_error) > 0):
+            logger.error(f"刷新失败: {refresh_error}")
+            raise Exception(f"刷新失败: {refresh_error}")
+        
+        # 关闭连接
+        ssh.close()
+        
+        logger.info(f"文件已成功传输到手机: {target_path}")
+        return target_path
+        
+    except Exception as e:
+        logger.error(f"传输文件到手机失败: {str(e)}")
+        return None
+
+
+def cos_to_device_via_host(
+    cos_url: str,
+    host_address: str,
+    host_username: str,
+    device_id: str,
+    host_password: Optional[str] = None,
+    host_key_path: Optional[str] = None,
+    host_port: int =None,
+    host_save_path: Optional[str] = None,
+    device_path: str = "/sdcard/DCIM/Camera/",
+    delete_after_transfer: bool = False
+) -> Optional[str]:
+    """
+    完整流程：从腾讯云COS下载到主机，再从主机传输到手机
+    
+    Args:
+        cos_url: COS预签名URL
+        host_address: 主机IP地址
+        host_username: 主机用户名
+        device_id: 设备ID
+        host_password: 主机密码（与host_key_path二选一）
+        host_key_path: SSH密钥路径（与host_password二选一）
+        host_save_path: 主机上的保存路径
+        device_path: 手机上的保存路径，默认为/sdcard/Pictures/
+        delete_after_transfer: 传输后是否删除主机上的文件
+        
+    Returns:
+        str: 手机上的文件路径，失败则返回None
+    """
+    try:
+        print(f"从COS下载到主机: {cos_url}",host_address,host_username,host_password,host_key_path,host_port,host_save_path)
+        # 步骤1：从COS下载到主机
+        host_file_path = download_cos_to_host(
+            cos_url=cos_url,
+            host_address=host_address,
+            host_username=host_username,
+            host_password=host_password,
+            host_key_path=host_key_path,
+            host_port=host_port,
+            host_save_path=host_save_path
+        )
+        
+        if not host_file_path:
+            logger.error("从COS下载到主机失败")
+            return None
+        
+        # 步骤2：从主机传输到手机
+        device_file_path = transfer_from_host_to_device(
+            host_address=host_address,
+            host_username=host_username,
+            device_id=device_id,
+            host_file_path=host_file_path,
+            device_path=device_path,
+            host_password=host_password,
+            host_key_path=host_key_path,
+            host_port=host_port
+        )
+        
+        if not device_file_path:
+            logger.error("从主机传输到手机失败")
+            return None
+        
+        # 步骤3：如果需要，删除主机上的文件
+        if delete_after_transfer:
+            try:
+                # 创建SSH客户端
+                ssh = paramiko.SSHClient()
+                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                
+                # 连接主机
+                if host_key_path:
+                    private_key = paramiko.RSAKey.from_private_key_file(host_key_path)
+                    ssh.connect(host_address, port=host_port, username=host_username, pkey=private_key)
+                else:
+                    ssh.connect(host_address, port=host_port, username=host_username, password=host_password)
+                
+                # 删除文件
+                ssh.exec_command(f"rm {host_file_path}")
+                logger.info(f"已删除主机上的文件: {host_file_path}")
+                
+                # 关闭连接
+                ssh.close()
+            except Exception as e:
+                logger.warning(f"删除主机上的文件失败: {str(e)}")
+        
+        return device_file_path
+        
+    except Exception as e:
+        logger.error(f"完整传输流程失败: {str(e)}")
+        return None
+
 
 
 def upload_image_to_cos(image_file_path: str, wx_user_name: str, wx_user_id: str, room_id: str, context=None):

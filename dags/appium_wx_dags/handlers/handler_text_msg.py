@@ -9,7 +9,7 @@ from airflow.models import Variable
 from utils.dify_sdk import DifyAgent
 # 自定义库
 from utils.appium.wx_appium import send_wx_msg_by_appium
-
+from appium_wx_dags.common.wx_tools import cos_to_device_via_host
 def handle_text_messages(**context):
     """处理文本消息"""
     print(f"[HANDLE] 处理文本消息")
@@ -24,8 +24,14 @@ def handle_text_messages(**context):
     device_name = appium_server_info['device_name']
     appium_url = appium_server_info['appium_url']
     dify_api_url = appium_server_info['dify_api_url']
+    cos_directory = appium_server_info['cos_directory']
     dify_api_key = appium_server_info['dify_api_key']
-
+    login_info = appium_server_info['login_info']
+    print(f"[HANDLE] 获取登录信息: {login_info}")
+    device_ip = login_info["device_ip"]
+    username = login_info["username"]
+    password = login_info["password"]
+    port = login_info["port"]
     # 获取XCOM
     recent_new_msg = context['ti'].xcom_pull(key='text_msg')
 
@@ -42,11 +48,34 @@ def handle_text_messages(**context):
 
             # AI 回复
             response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
-            
+            print(f"[HANDLE] AI回复内容: {response_msg_list}")
+            cos_base_url = Variable.get("COS_BASE_URL")
             if response_msg_list:
-                send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
-                # 构建回复消息字典
+                # 检查并分离图片信息
+                response_image_list = []
+                filtered_msg_list = []
+                
+                for msg in response_msg_list:
+                    if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
+                        response_image_list.append(msg)
+                    else:
+                        filtered_msg_list.append(msg)
+                for img in response_image_list:
+                    cos_to_device_via_host(cos_url=f'{cos_base_url}{cos_directory}//{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
+
+                # 如果有非图片消息，发送文本消息
+                if filtered_msg_list:
+                    send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
+                    
+                    
+                #修改xcom中的图片视频消息的结构
+                response_msg_list = [
+                f"{cos_directory}/{filename}"  if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
+                for filename in response_msg_list
+                    ]
+                #构建回复消息字典
                 response_msg[contact_name] = response_msg_list
+                print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg_list}")    
             else:
                 print(f"[HANDLE] 没有AI回复")
     else:

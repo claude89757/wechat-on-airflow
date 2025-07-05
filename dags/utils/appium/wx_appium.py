@@ -202,9 +202,10 @@ class WeChatOperator:
                     "//android.widget.ImageButton[contains(@content-desc, '更多功能按钮')]"
                 ))
             )
+            print('更多功能按钮定位成功')
             more_btn.click()
             print("[4] 点击更多功能按钮成功")
-            
+            time.sleep(1)# 等待更多功能菜单弹出
             # 点击相册按钮
             print("[5] 正在点击相册按钮...")
             album_btn = WebDriverWait(self.driver, 10).until(
@@ -1194,6 +1195,7 @@ class WeChatOperator:
                             try:
                                 # 获取倒数第i+1条消息
                                 msg_elem = msg_elements[len(msg_elements) - 1 - i]
+                                print(f"[INFO] 获取到消息元素{len(msg_elements) - 1 - i}: {msg_elem}")
 
                                 # 获取消息内容
                                 cur_msg_text = ""
@@ -1306,7 +1308,7 @@ class WeChatOperator:
             # TODO(claude89757): 会话存在"有人@我"的消息, 则进入会话获取@我的消息
             
             print(f"[INFO] 发现 {unread_chats} 个带有未读消息的会话")
-            print(f"[INFO] 成功获取了 {len(result)} 个会话的新消息")
+            print(f"[INFO] 成功获取了 {len(result)} 个会话的新消息", result)
             return result
             
         except Exception as e:
@@ -1377,7 +1379,7 @@ class WeChatOperator:
             print('控制器已关闭。')
 
 
-def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name: str, messages: list[str]):
+def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name: str, messages: list[str], response_image_list: list[str]= None):
     """
     发送消息到微信, 支持多条消息
     appium_server_url: Appium服务器URL
@@ -1405,7 +1407,10 @@ def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name
             # 重新启动微信
             wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
             time.sleep(3)
-        
+        if response_image_list:
+            # 发送图片或视频消息
+            print(f"[INFO] 发送 {len(response_image_list)} 张图片或视频消息到 {contact_name}...")
+            wx_operator.send_top_n_image_or_video_msg(contact_name, top_n=len(response_image_list))
         wx_operator.send_message(contact_name=contact_name, messages=messages)
     except Exception as e:
         print(f"[ERROR] 发送消息时出错: {str(e)}")
@@ -1544,6 +1549,54 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
         # 关闭操作器
         if wx_operator:
             wx_operator.close()
+
+
+def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
+    try:
+        # 首先尝试不重启应用
+        print("[INFO] 尝试不重启应用，检查当前是否在微信...")
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False, login_info=login_info)
+        time.sleep(1)
+
+        # 点击搜索按钮
+        print("[1] 正在点击搜索按钮...")
+        search_btn = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
+        )
+        search_btn.click()
+        print("[1] 点击搜索按钮成功")
+            
+        # 输入联系人名称
+        print("[2] 正在输入联系人名称...")
+        search_input = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']"))
+        )
+        search_input.send_keys(contact_name)
+        print("[2] 输入联系人名称成功")
+
+        # 点击联系人
+        print("[3] 正在点击联系人...")
+        contact = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((
+                AppiumBy.XPATH,
+                f"//android.widget.TextView[@text='{contact_name}']"
+            ))
+        )
+        contact.click()
+        print("[3] 成功进入联系人聊天界面")
+        print("[4] 正在点击“更多信息”按钮...")
+        more_info_btn = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.ImageView[@content-desc='更多信息']"))
+        )
+        more_info_btn.click()
+        print("[4] 点击“更多信息”按钮成功")
+
+    except Exception as e:
+        print(f"[ERROR] 搜索联系人时出错: {str(e)}")
+        import traceback
+        print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+        
+
 
 # 测试代码
 if __name__ == "__main__":    
