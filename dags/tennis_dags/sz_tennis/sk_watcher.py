@@ -341,7 +341,7 @@ dag = DAG(
     description='深圳蛇口网球场巡检',
     schedule_interval=timedelta(seconds=120), 
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=10),
+    dagrun_timeout=timedelta(minutes=20),
     catchup=False,
     tags=['深圳']
 )
