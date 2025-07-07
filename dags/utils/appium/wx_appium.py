@@ -1753,7 +1753,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     # deal_video(wx_operator, detail, content)
                 else:
                     print(f"[INFO] 文本类型内容: {content_desc}")
-                    deal_text(wx_operator, detail, content_desc)
+                    deal_text(wx_operator, detail, content_desc,contact_name)
         
         print("[7] 分析朋友圈成功")
     except Exception as e:
@@ -1763,6 +1763,9 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 
 
 def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: str):
+    print("="*100)
+    print("处理文本类型内容:",content)
+    print("="*100)
     detail.click()
     time.sleep(1)
 
