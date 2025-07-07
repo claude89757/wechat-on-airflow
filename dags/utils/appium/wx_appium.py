@@ -1752,13 +1752,28 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     # 这里调用处理视频的函数
                     # deal_video(wx_operator, detail, content)
                 else:
-                    print(f"[INFO] 未知类型内容: {content_desc}")
+                    print(f"[INFO] 文本类型内容: {content_desc}")
+                    deal_text(wx_operator, detail, content_desc)
         
         print("[7] 分析朋友圈成功")
     except Exception as e:
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
         import traceback
         print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+
+
+def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: str):
+    detail.click()
+    time.sleep(1)
+
+    dify_agent = DifyAgent(api_key=Variable.get("Friend_Circle_Analysis"), base_url=Variable.get("DIFY_BASE_URL"))
+    response_data = dify_agent.create_chat_message(query=content, user_id=f"wxid_{contact_name}", conversation_id="")
+    summary_text = response_data.get("answer", "")
+    print("="*100)
+    print("原始总结内容:",summary_text)
+    print("="*100)
+    
+    wx_operator.driver.press_keycode(4)
 
 def deal_picture(wx_operator: WeChatOperator, detail, content: str):
     detail.click()
