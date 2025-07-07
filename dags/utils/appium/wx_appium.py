@@ -1597,14 +1597,13 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         detail.click()
         print("[5] 点击“细节信息”成功")
 
-        # 点击朋友圈
-        # print("[6] 正在点击朋友圈...")
-        # friend_circle_btn = WebDriverWait(wx_operator.driver, 10).until(
-        #     EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.TextView[@text='朋友圈']"))
-        # )
-        # friend_circle_btn.click()
-        # print("[6] 点击朋友圈成功")
-        self.print_all_elements()
+        print("[6] 正在点击朋友圈...")
+        friend_circle_btn = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.TextView[@text='朋友圈']"))
+        )
+        friend_circle_btn.click()
+        print("[6] 点击朋友圈成功")
+        wx_operator.print_all_elements()
 
     except Exception as e:
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
