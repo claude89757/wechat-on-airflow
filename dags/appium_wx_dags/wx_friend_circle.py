@@ -9,7 +9,8 @@ import os
 appium_server_info = Variable.get("WX_CONFIG_LIST", deserialize_json=True)
 
 def test_search_contact_name(**context):
-    search_contact_name(appium_server_url="http://42.193.193.179:6025", device_name='ZY22FX4H65', contact_name="1ucyEinstein", login_info={})
+    contact_name = context['dag_run'].conf.get('contact_name')
+    search_contact_name(appium_server_url="http://42.193.193.179:6025", device_name='ZY22FX4H65', contact_name=contact_name, login_info={})
 
     
 
