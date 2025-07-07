@@ -1715,16 +1715,13 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         )
         friend_circle_btn.click()
         print("[6] 点击朋友圈成功")
-        print("---search-contact-name---")
-        wx_operator.print_all_elements()
-        print("---search-contact-name-end---")
 
         print("[7] 正在分析朋友圈...")
         friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
-        print(len(friend_circle_details))
+        print("朋友圈详情数量:",len(friend_circle_details))
         for detail in friend_circle_details:
             content_desc = detail.get_attribute('content-desc')
-            print(content_desc)
+            print("朋友圈详情:",content_desc)
             
             # 分类处理
             if content_desc:
@@ -1742,7 +1739,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
                     # 这里调用处理单张图片的函数
-                    # deal_picture(wx_operator, detail, content)
+                    deal_picture(wx_operator, detail, content,contact_name)
                 elif "包含多张图片" in media_type:
                     print(f"[INFO] 发现多张图片内容: {content}")
                     # 这里调用处理多张图片的函数
@@ -1778,10 +1775,17 @@ def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: st
 
     wx_operator.driver.press_keycode(4)
 
-def deal_picture(wx_operator: WeChatOperator, detail, content: str):
+def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name: str):
     detail.click()
     time.sleep(1)
-    wx_operator.print_all_elements()
+
+    dify_agent = DifyAgent(api_key=Variable.get("Friend_Circle_Analysis"), base_url=Variable.get("DIFY_BASE_URL"))
+    response_data = dify_agent.create_chat_message(query=content, user_id=f"wxid_{contact_name}", conversation_id="")
+    summary_text = response_data.get("answer", "")
+    print("="*100)
+    print("原始总结内容:",summary_text)
+    print("="*100)
+
     wx_operator.driver.press_keycode(4)
         
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
