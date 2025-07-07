@@ -22,21 +22,10 @@ with DAG(
     catchup=False,
     tags=['个人微信', "朋友圈"],
 ) as dag:
-    
-    op_kwargs = {
-        'wx_name': appium_server_info['wx_name'],
-        'device_name': appium_server_info['device_name'],
-        'appium_url': appium_server_info['appium_url'],
-        'dify_api_url': appium_server_info['dify_api_url'],
-        'dify_api_key': appium_server_info['dify_api_key'],
-        'login_info': appium_server_info['login_info']
-    }
-    
-    # 搜索联系人
+
     wx_text_handler = PythonOperator(
         task_id='test_search_contact_name', 
-        python_callable=test_search_contact_name, 
-        op_kwargs=op_kwargs,
+        python_callable=test_search_contact_name,
         trigger_rule='none_failed_min_one_success',
         dag=dag
     )
