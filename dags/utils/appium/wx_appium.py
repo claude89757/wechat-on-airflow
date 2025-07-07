@@ -1703,6 +1703,20 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         more_info_btn.click()
         print("[4] 点击“更多信息”按钮成功")
 
+        detail=WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, f"//android.widget.TextView[@text='{contact_name}']"))
+        )
+        detail.click()
+        print("[5] 点击“细节信息”成功")
+
+        print("[6] 正在点击朋友圈...")
+        friend_circle_btn = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.TextView[@text='朋友圈']"))
+        )
+        friend_circle_btn.click()
+        print("[6] 点击朋友圈成功")
+        wx_operator.print_all_elements()
+
     except Exception as e:
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
         import traceback
@@ -1713,11 +1727,11 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 # 测试代码
 if __name__ == "__main__":    
     # 获取Appium服务器URL
-    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:4723')
+    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:6025')
     print(appium_server_url)
 
     # 打印当前页面的XML结构
-    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='ZY22GVV5Z2', force_app_launch=False)
+    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='ZY22FX4H65', force_app_launch=False)
 
     try:
         # time.sleep(5)
@@ -1732,3 +1746,5 @@ if __name__ == "__main__":
     finally:
         # 关闭操作器
         wx1.close()
+
+
