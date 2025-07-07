@@ -1049,6 +1049,117 @@ class WeChatOperator:
         return cur_msg_text, cur_msg_type
         
 
+    def agree_friend_request(self):
+        #自动通过好友请求
+        try:
+            # 确保在微信主页面
+            if not self.is_at_main_page():
+                self.return_to_chats()
+                time.sleep(1)
+            # 定位到第二个RelativeLayout元素
+            try:
+                #定位到通讯录元素
+                AddressBook = self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="(//android.widget.RelativeLayout[@resource-id='com.tencent.mm:id/nvt'])[2]"
+                )
+                print(f"[INFO] 找到RelativeLayout元素: {AddressBook}")
+                
+                # 在该元素下查找TextView元素，为未处理的联系人数量
+                try:
+                    unread_contact_count = int(AddressBook.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/osw']"
+                    ).text)
+                except:
+                    #若找不到元素(小红点)，则表示没有待添加的联系人，返回
+                    print('暂无待添加的联系人')
+                    return True
+                new_friends_list=[]
+                print(f"[INFO] 未添加联系人数量: {unread_contact_count}")
+                #点击进入通讯录页面
+                AddressBook.click()
+                #等待页面加载
+                time.sleep(1)
+                #定位到未处理联系人列表
+                self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/g_9']"
+                ).click()
+                print(f"成功进入未处理联系人列表")
+                
+                #等待页面加载
+                time.sleep(1)
+                #待执行添加好友逻辑的元素列表
+                contact_list = self.driver.find_elements(
+                    by=AppiumBy.ID,
+                    value='com.tencent.mm:id/g_3'
+                )
+                print(contact_list)
+                for ele in contact_list:
+                    friend_name=ele.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/g_4']"
+                    ).text
+                    try:
+                        ele.find_element(
+                            by=AppiumBy.XPATH,
+                            value=".//android.widget.Button[@resource-id='com.tencent.mm:id/g_8' and @text='接受']"
+                        ).click()
+                    except Exception as e:
+                        print(f'联系人{friend_name}已添加')
+                        continue
+                    #等待页面加载
+                    time.sleep(1)
+                    print(f'进入{friend_name}的好友验证界面')
+                    self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="//android.widget.Button[@resource-id='com.tencent.mm:id/g68' and @text='完成']"
+                    ).click()
+                    try:
+                        #以好友界面作为添加成功的判断标准
+                        WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.TextView[@resource-id='com.tencent.mm:id/o3b' and @text='发消息']"
+                        )))   
+                        new_friends_list.append(friend_name)
+                        print(f'添加好友----{friend_name}成功')
+                        #点击左上角返回，回到待添加列表
+                        WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.ImageView[@content-desc='返回']"
+                        ))).click()
+                        #等待页面加载
+                        time.sleep(1)   
+                    except Exception as e :
+                        print(f'添加好友失败----{friend_name}，失败原因:{e}')
+
+                print('所有待通过好友已处理完成!')   
+                #等待页面加载
+                time.sleep(1)    
+                WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.ImageView[@content-desc='返回']"
+                        ))).click()
+                #等待页面加载
+                time.sleep(1)
+                #回到消息页
+                WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "(//android.widget.RelativeLayout[@resource-id='com.tencent.mm:id/nvt'])[1]"
+                        ))).click()  
+                return new_friends_list
+                
+            except Exception as locate_error:
+                print(f"[WARNING] 无法定位到未添加联系人数量元素: {str(locate_error)}")
+                
+        
+        except Exception as e:
+            print(f"[ERROR] 获取未添加联系人数量时出错: {str(e)}")
+            import traceback
+            print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+            return False
+
     def get_recent_new_msg(self):
         """
         获取最近聊天的新消息
@@ -1450,7 +1561,8 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
             # 重新启动微信
             wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True, login_info=login_info)
             time.sleep(3)
-        
+        #自动通过新添加好友
+        new_friend_list=wx_operator.agree_friend_request()  
         # 获取最近新消息
         result = wx_operator.get_recent_new_msg()
 
@@ -1605,17 +1717,14 @@ if __name__ == "__main__":
     print(appium_server_url)
 
     # 打印当前页面的XML结构
-    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='971bd67c0107', force_app_launch=False)
+    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='ZY22GVV5Z2', force_app_launch=False)
 
     try:
-        time.sleep(5)
+        # time.sleep(5)
         # print(wx.driver.page_source)
-        wx1.print_all_elements()
+        # wx1.print_all_elements()
 
-        wx1.send_top_n_image_or_video_msg(contact_name="文件传输助手", top_n=3)
-        # wx1.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
-
-        print(wx1.get_recent_new_msg())
+        wx1.agree_friend_request()
         
     except Exception as e:
         
