@@ -247,7 +247,7 @@ def check_tennis_courts():
                         
                         if is_weekend:
                             # 周末关注15点到21点的场地
-                            target_start = datetime.datetime.strptime("15:00", "%H:%M")
+                            target_start = datetime.datetime.strptime("16:00", "%H:%M")
                             target_end = datetime.datetime.strptime("21:00", "%H:%M")
                         else:
                             # 工作日关注18点到21点的场地
@@ -341,7 +341,7 @@ dag = DAG(
     description='深圳蛇口网球场巡检',
     schedule_interval=timedelta(seconds=120), 
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=10),
+    dagrun_timeout=timedelta(minutes=20),
     catchup=False,
     tags=['深圳']
 )

@@ -242,7 +242,7 @@ def check_tennis_courts():
                         
                         if is_weekend:
                             # 周末关注15点到21点的场地
-                            target_start = datetime.datetime.strptime("15:00", "%H:%M")
+                            target_start = datetime.datetime.strptime("16:00", "%H:%M")
                             target_end = datetime.datetime.strptime("21:00", "%H:%M")
                         else:
                             # 工作日关注18点到21点的场地
@@ -318,7 +318,10 @@ def check_tennis_courts():
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
             zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-            for contact_name in str(chat_names).splitlines():
+            chat_names_list = str(chat_names).splitlines()
+            chat_names_list.insert(0, "Zacks_深圳湾")
+            print(f"chat_names_list: {chat_names_list}")
+            for contact_name in chat_names_list:
                 zacks_up_for_send_msg_list.append({
                     "room_name": contact_name,
                     "msg": all_in_one_msg
