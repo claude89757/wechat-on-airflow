@@ -136,7 +136,7 @@ class WeChatOperator:
                 # 点击发送按钮
                 print(f"[5.{index}] 正在点击发送按钮...")
                 send_btn = self.driver.find_element(
-                    by=AppiumBy.XPATH,
+                   by=AppiumBy.XPATH,
                     value="//android.widget.Button[@text='发送']"
                 )
                 send_btn.click()
@@ -1723,16 +1723,48 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
         print(len(friend_circle_details))
         for detail in friend_circle_details:
-            print(detail.get_attribute('content-desc'))
+            content_desc = detail.get_attribute('content-desc')
+            print(content_desc)
+            
+            # 分类处理
+            if content_desc:
+                # 查找最后一个逗号之后的内容
+                if "，" in content_desc:
+                    parts = content_desc.split("，")
+                    media_type = parts[-1].strip()
+                    content = "，".join(parts[:-1])
+                else:
+                    # 如果没有逗号，则整个内容作为content，没有明确的media_type
+                    content = content_desc
+                    media_type = ""
+                
+                # 根据媒体类型调用不同的处理函数
+                if "包含一张图片" in media_type:
+                    print(f"[INFO] 发现单张图片内容: {content}")
+                    # 这里调用处理单张图片的函数
+                    deal_picture(wx_operator, detail, content)
+                elif "包含多张图片" in media_type:
+                    print(f"[INFO] 发现多张图片内容: {content}")
+                    # 这里调用处理多张图片的函数
+                    # deal_pictures(wx_operator, detail, content)
+                elif "包含一条小视频" in media_type:
+                    print(f"[INFO] 发现视频内容: {content}")
+                    # 这里调用处理视频的函数
+                    # deal_video(wx_operator, detail, content)
+                else:
+                    print(f"[INFO] 未知类型内容: {content_desc}")
+        
         print("[7] 分析朋友圈成功")
-
-
-
-
     except Exception as e:
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
         import traceback
         print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+
+def deal_picture(wx_operator: WeChatOperator, detail: WebElement, content: str):
+    detail.click()
+    time.sleep(1)
+    wx_operator.print_all_elements()
+    wx_operator.driver.press_keycode(4)
         
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     pass
@@ -1760,5 +1792,3 @@ if __name__ == "__main__":
     finally:
         # 关闭操作器
         wx1.close()
-
-
