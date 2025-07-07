@@ -36,6 +36,8 @@ from utils.appium.ssh_control import (
     pull_image_from_device
 )
 
+from airflow.models.variable import Variable
+
 class WeChatOperator:
     def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False, login_info: dict = None):
         """
