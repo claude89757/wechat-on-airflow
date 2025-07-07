@@ -1720,7 +1720,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         print("---search-contact-name-end---")
 
         print("[7] 正在分析朋友圈...")
-        friend_circle_details = wx_operator.driver.find_elements(By.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
+        friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
         print(friend_circle_details.length)
         for detail in friend_circle_details:
             print(detail.get_attribute('content-desc'))
