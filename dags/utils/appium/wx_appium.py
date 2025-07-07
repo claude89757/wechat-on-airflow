@@ -1742,7 +1742,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
                     # 这里调用处理单张图片的函数
-                    deal_picture(wx_operator, detail, content)
+                    # deal_picture(wx_operator, detail, content)
                 elif "包含多张图片" in media_type:
                     print(f"[INFO] 发现多张图片内容: {content}")
                     # 这里调用处理多张图片的函数
@@ -1772,7 +1772,7 @@ def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: st
     print("="*100)
     print("原始总结内容:",summary_text)
     print("="*100)
-    
+
     wx_operator.driver.press_keycode(4)
 
 def deal_picture(wx_operator: WeChatOperator, detail, content: str):
