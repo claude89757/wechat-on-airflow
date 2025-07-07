@@ -16,7 +16,6 @@ def test_search_contact_name(**context):
 with DAG(
     dag_id='wx_friend_circle',
     default_args={'owner': 'yuchangongzhu'},
-    schedule=timedelta(seconds=20),
     start_date=datetime(2025, 4, 22),
     max_active_runs=1,
     catchup=False,
