@@ -1715,13 +1715,27 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         )
         friend_circle_btn.click()
         print("[6] 点击朋友圈成功")
+        print("---search-contact-name---")
         wx_operator.print_all_elements()
+        print("---search-contact-name-end---")
+
+        print("[7] 正在分析朋友圈...")
+        friend_circle_details = wx_operator.driver.find_elements(By.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
+        print(friend_circle_details.length)
+        for detail in friend_circle_details:
+            print(detail.get_attribute('content-desc'))
+        print("[7] 分析朋友圈成功")
+
+
+
 
     except Exception as e:
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
         import traceback
         print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
         
+def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
+    pass
 
 
 # 测试代码
