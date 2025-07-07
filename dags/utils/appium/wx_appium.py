@@ -1601,25 +1601,29 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 # 测试代码
 if __name__ == "__main__":    
     # 获取Appium服务器URL
-    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:4723')
+    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:6025')
     print(appium_server_url)
 
     # 打印当前页面的XML结构
-    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='971bd67c0107', force_app_launch=False)
+    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='ZY22FX4H65', force_app_launch=False)
 
-    try:
-        time.sleep(5)
-        # print(wx.driver.page_source)
-        wx1.print_all_elements()
+    search_contact_name(appium_server_url=appium_server_url, device_name='ZY22FX4H65', contact_name="1ucyEinstein", login_info={})
 
-        wx1.send_top_n_image_or_video_msg(contact_name="文件传输助手", top_n=3)
-        # wx1.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
+    # try:
+    #     time.sleep(5)
+    #     # print(wx.driver.page_source)
+    #     wx1.print_all_elements()
 
-        print(wx1.get_recent_new_msg())
+    #     wx1.send_top_n_image_or_video_msg(contact_name="文件传输助手", top_n=3)
+    #     # wx1.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
+
+    #     print(wx1.get_recent_new_msg())
         
-    except Exception as e:
+    # except Exception as e:
         
-        print(f"运行出错: {str(e)}")
-    finally:
-        # 关闭操作器
-        wx1.close()
+    #     print(f"运行出错: {str(e)}")
+    # finally:
+    #     # 关闭操作器
+    #     wx1.close()
+
+
