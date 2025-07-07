@@ -1760,7 +1760,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         import traceback
         print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
 
-def deal_picture(wx_operator: WeChatOperator, detail: WebElement, content: str):
+def deal_picture(wx_operator: WeChatOperator, detail, content: str):
     detail.click()
     time.sleep(1)
     wx_operator.print_all_elements()
