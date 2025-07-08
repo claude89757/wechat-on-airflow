@@ -1790,7 +1790,7 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
 
     img_elem = wx_operator.driver.find_element(
                 by=AppiumBy.XPATH,
-                value=".//android.widget.ImageView[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
+                value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
             )
     # 保存图片到本地
     print(f"[INFO] 正在保存图片...")
