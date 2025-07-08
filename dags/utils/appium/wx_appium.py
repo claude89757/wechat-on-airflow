@@ -20,6 +20,8 @@ from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from appium.options.android import UiAutomator2Options
+from appium.webdriver.common.touch_action import TouchAction
+
 from xml.etree import ElementTree
 
 from utils.appium.handler_video import (
@@ -1797,9 +1799,9 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
     try:
         img_elem.click()
         time.sleep(1)
-        WebDriverWait(wx_operator.driver, 60).until(
-            EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, '更多信息'))).click()
-
+        actions = TouchAction(wx_operator.driver)
+        actions.long_press(img_elem, duration=1500).perform()  # 长按图片2秒
+        time.sleep(1)
         WebDriverWait(wx_operator.driver, 60). \
             until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
         print(f"[INFO] 图片保存成功")
