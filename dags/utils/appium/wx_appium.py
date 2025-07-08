@@ -1736,6 +1736,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     # 如果没有逗号，则整个内容作为content，没有明确的media_type
                     content = content_desc
                     media_type = ""
+                    deal_text(wx_operator, detail, content,contact_name)
                 
                 # 根据媒体类型调用不同的处理函数
                 if "包含一张图片" in media_type:
@@ -1778,8 +1779,12 @@ def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: st
     wx_operator.driver.press_keycode(4)
 
 def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name: str):
+    print("="*100)
+    print("处理图片类型内容:",content)
+    print("="*100)
     detail.click()
     time.sleep(1)
+    wx_operator.print_all_elements()
 
     dify_agent = DifyAgent(api_key=Variable.get("Friend_Circle_Analysis"), base_url=Variable.get("DIFY_BASE_URL"))
     response_data = dify_agent.create_chat_message(query=content, user_id=f"wxid_{contact_name}", conversation_id="")
