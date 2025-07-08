@@ -1787,7 +1787,24 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
     print("处理图片类型内容:",content)
     detail.click()
     time.sleep(1)
-    wx_operator.print_all_elements()
+
+    img_elem = detail.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.widget.ImageView[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
+            )
+    # 保存图片到本地
+    print(f"[INFO] 正在保存图片...")
+    try:
+        img_elem.click()
+        time.sleep(1)
+        WebDriverWait(wx_operator.driver, 60).until(
+            EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, '更多信息'))).click()
+
+        WebDriverWait(wx_operator.driver, 60). \
+            until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
+        print(f"[INFO] 图片保存成功")
+    except Exception as e:
+        print(f"[ERROR] 保存图片失败: {e}")
 
     # dify_agent = DifyAgent(api_key=Variable.get("Friend_Circle_Analysis"), base_url=Variable.get("DIFY_BASE_URL"))
     # response_data = dify_agent.create_chat_message(query=content, user_id=f"wxid_{contact_name}", conversation_id="")
