@@ -17,7 +17,6 @@ import random
 
 from appium.webdriver.webdriver import WebDriver as AppiumWebDriver
 from appium.webdriver.common.appiumby import AppiumBy
-from appium.webdriver.common.touch_action import TouchAction
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from appium.options.android import UiAutomator2Options
@@ -1803,9 +1802,17 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
             by=AppiumBy.XPATH,
             value=".//android.widget.ImageView[@content-desc='第1页共1页，轻触两下关闭图片'][@resource-id='com.tencent.mm:id/jui']"
         )
-        actions = TouchAction(wx_operator.driver)
-        actions.long_press(touch_elem, duration=1500).perform()  # 长按图片2秒
+        touch_elem_rect = touch_elem.rect
+        x = touch_elem_rect['x'] + touch_elem_rect['width'] / 2
+        y = touch_elem_rect['y'] + touch_elem_rect['height'] / 2
+        
+        wx_operator.driver.execute_script('mobile: longClickGesture', {
+            'x': x,
+            'y': y,
+            'duration': 1500  # 长按1.5秒
+        })
         time.sleep(1)
+        
         WebDriverWait(wx_operator.driver, 60). \
             until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
         print(f"[INFO] 图片保存成功")
