@@ -1788,7 +1788,7 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
     detail.click()
     time.sleep(1)
 
-    img_elem = detail.find_element(
+    img_elem = wx_operator.driver.find_element(
                 by=AppiumBy.XPATH,
                 value=".//android.widget.ImageView[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
             )
