@@ -17,10 +17,10 @@ import random
 
 from appium.webdriver.webdriver import WebDriver as AppiumWebDriver
 from appium.webdriver.common.appiumby import AppiumBy
+from appium.webdriver.common.touch_action import TouchAction
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from appium.options.android import UiAutomator2Options
-from appium.webdriver.common.touch_action import TouchAction
 
 from xml.etree import ElementTree
 
@@ -1799,8 +1799,12 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
     try:
         img_elem.click()
         time.sleep(1)
+        touch_elem = wx_operator.driver.find_element(
+            by=AppiumBy.XPATH,
+            value=".//android.widget.ImageView[@content-desc='第1页共1页，轻触两下关闭图片'][@resource-id='com.tencent.mm:id/jui']"
+        )
         actions = TouchAction(wx_operator.driver)
-        actions.long_press(img_elem, duration=1500).perform()  # 长按图片2秒
+        actions.long_press(touch_elem, duration=1500).perform()  # 长按图片2秒
         time.sleep(1)
         WebDriverWait(wx_operator.driver, 60). \
             until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
