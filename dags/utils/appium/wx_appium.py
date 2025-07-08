@@ -1720,10 +1720,11 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 
         print("[7] 正在分析朋友圈...")
         friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
-        print("朋友圈详情数量:",len(friend_circle_details))
+        frien_circle_texts=wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
+        print("朋友圈视频图片-数量:",len(friend_circle_details))
         for detail in friend_circle_details:
             content_desc = detail.get_attribute('content-desc')
-            print("朋友圈详情:",content_desc)
+            print("详情:",content_desc)
             
             # 分类处理
             if content_desc:
@@ -1736,7 +1737,6 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     # 如果没有逗号，则整个内容作为content，没有明确的media_type
                     content = content_desc
                     media_type = ""
-                    deal_text(wx_operator, detail, content,contact_name)
                 
                 # 根据媒体类型调用不同的处理函数
                 if "包含一张图片" in media_type:
@@ -1752,8 +1752,13 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     # 这里调用处理视频的函数
                     # deal_video(wx_operator, detail, content)
                 else:
-                    print(f"[INFO] 文本类型内容: {content_desc}")
-                    deal_text(wx_operator, detail, content_desc,contact_name)
+                    print(f"[INFO] 未知类型内容: {content_desc}")
+        
+        print("朋友圈文本-数量",len(frien_circle_texts))
+        for text in frien_circle_texts:
+            content=text.text
+            print("详情:",content)
+            deal_text(wx_operator, detail, content,contact_name)
         
         print("[7] 分析朋友圈成功")
     except Exception as e:
