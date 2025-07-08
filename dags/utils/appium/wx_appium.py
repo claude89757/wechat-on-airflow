@@ -1816,6 +1816,7 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
         WebDriverWait(wx_operator.driver, 60). \
             until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
         print(f"[INFO] 图片保存成功")
+        touch_elem.click()
     except Exception as e:
         print(f"[ERROR] 保存图片失败: {e}")
 
