@@ -1813,6 +1813,8 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
         frien_circle_texts=wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
         print("朋友圈视频图片-数量:",len(friend_circle_details))
+
+        dify_img_info_list=[]
         for detail in friend_circle_details:
             content_desc = detail.get_attribute('content-desc')
             print("详情:",content_desc)
@@ -1833,7 +1835,10 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
                     # 这里调用处理单张图片的函数
-                    deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
+                    dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
+                    print("单张图片到dify_img_info:",dify_img_info)
+                    dify_img_info_list.append(dify_img_info)
+
                 elif "包含多张图片" in media_type:
                     print(f"[INFO] 发现多张图片内容: {content}")
                     # 这里调用处理多张图片的函数
@@ -1846,10 +1851,14 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     print(f"[INFO] 未知类型内容: {content_desc}")
         
         print("朋友圈文本-数量",len(frien_circle_texts))
-        # for text in frien_circle_texts:
-        #     content=text.text
-        #     print("详情:",content)
-            # deal_text(wx_operator, detail, content,contact_name)
+
+        dify_text_info_list=[]
+        for text in frien_circle_texts:
+            content=text.text
+            dify_text_info_list.append(content)
+        
+        print("dify_text_info_list:",dify_text_info_list)
+        print("dify_img_info_list:",dify_img_info_list)
         
         print("[7] 分析朋友圈成功")
     except Exception as e:
@@ -1914,7 +1923,6 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
             'y': y,
             'duration': 1500
         })
-        
         WebDriverWait(wx_operator.driver, 60). \
             until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
         print(f"[INFO] 图片保存成功")
@@ -1922,8 +1930,50 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     except Exception as e:
         print(f"[ERROR] 保存图片失败: {e}")
         
-    # 处理图片到dify上
+    # 处理图片到dify上并返回dify文件信息
     # 1. 图片传递
+    local_path = transfer_single_image_from_device(login_info, device_name)
+
+    # 2. 上传图片到Dify
+    dify_api_key = Variable.get("WX_FRIEND_CIRCLE_ANALYSIS")  # 从Airflow变量获取API密钥
+    dify_api_url = Variable.get("DIFY_BASE_URL")  # 从Airflow变量获取API URL
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_api_url)
+    dify_user_id = f"wxid_{contact_name}"
+    try:
+        dify_img_info = dify_agent.upload_file(local_path, dify_user_id)
+        print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
+
+        # dify_files = []
+        # if online_img_info:
+        #       dify_files.append({
+        #           "type": "image" ,
+        #           "transfer_method": "local_file",
+        #           "upload_file_id": online_img_info.get("id", "")
+        #     })
+        
+        # # 获取AI回复
+        # try:
+        #     print(f"[WATCHER] 开始获取AI回复")
+        #     full_answer, metadata = dify_agent.create_chat_message_stream(
+        #             query=content,
+        #             user_id=dify_user_id,
+        #             conversation_id=None,
+        #             files=dify_files,
+        #             inputs={}
+        #         )
+        # except Exception as e:
+        #     raise
+        # print(f"full_answer: {full_answer}")
+        # print(f"metadata: {metadata}")
+    
+    except Exception as e:
+        print(f"[ERROR] 上传图片到Dify失败: {e}")
+
+    #返回朋友圈列表
+    wx_operator.driver.press_keycode(4)
+    return dify_img_info
+
+def transfer_single_image_from_device(login_info: dict, device_name: str):
     device_ip = login_info["device_ip"]
     username = login_info["username"]
     password = login_info["password"]
@@ -1943,47 +1993,9 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     # 主机传递到服务器
     download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
     print(f"[HANDLE] 下载图片到本地: {local_path}")
+    return local_path
 
-    # 2. 上传图片到Dify
-    # 创建DifyAgent实例
-    dify_api_key = Variable.get("WX_FRIEND_CIRCLE_ANALYSIS")  # 从Airflow变量获取API密钥
-    dify_api_url = Variable.get("DIFY_BASE_URL")  # 从Airflow变量获取API URL
-    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_api_url)
-
-    dify_user_id = f"wxid_{contact_name}"
-    # dify回答问题
-    try:
-        online_img_info = dify_agent.upload_file(local_path, dify_user_id)
-        print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
-
-        dify_files = []
-        if online_img_info:
-              dify_files.append({
-                  "type": "image" ,
-                  "transfer_method": "local_file",
-                  "upload_file_id": online_img_info.get("id", "")
-            })
-        
-        # 获取AI回复
-        try:
-            print(f"[WATCHER] 开始获取AI回复")
-            full_answer, metadata = dify_agent.create_chat_message_stream(
-                    query=content,
-                    user_id=dify_user_id,
-                    conversation_id=None,  # 使用新的会话
-                    files=dify_files,
-                    inputs={}
-                )
-        except Exception as e:
-            raise
-        print(f"full_answer: {full_answer}")
-        print(f"metadata: {metadata}")
     
-    except Exception as e:
-        print(f"[ERROR] 上传图片到Dify失败: {e}")
-
-    #返回朋友圈列表
-    wx_operator.driver.press_keycode(4)
     
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     pass
