@@ -1895,19 +1895,14 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_api_url)
 
     # 生成用户ID (可根据您的需求自定义)
-    dify_user_id = f"user_{device_serial}"
+    dify_user_id = f"wxid_{contact_name}"
 
     # 上传图片到Dify
     try:
         online_img_info = dify_agent.upload_file(local_path, dify_user_id)
         print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
-        
-        # 可选：缓存上传结果到Airflow变量
-        Variable.set(f"{dify_user_id}_online_img_info", online_img_info, serialize_json=True)
-
 
         dify_files = []
-        online_img_info = Variable.get(f"{dify_user_id}_online_img_info", default_var={}, deserialize_json=True)
         if  online_img_info:
               dify_files.append({
                   "type": "image" ,
@@ -1932,7 +1927,7 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
 
         wx_operator.driver.press_keycode(4)
     
-        return online_img_info  # 返回上传结果
+        return full_answer
     except Exception as e:
         print(f"[ERROR] 上传图片到Dify失败: {e}")
         return None
