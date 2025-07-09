@@ -1854,13 +1854,52 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
     except Exception as e:
         print(f"[ERROR] 保存图片失败: {e}")
 
+    # 1. 从手机拉取图片到主机
+    device_ip = login_info["device_ip"]
+    username = login_info["username"]
+    password = login_info["password"]
+    port = login_info["port"]
+    device_serial = device_name
+
+    # 手机上的图片路径
+    phone_image_path = "/storage/emulated/0/Pictures/WeiXin/xxx.jpg"
+    # 主机上的保存路径
+    image_name = os.path.basename(phone_image_path)
+    local_path = f"/tmp/image_downloads/{image_name}"
+
+    # 拉取图片到主机
+    pull_image_from_device(device_ip, username, password, device_serial, phone_image_path, local_path, port=port)
+    print(f"[INFO] 从手机拉取图片到主机: {local_path}")
+
+    # 2. 上传图片到Dify
+    # 创建DifyAgent实例
+    dify_api_key = Variable.get("DIFY_API_KEY")  # 从Airflow变量获取API密钥
+    dify_api_url = Variable.get("DIFY_BASE_URL")  # 从Airflow变量获取API URL
+    dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_api_url)
+
+    # 生成用户ID (可根据您的需求自定义)
+    dify_user_id = f"user_{device_serial}"
+
+    # 上传图片到Dify
+    try:
+        online_img_info = dify_agent.upload_file(local_path, dify_user_id)
+        print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
+        
+        # 可选：缓存上传结果到Airflow变量
+        Variable.set(f"{dify_user_id}_online_img_info", online_img_info, serialize_json=True)
+
+        wx_operator.driver.press_keycode(4)
+    
+        return online_img_info  # 返回上传结果
+    except Exception as e:
+        print(f"[ERROR] 上传图片到Dify失败: {e}")
+        return None
+
     # dify_agent = DifyAgent(api_key=Variable.get("Friend_Circle_Analysis"), base_url=Variable.get("DIFY_BASE_URL"))
     # response_data = dify_agent.create_chat_message(query=content, user_id=f"wxid_{contact_name}", conversation_id="")
     # summary_text = response_data.get("answer", "")
     # print("原始总结内容:",summary_text)
-
-    wx_operator.driver.press_keycode(4)
-        
+    
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     pass
 
