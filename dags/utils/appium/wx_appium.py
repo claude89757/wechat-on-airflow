@@ -1852,7 +1852,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         
         print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
 
-        upload_file_text_to_dify(dify_text_info_list,dify_img_info_list)
+        upload_file_text_to_dify(contact_name,dify_text_info_list,dify_img_info_list)
 
         print("[7] 分析朋友圈成功")
 
@@ -1953,7 +1953,7 @@ def transfer_single_image_from_device(login_info: dict, device_name: str):
     print(f"[HANDLE] 下载图片到本地: {local_path}")
     return local_path
 
-def upload_file_text_to_dify(dify_text_info_list:list,dify_img_info_list:list):
+def upload_file_text_to_dify(contact_name:str,dify_text_info_list:list,dify_img_info_list:list):
     dify_files = []
     for dify_img_info in dify_img_info_list:
         dify_files.append({
