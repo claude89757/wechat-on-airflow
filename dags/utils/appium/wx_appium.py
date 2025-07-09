@@ -1905,6 +1905,31 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
         # 可选：缓存上传结果到Airflow变量
         Variable.set(f"{dify_user_id}_online_img_info", online_img_info, serialize_json=True)
 
+
+        dify_files = []
+        online_img_info = Variable.get(f"{dify_user_id}_online_img_info", default_var={}, deserialize_json=True)
+        if  online_img_info:
+              dify_files.append({
+                  "type": "image" ,
+                  "transfer_method": "local_file",
+                  "upload_file_id": online_img_info.get("id", "")
+            })
+        
+        # 获取AI回复
+        try:
+            print(f"[WATCHER] 开始获取AI回复")
+            full_answer, metadata = dify_agent.create_chat_message_stream(
+                    query=content,
+                    user_id=dify_user_id,
+                    conversation_id=None,  # 使用新的会话
+                    files=dify_files,
+                    inputs={}
+                )
+        except Exception as e:
+            raise
+        print(f"full_answer: {full_answer}")
+        print(f"metadata: {metadata}")
+
         wx_operator.driver.press_keycode(4)
     
         return online_img_info  # 返回上传结果
