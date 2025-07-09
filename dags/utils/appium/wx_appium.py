@@ -1873,7 +1873,7 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
 
     # 2. 上传图片到Dify
     # 创建DifyAgent实例
-    dify_api_key = Variable.get("DIFY_API_KEY")  # 从Airflow变量获取API密钥
+    dify_api_key = Variable.get("WX_FRIEND_CIRCLE_ANALYSIS")  # 从Airflow变量获取API密钥
     dify_api_url = Variable.get("DIFY_BASE_URL")  # 从Airflow变量获取API URL
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_api_url)
 
