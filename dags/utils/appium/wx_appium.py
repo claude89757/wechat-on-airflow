@@ -1809,18 +1809,14 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 
 
 def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: str):
-    print("="*100)
     print("处理文本类型内容:",content)
-    print("="*100)
     detail.click()
     time.sleep(1)
 
-    dify_agent = DifyAgent(api_key=Variable.get("Friend_Circle_Analysis"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_agent = DifyAgent(api_key=Variable.get("WX_FRIEND_CIRCLE_ANALYSIS"), base_url=Variable.get("DIFY_BASE_URL"))
     response_data = dify_agent.create_chat_message(query=content, user_id=f"wxid_{contact_name}", conversation_id="")
     summary_text = response_data.get("answer", "")
-    print("="*100)
     print("原始总结内容:",summary_text)
-    print("="*100)
 
     wx_operator.driver.press_keycode(4)
 
@@ -1829,15 +1825,16 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     detail.click()
     time.sleep(1)
 
+    # 点击朋友圈页面的图片
     img_elem = wx_operator.driver.find_element(
                 by=AppiumBy.XPATH,
                 value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
             )
-    # 保存图片到本地
+    # 保存图片到手机
     print(f"[INFO] 正在保存图片...")
     try:
         img_elem.click()
-        time.sleep(1)
+        time.sleep(0.5)
         touch_elem = wx_operator.driver.find_element(
                 by=AppiumBy.XPATH,
                 value=".//android.widget.FrameLayout[@content-desc='第1页共1页，轻触两下关闭图片'][@resource-id='com.tencent.mm:id/pr8']"
@@ -1856,9 +1853,8 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
         wx_operator.driver.execute_script('mobile: longClickGesture', {
             'x': x,
             'y': y,
-            'duration': 1500  # 长按1.5秒
+            'duration': 1500
         })
-        time.sleep(1)
         
         WebDriverWait(wx_operator.driver, 60). \
             until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
@@ -1866,15 +1862,16 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
         touch_elem.click()
     except Exception as e:
         print(f"[ERROR] 保存图片失败: {e}")
-
-    # 1. 从手机拉取图片到主机
+        
+    # 处理图片到dify上
+    # 1. 图片传递
     device_ip = login_info["device_ip"]
     username = login_info["username"]
     password = login_info["password"]
     port = login_info["port"]
     device_serial = device_name
 
-    # 获取图片路径
+    # 获取手机上的图片路径
     image_path = get_image_path(device_ip, username, password, device_serial, port=port)
 
     # 在主机上从手机上pull图片
@@ -1894,10 +1891,8 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     dify_api_url = Variable.get("DIFY_BASE_URL")  # 从Airflow变量获取API URL
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_api_url)
 
-    # 生成用户ID (可根据您的需求自定义)
     dify_user_id = f"wxid_{contact_name}"
-
-    # 上传图片到Dify
+    # dify回答问题
     try:
         online_img_info = dify_agent.upload_file(local_path, dify_user_id)
         print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
@@ -1930,12 +1925,7 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
         return full_answer
     except Exception as e:
         print(f"[ERROR] 上传图片到Dify失败: {e}")
-        return None
-
-    # dify_agent = DifyAgent(api_key=Variable.get("Friend_Circle_Analysis"), base_url=Variable.get("DIFY_BASE_URL"))
-    # response_data = dify_agent.create_chat_message(query=content, user_id=f"wxid_{contact_name}", conversation_id="")
-    # summary_text = response_data.get("answer", "")
-    # print("原始总结内容:",summary_text)
+        
     
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     pass
