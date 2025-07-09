@@ -1837,6 +1837,7 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
             value=".//android.widget.ImageView[@content-desc='第1页共1页，轻触两下关闭图片'][@resource-id='com.tencent.mm:id/jui']"
         )
         touch_elem_rect = touch_elem.rect
+        print("touch_elem_rect:",touch_elem_rect)
         x = touch_elem_rect['x'] + touch_elem_rect['width'] / 2
         y = touch_elem_rect['y'] + touch_elem_rect['height'] / 2
         
