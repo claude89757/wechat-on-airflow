@@ -1885,15 +1885,24 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     try:
         img_elem.click()
         time.sleep(0.5)
-        touch_elem = wx_operator.driver.find_element(
+        touch_elem=None
+        elems = wx_operator.driver.find_elements(
+            by=AppiumBy.XPATH,
+            value="//*[contains(@content-desc, '第1页共1页，轻触两下关闭图片')]"
+        )
+        if elems:
+            touch_elem = elems[0]
+        else:
+            # 可以尝试更宽泛的匹配
+            elems = wx_operator.driver.find_elements(
                 by=AppiumBy.XPATH,
-                value=".//android.widget.FrameLayout[@content-desc='第1页共1页，轻触两下关闭图片'][@resource-id='com.tencent.mm:id/pr8']"
+                value="//*[contains(@content-desc, '轻触两下关闭图片')]"
             )
-        if not touch_elem:
-            touch_elem = wx_operator.driver.find_element(
-                by=AppiumBy.XPATH,
-                value=".//android.widget.ImageView[@content-desc='第1页共1页，轻触两下关闭图片'][@resource-id='com.tencent.mm:id/jui']"
-            )
+            if elems:
+                touch_elem = elems[0]
+            else:
+                print("[ERROR] 找不到关闭图片的元素")
+                touch_elem = None
         
         touch_elem_rect = touch_elem.rect
         print("touch_elem_rect:",touch_elem_rect)
@@ -1969,13 +1978,12 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
             raise
         print(f"full_answer: {full_answer}")
         print(f"metadata: {metadata}")
-
-        wx_operator.driver.press_keycode(4)
     
-        return full_answer
     except Exception as e:
         print(f"[ERROR] 上传图片到Dify失败: {e}")
-        
+
+    #返回朋友圈列表
+    wx_operator.driver.press_keycode(4)
     
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     pass
