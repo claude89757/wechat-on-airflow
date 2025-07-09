@@ -164,7 +164,7 @@ def get_isz_venue_order_list(salesItemId: str, salesId: str, curDate: str, proxy
             try:
                 # 每次请求前重新生成签名
                 print(f"[{i+1}/{len(proxy_list)}] 重新生成签名并发送请求...")
-                nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate, visitor_id)
+                nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, salesId, curDate, visitor_id)
                 
                 if not all([nonce, timestamp, signature, full_url_with_timestamp]):
                     print(f"❌ 签名生成失败，跳过此次请求")
