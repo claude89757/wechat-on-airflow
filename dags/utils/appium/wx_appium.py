@@ -1833,13 +1833,13 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
         img_elem.click()
         time.sleep(1)
         touch_elem = wx_operator.driver.find_element(
-            by=AppiumBy.XPATH,
-            value=".//android.widget.ImageView[@content-desc='第1页共1页，轻触两下关闭图片']"
-        )
+                by=AppiumBy.XPATH,
+                value=".//android.widget.FrameLayout[@content-desc='第1页共1页，轻触两下关闭图片']"
+            )
         if not touch_elem:
             touch_elem = wx_operator.driver.find_element(
                 by=AppiumBy.XPATH,
-                value=".//android.widget.FrameLayout[@content-desc='第1页共1页，轻触两下关闭图片']"
+                value=".//android.widget.ImageView[@content-desc='第1页共1页，轻触两下关闭图片']"
             )
         
         touch_elem_rect = touch_elem.rect
