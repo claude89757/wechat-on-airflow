@@ -1875,15 +1875,25 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     port = login_info["port"]
     device_serial = device_name
 
-    # 手机上的图片路径
-    phone_image_path = "/storage/emulated/0/Pictures/WeiXin/xxx.jpg"
-    # 主机上的保存路径
-    image_name = os.path.basename(phone_image_path)
-    local_path = f"/tmp/image_downloads/{image_name}"
+    # # 手机上的图片路径
+    # phone_image_path = "/storage/emulated/0/Pictures/WeiXin/xxx.jpg"
+    # # 主机上的保存路径
+    # image_name = os.path.basename(phone_image_path)
+    # local_path = f"/tmp/image_downloads/{image_name}"
 
-    # 拉取图片到主机
-    pull_image_from_device(device_ip, username, password, device_serial, phone_image_path, local_path, port=port)
-    print(f"[INFO] 从手机拉取图片到主机: {local_path}")
+    # # 拉取图片到主机
+    # pull_image_from_device(device_ip, username, password, device_serial, phone_image_path, local_path, port=port)
+    # print(f"[INFO] 从手机拉取图片到主机: {local_path}")
+
+    # 获取图片路径
+    image_path = get_image_path(device_ip, username, password, device_serial, port=port)
+
+    # 在主机上从手机上pull图片
+    directory_path = image_path
+    image_name = os.path.basename(directory_path)
+    local_path = f"/tmp/image_downloads/{image_name}"
+    print(f"[INFO] 从手机上pull图片: {local_path}")
+    pull_image_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
 
     # 2. 上传图片到Dify
     # 创建DifyAgent实例
