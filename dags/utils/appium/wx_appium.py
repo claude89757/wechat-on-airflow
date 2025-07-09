@@ -1538,7 +1538,7 @@ def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name
             wx_operator.close()
         
 
-def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login_info: dict = None) -> dict:
+def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id,wx_name,login_info: dict = None) -> dict:
     """
     获取微信最近的新消息
     appium_server_url: Appium服务器URL
@@ -1604,20 +1604,16 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
 
                         # 发送成功后保存到数据库
                         try:
-                            # 获取微信账号信息
-                            wx_account_info = wx_operator.get_wx_account_info() if hasattr(wx_operator, 'get_wx_account_info') else {}
-                            wx_user_id = wx_account_info.get('wxid', device_name)
-                            wx_user_name = wx_account_info.get('wx_user_name', device_name)
-                            
+                          
                             # 构造保存到数据库的消息数据
                             save_msg_data = {
                                 'msg_id': str(uuid.uuid4()),
-                                'wx_user_id': wx_user_id,
-                                'wx_user_name': wx_user_name,
+                                'wx_user_id': wx_id,
+                                'wx_user_name': wx_name,
                                 'room_id': contact_name,  # 使用联系人名称作为room_id
                                 'room_name': contact_name,
-                                'sender_id': wx_user_id,  # 发送者是当前微信用户
-                                'sender_name': wx_user_name,
+                                'sender_id': wx_id,  # 发送者是当前微信用户
+                                'sender_name': wx_name,
                                 'msg_type': 1,  # 文本消息类型
                                 'msg_type_name': '文本',
                                 'content': message_content,

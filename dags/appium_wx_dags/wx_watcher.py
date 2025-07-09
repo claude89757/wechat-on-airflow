@@ -56,9 +56,9 @@ def monitor_chats(**context):
     dify_api_url = appium_server_info['dify_api_url']
     dify_api_key = appium_server_info['dify_api_key']
     login_info = appium_server_info['login_info']
-    
+    wx_user_id=appium_server_info['wx_user_id']
     # 获取最近的新消息
-    recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name, login_info)
+    recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name,wx_user_id,wx_name,login_info)
     print(f"[WATCHER] 获取最近的新消息: {recent_new_msg}")
 
     # 用作保存消息的字典
