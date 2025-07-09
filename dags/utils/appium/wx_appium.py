@@ -1749,7 +1749,6 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
         if wx_operator:
             wx_operator.close()
 
-
 def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     try:
         # 首先尝试不重启应用
@@ -1803,6 +1802,13 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         friend_circle_btn.click()
         print("[6] 点击朋友圈成功")
 
+        # 获取要用的login_info
+        WX_CONFIG_LIST = Variable.get("WX_CONFIG_LIST", deserialize_json=True)
+        for wx_config in WX_CONFIG_LIST:
+            if wx_config['appium_url'] == appium_server_url:
+                login_info = wx_config['login_info']
+                break
+
         print("[7] 正在分析朋友圈...")
         friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
         frien_circle_texts=wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
@@ -1827,7 +1833,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
                     # 这里调用处理单张图片的函数
-                    deal_picture(wx_operator, detail, content,contact_name)
+                    deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
                 elif "包含多张图片" in media_type:
                     print(f"[INFO] 发现多张图片内容: {content}")
                     # 这里调用处理多张图片的函数
@@ -1868,7 +1874,7 @@ def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: st
 
     wx_operator.driver.press_keycode(4)
 
-def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name: str):
+def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
     print("处理图片类型内容:",content)
     detail.click()
     time.sleep(1)
@@ -1918,15 +1924,19 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
     port = login_info["port"]
     device_serial = device_name
 
-    # 手机上的图片路径
-    phone_image_path = "/storage/emulated/0/Pictures/WeiXin/xxx.jpg"
-    # 主机上的保存路径
-    image_name = os.path.basename(phone_image_path)
-    local_path = f"/tmp/image_downloads/{image_name}"
+    # 获取图片路径
+    image_path = get_image_path(device_ip, username, password, device_serial, port=port)
 
-    # 拉取图片到主机
-    pull_image_from_device(device_ip, username, password, device_serial, phone_image_path, local_path, port=port)
-    print(f"[INFO] 从手机拉取图片到主机: {local_path}")
+    # 在主机上从手机上pull图片
+    directory_path = image_path
+    image_name = os.path.basename(directory_path)
+    local_path = f"/tmp/image_downloads/{image_name}"
+    print(f"[INFO] 从手机上pull图片: {local_path}")
+    pull_image_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
+
+    # 主机传递到服务器
+    download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
+    print(f"[HANDLE] 下载图片到本地: {local_path}")
 
     # 2. 上传图片到Dify
     # 创建DifyAgent实例
@@ -1935,19 +1945,39 @@ def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name:
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_api_url)
 
     # 生成用户ID (可根据您的需求自定义)
-    dify_user_id = f"user_{device_serial}"
+    dify_user_id = f"wxid_{contact_name}"
 
     # 上传图片到Dify
     try:
         online_img_info = dify_agent.upload_file(local_path, dify_user_id)
         print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
+
+        dify_files = []
+        if online_img_info:
+              dify_files.append({
+                  "type": "image" ,
+                  "transfer_method": "local_file",
+                  "upload_file_id": online_img_info.get("id", "")
+            })
         
-        # 可选：缓存上传结果到Airflow变量
-        Variable.set(f"{dify_user_id}_online_img_info", online_img_info, serialize_json=True)
+        # 获取AI回复
+        try:
+            print(f"[WATCHER] 开始获取AI回复")
+            full_answer, metadata = dify_agent.create_chat_message_stream(
+                    query=content,
+                    user_id=dify_user_id,
+                    conversation_id=None,  # 使用新的会话
+                    files=dify_files,
+                    inputs={}
+                )
+        except Exception as e:
+            raise
+        print(f"full_answer: {full_answer}")
+        print(f"metadata: {metadata}")
 
         wx_operator.driver.press_keycode(4)
     
-        return online_img_info  # 返回上传结果
+        return full_answer
     except Exception as e:
         print(f"[ERROR] 上传图片到Dify失败: {e}")
         return None
