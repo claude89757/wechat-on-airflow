@@ -1885,8 +1885,8 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     pull_image_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
 
     # 主机传递到服务器
-    download_file_via_sftp(device_ip, username, password, directory_path, local_path, port=port)
-
+    download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
+    print(f"[HANDLE] 下载图片到本地: {local_path}")
 
     # 2. 上传图片到Dify
     # 创建DifyAgent实例
@@ -1903,7 +1903,7 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
         print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
 
         dify_files = []
-        if  online_img_info:
+        if online_img_info:
               dify_files.append({
                   "type": "image" ,
                   "transfer_method": "local_file",
