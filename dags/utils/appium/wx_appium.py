@@ -1822,37 +1822,33 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     media_type = parts[-1].strip()
                     content = "，".join(parts[:-1])
                 else:
-                    # 如果没有逗号，则整个内容作为content，没有明确的media_type
                     content = content_desc
                     media_type = ""
                 
-                # 根据媒体类型调用不同的处理函数
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
-                    # 这里调用处理单张图片的函数
-                    dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
-                    print("单张图片到dify_img_info:",dify_img_info)
-                    dify_img_info_list.append(dify_img_info)
+                    # dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
+                    # print("单张图片到dify_img_info:",dify_img_info)
+                    # dify_img_info_list.append(dify_img_info)
 
                 elif "包含多张图片" in media_type:
                     print(f"[INFO] 发现多张图片内容: {content}")
-                    # 这里调用处理多张图片的函数
-                    # deal_pictures(wx_operator, detail, content)
+                    deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
+
                 elif "包含一条小视频" in media_type:
                     print(f"[INFO] 发现视频内容: {content}")
-                    # 这里调用处理视频的函数
                     # deal_video(wx_operator, detail, content)
                 else:
                     print(f"[INFO] 未知类型内容: {content_desc}")
         
-        print("朋友圈文本-数量",len(frien_circle_texts))
-        for text in frien_circle_texts:
-            content=text.text
-            dify_text_info_list.append(content)
+        # print("朋友圈文本-数量",len(frien_circle_texts))
+        # for text in frien_circle_texts:
+        #     content=text.text
+        #     dify_text_info_list.append(content)
         
-        print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
+        # print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
 
-        upload_file_text_to_dify(contact_name,dify_text_info_list,dify_img_info_list)
+        # upload_file_text_to_dify(contact_name,dify_text_info_list,dify_img_info_list)
 
         print("[7] 分析朋友圈成功")
 
@@ -1983,6 +1979,12 @@ def upload_file_text_to_dify(contact_name:str,dify_text_info_list:list,dify_img_
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     pass
 
+def deal_pictures(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
+    print("处理多张图片类型内容:",content)
+    detail.click()
+    time.sleep(1)
+    wx_operator.print_all_elements()
+    wx_operator.driver.press_keycode(4)
 
 # 测试代码
 if __name__ == "__main__":    
