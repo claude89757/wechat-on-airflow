@@ -1808,9 +1808,11 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 
         print("朋友圈视频图片-数量:",len(friend_circle_details))
         dify_img_info_list=[]
+        dify_text_info_list=[]
         for detail in friend_circle_details:
             content_desc = detail.get_attribute('content-desc')
             print("详情:",content_desc)
+            dify_text_info_list.append(content_desc)
             
             # 分类处理
             if content_desc:
@@ -1844,7 +1846,6 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     print(f"[INFO] 未知类型内容: {content_desc}")
         
         print("朋友圈文本-数量",len(frien_circle_texts))
-        dify_text_info_list=[]
         for text in frien_circle_texts:
             content=text.text
             dify_text_info_list.append(content)
@@ -1852,7 +1853,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
 
         upload_file_text_to_dify(dify_text_info_list,dify_img_info_list)
-        
+
         print("[7] 分析朋友圈成功")
 
     except Exception as e:
