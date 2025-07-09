@@ -54,7 +54,7 @@ def str_to_timestamp(date_str: str):
     return int(datetime.datetime.strptime(date_str, '%Y-%m-%d').timestamp() * 1000)
 
 
-def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
+def generate_signature_and_url(salesItemId: str, salesId: str, curDate: str, visitor_id: str):
     """
     生成签名信息和完整URL
     """
@@ -63,22 +63,22 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
     
     # 构造基础URL（不包含type__1295参数）
     base_url = f"https://isz.ydmap.cn/srv100352/api/pub/sport/venue/getVenueOrderList?" \
-               f"salesItemId={salesItemId}&curDate={curDate}&venueGroupId=&t={current_time}"
+               f"salesItemId={salesItemId}&curDate={curDate}&venueGroupId=&salesId={salesId}&t={current_time}"
     
     print(f"步骤1: 生成基础URL（使用实时时间戳）...")
     print(f"基础URL: {base_url}")
     
-    # 构造aq函数的输入数据（使用基础URL）
+    # 构造a8函数的输入数据（使用基础URL）
     test_data = {
-        "aU": {
+        "ar": {
             "url": base_url,
             "duration": -166,
             "hackSceneSalesItemId": None,
             "method": "GET"
         },
-        "aV": "get",
-        "aW": None,
-        "aX": {
+        "as": "get",
+        "at": None,
+        "au": {
             "accept": "application/json, text/plain, */*",
             "x-requested-with": "XMLHttpRequest",
             "access-token": "",
@@ -89,29 +89,29 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
             "visitor-id": visitor_id,
             "tab-id": "ydmap_ae807e5264e3b0c115684a313fac2c7e"
         },
-        "aY": None
+        "av": None
     }
     
-    # 调用aq接口获取签名信息
+    # 调用a8接口获取签名信息
     aq_data = {
         "group": "sign",
-        "action": "ap", 
+        "action": "a8", 
         "param": json.dumps(test_data)
     }
-    print(f"\n步骤2: 通过jsrpc服务调用aq函数生成header签名信息...")
+    print(f"\n步骤2: 通过jsrpc服务调用a8函数生成header签名信息...")
     try:
         aq_response = requests.post(jsrpc_url, data=aq_data, timeout=30)
-        print(f"aq响应状态码: {aq_response.status_code}")
+        print(f"a8响应状态码: {aq_response.status_code}")
         
         if aq_response.status_code != 200:
-            print(f"aq调用失败: {aq_response.text}")
+            print(f"a8调用失败: {aq_response.text}")
             return None, None, None, None, None
             
         aq_result = aq_response.json()
-        print(f"aq响应结果: {aq_result}")
+        print(f"a8响应结果: {aq_result}")
         
         if aq_result.get('status') != 200:
-            print("aq函数返回错误状态")
+            print("a8函数返回错误状态")
             return None, None, None, None, None
             
         # 解析签名数据
@@ -126,7 +126,7 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
         print(f"  signature: {signature}")
         
     except Exception as e:
-        print(f"调用aq函数出错: {e}")
+        print(f"调用a8函数出错: {e}")
         return None, None, None, None, None
     
     # 使用ydmap_sign_url函数生成包含type__1295的完整URL
@@ -143,7 +143,7 @@ def generate_signature_and_url(salesItemId: str, curDate: str, visitor_id: str):
     return nonce, timestamp, signature, full_url_with_timestamp
 
 
-def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = None):
+def get_isz_venue_order_list(salesItemId: str, salesId: str, curDate: str, proxy_list: list = None):
     """
     获取isz的场地订单列表
     :param salesItemId: 场地ID
@@ -194,6 +194,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
                     'sec-fetch-mode': 'cors'
                 }
                 
+                print(f"headers: {headers}")
                 if proxy_config is None:
                     print(f"使用直连模式")
                     response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
@@ -238,7 +239,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
             update_successful_proxies(successful_proxy)
     else:
         print(f"❌ 没有可用的代理，使用直连模式")
-        nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, curDate, visitor_id)
+        nonce, timestamp, signature, full_url_with_timestamp = generate_signature_and_url(salesItemId, salesId, curDate, visitor_id)
         # 构建请求头
         headers = {
             'Host': 'isz.ydmap.cn',
@@ -262,6 +263,8 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
             'server-reflexive-ip': '',
             'sec-fetch-mode': 'cors'
         }
+        print(f"full_url_with_timestamp: {full_url_with_timestamp}")
+        print(f"headers: {headers}")
         response = requests.get(full_url_with_timestamp, headers=headers, timeout=15)
         
     print(f"目标API响应状态码: {response.status_code}")
@@ -295,7 +298,7 @@ def get_isz_venue_order_list(salesItemId: str, curDate: str, proxy_list: list = 
         return {}
 
 
-def get_free_venue_list(salesItemId: str, check_date: str, proxy_list: list = None):
+def get_free_venue_list(salesItemId: str, salesId: str, check_date: str, proxy_list: list = None):
     """
     查询空闲场地列表
     :param salesItemId: 销售项目ID
@@ -311,7 +314,7 @@ def get_free_venue_list(salesItemId: str, check_date: str, proxy_list: list = No
     """
     # 查询已预订的场地列表
     check_date_timestamp = str_to_timestamp(check_date)
-    busy_venue_data = get_isz_venue_order_list(salesItemId, check_date_timestamp, proxy_list)
+    busy_venue_data = get_isz_venue_order_list(salesItemId, salesId, check_date_timestamp, proxy_list)
 
     if not busy_venue_data:
         raise Exception("查询已预订的场地列表失败")
@@ -399,6 +402,6 @@ if __name__ == "__main__":
     # 测试获取场地空闲列表
     import datetime
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    free_venue_list = get_free_venue_list(salesItemId="100341", check_date=today)
+    free_venue_list = get_free_venue_list(salesItemId="100341", salesId="101332", check_date=today)
     print(f"free_venue_list: {free_venue_list}")
     

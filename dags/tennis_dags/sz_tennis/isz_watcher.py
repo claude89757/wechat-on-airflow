@@ -25,6 +25,7 @@ from tennis_dags.sz_tennis.isz_tools.proxy_manager import get_proxy_list
 VENUE_CONFIGS = {
     "香蜜体育": {
         "sales_item_id": "100341",
+        "sales_id": "101332",
         "venue_name": "香蜜体育",
         "dag_id": "isz_xiangmi_tennis_watcher",
         "description": "I深圳香蜜体育网球场巡检",
@@ -34,6 +35,7 @@ VENUE_CONFIGS = {
     },
     "黄木岗": {
         "sales_item_id": "100344", 
+        "sales_id": "101333",
         "venue_name": "黄木岗",
         "dag_id": "isz_huangmugang_tennis_watcher",
         "description": "I深圳黄木岗网球场巡检",
@@ -43,6 +45,7 @@ VENUE_CONFIGS = {
     },
     "网羽中心": {
         "sales_item_id": "100704",
+        "sales_id": "102549",
         "venue_name": "网羽中心", 
         "dag_id": "isz_wangyu_tennis_watcher",
         "description": "I深圳网羽中心网球场巡检",
@@ -53,6 +56,7 @@ VENUE_CONFIGS = {
     },
     "简上": {
         "sales_item_id": "102913",
+        "sales_id": "103909",
         "venue_name": "简上",
         "dag_id": "isz_jianshang_tennis_watcher", 
         "description": "I深圳简上体育中心网球场巡检",
@@ -61,17 +65,18 @@ VENUE_CONFIGS = {
         "active_days": CD_ACTIVE_DAY_INFOS.get("简上", 2),
         "delay_seconds": 30  # 延迟30秒执行
     },
-    "深云文体": {
-        "sales_item_id": "105127",
-        "venue_name": "深云文体",
-        "dag_id": "isz_shenyunwenxue_tennis_watcher", 
-        "description": "I深圳深云文体中心网球场巡检",
-        "schedule_interval": "0-59/3 * * * *",  # 每3分钟执行一次，从第0分钟开始
-        "time_range": CD_TIME_RANGE_INFOS.get("深云文体", {"start_time": "07:00", "end_time": "22:00"}),
-        "active_days": CD_ACTIVE_DAY_INFOS.get("深云文体", 3)
-    },
+    # "深云文体": {
+    #     "sales_item_id": "105127",
+    #     "venue_name": "深云文体",
+    #     "dag_id": "isz_shenyunwenxue_tennis_watcher", 
+    #     "description": "I深圳深云文体中心网球场巡检",
+    #     "schedule_interval": "0-59/3 * * * *",  # 每3分钟执行一次，从第0分钟开始
+    #     "time_range": CD_TIME_RANGE_INFOS.get("深云文体", {"start_time": "07:00", "end_time": "22:00"}),
+    #     "active_days": CD_ACTIVE_DAY_INFOS.get("深云文体", 3)
+    # },
     "华侨城": {
         "sales_item_id": "105143",
+        "sales_id": "105143",
         "venue_name": "华侨城",
         "dag_id": "isz_huaqiaocheng_tennis_watcher", 
         "description": "I深圳华侨城体育中心网球场巡检",
@@ -134,6 +139,7 @@ def create_venue_check_function(venue_key, venue_config):
                 print_with_timestamp(f"正在查询{venue_config['venue_name']} {input_date}的场地信息...")
                 court_data = get_free_venue_list(
                     salesItemId=venue_config['sales_item_id'],
+                    salesId=venue_config['sales_id'],
                     check_date=input_date,
                     proxy_list=proxy_list
                 )
