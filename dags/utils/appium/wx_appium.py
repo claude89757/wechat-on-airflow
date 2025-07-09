@@ -14,7 +14,7 @@ import os
 import json
 import time
 import random
-
+import uuid
 from appium.webdriver.webdriver import WebDriver as AppiumWebDriver
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.support.ui import WebDriverWait
@@ -38,6 +38,8 @@ from utils.appium.ssh_control import (
 )
 
 from airflow.models.variable import Variable
+from datetime import datetime
+from appium_wx_dags.common.mysql_tools import save_data_to_db
 
 class WeChatOperator:
     def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False, login_info: dict = None):
@@ -1544,6 +1546,9 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
     """
     # 获取消息
     wx_operator = None
+    #前端控制回复的信息列表
+    response_msg = {}
+    
     try:
         # 首先尝试不重启应用
         print("[INFO] 尝试不重启应用，检查当前是否在微信...")
@@ -1568,6 +1573,7 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
         new_friend_list=wx_operator.agree_friend_request()  
         #前端控制手机回复信息
         reply_data = Variable.get("REPLY_LIST", default_var={}, deserialize_json=True)
+        print(f'待回复的消息列表===={reply_data}')
         # 根据device_name提取对应的reply_list
         device_reply_info = reply_data.get(device_name, {})
         if device_reply_info !={}:
@@ -1579,15 +1585,59 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
                 
                 # 遍历待回复消息列表
                 for reply in reply_list_copy:
+                    response_msg_list=[]
                     try:
                         # 获取好友昵称
                         contact_name = reply.get('contact_name', '未知好友') 
+                        message_content = reply.get('msg', '')
+                        
                         # 发送消息
-                        wx_operator.send_message(contact_name=contact_name, messages=[reply.get('msg')])
+                        wx_operator.send_message(contact_name=contact_name, messages=[message_content])
+                        
+                        
+
+                        
                         # 发送成功后从待回复列表中删除该条消息
                         reply_list.remove(reply)
-                        print(f'已发送----{reply.get("msg")}到好友----{contact_name}，并从待回复列表中删除')
+                        if contact_name not in response_msg:
+                            response_msg[contact_name] = []
+                        response_msg[contact_name].append(message_content)
+                        print(f'已发送----{message_content}到好友----{contact_name}，并从待回复列表中删除')
                         time.sleep(2)
+
+                        # 发送成功后保存到数据库
+                        try:
+                            # 获取微信账号信息
+                            wx_account_info = wx_operator.get_wx_account_info() if hasattr(wx_operator, 'get_wx_account_info') else {}
+                            wx_user_id = wx_account_info.get('wx_user_id', device_name)
+                            wx_user_name = wx_account_info.get('wx_user_name', device_name)
+                            
+                            # 构造保存到数据库的消息数据
+                            save_msg_data = {
+                                'msg_id': str(uuid.uuid4()),
+                                'wx_user_id': wx_user_id,
+                                'wx_user_name': wx_user_name,
+                                'room_id': contact_name,  # 使用联系人名称作为room_id
+                                'room_name': contact_name,
+                                'sender_id': wx_user_id,  # 发送者是当前微信用户
+                                'sender_name': wx_user_name,
+                                'msg_type': 1,  # 文本消息类型
+                                'msg_type_name': '文本',
+                                'content': message_content,
+                                'is_self': True,  # 是自己发送的消息
+                                'is_group': False,  # 不是群聊
+                                'source_ip': '',
+                                'msg_timestamp': datetime.now().timestamp(),
+                                
+                            }
+                            save_msg_data['msg_datetime']= datetime.fromtimestamp(save_msg_data['msg_timestamp']).strftime('%Y-%m-%d %H:%M')
+                            # 保存到数据库
+                            save_data_to_db(save_msg_data)
+                            print(f'[DB_SAVE] 已保存回复消息到数据库: {message_content[:50]}...')
+                            
+                        except Exception as db_error:
+                            print(f'[DB_SAVE] 保存消息到数据库失败: {str(db_error)}')
+                            # 数据库保存失败不影响消息发送流程
                     except Exception as e:
                         print(f'发送消息到{contact_name}失败: {str(e)}')
                         # 发送失败时不删除消息，保留在列表中等待下次重试
