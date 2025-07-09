@@ -1567,6 +1567,38 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
             time.sleep(3)
         #自动通过新添加好友
         new_friend_list=wx_operator.agree_friend_request()  
+        #前端控制手机回复信息
+        reply_data = Variable.get("REPLY_LIST", default_var={}, deserialize_json=True)
+        # 根据device_name提取对应的reply_list
+        device_reply_info = reply_data.get(device_name, {})
+        reply_list = device_reply_info.get('reply_list', [])
+        
+        # 创建一个副本用于遍历，避免在遍历过程中修改原列表
+        reply_list_copy = reply_list.copy()
+        
+        # 遍历待回复消息列表
+        for reply in reply_list_copy:
+            try:
+                # 获取好友昵称
+                contact_name = reply.get('contact_name', '未知好友') 
+                # 发送消息
+                wx_operator.send_message(contact_name=contact_name, messages=[reply.get('msg')])
+                # 发送成功后从待回复列表中删除该条消息
+                reply_list.remove(reply)
+                print(f'已发送----{reply.get("msg")}到好友----{contact_name}，并从待回复列表中删除')
+                time.sleep(2)
+            except Exception as e:
+                print(f'发送消息到{contact_name}失败: {str(e)}')
+                # 发送失败时不删除消息，保留在列表中等待下次重试
+                continue
+        
+        # 更新设备的回复信息
+        if device_name in reply_data:
+            reply_data[device_name]['reply_list'] = reply_list
+        
+        # 将更新后的数据保存回Variable
+        Variable.set("REPLY_LIST", reply_data, serialize_json=True)
+        print(f'设备{device_name}的待回复列表已更新，剩余{len(reply_list)}条消息')
         # 获取最近新消息
         result = wx_operator.get_recent_new_msg()
 
