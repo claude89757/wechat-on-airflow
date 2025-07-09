@@ -1699,7 +1699,6 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
         if wx_operator:
             wx_operator.close()
 
-
 def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     try:
         # 首先尝试不重启应用
@@ -1875,16 +1874,6 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     port = login_info["port"]
     device_serial = device_name
 
-    # # 手机上的图片路径
-    # phone_image_path = "/storage/emulated/0/Pictures/WeiXin/xxx.jpg"
-    # # 主机上的保存路径
-    # image_name = os.path.basename(phone_image_path)
-    # local_path = f"/tmp/image_downloads/{image_name}"
-
-    # # 拉取图片到主机
-    # pull_image_from_device(device_ip, username, password, device_serial, phone_image_path, local_path, port=port)
-    # print(f"[INFO] 从手机拉取图片到主机: {local_path}")
-
     # 获取图片路径
     image_path = get_image_path(device_ip, username, password, device_serial, port=port)
 
@@ -1894,6 +1883,10 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     local_path = f"/tmp/image_downloads/{image_name}"
     print(f"[INFO] 从手机上pull图片: {local_path}")
     pull_image_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
+
+    # 主机传递到服务器
+    download_file_via_sftp(device_ip, username, password, directory_path, local_path, port=port)
+
 
     # 2. 上传图片到Dify
     # 创建DifyAgent实例
