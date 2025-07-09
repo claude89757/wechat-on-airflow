@@ -1934,7 +1934,7 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     dify_user_id = f"wxid_{contact_name}"
     try:
         dify_img_info = dify_agent.upload_file(local_path, dify_user_id)
-        print(f"[INFO] 上传图片到Dify成功: {online_img_info}")
+        print(f"[INFO] 上传图片到Dify成功: {dify_img_info}")
 
         # dify_files = []
         # if online_img_info:
