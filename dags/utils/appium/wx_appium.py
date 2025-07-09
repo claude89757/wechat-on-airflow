@@ -1753,6 +1753,13 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         friend_circle_btn.click()
         print("[6] 点击朋友圈成功")
 
+        # 获取要用的login_info
+        WX_CONFIG_LIST = Variable.get("WX_CONFIG_LIST", deserialize_json=True)
+        for wx_config in WX_CONFIG_LIST:
+            if wx_config['appium_url'] == appium_server_url:
+                login_info = wx_config['login_info']
+                break
+
         print("[7] 正在分析朋友圈...")
         friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
         frien_circle_texts=wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
@@ -1777,7 +1784,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
                     # 这里调用处理单张图片的函数
-                    deal_picture(wx_operator, detail, content,contact_name)
+                    deal_picture(wx_operator,login_info, detail, content,contact_name)
                 elif "包含多张图片" in media_type:
                     print(f"[INFO] 发现多张图片内容: {content}")
                     # 这里调用处理多张图片的函数
@@ -1818,7 +1825,7 @@ def deal_text(wx_operator: WeChatOperator, detail, content: str,contact_name: st
 
     wx_operator.driver.press_keycode(4)
 
-def deal_picture(wx_operator: WeChatOperator, detail, content: str,contact_name: str):
+def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str):
     print("处理图片类型内容:",content)
     detail.click()
     time.sleep(1)
