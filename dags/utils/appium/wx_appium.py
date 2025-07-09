@@ -14,12 +14,13 @@ import os
 import json
 import time
 import random
-
+import uuid
 from appium.webdriver.webdriver import WebDriver as AppiumWebDriver
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from appium.options.android import UiAutomator2Options
+
 from xml.etree import ElementTree
 
 from utils.appium.handler_video import (
@@ -30,11 +31,15 @@ from utils.appium.handler_video import (
     download_file_via_sftp
 )
 
-
+from utils.dify_sdk import DifyAgent
 from utils.appium.ssh_control import (
     get_image_path,
     pull_image_from_device
 )
+
+from airflow.models.variable import Variable
+from datetime import datetime
+from appium_wx_dags.common.mysql_tools import save_data_to_db
 
 class WeChatOperator:
     def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False, login_info: dict = None):
@@ -136,7 +141,7 @@ class WeChatOperator:
                 # 点击发送按钮
                 print(f"[5.{index}] 正在点击发送按钮...")
                 send_btn = self.driver.find_element(
-                    by=AppiumBy.XPATH,
+                   by=AppiumBy.XPATH,
                     value="//android.widget.Button[@text='发送']"
                 )
                 send_btn.click()
@@ -1049,6 +1054,117 @@ class WeChatOperator:
         return cur_msg_text, cur_msg_type
         
 
+    def agree_friend_request(self):
+        #自动通过好友请求
+        try:
+            # 确保在微信主页面
+            if not self.is_at_main_page():
+                self.return_to_chats()
+                time.sleep(1)
+            # 定位到第二个RelativeLayout元素
+            try:
+                #定位到通讯录元素
+                AddressBook = self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="(//android.widget.RelativeLayout[@resource-id='com.tencent.mm:id/nvt'])[2]"
+                )
+                print(f"[INFO] 找到RelativeLayout元素: {AddressBook}")
+                
+                # 在该元素下查找TextView元素，为未处理的联系人数量
+                try:
+                    unread_contact_count = int(AddressBook.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/osw']"
+                    ).text)
+                except:
+                    #若找不到元素(小红点)，则表示没有待添加的联系人，返回
+                    print('暂无待添加的联系人')
+                    return True
+                new_friends_list=[]
+                print(f"[INFO] 未添加联系人数量: {unread_contact_count}")
+                #点击进入通讯录页面
+                AddressBook.click()
+                #等待页面加载
+                time.sleep(1)
+                #定位到未处理联系人列表
+                self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/g_9']"
+                ).click()
+                print(f"成功进入未处理联系人列表")
+                
+                #等待页面加载
+                time.sleep(1)
+                #待执行添加好友逻辑的元素列表
+                contact_list = self.driver.find_elements(
+                    by=AppiumBy.ID,
+                    value='com.tencent.mm:id/g_3'
+                )
+                print(contact_list)
+                for ele in contact_list:
+                    friend_name=ele.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.widget.TextView[@resource-id='com.tencent.mm:id/g_4']"
+                    ).text
+                    try:
+                        ele.find_element(
+                            by=AppiumBy.XPATH,
+                            value=".//android.widget.Button[@resource-id='com.tencent.mm:id/g_8' and @text='接受']"
+                        ).click()
+                    except Exception as e:
+                        print(f'联系人{friend_name}已添加')
+                        continue
+                    #等待页面加载
+                    time.sleep(1)
+                    print(f'进入{friend_name}的好友验证界面')
+                    self.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value="//android.widget.Button[@resource-id='com.tencent.mm:id/g68' and @text='完成']"
+                    ).click()
+                    try:
+                        #以好友界面作为添加成功的判断标准
+                        WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.TextView[@resource-id='com.tencent.mm:id/o3b' and @text='发消息']"
+                        )))   
+                        new_friends_list.append(friend_name)
+                        print(f'添加好友----{friend_name}成功')
+                        #点击左上角返回，回到待添加列表
+                        WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.ImageView[@content-desc='返回']"
+                        ))).click()
+                        #等待页面加载
+                        time.sleep(1)   
+                    except Exception as e :
+                        print(f'添加好友失败----{friend_name}，失败原因:{e}')
+
+                print('所有待通过好友已处理完成!')   
+                #等待页面加载
+                time.sleep(1)    
+                WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "//android.widget.ImageView[@content-desc='返回']"
+                        ))).click()
+                #等待页面加载
+                time.sleep(1)
+                #回到消息页
+                WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((
+                        AppiumBy.XPATH,
+                        "(//android.widget.RelativeLayout[@resource-id='com.tencent.mm:id/nvt'])[1]"
+                        ))).click()  
+                return new_friends_list
+                
+            except Exception as locate_error:
+                print(f"[WARNING] 无法定位到未添加联系人数量元素: {str(locate_error)}")
+                
+        
+        except Exception as e:
+            print(f"[ERROR] 获取未添加联系人数量时出错: {str(e)}")
+            import traceback
+            print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
+            return False
+
     def get_recent_new_msg(self):
         """
         获取最近聊天的新消息
@@ -1422,7 +1538,7 @@ def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name
             wx_operator.close()
         
 
-def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login_info: dict = None) -> dict:
+def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id,wx_name,login_info: dict = None) -> dict:
     """
     获取微信最近的新消息
     appium_server_url: Appium服务器URL
@@ -1430,6 +1546,9 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
     """
     # 获取消息
     wx_operator = None
+    #前端控制回复的信息列表
+    response_msg = {}
+    
     try:
         # 首先尝试不重启应用
         print("[INFO] 尝试不重启应用，检查当前是否在微信...")
@@ -1450,7 +1569,80 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
             # 重新启动微信
             wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True, login_info=login_info)
             time.sleep(3)
+        #自动通过新添加好友
+        new_friend_list=wx_operator.agree_friend_request()  
+        #前端控制手机回复信息
+        reply_data = Variable.get("REPLY_LIST", default_var={}, deserialize_json=True)
+        print(f'待回复的消息列表===={reply_data}')
+        # 根据device_name提取对应的reply_list
+        device_reply_info = reply_data.get(device_name, {})
+        if device_reply_info !={}:
+            
+            reply_list = device_reply_info.get('reply_list', [])
+            if reply_list!=[]:
+                # 创建一个副本用于遍历，避免在遍历过程中修改原列表
+                reply_list_copy = reply_list.copy()
+                
+                # 遍历待回复消息列表
+                for reply in reply_list_copy:
+                    response_msg_list=[]
+                    try:
+                        # 获取好友昵称
+                        contact_name = reply.get('contact_name', '未知好友') 
+                        message_content = reply.get('msg', '')
+                        
+                        # 发送消息
+                        wx_operator.send_message(contact_name=contact_name, messages=[message_content])
+                        
+                        # 发送成功后从待回复列表中删除该条消息
+                        reply_list.remove(reply)
+                        if contact_name not in response_msg:
+                            response_msg[contact_name] = []
+                        response_msg[contact_name].append(message_content)
+                        print(f'已发送----{message_content}到好友----{contact_name}，并从待回复列表中删除')
+                        time.sleep(2)
+
+                        # 发送成功后保存到数据库
+                        try:
+                          
+                            # 构造保存到数据库的消息数据
+                            save_msg_data = {
+                                'msg_id': str(uuid.uuid4()),
+                                'wx_user_id': wx_id,
+                                'wx_user_name': wx_name,
+                                'room_id': contact_name,  # 使用联系人名称作为room_id
+                                'room_name': contact_name,
+                                'sender_id': wx_id,  # 发送者是当前微信用户
+                                'sender_name': wx_name,
+                                'msg_type': 1,  # 文本消息类型
+                                'msg_type_name': '文本',
+                                'content': message_content,
+                                'is_self': True,  # 是自己发送的消息
+                                'is_group': False,  # 不是群聊
+                                'source_ip': '',
+                                'msg_timestamp': datetime.now().timestamp(),
+                                
+                            }
+                            save_msg_data['msg_datetime']= datetime.fromtimestamp(save_msg_data['msg_timestamp']).strftime('%Y-%m-%d %H:%M')
+                            # 保存到数据库
+                            save_data_to_db(save_msg_data)
+                            print(f'[DB_SAVE] 已保存回复消息到数据库: {message_content[:50]}...')
+                            
+                        except Exception as db_error:
+                            print(f'[DB_SAVE] 保存消息到数据库失败: {str(db_error)}')
+                            # 数据库保存失败不影响消息发送流程
+                    except Exception as e:
+                        print(f'发送消息到{contact_name}失败: {str(e)}')
+                        # 发送失败时不删除消息，保留在列表中等待下次重试
+                        continue
         
+        # 更新设备的回复信息
+        if device_name in reply_data:
+            reply_data[device_name]['reply_list'] = reply_list
+        
+        # 将更新后的数据保存回Variable
+        Variable.set("REPLY_LIST", reply_data, serialize_json=True)
+        print(f'设备{device_name}的待回复列表已更新，剩余{len(reply_list)}条消息')
         # 获取最近新消息
         result = wx_operator.get_recent_new_msg()
 
@@ -1550,7 +1742,6 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
         if wx_operator:
             wx_operator.close()
 
-
 def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     try:
         # 首先尝试不重启应用
@@ -1591,31 +1782,225 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         more_info_btn.click()
         print("[4] 点击“更多信息”按钮成功")
 
+        detail=WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, f"//android.widget.TextView[@text='{contact_name}']"))
+        )
+        detail.click()
+        print("[5] 点击“细节信息”成功")
+
+        print("[6] 正在点击朋友圈...")
+        friend_circle_btn = WebDriverWait(wx_operator.driver, 10).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.TextView[@text='朋友圈']"))
+        )
+        friend_circle_btn.click()
+        print("[6] 点击朋友圈成功")
+
+        # 获取要用的login_info
+        WX_CONFIG_LIST = Variable.get("WX_CONFIG_LIST", deserialize_json=True)
+        for wx_config in WX_CONFIG_LIST:
+            if wx_config['appium_url'] == appium_server_url:
+                login_info = wx_config['login_info']
+                break
+
+        print("[7] 正在分析朋友圈...")
+        friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
+        frien_circle_texts=wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
+
+        print("朋友圈视频图片-数量:",len(friend_circle_details))
+        dify_img_info_list=[]
+        dify_text_info_list=[]
+        for detail in friend_circle_details:
+            content_desc = detail.get_attribute('content-desc')
+            print("详情:",content_desc)
+            dify_text_info_list.append(content_desc)
+            
+            # 分类处理
+            if content_desc:
+                # 查找最后一个逗号之后的内容
+                if "，" in content_desc:
+                    parts = content_desc.split("，")
+                    media_type = parts[-1].strip()
+                    content = "，".join(parts[:-1])
+                else:
+                    content = content_desc
+                    media_type = ""
+                
+                if "包含一张图片" in media_type:
+                    print(f"[INFO] 发现单张图片内容: {content}")
+                    # dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
+                    # print("单张图片到dify_img_info:",dify_img_info)
+                    # dify_img_info_list.append(dify_img_info)
+
+                elif "包含多张图片" in media_type:
+                    print(f"[INFO] 发现多张图片内容: {content}")
+                    deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
+
+                elif "包含一条小视频" in media_type:
+                    print(f"[INFO] 发现视频内容: {content}")
+                    # deal_video(wx_operator, detail, content)
+                else:
+                    print(f"[INFO] 未知类型内容: {content_desc}")
+        
+        # print("朋友圈文本-数量",len(frien_circle_texts))
+        # for text in frien_circle_texts:
+        #     content=text.text
+        #     dify_text_info_list.append(content)
+        
+        # print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
+
+        # upload_file_text_to_dify(contact_name,dify_text_info_list,dify_img_info_list)
+
+        print("[7] 分析朋友圈成功")
+
     except Exception as e:
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
         import traceback
         print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
-        
 
+
+def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
+    print("处理图片类型内容:",content)
+    detail.click()
+    time.sleep(1)
+
+    # 点击朋友圈页面的图片
+    img_elem = wx_operator.driver.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
+            )
+    # 保存图片到手机
+    print(f"[INFO] 正在保存图片...")
+    try:
+        img_elem.click()
+        time.sleep(0.5)
+        touch_elem=None
+        elems = wx_operator.driver.find_elements(
+            by=AppiumBy.XPATH,
+            value="//*[contains(@content-desc, '第1页共1页，轻触两下关闭图片')]"
+        )
+        if elems:
+            touch_elem = elems[0]
+        else:
+            # 可以尝试更宽泛的匹配
+            elems = wx_operator.driver.find_elements(
+                by=AppiumBy.XPATH,
+                value="//*[contains(@content-desc, '轻触两下关闭图片')]"
+            )
+            if elems:
+                touch_elem = elems[0]
+            else:
+                print("[ERROR] 找不到关闭图片的元素")
+                touch_elem = None
+        
+        touch_elem_rect = touch_elem.rect
+        print("touch_elem_rect:",touch_elem_rect)
+        x = touch_elem_rect['x'] + touch_elem_rect['width'] / 2
+        y = touch_elem_rect['y'] + touch_elem_rect['height'] / 2
+        
+        wx_operator.driver.execute_script('mobile: longClickGesture', {
+            'x': x,
+            'y': y,
+            'duration': 1500
+        })
+        WebDriverWait(wx_operator.driver, 60). \
+            until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
+        print(f"[INFO] 图片保存成功")
+        touch_elem.click()
+    except Exception as e:
+        print(f"[ERROR] 保存图片失败: {e}")
+        
+    # 处理图片到dify上并返回dify文件信息
+    # 1. 图片传递
+    local_path = transfer_single_image_from_device(login_info, device_name)
+
+    # 2. 上传图片到Dify
+    dify_agent = DifyAgent(api_key=Variable.get("WX_FRIEND_CIRCLE_ANALYSIS"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_user_id = f"wxid_{contact_name}"
+    try:
+        dify_img_info = dify_agent.upload_file(local_path, dify_user_id)
+        print(f"[INFO] 上传图片到Dify成功: {dify_img_info}")
+    
+    except Exception as e:
+        print(f"[ERROR] 上传图片到Dify失败: {e}")
+
+    #返回朋友圈列表
+    wx_operator.driver.press_keycode(4)
+    return dify_img_info
+
+def transfer_single_image_from_device(login_info: dict, device_name: str):
+    device_ip = login_info["device_ip"]
+    username = login_info["username"]
+    password = login_info["password"]
+    port = login_info["port"]
+    device_serial = device_name
+
+    # 获取手机上的图片路径
+    image_path = get_image_path(device_ip, username, password, device_serial, port=port)
+
+    # 在主机上从手机上pull图片
+    directory_path = image_path
+    image_name = os.path.basename(directory_path)
+    local_path = f"/tmp/image_downloads/{image_name}"
+    print(f"[INFO] 从手机上pull图片: {local_path}")
+    pull_image_from_device(device_ip, username, password, device_serial, directory_path, local_path, port=port)
+
+    # 主机传递到服务器
+    download_file_via_sftp(device_ip, username, password, local_path, local_path, port=port)
+    print(f"[HANDLE] 下载图片到本地: {local_path}")
+    return local_path
+
+def upload_file_text_to_dify(contact_name:str,dify_text_info_list:list,dify_img_info_list:list):
+    dify_files = []
+    for dify_img_info in dify_img_info_list:
+        dify_files.append({
+            "type": "image" ,
+            "transfer_method": "local_file",
+            "upload_file_id": dify_img_info.get("id", "")
+        })
+    text_query="\n".join(item for item in dify_text_info_list)
+
+    dify_agent = DifyAgent(api_key=Variable.get("WX_FRIEND_CIRCLE_ANALYSIS"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_user_id = f"wxid_{contact_name}"
+    try:
+        print(f"[WATCHER] 开始获取AI回复")
+        full_answer, metadata = dify_agent.create_chat_message_stream(
+                query=text_query,
+                user_id=dify_user_id,
+                conversation_id=None,
+                files=dify_files,
+                inputs={}
+            )
+    except Exception as e:
+        raise
+    print(f"full_answer: {full_answer}")
+    print(f"metadata: {metadata}")
+    return metadata
+    
+def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
+    pass
+
+def deal_pictures(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
+    print("处理多张图片类型内容:",content)
+    detail.click()
+    time.sleep(1)
+    wx_operator.print_all_elements()
+    wx_operator.driver.press_keycode(4)
 
 # 测试代码
 if __name__ == "__main__":    
     # 获取Appium服务器URL
-    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:4723')
+    appium_server_url = os.getenv('APPIUM_SERVER_URL', 'http://localhost:6025')
     print(appium_server_url)
 
     # 打印当前页面的XML结构
-    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='971bd67c0107', force_app_launch=False)
+    wx1 = WeChatOperator(appium_server_url=appium_server_url, device_name='ZY22FX4H65', force_app_launch=False)
 
     try:
-        time.sleep(5)
+        # time.sleep(5)
         # print(wx.driver.page_source)
-        wx1.print_all_elements()
+        # wx1.print_all_elements()
 
-        wx1.send_top_n_image_or_video_msg(contact_name="文件传输助手", top_n=3)
-        # wx1.send_message(contact_name="文件传输助手", messages=["test1", "test2", "test3"])
-
-        print(wx1.get_recent_new_msg())
+        wx1.agree_friend_request()
         
     except Exception as e:
         
