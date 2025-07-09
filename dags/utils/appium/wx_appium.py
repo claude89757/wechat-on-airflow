@@ -1594,9 +1594,6 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
                         # 发送消息
                         wx_operator.send_message(contact_name=contact_name, messages=[message_content])
                         
-                        
-
-                        
                         # 发送成功后从待回复列表中删除该条消息
                         reply_list.remove(reply)
                         if contact_name not in response_msg:
@@ -1609,7 +1606,7 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login
                         try:
                             # 获取微信账号信息
                             wx_account_info = wx_operator.get_wx_account_info() if hasattr(wx_operator, 'get_wx_account_info') else {}
-                            wx_user_id = wx_account_info.get('wx_user_id', device_name)
+                            wx_user_id = wx_account_info.get('wxid', device_name)
                             wx_user_name = wx_account_info.get('wx_user_name', device_name)
                             
                             # 构造保存到数据库的消息数据
