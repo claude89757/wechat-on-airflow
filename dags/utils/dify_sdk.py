@@ -567,7 +567,8 @@ class DifyAgent:
             'jpg': 'image/jpeg',
             'jpeg': 'image/jpeg',
             'webp': 'image/webp',
-            'gif': 'image/gif'
+            'gif': 'image/gif',
+            'mp4':'video/mp4'
         }
         mime_type = mime_types.get(ext)
         
