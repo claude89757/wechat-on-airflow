@@ -1830,13 +1830,13 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
-                    # dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
-                    # print("单张图片到dify_img_info:",dify_img_info)
-                    # dify_img_info_list.append(dify_img_info)
+                    dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
+                    print("单张图片到dify_img_info:",dify_img_info)
+                    dify_img_info_list.append(dify_img_info)
 
                 elif "包含多张图片" in media_type:
                     print(f"[INFO] 发现多张图片内容: {content}")
-                    deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
+                    # deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
 
                 elif "包含一条小视频" in media_type:
                     print(f"[INFO] 发现视频内容: {content}")
@@ -1844,14 +1844,14 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 else:
                     print(f"[INFO] 未知类型内容: {content_desc}")
         
-        # print("朋友圈文本-数量",len(frien_circle_texts))
-        # for text in frien_circle_texts:
-        #     content=text.text
-        #     dify_text_info_list.append(content)
+        print("朋友圈文本-数量",len(frien_circle_texts))
+        for text in frien_circle_texts:
+            content=text.text
+            dify_text_info_list.append(content)
         
-        # print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
+        print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
 
-        # upload_file_text_to_dify(contact_name,dify_text_info_list,dify_img_info_list)
+        upload_file_text_to_dify(contact_name,dify_text_info_list,dify_img_info_list)
 
         print("[7] 分析朋友圈成功")
 
