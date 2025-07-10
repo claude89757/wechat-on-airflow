@@ -1827,7 +1827,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 else:
                     content = content_desc
                     media_type = ""
-                
+                print(f'类型：{media_type}')
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
                     dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
