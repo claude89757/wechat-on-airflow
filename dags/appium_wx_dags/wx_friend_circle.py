@@ -8,9 +8,9 @@ import os
 
 appium_server_info = Variable.get("WX_CONFIG_LIST", deserialize_json=True)
 
-def test_search_contact_name(**context):
+def wx_friend_circle_analyze(**context):
     contact_name = context['dag_run'].conf.get('contact_name')
-    search_contact_name(appium_server_url="http://42.193.193.179:6025", device_name='ZY22FX4H65', contact_name=contact_name, login_info={})
+    search_contact_name(appium_server_url="http://42.193.193.179:6050", device_name='ZY22GVV5Z2', contact_name=contact_name, login_info={})
 
     
 
@@ -23,9 +23,9 @@ with DAG(
     tags=['个人微信', "朋友圈"],
 ) as dag:
 
-    wx_text_handler = PythonOperator(
-        task_id='test_search_contact_name', 
-        python_callable=test_search_contact_name,
+    wx_friend_circle_analyze = PythonOperator(
+        task_id='wx_friend_circle_analyze', 
+        python_callable=wx_friend_circle_analyze,
         trigger_rule='none_failed_min_one_success',
         dag=dag
     )
