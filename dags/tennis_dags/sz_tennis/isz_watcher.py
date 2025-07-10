@@ -21,6 +21,8 @@ from tennis_dags.sz_tennis.isz_tools.get_isz_data import get_free_venue_list
 from tennis_dags.sz_tennis.isz_tools.config import CD_TIME_RANGE_INFOS, CD_ACTIVE_DAY_INFOS, COURT_NAME_INFOS
 from tennis_dags.sz_tennis.isz_tools.proxy_manager import get_proxy_list
 
+from utils.tencent_sms import send_sms_for_news
+
 # 场地配置信息 - 参考config.py中的静态配置
 VENUE_CONFIGS = {
     "香蜜体育": {
@@ -118,7 +120,7 @@ def create_venue_check_function(venue_key, venue_config):
             pass
         else:
             print("没到上班时间")
-            # return
+            return
         
         run_start_time = time.time()
         print_with_timestamp(f"开始检查{venue_config['venue_name']}...")
@@ -128,6 +130,9 @@ def create_venue_check_function(venue_key, venue_config):
         
         # 要发送的通知列表
         up_for_send_data_list = []
+
+        # 要发送的短信列表
+        up_for_send_sms_list = []
         
         # 检查未来N天的场地（根据场地活跃天数配置）
         check_days = venue_config['active_days']
@@ -181,6 +186,20 @@ def create_venue_check_function(venue_key, venue_config):
                                 "venue_name": venue_config['venue_name'],
                                 "free_slot_list": filtered_slots
                             })
+
+                            # 时间大于或等于2小时，则短信通知
+                            for slot in filtered_slots:
+                                start_time = slot[0]
+                                end_time = slot[1]
+                                start_time_obj = datetime.datetime.strptime(start_time, '%H:%M')
+                                end_time_obj = datetime.datetime.strptime(end_time, '%H:%M')
+                                if end_time_obj - start_time_obj >= datetime.timedelta(hours=2):
+                                    up_for_send_sms_list.append({
+                                        "date": inform_date,
+                                        "court_name": venue_config['venue_name'],
+                                        "start_time": slot[0],
+                                        "end_time": slot[1]
+                                    })
                             
             except Exception as e:
                 print_with_timestamp(f"查询{venue_config['venue_name']} {input_date}场地信息出错: {str(e)}")
@@ -191,6 +210,26 @@ def create_venue_check_function(venue_key, venue_config):
         for data in up_for_send_data_list:
             print(data)
         print("-"*100)
+
+        print("-"*100)
+        print(f"up_for_send_sms_list: {len(up_for_send_sms_list)}")
+        for data in up_for_send_sms_list:
+            print(data)
+        print("-"*100)
+
+        if up_for_send_sms_list:
+            print("有短信要发送")
+            # 发送短信
+            phone_num_list = Variable.get("JDWX_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
+            for data in up_for_send_sms_list:
+                try:
+                    send_sms_for_news(phone_num_list, 
+                                      param_list=[data["date"], data["court_name"], 
+                                                  data["start_time"], data["end_time"]])
+                except Exception as e:
+                    print(f"Error sending sms: {e}")
+        else:
+            print("没有短信要发送")
 
         # 处理通知逻辑
         if up_for_send_data_list:
