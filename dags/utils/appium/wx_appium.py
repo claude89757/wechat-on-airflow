@@ -1855,7 +1855,9 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 
                 elif "包含一条小视频" in media_type:
                     print(f"[INFO] 发现视频内容: {content}")
-                    deal_video(wx_operator,login_info, detail, content,contact_name,device_name)
+                    dify_img_info=deal_video(wx_operator,login_info, detail, content,contact_name,device_name)
+                    print("单个视频到dify_img_info:",dify_img_info)
+                    dify_img_info_list.append(dify_img_info)
                 else:
                     print(f"[INFO] 未知类型内容: {content_desc}")
         
