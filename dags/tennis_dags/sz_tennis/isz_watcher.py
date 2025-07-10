@@ -120,7 +120,7 @@ def create_venue_check_function(venue_key, venue_config):
             pass
         else:
             print("没到上班时间")
-            return
+            # return
         
         run_start_time = time.time()
         print_with_timestamp(f"开始检查{venue_config['venue_name']}...")
