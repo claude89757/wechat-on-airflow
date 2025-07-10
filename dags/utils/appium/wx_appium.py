@@ -1538,11 +1538,14 @@ def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name
             wx_operator.close()
         
 
-def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id,wx_name,login_info: dict = None) -> dict:
+def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id: str, wx_name: str, login_info: dict = None) -> dict:
     """
     获取微信最近的新消息
     appium_server_url: Appium服务器URL
     device_name: 设备名称
+    wx_id: 微信ID
+    wx_name: 微信名称
+    login_info: 登录信息
     """
     # 获取消息
     wx_operator = None
