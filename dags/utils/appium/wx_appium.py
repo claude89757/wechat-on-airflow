@@ -1816,17 +1816,32 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             content_desc = detail.get_attribute('content-desc')
             print("详情:",content_desc)
             dify_text_info_list.append(content_desc)
-            
+ 
             # 分类处理
             if content_desc:
                 # 查找最后一个逗号之后的内容
-                if "，" in content_desc:
-                    parts = content_desc.split("，")
-                    media_type = parts[-1].strip()
-                    content = "，".join(parts[:-1])
-                else:
-                    content = content_desc
-                    media_type = ""
+                # 优化数据清洗逻辑，处理中文逗号和英文逗号
+                content = content_desc
+                media_type = "未知类型"
+                
+                # 检查是否包含媒体类型标识
+                media_indicators = ["包含一张图片", "包含多张图片", "包含一条小视频"]
+                
+                for indicator in media_indicators:
+                    if indicator in content_desc:
+                        # 找到媒体类型标识的位置
+                        indicator_pos = content_desc.find(indicator)
+                        
+                        # 提取内容部分（媒体标识之前的部分）
+                        content = content_desc[:indicator_pos].strip()
+                        
+                        # 移除内容末尾的逗号（中文或英文）
+                        if content.endswith("，") or content.endswith(","):
+                            content = content[:-1].strip()
+                        
+                        # 设置媒体类型
+                        media_type = indicator
+                        break
                 print(f'类型：{media_type}')
                 if "包含一张图片" in media_type:
                     print(f"[INFO] 发现单张图片内容: {content}")
