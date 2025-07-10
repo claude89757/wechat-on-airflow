@@ -1840,7 +1840,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 
                 elif "包含一条小视频" in media_type:
                     print(f"[INFO] 发现视频内容: {content}")
-                    # deal_video(wx_operator, detail, content)
+                    deal_video(wx_operator,login_info, detail, content,contact_name,device_name)
                 else:
                     print(f"[INFO] 未知类型内容: {content_desc}")
         
@@ -1925,6 +1925,77 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     
     except Exception as e:
         print(f"[ERROR] 上传图片到Dify失败: {e}")
+
+    #返回朋友圈列表
+    wx_operator.driver.press_keycode(4)
+    return dify_img_info
+
+
+
+def deal_video(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
+    print("处理图片类型内容:",content)
+    detail.click()
+    time.sleep(1)
+
+    # 点击朋友圈页面的视频
+    img_elem = wx_operator.driver.find_element(
+                by=AppiumBy.XPATH,
+                value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/h88']"
+            )
+    # 保存视频到手机
+    print(f"[INFO] 正在保存视频...")
+    try:
+        img_elem.click()
+        time.sleep(0.5)
+        touch_elem=None
+        elems = wx_operator.driver.find_elements(
+            by=AppiumBy.XPATH,
+            value="//android.view.View"
+        )
+        if elems:
+            touch_elem = elems[0]
+        else:
+            # 可以尝试更宽泛的匹配
+            elems = wx_operator.driver.find_elements(
+                by=AppiumBy.XPATH,
+                value="//android.widget.RelativeLayout[@content-desc='视频]"
+            )
+            if elems:
+                touch_elem = elems[0]
+            else:
+                print("[ERROR] 找不到关闭图片的元素")
+                touch_elem = None
+        
+        touch_elem_rect = touch_elem.rect
+        print("touch_elem_rect:",touch_elem_rect)
+        x = touch_elem_rect['x'] + touch_elem_rect['width'] / 2
+        y = touch_elem_rect['y'] + touch_elem_rect['height'] / 2
+        
+        wx_operator.driver.execute_script('mobile: longClickGesture', {
+            'x': x,
+            'y': y,
+            'duration': 1500
+        })
+        WebDriverWait(wx_operator.driver, 60). \
+            until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存视频"]'))).click()
+        print(f"[INFO] 视频保存成功")
+        touch_elem.click()
+    except Exception as e:
+        print(f"[ERROR] 保存视频失败: {e}")
+        
+    # 处理图片到dify上并返回dify文件信息
+    # 1. 图片传递
+    local_path = transfer_single_image_from_device(login_info, device_name)
+
+    # 2. 上传图片到Dify
+    dify_agent = DifyAgent(api_key=Variable.get("WX_FRIEND_CIRCLE_ANALYSIS"), base_url=Variable.get("DIFY_BASE_URL"))
+    dify_user_id = f"wxid_{contact_name}"
+    try:
+        dify_img_info = dify_agent.upload_file(local_path, dify_user_id)
+        print(f"[INFO] 上传视频到Dify成功: {dify_img_info}")
+    
+    except Exception as e:
+        print(f"[ERROR] 上传视频到Dify失败: {e}")
 
     #返回朋友圈列表
     wx_operator.driver.press_keycode(4)
