@@ -1949,14 +1949,14 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
 
 
 def deal_video(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
-    print("处理图片类型内容:",content)
+    print("处理视频类型内容:",content)
     detail.click()
     time.sleep(1)
 
     # 点击朋友圈页面的视频
     img_elem = wx_operator.driver.find_element(
                 by=AppiumBy.XPATH,
-                value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/h88']"
+                value="//android.view.View[@resource-id='com.tencent.mm:id/h88']"
             )
     # 保存视频到手机
     print(f"[INFO] 正在保存视频...")
