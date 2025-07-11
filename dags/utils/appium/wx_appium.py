@@ -1747,6 +1747,7 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
 
 def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     try:
+        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False)
         # 确保在微信主页面
         if wx_operator.is_at_main_page():
             print("[INFO] 已在微信主页面，无需重启应用")
@@ -1821,6 +1822,9 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         all_dify_img_info_list = []
         all_dify_text_info_list = []
         
+        # 用于去重的集合，存储已处理的朋友圈元素ID
+        processed_element_ids = set()
+        
         while processed_posts < max_posts_limit:
             # 获取当前页面的朋友圈内容
             friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
@@ -1842,8 +1846,33 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             # 处理当前页面的朋友圈内容（限制条数）
             for i in range(posts_to_process):
                 detail = friend_circle_details[i]
+                
+                # 获取元素的唯一标识符用于去重
+                try:
+                   
+                    
+                        # 使用元素的位置和内容描述作为唯一标识
+                    element_bounds = detail.get_attribute('bounds')
+                    content_desc = detail.get_attribute('content-desc')
+                    element_id = f"{element_bounds}_{hash(content_desc) if content_desc else ''}"
+                    
+                    # 检查是否已经处理过这个元素
+                    if element_id in processed_element_ids:
+                        print(f"[INFO] 跳过重复的朋友圈元素: {element_id}")
+                        continue
+                    
+                    # 添加到已处理集合
+                    processed_element_ids.add(element_id)
+                    
+                except Exception as e:
+                    print(f"[WARNING] 获取元素ID失败: {str(e)}，使用索引作为标识")
+                    element_id = f"index_{processed_posts + i}"
+                    if element_id in processed_element_ids:
+                        continue
+                    processed_element_ids.add(element_id)
+                
                 content_desc = detail.get_attribute('content-desc')
-                print(f"详情[{processed_posts + i + 1}]: {content_desc}")
+                print(f"详情[{processed_posts + len(dify_text_info_list) + 1}] (ID: {element_id}): {content_desc}")
                 dify_text_info_list.append(content_desc)
      
                 # 分类处理
@@ -1891,12 +1920,15 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                         print(f"[INFO] 未知类型内容: {content_desc}")
             
             # 处理当前页面的文本内容（限制条数）
-            current_page_texts = min(len(frien_circle_texts), posts_to_process)
+            current_page_texts = min(len(frien_circle_texts), len(dify_text_info_list))
             print(f"当前页面朋友圈文本-数量: {current_page_texts}")
             for i in range(current_page_texts):
-                text = frien_circle_texts[i]
-                content = text.text
-                dify_text_info_list.append(content)
+                if i < len(frien_circle_texts):
+                    text = frien_circle_texts[i]
+                    content = text.text
+                    # 避免重复添加相同的文本内容
+                    if content and content not in dify_text_info_list:
+                        dify_text_info_list.append(content)
             
             # 累加到总列表
             all_dify_img_info_list.extend(dify_img_info_list)
