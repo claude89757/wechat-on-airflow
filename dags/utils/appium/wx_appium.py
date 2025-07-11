@@ -1578,7 +1578,7 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id
         reply_data = Variable.get("REPLY_LIST", default_var={}, deserialize_json=True)
         print(f'待回复的消息列表===={reply_data}')
         # 根据device_name提取对应的reply_list
-        device_reply_info = reply_data.get(device_name, {})
+        device_reply_info = reply_data.get(wx_name, {})
         if device_reply_info !={}:
             
             reply_list = device_reply_info.get('reply_list', [])
@@ -1640,12 +1640,12 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id
                         continue
         
         # 更新设备的回复信息
-        if device_name in reply_data:
-            reply_data[device_name]['reply_list'] = reply_list
+        if wx_name in reply_data:
+            reply_data[wx_name]['reply_list'] = reply_list
         
         # 将更新后的数据保存回Variable
         Variable.set("REPLY_LIST", reply_data, serialize_json=True)
-        print(f'设备{device_name}的待回复列表已更新，剩余{len(reply_list)}条消息')
+        print(f'用户{wx_name}的待回复列表已更新，剩余{len(reply_list)}条消息')
         # 获取最近新消息
         result = wx_operator.get_recent_new_msg()
 
