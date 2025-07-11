@@ -1751,7 +1751,10 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         print("[INFO] 尝试不重启应用，检查当前是否在微信...")
         wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False, login_info=login_info)
         time.sleep(1)
-
+        # 确保在微信主页面
+        if not wx_operator.is_at_main_page():
+            wx_operator.return_to_chats()
+            time.sleep(1)
         # 点击搜索按钮
         print("[1] 正在点击搜索按钮...")
         search_btn = WebDriverWait(wx_operator.driver, 10).until(
@@ -1806,69 +1809,113 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 break
 
         print("[7] 正在分析朋友圈...")
-        friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
-        frien_circle_texts=wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
-
-        print("朋友圈视频图片-数量:",len(friend_circle_details))
-        dify_img_info_list=[]
-        dify_text_info_list=[]
-        for detail in friend_circle_details:
-            content_desc = detail.get_attribute('content-desc')
-            print("详情:",content_desc)
-            dify_text_info_list.append(content_desc)
- 
-            # 分类处理
-            if content_desc:
-                # 查找最后一个逗号之后的内容
-                # 优化数据清洗逻辑，处理中文逗号和英文逗号
-                content = content_desc
-                media_type = "未知类型"
-                
-                # 检查是否包含媒体类型标识
-                media_indicators = ["包含一张图片", "包含多张图片", "包含一条小视频"]
-                
-                for indicator in media_indicators:
-                    if indicator in content_desc:
-                        # 找到媒体类型标识的位置
-                        indicator_pos = content_desc.find(indicator)
-                        
-                        # 提取内容部分（媒体标识之前的部分）
-                        content = content_desc[:indicator_pos].strip()
-                        
-                        # 移除内容末尾的逗号（中文或英文）
-                        if content.endswith("，") or content.endswith(","):
-                            content = content[:-1].strip()
-                        
-                        # 设置媒体类型
-                        media_type = indicator
-                        break
-                print(f'类型：{media_type}')
-                if "包含一张图片" in media_type:
-                    print(f"[INFO] 发现单张图片内容: {content}")
-                    dify_img_info=deal_picture(wx_operator,login_info, detail, content,contact_name,device_name)
-                    print("单张图片到dify_img_info:",dify_img_info)
-                    dify_img_info_list.append(dify_img_info)
-
-                elif "包含多张图片" in media_type:
-                    print(f"[INFO] 发现多张图片内容: {content}")
-                    # deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
-
-                elif "包含一条小视频" in media_type:
-                    print(f"[INFO] 发现视频内容: {content}")
-                    dify_img_info=deal_video(wx_operator,login_info, detail, content,contact_name,device_name)
-                    print("单个视频到dify_img_info:",dify_img_info)
-                    dify_img_info_list.append(dify_img_info)
-                else:
-                    print(f"[INFO] 未知类型内容: {content_desc}")
         
-        print("朋友圈文本-数量",len(frien_circle_texts))
-        for text in frien_circle_texts:
-            content=text.text
-            dify_text_info_list.append(content)
+        # 朋友圈分析条数限制，默认为10条
+        max_posts_limit = 10
+        processed_posts = 0
+        all_dify_img_info_list = []
+        all_dify_text_info_list = []
         
-        print("dify_text_info_list:",dify_text_info_list,"dify_img_info_list:",dify_img_info_list)
+        while processed_posts < max_posts_limit:
+            # 获取当前页面的朋友圈内容
+            friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
+            frien_circle_texts = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
+            
+            current_page_posts = len(friend_circle_details)
+            print(f"当前页面朋友圈视频图片-数量: {current_page_posts}")
+            
+            if current_page_posts == 0:
+                print("[INFO] 当前页面没有更多朋友圈内容，结束分析")
+                break
+            
+            # 计算本次处理的条数
+            posts_to_process = min(current_page_posts, max_posts_limit - processed_posts)
+            
+            dify_img_info_list = []
+            dify_text_info_list = []
+            
+            # 处理当前页面的朋友圈内容（限制条数）
+            for i in range(posts_to_process):
+                detail = friend_circle_details[i]
+                content_desc = detail.get_attribute('content-desc')
+                print(f"详情[{processed_posts + i + 1}]: {content_desc}")
+                dify_text_info_list.append(content_desc)
+     
+                # 分类处理
+                if content_desc:
+                    # 优化数据清洗逻辑，处理中文逗号和英文逗号
+                    content = content_desc
+                    media_type = "未知类型"
+                    
+                    # 检查是否包含媒体类型标识
+                    media_indicators = ["包含一张图片", "包含多张图片", "包含一条小视频"]
+                    
+                    for indicator in media_indicators:
+                        if indicator in content_desc:
+                            # 找到媒体类型标识的位置
+                            indicator_pos = content_desc.find(indicator)
+                            
+                            # 提取内容部分（媒体标识之前的部分）
+                            content = content_desc[:indicator_pos].strip()
+                            
+                            # 移除内容末尾的逗号（中文或英文）
+                            if content.endswith("，") or content.endswith(","):
+                                content = content[:-1].strip()
+                            
+                            # 设置媒体类型
+                            media_type = indicator
+                            break
+                    
+                    print(f'类型：{media_type}')
+                    if "包含一张图片" in media_type:
+                        print(f"[INFO] 发现单张图片内容: {content}")
+                        dify_img_info = deal_picture(wx_operator, login_info, detail, content, contact_name, device_name)
+                        print("单张图片到dify_img_info:", dify_img_info)
+                        dify_img_info_list.append(dify_img_info)
 
-        upload_file_text_to_dify(contact_name,dify_text_info_list,dify_img_info_list)
+                    elif "包含多张图片" in media_type:
+                        print(f"[INFO] 发现多张图片内容: {content}")
+                        # deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
+
+                    elif "包含一条小视频" in media_type:
+                        print(f"[INFO] 发现视频内容: {content}")
+                        # dify_img_info=deal_video(wx_operator,login_info, detail, content,contact_name,device_name)
+                        # print("单个视频到dify_img_info:",dify_img_info)
+                        # dify_img_info_list.append(dify_img_info)
+                    else:
+                        print(f"[INFO] 未知类型内容: {content_desc}")
+            
+            # 处理当前页面的文本内容（限制条数）
+            current_page_texts = min(len(frien_circle_texts), posts_to_process)
+            print(f"当前页面朋友圈文本-数量: {current_page_texts}")
+            for i in range(current_page_texts):
+                text = frien_circle_texts[i]
+                content = text.text
+                dify_text_info_list.append(content)
+            
+            # 累加到总列表
+            all_dify_img_info_list.extend(dify_img_info_list)
+            all_dify_text_info_list.extend(dify_text_info_list)
+            
+            processed_posts += posts_to_process
+            print(f"已处理朋友圈条数: {processed_posts}/{max_posts_limit}")
+            
+            # 如果已达到限制条数，分析当前批次
+            if processed_posts >= max_posts_limit:
+                print(f"已达到分析条数限制({max_posts_limit}条)，开始分析...")
+                print("dify_text_info_list:", all_dify_text_info_list, "dify_img_info_list:", all_dify_img_info_list)
+                upload_file_text_to_dify(contact_name, all_dify_text_info_list, all_dify_img_info_list)
+                break
+            
+            # 如果还没达到限制条数，向下滑动页面加载更多内容
+            if processed_posts < max_posts_limit:
+                print("[INFO] 向下滑动页面加载更多朋友圈内容...")
+                try:
+                   wx_operator.scroll_down()
+                   time.sleep(0.5)
+                except Exception as e:
+                    print(f"[WARNING] 页面滑动失败: {str(e)}")
+                    break
 
         print("[7] 分析朋友圈成功")
 

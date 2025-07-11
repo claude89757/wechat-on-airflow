@@ -9,6 +9,7 @@ import os
 appium_server_info = Variable.get("WX_CONFIG_LIST", deserialize_json=True)
 
 def wx_friend_circle_analyze(**context):
+    
     contact_name = context['dag_run'].conf.get('contact_name')
     search_contact_name(appium_server_url="http://42.193.193.179:6050", device_name='ZY22GVV5Z2', contact_name=contact_name, login_info={})
 
