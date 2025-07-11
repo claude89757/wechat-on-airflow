@@ -1747,14 +1747,19 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
 
 def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     try:
-        # 首先尝试不重启应用
-        print("[INFO] 尝试不重启应用，检查当前是否在微信...")
-        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False, login_info=login_info)
-        time.sleep(1)
         # 确保在微信主页面
-        if not wx_operator.is_at_main_page():
-            wx_operator.return_to_chats()
-            time.sleep(1)
+        if wx_operator.is_at_main_page():
+            print("[INFO] 已在微信主页面，无需重启应用")
+        else:
+            # 不在主页面，可能需要关闭当前实例并重启
+            print("[INFO] 不在微信主页面，将关闭当前实例并重启应用")
+            if wx_operator:
+                wx_operator.close()
+
+            # 重新启动微信
+            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
+            time.sleep(3)
+        
         # 点击搜索按钮
         print("[1] 正在点击搜索按钮...")
         search_btn = WebDriverWait(wx_operator.driver, 10).until(
