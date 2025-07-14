@@ -1817,6 +1817,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         for wx_config in WX_CONFIG_LIST:
             if wx_config['appium_url'] == appium_server_url:
                 login_info = wx_config['login_info']
+                print(login_info)
                 break
 
         print("[7] 正在分析朋友圈...")
