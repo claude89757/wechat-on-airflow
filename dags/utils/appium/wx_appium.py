@@ -457,15 +457,15 @@ class WeChatOperator:
             print(f"页面滑动失败: {str(e)}")
             raise
 
-    def scroll_down(self):
+    def scroll_down(self,start=0.8,end=0.2):
         """
         向下滑动页面
         """
         try:
             screen_size = self.driver.get_window_size()
             start_x = screen_size['width'] * 0.5
-            start_y = screen_size['height'] * 0.8
-            end_y = screen_size['height'] * 0.2
+            start_y = screen_size['height'] *start
+            end_y = screen_size['height'] * end
             
             self.driver.swipe(start_x, start_y, start_x, end_y, 1000)
             time.sleep(0.5)
@@ -1577,6 +1577,7 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id
         #前端控制手机回复信息
         try:
             reply_data = Variable.get("REPLY_LIST", default_var={}, deserialize_json=True)
+        
             print(f'待回复的消息列表===={reply_data}')
             # 根据device_name提取对应的reply_list
             device_reply_info = reply_data.get(wx_name, {})
@@ -1648,7 +1649,8 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id
                     Variable.set("REPLY_LIST", reply_data, serialize_json=True)
                     print(f'用户{wx_name}的待回复列表已更新，剩余{len(reply_list)}条消息')
         except Exception as e:
-            print('跳过回复信息流程')
+
+            print('获取Variable中REPLY_LIST的值失败，跳过回复信息流程')
         # 获取最近新消息
         result = wx_operator.get_recent_new_msg()
 
@@ -1825,8 +1827,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         all_dify_img_info_list = []
         all_dify_text_info_list = []
         
-        # 用于去重的集合，存储已处理的朋友圈元素ID
-        processed_element_ids = set()
+
         
         while processed_posts < max_posts_limit:
             # 获取当前页面的朋友圈内容
@@ -1852,71 +1853,8 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             for i in range(posts_to_process):
                 detail = friend_circle_details[i]
                 
-                # 打印detail元素的所有属性
-                print(f"\n=== Detail元素[{i}]的所有属性 ===")
-                try:
-                    # 获取所有常用属性
-                    attributes = {
-                        'tag_name': detail.tag_name,
-                        'text': detail.text,
-                        'location': detail.location,
-                        'size': detail.size,
-                        'rect': detail.rect,
-                        'is_displayed': detail.is_displayed(),
-                        'is_enabled': detail.is_enabled(),
-                        'is_selected': detail.is_selected()
-                    }
-                    
-                    # 获取特定属性
-                    specific_attrs = ['content-desc', 'resource-id', 'class', 'package', 'checkable', 
-                                    'checked', 'clickable', 'enabled', 'focusable', 'focused', 
-                                    'long-clickable', 'password', 'scrollable', 'selected', 
-                                    'bounds', 'index', 'instance', 'elementId', 'displayed']
-                    
-                    for attr in specific_attrs:
-                        try:
-                            value = detail.get_attribute(attr)
-                            attributes[attr] = value
-                        except Exception as e:
-                            attributes[attr] = f"获取失败: {str(e)}"
-                    
-                    # 打印所有属性
-                    for key, value in attributes.items():
-                        print(f"  {key}: {value}")
-                        
-                except Exception as e:
-                    print(f"  获取属性时出错: {str(e)}")
-                print("=== 属性打印结束 ===\n")
-                
-                # 获取元素的唯一标识符用于去重
-                try:
-                    # 使用元素的 elementId 属性作为唯一标识符
-                    element_id = detail.get_attribute('elementId')
-                    
-                    # 如果 elementId 为空，使用备用方案
-                    if not element_id:
-                        # 备用方案：使用 bounds 和索引组合
-                        bounds = detail.get_attribute('bounds') or ''
-                        element_id = f"fallback_{processed_posts + i}_{hash(bounds)}"
-                        print(f"[WARNING] elementId 为空，使用备用标识: {element_id}")
-                    
-                    # 检查是否已经处理过这个元素
-                    if element_id in processed_element_ids:
-                        print(f"[INFO] 跳过重复的朋友圈元素: {element_id}")
-                        continue
-                    
-                    # 添加到已处理集合
-                    processed_element_ids.add(element_id)
-                    
-                except Exception as e:
-                    print(f"[WARNING] 获取元素ID失败: {str(e)}，使用索引作为标识")
-                    element_id = f"index_{processed_posts + i}"
-                    if element_id in processed_element_ids:
-                        continue
-                    processed_element_ids.add(element_id)
-                
                 content_desc = detail.get_attribute('content-desc')
-                print(f"详情[{processed_posts + actual_processed_count + 1}] (ID: {element_id}): {content_desc}")
+                print(f"详情[{processed_posts + actual_processed_count + 1}]: {content_desc}")
                 dify_text_info_list.append(content_desc)
      
                 # 分类处理
@@ -2000,7 +1938,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             if processed_posts < max_posts_limit:
                 print("[INFO] 向下滑动页面加载更多朋友圈内容...")
                 try:
-                   wx_operator.scroll_down()
+                   wx_operator.scroll_down(0.8,0.1)
                    time.sleep(0.5)
                 except Exception as e:
                     print(f"[WARNING] 页面滑动失败: {str(e)}")
