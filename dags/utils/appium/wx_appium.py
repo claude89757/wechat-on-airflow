@@ -1849,15 +1849,19 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 
                 # 获取元素的唯一标识符用于去重
                 try:
-                   
-                    
-                    # 使用元素的位置和内容描述作为唯一标识
-                    
                     content_desc = detail.get_attribute('content-desc')
-                    element_id = f"{hash(content_desc) if content_desc else ''}"
                     
-                    # 检查是否已经处理过这个元素
-                    if element_id in processed_element_ids:
+                    # 当朋友圈文案为空白时，不进行去重，因为可能是不同的图片或视频内容
+                    if not content_desc or content_desc.strip() == "":
+                        # 对于空白内容，使用位置和索引作为唯一标识，确保不会去重
+                        bounds = detail.get_attribute('bounds') or ''
+                        element_id = f"empty_content_{processed_posts + i}_{hash(bounds)}"
+                    else:
+                        # 对于有内容的朋友圈，使用内容哈希作为标识
+                        element_id = f"{hash(content_desc)}"
+                    
+                    # 检查是否已经处理过这个元素（仅对非空内容进行去重检查）
+                    if content_desc and content_desc.strip() and element_id in processed_element_ids:
                         print(f"[INFO] 跳过重复的朋友圈元素: {element_id}")
                         continue
                     
