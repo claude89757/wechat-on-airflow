@@ -1575,7 +1575,10 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id
         #自动通过新添加好友
         new_friend_list=wx_operator.agree_friend_request()  
         #前端控制手机回复信息
-        reply_data = Variable.get("REPLY_LIST", default_var={}, deserialize_json=True)
+        try:
+            reply_data = Variable.get("REPLY_LIST", default_var={}, deserialize_json=True)
+        except Exception as e:
+            print('获取Variable中REPLY_LIST的值失败，跳过回复信息流程')
         print(f'待回复的消息列表===={reply_data}')
         # 根据device_name提取对应的reply_list
         device_reply_info = reply_data.get(wx_name, {})
