@@ -1844,6 +1844,8 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             dify_text_info_list = []
             
             # 处理当前页面的朋友圈内容（限制条数）
+            actual_processed_count = 0  # 实际处理的媒体内容计数
+            
             for i in range(posts_to_process):
                 detail = friend_circle_details[i]
                 
@@ -1876,7 +1878,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     processed_element_ids.add(element_id)
                 
                 content_desc = detail.get_attribute('content-desc')
-                print(f"详情[{processed_posts + len(dify_text_info_list) + 1}] (ID: {element_id}): {content_desc}")
+                print(f"详情[{processed_posts + actual_processed_count + 1}] (ID: {element_id}): {content_desc}")
                 dify_text_info_list.append(content_desc)
      
                 # 分类处理
@@ -1910,18 +1912,26 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                         dify_img_info = deal_picture(wx_operator, login_info, detail, content, contact_name, device_name)
                         print("单张图片到dify_img_info:", dify_img_info)
                         dify_img_info_list.append(dify_img_info)
+                        actual_processed_count += 1  # 实际处理计数+1
 
                     elif "包含多张图片" in media_type:
                         print(f"[INFO] 发现多张图片内容: {content}")
                         # deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
+                        actual_processed_count += 1  # 实际处理计数+1
 
                     elif "包含一条小视频" in media_type:
                         print(f"[INFO] 发现视频内容: {content}")
                         # dify_img_info=deal_video(wx_operator,login_info, detail, content,contact_name,device_name)
                         # print("单个视频到dify_img_info:",dify_img_info)
                         # dify_img_info_list.append(dify_img_info)
+                        actual_processed_count += 1  # 实际处理计数+1
                     else:
                         print(f"[INFO] 未知类型内容: {content_desc}")
+                
+                # 检查是否已达到实际处理限制
+                if actual_processed_count >= max_posts_limit:
+                    print(f"[INFO] 已达到实际处理限制({max_posts_limit}条)，停止当前页面处理")
+                    break
             
             # 处理当前页面的文本内容（限制条数）
             current_page_texts = min(len(frien_circle_texts), len(dify_text_info_list))
@@ -1938,12 +1948,12 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             all_dify_img_info_list.extend(dify_img_info_list)
             all_dify_text_info_list.extend(dify_text_info_list)
             
-            processed_posts += posts_to_process
-            print(f"已处理朋友圈条数: {processed_posts}/{max_posts_limit}")
+            processed_posts += actual_processed_count  # 只累加实际处理的媒体内容数量
+            print(f"已实际处理朋友圈媒体条数: {processed_posts}/{max_posts_limit}")
             
             # 如果已达到限制条数，分析当前批次
             if processed_posts >= max_posts_limit:
-                print(f"已达到分析条数限制({max_posts_limit}条)，开始分析...")
+                print(f"已达到实际处理条数限制({max_posts_limit}条)，开始分析...")
                 print("dify_text_info_list:", all_dify_text_info_list, "dify_img_info_list:", all_dify_img_info_list)
                 upload_file_text_to_dify(contact_name, all_dify_text_info_list, all_dify_img_info_list)
                 break
