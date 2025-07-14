@@ -1928,20 +1928,24 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             
             processed_posts += actual_processed_count  # 只累加实际处理的媒体内容数量
             print(f"已实际处理朋友圈媒体条数: {processed_posts}/{max_posts_limit}")
-            
+            # 获取翻页前源码
+            before_scroll_page_source = wx_operator.driver.page_source
             # 如果已达到限制条数，分析当前批次
-            if processed_posts >= max_posts_limit:
-                print(f"已达到实际处理条数限制({max_posts_limit}条)，开始分析...")
+            if processed_posts >= max_posts_limit or before_scroll_page_source==after_scroll_page_source:
+                print(f"已达到实际处理条数限制({max_posts_limit}条),或者已无朋友圈可收集，开始分析...")
                 print("dify_text_info_list:", all_dify_text_info_list, "dify_img_info_list:", all_dify_img_info_list)
                 upload_file_text_to_dify(contact_name, all_dify_text_info_list, all_dify_img_info_list)
                 break
+            
             
             # 如果还没达到限制条数，向下滑动页面加载更多内容
             if processed_posts < max_posts_limit:
                 print("[INFO] 向下滑动页面加载更多朋友圈内容...")
                 try:
                    wx_operator.scroll_down(0.8,0.1)
+                   
                    time.sleep(0.5)
+                   after_scroll_page_source=wx_operator.driver.page_source
                 except Exception as e:
                     print(f"[WARNING] 页面滑动失败: {str(e)}")
                     break
