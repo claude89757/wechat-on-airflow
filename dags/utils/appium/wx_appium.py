@@ -1851,7 +1851,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 try:
                    
                     
-                        # 使用元素的位置和内容描述作为唯一标识
+                    # 使用元素的位置和内容描述作为唯一标识
                     element_bounds = detail.get_attribute('bounds')
                     content_desc = detail.get_attribute('content-desc')
                     element_id = f"{element_bounds}_{hash(content_desc) if content_desc else ''}"
@@ -1963,74 +1963,84 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
 
 
 def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
-    print("处理图片类型内容:",content)
-    detail.click()
-    time.sleep(1)
+    # 获取屏幕尺寸和元素位置
+    
+    screen_size = wx_operator.driver.get_window_size()
+    element_location = detail.location
+    screen_height = screen_size['height']
+    element_y = element_location['y']
 
-    # 点击朋友圈页面的图片
-    img_elem = wx_operator.driver.find_element(
-                by=AppiumBy.XPATH,
-                value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
-            )
-    # 保存图片到手机
-    print(f"[INFO] 正在保存图片...")
-    try:
-        img_elem.click()
-        time.sleep(0.5)
-        touch_elem=None
-        elems = wx_operator.driver.find_elements(
-            by=AppiumBy.XPATH,
-            value="//*[contains(@content-desc, '第1页共1页，轻触两下关闭图片')]"
-        )
-        if elems:
-            touch_elem = elems[0]
-        else:
-            # 可以尝试更宽泛的匹配
+    # 检查元素是否位于屏幕高度的3/4以上
+    if element_y > screen_height * 0.25:
+        # 点击标题元素而不是整个卡片
+        print("处理图片类型内容:",content)
+        detail.click()
+        time.sleep(1)
+
+        # 点击朋友圈页面的图片
+        img_elem = wx_operator.driver.find_element(
+                    by=AppiumBy.XPATH,
+                    value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
+                )
+        # 保存图片到手机
+        print(f"[INFO] 正在保存图片...")
+        try:
+            img_elem.click()
+            time.sleep(0.5)
+            touch_elem=None
             elems = wx_operator.driver.find_elements(
                 by=AppiumBy.XPATH,
-                value="//*[contains(@content-desc, '轻触两下关闭图片')]"
+                value="//*[contains(@content-desc, '第1页共1页，轻触两下关闭图片')]"
             )
             if elems:
                 touch_elem = elems[0]
             else:
-                print("[ERROR] 找不到关闭图片的元素")
-                touch_elem = None
-        
-        touch_elem_rect = touch_elem.rect
-        print("touch_elem_rect:",touch_elem_rect)
-        x = touch_elem_rect['x'] + touch_elem_rect['width'] / 2
-        y = touch_elem_rect['y'] + touch_elem_rect['height'] / 2
-        
-        wx_operator.driver.execute_script('mobile: longClickGesture', {
-            'x': x,
-            'y': y,
-            'duration': 1500
-        })
-        WebDriverWait(wx_operator.driver, 60). \
-            until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
-        print(f"[INFO] 图片保存成功")
-        time.sleep(1)
-        touch_elem.click()
-    except Exception as e:
-        print(f"[ERROR] 保存图片失败: {e}")
-        
-    # 处理图片到dify上并返回dify文件信息
-    # 1. 图片传递
-    local_path = transfer_single_image_from_device(login_info, device_name)
+                # 可以尝试更宽泛的匹配
+                elems = wx_operator.driver.find_elements(
+                    by=AppiumBy.XPATH,
+                    value="//*[contains(@content-desc, '轻触两下关闭图片')]"
+                )
+                if elems:
+                    touch_elem = elems[0]
+                else:
+                    print("[ERROR] 找不到关闭图片的元素")
+                    touch_elem = None
+            
+            touch_elem_rect = touch_elem.rect
+            print("touch_elem_rect:",touch_elem_rect)
+            x = touch_elem_rect['x'] + touch_elem_rect['width'] / 2
+            y = touch_elem_rect['y'] + touch_elem_rect['height'] / 2
+            
+            wx_operator.driver.execute_script('mobile: longClickGesture', {
+                'x': x,
+                'y': y,
+                'duration': 1500
+            })
+            WebDriverWait(wx_operator.driver, 60). \
+                until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
+            print(f"[INFO] 图片保存成功")
+            time.sleep(1)
+            touch_elem.click()
+        except Exception as e:
+            print(f"[ERROR] 保存图片失败: {e}")
+            
+        # 处理图片到dify上并返回dify文件信息
+        # 1. 图片传递
+        local_path = transfer_single_image_from_device(login_info, device_name)
 
-    # 2. 上传图片到Dify
-    dify_agent = DifyAgent(api_key=Variable.get("WX_FRIEND_CIRCLE_ANALYSIS"), base_url=Variable.get("DIFY_BASE_URL"))
-    dify_user_id = f"wxid_{contact_name}"
-    try:
-        dify_img_info = dify_agent.upload_file(local_path, dify_user_id)
-        print(f"[INFO] 上传图片到Dify成功: {dify_img_info}")
-    
-    except Exception as e:
-        print(f"[ERROR] 上传图片到Dify失败: {e}")
+        # 2. 上传图片到Dify
+        dify_agent = DifyAgent(api_key=Variable.get("WX_FRIEND_CIRCLE_ANALYSIS"), base_url=Variable.get("DIFY_BASE_URL"))
+        dify_user_id = f"wxid_{contact_name}"
+        try:
+            dify_img_info = dify_agent.upload_file(local_path, dify_user_id)
+            print(f"[INFO] 上传图片到Dify成功: {dify_img_info}")
+        
+        except Exception as e:
+            print(f"[ERROR] 上传图片到Dify失败: {e}")
 
-    #返回朋友圈列表
-    wx_operator.driver.press_keycode(4)
-    return dify_img_info
+        #返回朋友圈列表
+        wx_operator.driver.press_keycode(4)
+        return dify_img_info
 
 
 
