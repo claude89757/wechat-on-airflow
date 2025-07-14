@@ -1852,9 +1852,9 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                    
                     
                     # 使用元素的位置和内容描述作为唯一标识
-                    element_bounds = detail.get_attribute('bounds')
+                    
                     content_desc = detail.get_attribute('content-desc')
-                    element_id = f"{element_bounds}_{hash(content_desc) if content_desc else ''}"
+                    element_id = f"{hash(content_desc) if content_desc else ''}"
                     
                     # 检查是否已经处理过这个元素
                     if element_id in processed_element_ids:
