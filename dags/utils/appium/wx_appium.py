@@ -1852,6 +1852,42 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             for i in range(posts_to_process):
                 detail = friend_circle_details[i]
                 
+                # 打印detail元素的所有属性
+                print(f"\n=== Detail元素[{i}]的所有属性 ===")
+                try:
+                    # 获取所有常用属性
+                    attributes = {
+                        'tag_name': detail.tag_name,
+                        'text': detail.text,
+                        'location': detail.location,
+                        'size': detail.size,
+                        'rect': detail.rect,
+                        'is_displayed': detail.is_displayed(),
+                        'is_enabled': detail.is_enabled(),
+                        'is_selected': detail.is_selected()
+                    }
+                    
+                    # 获取特定属性
+                    specific_attrs = ['content-desc', 'resource-id', 'class', 'package', 'checkable', 
+                                    'checked', 'clickable', 'enabled', 'focusable', 'focused', 
+                                    'long-clickable', 'password', 'scrollable', 'selected', 
+                                    'bounds', 'index', 'instance', 'elementId', 'displayed']
+                    
+                    for attr in specific_attrs:
+                        try:
+                            value = detail.get_attribute(attr)
+                            attributes[attr] = value
+                        except Exception as e:
+                            attributes[attr] = f"获取失败: {str(e)}"
+                    
+                    # 打印所有属性
+                    for key, value in attributes.items():
+                        print(f"  {key}: {value}")
+                        
+                except Exception as e:
+                    print(f"  获取属性时出错: {str(e)}")
+                print("=== 属性打印结束 ===\n")
+                
                 # 获取元素的唯一标识符用于去重
                 try:
                     # 使用元素的 elementId 属性作为唯一标识符
