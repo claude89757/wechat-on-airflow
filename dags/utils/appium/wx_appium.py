@@ -1851,19 +1851,18 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 
                 # 获取元素的唯一标识符用于去重
                 try:
-                    content_desc = detail.get_attribute('content-desc')
+                    # 使用元素的 elementId 属性作为唯一标识符
+                    element_id = detail.get_attribute('elementId')
                     
-                    # 当朋友圈文案为空白时，不进行去重，因为可能是不同的图片或视频内容
-                    if not content_desc or content_desc.strip() == "":
-                        # 对于空白内容，使用位置和索引作为唯一标识，确保不会去重
+                    # 如果 elementId 为空，使用备用方案
+                    if not element_id:
+                        # 备用方案：使用 bounds 和索引组合
                         bounds = detail.get_attribute('bounds') or ''
-                        element_id = f"empty_content_{processed_posts + i}_{hash(bounds)}"
-                    else:
-                        # 对于有内容的朋友圈，使用内容哈希作为标识
-                        element_id = f"{hash(content_desc)}"
+                        element_id = f"fallback_{processed_posts + i}_{hash(bounds)}"
+                        print(f"[WARNING] elementId 为空，使用备用标识: {element_id}")
                     
-                    # 检查是否已经处理过这个元素（仅对非空内容进行去重检查）
-                    if content_desc and content_desc.strip() and element_id in processed_element_ids:
+                    # 检查是否已经处理过这个元素
+                    if element_id in processed_element_ids:
                         print(f"[INFO] 跳过重复的朋友圈元素: {element_id}")
                         continue
                     
