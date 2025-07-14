@@ -1888,20 +1888,21 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                         print(f"[INFO] 发现单张图片内容: {content}")
                         dify_img_info = deal_picture(wx_operator, login_info, detail, content, contact_name, device_name)
                         print("单张图片到dify_img_info:", dify_img_info)
-                        dify_img_info_list.append(dify_img_info)
-                        actual_processed_count += 1  # 实际处理计数+1
+                        if dify_img_info:
+                            dify_img_info_list.append(dify_img_info)
+                            actual_processed_count += 1  # 实际处理计数+1
 
                     elif "包含多张图片" in media_type:
                         print(f"[INFO] 发现多张图片内容: {content}")
                         # deal_pictures(wx_operator,login_info, detail, content,contact_name,device_name)
-                        actual_processed_count += 1  # 实际处理计数+1
+                        # actual_processed_count += 1  # 实际处理计数+1
 
                     elif "包含一条小视频" in media_type:
                         print(f"[INFO] 发现视频内容: {content}")
                         # dify_img_info=deal_video(wx_operator,login_info, detail, content,contact_name,device_name)
                         # print("单个视频到dify_img_info:",dify_img_info)
                         # dify_img_info_list.append(dify_img_info)
-                        actual_processed_count += 1  # 实际处理计数+1
+                        # actual_processed_count += 1  # 实际处理计数+1
                     else:
                         print(f"[INFO] 未知类型内容: {content_desc}")
                 
