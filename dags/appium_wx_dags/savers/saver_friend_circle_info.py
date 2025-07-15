@@ -24,7 +24,7 @@ def save_friend_circle_to_db(wx_user_id: str, wxid: str, nickname: str, analysis
         analysis_data: 分析结果数据，包含6个维度
     """
     print("analysis_data:", analysis_data,type(analysis_data))
-    print(f"[DB_SAVE] 保存朋友圈分析到数据库, wxid: {wxid}, nickname: {nickname}")
+    print(f"[DB_SAVE] 保存朋友圈分析到数据库, wx_user_id: {wx_user_id}, wxid: {wxid}, nickname: {nickname}")
     
     # 提取分析数据的6个维度
     basic = json.dumps(analysis_data.get('basic', {}), ensure_ascii=False)
