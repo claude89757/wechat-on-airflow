@@ -1486,6 +1486,91 @@ class WeChatOperator:
             print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
             return {}
 
+    def reply_by_reply_info(self,wx_id:str,wx_name:str):
+        """
+        前端控制设备回复信息
+            Args:
+        wx_id: 设备微信id
+        wx_name: 设备微信名
+
+        """
+        #前端控制回复的信息列表
+        response_msg = {}
+        reply_data = Variable.get("REPLY_INFO", default_var={}, deserialize_json=True)
+        print(wx_name)
+        # 根据device_name提取对应的reply_list
+        device_reply_info = reply_data.get(wx_name, {})
+        reply_list = device_reply_info.get('reply_list', [])
+
+        print(f'wx_name====\n{wx_name}')
+        print(f'待回复的消息列表====\n{reply_list}')
+
+        if reply_list:
+            # 创建一个副本用于遍历，避免在遍历过程中修改原列表
+            reply_list_copy = reply_list.copy()
+            
+            # 遍历待回复消息列表
+            for reply in reply_list_copy:
+                try:
+                    # 获取好友昵称
+                    contact_name = reply.get('contact_name', '未知好友') 
+                    message_content = reply.get('msg', '')
+                    
+                    # 发送消息
+                    self.send_message(contact_name=contact_name, messages=[message_content])
+                    
+                    # 发送成功后从待回复列表中删除该条消息
+                    reply_list.remove(reply)
+                    if contact_name not in response_msg:
+                        response_msg[contact_name] = []
+                    response_msg[contact_name].append(message_content)
+                    print(f'已发送----{message_content}到好友----{contact_name}，并从待回复列表中删除')
+                    time.sleep(2)
+
+                    # 发送成功后保存到数据库
+                    try:
+                    
+                        # 构造保存到数据库的消息数据
+                        save_msg_data = {
+                            'msg_id': str(uuid.uuid4()),
+                            'wx_user_id': wx_id,
+                            'wx_user_name': wx_name,
+                            'room_id': contact_name,  # 使用联系人名称作为room_id
+                            'room_name': contact_name,
+                            'sender_id': wx_id,  # 发送者是当前微信用户
+                            'sender_name': wx_name,
+                            'msg_type': 1,  # 文本消息类型
+                            'msg_type_name': '文本',
+                            'content': message_content,
+                            'is_self': True,  # 是自己发送的消息
+                            'is_group': False,  # 不是群聊
+                            'source_ip': '',
+                            'msg_timestamp': datetime.now().timestamp(),
+                            
+                        }
+                        save_msg_data['msg_datetime']= datetime.fromtimestamp(save_msg_data['msg_timestamp']).strftime('%Y-%m-%d %H:%M')
+                        # 保存到数据库
+                        save_data_to_db(save_msg_data)
+                        print(f'[DB_SAVE] 已保存回复消息到数据库: {message_content[:50]}...')
+                        
+                    except Exception as db_error:
+                        print(f'[DB_SAVE] 保存消息到数据库失败: {str(db_error)}')
+                        # 数据库保存失败不影响消息发送流程
+                except Exception as e:
+                    print(f'发送消息到{contact_name}失败: {str(e)}')
+                    # 发送失败时不删除消息，保留在列表中等待下次重试
+                    continue
+
+            # 更新设备的回复信息
+            if wx_name in reply_data:
+                reply_data[wx_name]['reply_list'] = reply_list
+
+            # 将更新后的数据保存回Variable
+            Variable.set("REPLY_INFO", reply_data, serialize_json=True)
+            
+            print(f'用户{wx_name}的待回复列表已更新，剩余{len(reply_list)}条消息')
+
+
     def close(self):
         """
         关闭微信操作器
@@ -1549,8 +1634,7 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id
     """
     # 获取消息
     wx_operator = None
-    #前端控制回复的信息列表
-    response_msg = {}
+    
     
     try:
         # 首先尝试不重启应用
@@ -1575,83 +1659,9 @@ def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, wx_id
 
         #自动通过新添加好友
         new_friend_list=wx_operator.agree_friend_request()  
-
-        #前端控制手机回复信息
-        reply_data = Variable.get("REPLY_INFO", default_var={}, deserialize_json=True)
-        print(wx_name)
-        # 根据device_name提取对应的reply_list
-        device_reply_info = reply_data.get(wx_name, {})
-        reply_list = device_reply_info.get('reply_list', [])
-
-        print(f'wx_name====\n{wx_name}')
-        print(f'待回复的消息列表====\n{reply_list}')
-
-        if reply_list:
-            # 创建一个副本用于遍历，避免在遍历过程中修改原列表
-            reply_list_copy = reply_list.copy()
-            
-            # 遍历待回复消息列表
-            for reply in reply_list_copy:
-                response_msg_list=[]
-                try:
-                    # 获取好友昵称
-                    contact_name = reply.get('contact_name', '未知好友') 
-                    message_content = reply.get('msg', '')
-                    
-                    # 发送消息
-                    wx_operator.send_message(contact_name=contact_name, messages=[message_content])
-                    
-                    # 发送成功后从待回复列表中删除该条消息
-                    reply_list.remove(reply)
-                    if contact_name not in response_msg:
-                        response_msg[contact_name] = []
-                    response_msg[contact_name].append(message_content)
-                    print(f'已发送----{message_content}到好友----{contact_name}，并从待回复列表中删除')
-                    time.sleep(2)
-
-                    # 发送成功后保存到数据库
-                    try:
-                    
-                        # 构造保存到数据库的消息数据
-                        save_msg_data = {
-                            'msg_id': str(uuid.uuid4()),
-                            'wx_user_id': wx_id,
-                            'wx_user_name': wx_name,
-                            'room_id': contact_name,  # 使用联系人名称作为room_id
-                            'room_name': contact_name,
-                            'sender_id': wx_id,  # 发送者是当前微信用户
-                            'sender_name': wx_name,
-                            'msg_type': 1,  # 文本消息类型
-                            'msg_type_name': '文本',
-                            'content': message_content,
-                            'is_self': True,  # 是自己发送的消息
-                            'is_group': False,  # 不是群聊
-                            'source_ip': '',
-                            'msg_timestamp': datetime.now().timestamp(),
-                            
-                        }
-                        save_msg_data['msg_datetime']= datetime.fromtimestamp(save_msg_data['msg_timestamp']).strftime('%Y-%m-%d %H:%M')
-                        # 保存到数据库
-                        save_data_to_db(save_msg_data)
-                        print(f'[DB_SAVE] 已保存回复消息到数据库: {message_content[:50]}...')
-                        
-                    except Exception as db_error:
-                        print(f'[DB_SAVE] 保存消息到数据库失败: {str(db_error)}')
-                        # 数据库保存失败不影响消息发送流程
-                except Exception as e:
-                    print(f'发送消息到{contact_name}失败: {str(e)}')
-                    # 发送失败时不删除消息，保留在列表中等待下次重试
-                    continue
-    
-            # 更新设备的回复信息
-            if wx_name in reply_data:
-                reply_data[wx_name]['reply_list'] = reply_list
-    
-            # 将更新后的数据保存回Variable
-            Variable.set("REPLY_INFO", reply_data, serialize_json=True)
-            
-            print(f'用户{wx_name}的待回复列表已更新，剩余{len(reply_list)}条消息')
-        # 获取最近新消息
+        #前端控制回复信息
+        wx_operator.reply_by_reply_info(wx_id,wx_name)
+        #获取最近新消息
         result = wx_operator.get_recent_new_msg()
 
         return result
@@ -1749,6 +1759,8 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
         # 关闭操作器
         if wx_operator:
             wx_operator.close()
+
+
 
 def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     try:
