@@ -47,6 +47,7 @@ def monitor_chats(**context):
     try:
         # 从 op_kwargs 传入的参数会被放入 context 中
         appium_server_info = context['wx_config']
+        update_wx_user(appium_server_info['wx_user_id'])
         print(f"[WATCHER] 获取Appium服务器信息: {appium_server_info}")
     except KeyError:
         print(f"[WATCHER] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")
@@ -245,8 +246,6 @@ def create_wx_watcher_dag_function(wx_config):
         catchup=False,
         tags=['个人微信',wx_config['wx_name']],
     )
-
-    update_wx_user(wx_config['wx_user_id'])
     
     op_kwargs = {'wx_config': wx_config}
 
