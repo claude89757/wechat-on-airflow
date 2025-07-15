@@ -25,10 +25,6 @@ def wx_friend_circle_analyze(**context):
     # 取消暂停 DAG
     dag_model.set_is_paused(is_paused=False)
     
-
-    
-
-
 with DAG(
     dag_id='wx_friend_circle',
     default_args={'owner': 'yuchangongzhu'},
