@@ -25,9 +25,7 @@ def wx_friend_circle_analyze(**context):
     print('已暂停AI回复的dag')
     time.sleep(5)
     full_answer,metadata=search_contact_name(appium_server_url=appium_server_url, device_name=device_name, contact_name=contact_name, login_info={})
-    # 取消暂停 DAG
-    dag_model.set_is_paused(is_paused=False)
-    
+
     # 保存朋友圈分析结果到数据库
     try:
         print(f"保存朋友圈分析结果: {full_answer}")
@@ -47,6 +45,9 @@ def wx_friend_circle_analyze(**context):
         print(f"朋友圈分析结果保存成功")
     except Exception as e:
         print(f"保存朋友圈分析结果失败: {e}")
+        
+    # 取消暂停 DAG
+    dag_model.set_is_paused(is_paused=False)
 
 with DAG(
     dag_id='wx_friend_circle',
