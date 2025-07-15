@@ -77,75 +77,89 @@ WX_MSG_TYPES = {
     1090519089: "文件"
 }
 
-
-def update_wx_user_info(source_ip: str) -> dict:
-    """
-    获取用户信息，并缓存。对于新用户，会初始化其专属的 enable_ai_room_ids 列表
-    """
-    # 获取当前已缓存的用户信息
-    wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
-
-    # 遍历用户列表，获取用户信息
-    for account in wx_account_list:
-        if source_ip == account['source_ip']:
-            print(f"获取到缓存的用户信息: {account}")
-            return account
-    
-    # 获取最新用户信息
-    new_account = get_wx_self_info(wcf_ip=source_ip)
-    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    new_account.update({
-        'update_time': current_time,
-        'create_time': current_time,  # 设置创建时间，只在账号第一次创建时记录
-        'source_ip': source_ip
-    })
-
-    # 查看当前列表中是否存在同账号的，先删除旧的数据
-    wx_account_list = [account for account in wx_account_list if account['wxid'] != new_account['wxid']]
-
-    # 添加新用户
-    wx_account_list.append(new_account)
-
-    # 初始化新用户的一些常用的变量
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_ui_input_prompt", "")
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_dify_api_key", "app-qKIPKEM5uzaGW0AFzAobz2Td")
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_human_room_ids", [], serialize_json=True)
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_single_chat_ai_global", "off")
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_group_chat_ai_global", "off")
-
-    # 初始化新用户的配置（后面改成这个变量来管理配置）
-    Variable.set(f"{new_account['name']}_{new_account['wxid']}_configs", 
-                 {
-                    "enable_ai_room_ids": [],
-                    "disable_ai_room_ids": [],
-                    "ui_input_prompt": "",
-                    "dify_api_key": "app-qKIPKEM5uzaGW0AFzAobz2Td",
-                    "human_room_ids": [],
-                    "single_chat_ai_global": "off",
-                    "group_chat_ai_global": "off"
-                 }, 
-                 serialize_json=True)
-
+def update_wx_user_info(wxid: str) -> dict:
     # 初始化新用户的聊天记录表
     try:
-        init_wx_chat_records_table(new_account['wxid'])
+        init_wx_chat_records_table(wxid)
     except Exception as error:
         print(f"[WATCHER] 初始化新用户聊天记录表失败: {error}")
 
     # 初始化新用户的朋友圈分析表
     try:
-        init_wx_friend_circle_table(new_account['wxid'])
+        init_wx_friend_circle_table(wxid)
     except Exception as error:
         print(f"[WATCHER] 初始化新用户朋友圈分析表失败: {error}")
 
-    # 更新用户列表
-    print(f"新用户, 更新用户信息: {new_account}")
-    Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
 
-    # 返回新用户信息
-    return new_account
+
+# def update_wx_user_info(source_ip: str) -> dict:
+#     """
+#     获取用户信息，并缓存。对于新用户，会初始化其专属的 enable_ai_room_ids 列表
+#     """
+#     # 获取当前已缓存的用户信息
+#     wx_account_list = Variable.get("WX_ACCOUNT_LIST", default_var=[], deserialize_json=True)
+
+#     # 遍历用户列表，获取用户信息
+#     for account in wx_account_list:
+#         if source_ip == account['source_ip']:
+#             print(f"获取到缓存的用户信息: {account}")
+#             return account
+    
+#     # 获取最新用户信息
+#     new_account = get_wx_self_info(wcf_ip=source_ip)
+#     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+#     new_account.update({
+#         'update_time': current_time,
+#         'create_time': current_time,  # 设置创建时间，只在账号第一次创建时记录
+#         'source_ip': source_ip
+#     })
+
+#     # 查看当前列表中是否存在同账号的，先删除旧的数据
+#     wx_account_list = [account for account in wx_account_list if account['wxid'] != new_account['wxid']]
+
+#     # 添加新用户
+#     wx_account_list.append(new_account)
+
+#     # 初始化新用户的一些常用的变量
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_enable_ai_room_ids", [], serialize_json=True)
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_disable_ai_room_ids", [], serialize_json=True)
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_ui_input_prompt", "")
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_dify_api_key", "app-qKIPKEM5uzaGW0AFzAobz2Td")
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_human_room_ids", [], serialize_json=True)
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_single_chat_ai_global", "off")
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_group_chat_ai_global", "off")
+
+#     # 初始化新用户的配置（后面改成这个变量来管理配置）
+#     Variable.set(f"{new_account['name']}_{new_account['wxid']}_configs", 
+#                  {
+#                     "enable_ai_room_ids": [],
+#                     "disable_ai_room_ids": [],
+#                     "ui_input_prompt": "",
+#                     "dify_api_key": "app-qKIPKEM5uzaGW0AFzAobz2Td",
+#                     "human_room_ids": [],
+#                     "single_chat_ai_global": "off",
+#                     "group_chat_ai_global": "off"
+#                  }, 
+#                  serialize_json=True)
+
+#     # 初始化新用户的聊天记录表
+#     try:
+#         init_wx_chat_records_table(new_account['wxid'])
+#     except Exception as error:
+#         print(f"[WATCHER] 初始化新用户聊天记录表失败: {error}")
+
+#     # 初始化新用户的朋友圈分析表
+#     try:
+#         init_wx_friend_circle_table(new_account['wxid'])
+#     except Exception as error:
+#         print(f"[WATCHER] 初始化新用户朋友圈分析表失败: {error}")
+
+#     # 更新用户列表
+#     print(f"新用户, 更新用户信息: {new_account}")
+#     Variable.set("WX_ACCOUNT_LIST", wx_account_list, serialize_json=True)
+
+#     # 返回新用户信息
+#     return new_account
 
 
 def get_contact_name(source_ip: str, wxid: str, wx_user_name: str) -> str:

@@ -243,6 +243,8 @@ def create_wx_watcher_dag_function(wx_config):
         catchup=False,
         tags=['个人微信',wx_config['wx_name']],
     )
+
+    update_wx_user_info(wx_config['wx_user_id'])
     
     op_kwargs = {'wx_config': wx_config}
 
