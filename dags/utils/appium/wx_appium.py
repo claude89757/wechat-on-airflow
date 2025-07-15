@@ -1946,7 +1946,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             if processed_posts >= max_posts_limit or before_scroll_page_source==after_scroll_page_source:
                 print(f"已达到实际处理条数限制({max_posts_limit}条),或者已无朋友圈可收集，开始分析...")
                 print("dify_text_info_list:", all_dify_text_info_list, "dify_img_info_list:", all_dify_img_info_list)
-                upload_file_text_to_dify(contact_name, all_dify_text_info_list, all_dify_img_info_list)
+                full_answer,metadata=upload_file_text_to_dify(contact_name, all_dify_text_info_list, all_dify_img_info_list)
                 break
             
             
@@ -1963,6 +1963,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                     break
 
         print("[7] 分析朋友圈成功")
+        return full_answer,metadata
 
     except Exception as e:
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
@@ -2172,7 +2173,7 @@ def upload_file_text_to_dify(contact_name:str,dify_text_info_list:list,dify_img_
         raise
     print(f"full_answer: {full_answer}")
     print(f"metadata: {metadata}")
-    return metadata
+    return full_answer,metadata
     
 def identify_friend_circle_content(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     pass
