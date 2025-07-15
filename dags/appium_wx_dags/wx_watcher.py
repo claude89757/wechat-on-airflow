@@ -36,6 +36,8 @@ from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
 from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
 
+from appium_wx_dags.common.wx_tools import update_wx_user
+
 WX_CONFIGS = Variable.get("WX_CONFIG_LIST", default_var=[], deserialize_json=True)
 
 
@@ -244,7 +246,7 @@ def create_wx_watcher_dag_function(wx_config):
         tags=['个人微信',wx_config['wx_name']],
     )
 
-    update_wx_user_info(wx_config['wx_user_id'])
+    update_wx_user(wx_config['wx_user_id'])
     
     op_kwargs = {'wx_config': wx_config}
 
