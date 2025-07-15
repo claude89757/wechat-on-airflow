@@ -32,14 +32,15 @@ def save_friend_circle_to_db(wx_user_id: str, wxid: str, nickname: str, analysis
     core_interests = json.dumps(analysis_data.get('core_interests', []), ensure_ascii=False)
     life_pattern = json.dumps(analysis_data.get('life_pattern', {}), ensure_ascii=False)
     social = json.dumps(analysis_data.get('social', []), ensure_ascii=False)
-    values = json.dumps(analysis_data.get('values', []), ensure_ascii=False)
+    values_data = json.dumps(analysis_data.get('values', []), ensure_ascii=False)
 
-    print("basic:", basic)
-    print("consumption:", consumption)
-    print("core_interests:", core_interests)
-    print("life_pattern:", life_pattern)
-    print("social:", social)
-    print("values:", values)
+    print(f"wx_user_id: {wx_user_id}, wxid: {wxid}, nickname: {nickname}")
+    print(f"basic: {basic}")
+    print(f"consumption: {consumption}")
+    print(f"core_interests: {core_interests}")
+    print(f"life_pattern: {life_pattern}")
+    print(f"social: {social}")
+    print(f"values: {values_data}")
     
 
     # 插入数据SQL
@@ -51,7 +52,7 @@ def save_friend_circle_to_db(wx_user_id: str, wxid: str, nickname: str, analysis
     core_interests, 
     life_pattern, 
     social, 
-    values) 
+    `values`) 
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     ON DUPLICATE KEY UPDATE 
     nickname = VALUES(nickname),
@@ -60,7 +61,7 @@ def save_friend_circle_to_db(wx_user_id: str, wxid: str, nickname: str, analysis
     core_interests = VALUES(core_interests),
     life_pattern = VALUES(life_pattern),
     social = VALUES(social),
-    values = VALUES(values),
+    `values` = VALUES(`values`),
     updated_at = CURRENT_TIMESTAMP
     """
     
@@ -81,7 +82,7 @@ def save_friend_circle_to_db(wx_user_id: str, wxid: str, nickname: str, analysis
             core_interests,
             life_pattern,
             social,
-            values
+            values_data
         ))
         
         # 提交事务
