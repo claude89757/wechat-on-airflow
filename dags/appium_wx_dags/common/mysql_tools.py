@@ -635,3 +635,44 @@ def save_token_usage_to_db(token_usage_data: dict):
             except:
                 pass
         
+
+def init_wx_friend_circle_table(wx_user_id: str):
+    """
+    初始化微信朋友圈分析表
+    
+    Args:
+        wx_user_id: 微信用户ID
+    """
+    # 使用get_hook函数获取数据库连接
+    db_hook = BaseHook.get_connection("wx_db").get_hook()
+    db_conn = db_hook.get_conn()
+    cursor = db_conn.cursor()
+    
+    # 朋友圈分析表的创建数据包
+    create_table_sql = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_friend_circle_table` (
+        `id` bigint(20) NOT NULL AUTO_INCREMENT,
+        `wxid` varchar(64) NOT NULL COMMENT '好友微信ID',
+        `nickname` varchar(128) DEFAULT NULL COMMENT '好友昵称',
+        `basic` JSON DEFAULT NULL COMMENT '基础属性(性别、年龄等)',
+        `consumption` JSON DEFAULT NULL COMMENT '消费能力',
+        `core_interests` JSON DEFAULT NULL COMMENT '兴趣偏好',
+        `life_pattern` JSON DEFAULT NULL COMMENT '生活方式',
+        `social` JSON DEFAULT NULL COMMENT '社交特征',
+        `values` JSON DEFAULT NULL COMMENT '价值观',
+        `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+        `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uk_wxid` (`wxid`),
+        KEY `idx_created_at` (`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信朋友圈分析';
+    """
+    
+    # 创建表（如果不存在）
+    cursor.execute(create_table_sql)
+    
+    # 提交事务
+    db_conn.commit()
+    
+    # 关闭连接
+    cursor.close()
+    db_conn.close()

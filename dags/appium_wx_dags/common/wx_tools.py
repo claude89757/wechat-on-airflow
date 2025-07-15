@@ -17,7 +17,7 @@ from datetime import datetime
 from airflow.models import Variable
 from utils.wechat_channl import get_wx_self_info
 from utils.wechat_channl import get_wx_contact_list
-from appium_wx_dags.common.mysql_tools import init_wx_chat_records_table
+from appium_wx_dags.common.mysql_tools import init_wx_chat_records_table, init_wx_friend_circle_table
 
 # 标准库导入
 import os
