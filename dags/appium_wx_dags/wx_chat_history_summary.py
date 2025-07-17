@@ -211,8 +211,8 @@ dag.doc_md = """
 ```
 
 ### 必填参数:
-- `contact_name`: 微信会话ID
-- `wx_user_id`: 微信用户ID
+- `contact_name`: 联系人微信名
+- `wx_user_id`: 你的微信用户ID
 
 ### 输出:
 - 会将摘要结果保存到数据库的`wx_chat_summary`表中

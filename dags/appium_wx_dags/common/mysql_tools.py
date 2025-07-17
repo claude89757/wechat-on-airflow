@@ -238,8 +238,8 @@ def get_wx_chat_history(contact_name: str, wx_user_id: str = None, start_time: s
             conditions.append("msg_datetime <= %s")
             params.append(end_time)
             
-        # 设置固定表名为 wx_chat_records
-        table_name = "wx_chat_records"
+        # 根据wx_user_id设置表名
+        table_name = f"{wx_user_id}_wx_chat_records"
         
         # 构建查询SQL
         query_sql = f"""
