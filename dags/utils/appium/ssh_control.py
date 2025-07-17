@@ -135,18 +135,21 @@ def push_image_to_device(device_ip, username, password, device_serial, local_pat
     # 提取文件名，拼接到微信图片目录
     filename = os.path.basename(device_path)
     wx_image_dir = "/sdcard/Pictures/WeiXin"
+    wx_image_dir_wc = "/sdcard/Pictures/WeChat"
     device_path = f"{wx_image_dir}/{filename}"
-    
+    device_path_wc = f"{wx_image_dir_wc}/{filename}"
     # 构建adb shell命令（指定设备） 
     adb_command = f"bash -l -c 'adb -s {device_serial} push {local_path} {device_path}' "
-    
+    adb_command_wc=f"bash -l -c 'adb -s {device_serial} push {local_path} {device_path_wc}' "
     # 执行命令
     output, error = exec_cmd_by_ssh(device_ip, port, username, password, adb_command)
     
     # 检查命令是否成功执行
     if error and "No such file or directory" in error:
         print(f"Failed to puss file: {error}")
-        return None
+        print('尝试/WeChat路径')
+        output, error = exec_cmd_by_ssh(device_ip, port, username, password, adb_command_wc)
+        return local_path
     elif error:
         print(f"Warning during puss file: {error}")
     else:
