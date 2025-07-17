@@ -61,7 +61,13 @@ def save_image_msg_to_db(**context):
     except KeyError:
         print(f"[SAVE] 获取微信配置信息失败: 未在 context 中找到 'wx_config'")
         return
-
+    try:
+        # 账号的消息计数器+1
+        msg_count = Variable.get(f"{save_msg['wx_user_name']}_msg_count", default_var=0, deserialize_json=True)
+        Variable.set(f"{save_msg['wx_user_name']}_msg_count", msg_count+1, serialize_json=True)
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 更新消息计时器失败: {error}")
     # 提交对方发送的图片信息
     recent_new_msg = context['ti'].xcom_pull(key='image_cos_msg')
     for contact_name, messages in recent_new_msg.items():
