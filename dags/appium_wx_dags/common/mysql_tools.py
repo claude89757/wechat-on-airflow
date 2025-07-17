@@ -198,12 +198,12 @@ def save_data_to_db(msg_data: dict):
                 pass
 
 
-def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = None, end_time: str = None, limit: int = 100, offset: int = 0):
+def get_wx_chat_history(contact_name: str, wx_user_id: str = None, start_time: str = None, end_time: str = None, limit: int = 100, offset: int = 0):
     """
     获取微信聊天记录
     
     Args:
-        room_id (str): 聊天室ID
+        contact_name (str): 联系人微信名
         wx_user_id (str, optional): 微信用户ID，作为筛选条件
         start_time (str, optional): 开始时间，格式：YYYY-MM-DD HH:mm:ss
         end_time (str, optional): 结束时间，格式：YYYY-MM-DD HH:mm:ss
@@ -222,8 +222,8 @@ def get_wx_chat_history(room_id: str, wx_user_id: str = None, start_time: str = 
         cursor = db_conn.cursor()
         
         # 构建查询条件
-        conditions = ["room_id = %s"]
-        params = [room_id]
+        conditions = ["sender_name = %s"]
+        params = [contact_name]
         
         # 添加 wx_user_id 作为筛选条件
         if wx_user_id:
@@ -320,7 +320,7 @@ def init_wx_chat_summary_table():
     # 创建聊天记录摘要表
     create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_chat_summary` (
         `id` BIGINT NOT NULL AUTO_INCREMENT,
-        `room_id` VARCHAR(100) NOT NULL COMMENT '会话ID',
+        `contact_name` VARCHAR(100) NOT NULL COMMENT '联系人名',
         `room_name` VARCHAR(100) NOT NULL COMMENT '会话名称',
         `wx_user_id` VARCHAR(100) NOT NULL COMMENT '微信用户ID',
         
@@ -383,7 +383,7 @@ def init_wx_chat_summary_table():
         `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
         
         PRIMARY KEY (`id`),
-        INDEX `idx_room_wx_user` (`room_id`, `wx_user_id`),
+        INDEX `idx_room_wx_user` (`contact_name`, `wx_user_id`),
         INDEX `idx_time_range` (`start_time`, `end_time`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信聊天记录客户标签摘要';
     """
@@ -425,7 +425,7 @@ def save_chat_summary_to_db(summary_data: dict):
         # 准备数据
         params = {
             # 基础信息
-            'room_id': summary_data.get('room_id'),
+            'contact_name': summary_data.get('contact_name'),
             'room_name': summary_data.get('room_name'),
             'wx_user_id': summary_data.get('wx_user_id'),
             
@@ -493,21 +493,21 @@ def save_chat_summary_to_db(summary_data: dict):
         placeholders = ', '.join(['%s'] * len(params))
         
         # 检查是否已存在记录
-        check_sql = "SELECT id FROM wx_chat_summary WHERE room_id = %s AND wx_user_id = %s LIMIT 1"
-        cursor.execute(check_sql, (params['room_id'], params['wx_user_id']))
+        check_sql = "SELECT id FROM wx_chat_summary WHERE contact_name = %s AND wx_user_id = %s LIMIT 1"
+        cursor.execute(check_sql, (params['contact_name'], params['wx_user_id']))
         existing_record = cursor.fetchone()
         
         if existing_record:
             # 更新现有记录
             update_parts = [f"{field} = %s" for field in params.keys()]
-            update_sql = f"UPDATE wx_chat_summary SET {', '.join(update_parts)} WHERE room_id = %s AND wx_user_id = %s"
-            cursor.execute(update_sql, list(params.values()) + [params['room_id'], params['wx_user_id']])
-            print(f"[DB_SAVE] 更新聊天记录摘要: room_id={params['room_id']}, wx_user_id={params['wx_user_id']}")
+            update_sql = f"UPDATE wx_chat_summary SET {', '.join(update_parts)} WHERE contact_name = %s AND wx_user_id = %s"
+            cursor.execute(update_sql, list(params.values()) + [params['contact_name'], params['wx_user_id']])
+            print(f"[DB_SAVE] 更新聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
         else:
             # 插入新记录
             insert_sql = f"INSERT INTO wx_chat_summary ({fields}) VALUES ({placeholders})"
             cursor.execute(insert_sql, list(params.values()))
-            print(f"[DB_SAVE] 插入聊天记录摘要: room_id={params['room_id']}, wx_user_id={params['wx_user_id']}")
+            print(f"[DB_SAVE] 插入聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
         
         # 提交事务
         db_conn.commit()
