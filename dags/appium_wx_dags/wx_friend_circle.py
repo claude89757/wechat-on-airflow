@@ -24,10 +24,11 @@ def wx_friend_circle_analyze(**context):
     dag_model.set_is_paused(is_paused=True)
     print('已暂停AI回复的dag')
     time.sleep(5)
-    full_answer,metadata=search_contact_name(appium_server_url=appium_server_url, device_name=device_name, contact_name=contact_name, login_info={})
+    
 
     # 保存朋友圈分析结果到数据库
     try:
+        full_answer,metadata=search_contact_name(appium_server_url=appium_server_url, device_name=device_name, contact_name=contact_name, login_info={})
         print(f"保存朋友圈分析结果: {full_answer}")
         # 解析JSON字符串（如果full_answer是字符串）
         if isinstance(full_answer, str):
