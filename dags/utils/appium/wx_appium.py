@@ -1969,10 +1969,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         print(f"[ERROR] 搜索联系人时出错: {str(e)}")
         import traceback
         print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
-    finally:
-        # 关闭操作器
-        if wx_operator:
-            wx_operator.close()
+
 
 
 def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):

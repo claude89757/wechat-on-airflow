@@ -85,3 +85,10 @@ def save_image_msg_to_db(**context):
 
             print(f"[SAVE] 发送者: {save_msg['sender_name']}, 消息内容: {save_msg['content']},")
             save_data_to_db(save_msg)
+    try:
+        # 账号的消息计数器+1
+        msg_count = Variable.get(f"{save_msg['wx_user_name']}_msg_count", default_var=0, deserialize_json=True)
+        Variable.set(f"{save_msg['wx_user_name']}_msg_count", msg_count+1, serialize_json=True)
+    except Exception as error:
+        # 不影响主流程
+        print(f"[WATCHER] 更新消息计时器失败: {error}")
