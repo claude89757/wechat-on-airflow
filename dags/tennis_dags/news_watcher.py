@@ -115,7 +115,7 @@ def send_news(**context) -> None:
     print(f"news_room_list: {news_room_list}")
     for news_room in news_room_list:
         zacks_up_for_send_msg_list.append({
-            "room_name": news_room['room_name'],
+            "room_name": news_room,
             "msg": msg
         })
     Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
