@@ -189,6 +189,10 @@ def handler_text_msg(**context):
     # 获取 appid 和 appsecret
     app_id = target_account.get('WX_MP_APP_ID')
     app_secret = target_account.get('WX_MP_SECRET')
+    print("="*50)
+    print(f"app_id: {app_id}")
+    print(f"app_secret: {app_secret}")
+    print("="*50)
 
     if not all([app_id, app_secret]):
         print(f"错误：名称为 '{target_account_name}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
