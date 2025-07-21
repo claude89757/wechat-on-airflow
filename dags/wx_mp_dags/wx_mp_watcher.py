@@ -824,27 +824,40 @@ def handler_voice_msg(**context):
     
     print(f"收到来自 {from_user_name} 的语音消息，MediaId: {media_id}, Format: {format_type}, MediaId16K: {media_id_16k}")
     
-    # 从 context 中获取公众号配置信息
+    # 从Variable中获取微信公众号账号列表
+    account_list_str = Variable.get("WX_MP_ACCOUNT_LIST", default_var=None)
+    if not account_list_str:
+        print("错误：未找到名为 'WX_MP_ACCOUNT_LIST' 的Airflow Variable。")
+        return
+
     try:
-        wx_mp_config = context['wx_mp_config']
-        print(f"[HANDLER] 获取公众号配置信息: {wx_mp_config}")
-    except KeyError:
-        print(f"[HANDLER] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
+        account_list = json.loads(account_list_str)
+    except json.JSONDecodeError:
+        print("错误：'WX_MP_ACCOUNT_LIST' Variable中的JSON格式不正确。")
+        return
+
+    # 查找指定名称的账号信息
+    # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
+    target_account_name = "地产"
+    target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
+
+    if not target_account:
+        print(f"错误：在 'WX_MP_ACCOUNT_LIST' 中未找到名称为 '{target_account_name}' 的账号。")
         return
 
     # 获取 appid 和 appsecret
-    app_id = wx_mp_config.get('WX_MP_APP_ID')
-    app_secret = wx_mp_config.get('WX_MP_SECRET')
+    app_id = target_account.get('WX_MP_APP_ID')
+    app_secret = target_account.get('WX_MP_SECRET')
 
     if not all([app_id, app_secret]):
-        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
+        print(f"错误：名称为 '{target_account_name}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
         return
 
     # 初始化微信公众号机器人
     mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
+    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
@@ -964,8 +977,8 @@ def handler_voice_msg(**context):
         if send_text_response:
             try:
                 # 将长回复拆分成多条消息发送
-                for response_part in re.split(r'\n\n|\n\n', response):
-                    response_part = response_part.replace('\n', '\n')
+                for response_part in re.split(r'\\n\\n|\n\n', response):
+                    response_part = response_part.replace('\\n', '\n')
                     if response_part.strip():  # 确保不发送空消息
                         mp_bot.send_text_message(from_user_name, response_part)
                         time.sleep(0.5)  # 避免发送过快
@@ -1010,6 +1023,7 @@ def handler_voice_msg(**context):
         except Exception as e:
             print(f"[WATCHER] 删除临时文件失败: {e}")
 
+
 def handler_file_msg(**context):
     """
     处理文件类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
@@ -1033,27 +1047,15 @@ def handler_subscribe_event(**context):
     
     print(f"[SUBSCRIBE] 收到用户 {from_user_name} 关注事件")
     
-    # 从 context 中获取公众号配置信息
-    try:
-        wx_mp_config = context['wx_mp_config']
-        print(f"[SUBSCRIBE] 获取公众号配置信息: {wx_mp_config}")
-    except KeyError:
-        print(f"[SUBSCRIBE] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
-        return False
-
-    # 获取 appid 和 appsecret
-    app_id = wx_mp_config.get('WX_MP_APP_ID')
-    app_secret = wx_mp_config.get('WX_MP_SECRET')
-
-    if not all([app_id, app_secret]):
-        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
-        return False
-
+    # 获取公众号账号信息
+    wx_mp_account_info = context.get('task_instance').xcom_pull(key='wx_mp_account_info')
+    print(f"[SUBSCRIBE] 公众号信息: {wx_mp_account_info}")
+    
     # 创建微信公众号机器人实例
-    mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
+    mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
     
     # 欢迎消息
-    welcome_message = wx_mp_config.get('welcome_message', "欢迎关注！")
+    welcome_message = "欢迎关注lucyai，我是医美小助手小希，您可以给我发送信息，我24小时都在线回复您～"
     
     try:
         # 发送欢迎消息
