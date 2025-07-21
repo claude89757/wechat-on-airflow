@@ -184,6 +184,8 @@ def handler_text_msg(**context):
         print(f"错误：在 'WX_MP_ACCOUNT_LIST' 中未找到名称为 '{target_account_name}' 的账号。")
         return
 
+    print(f"[WATCHER] 找到名称为 '{target_account_name}' 的账号----: {target_account}")
+
     # 获取 appid 和 appsecret
     app_id = target_account.get('WX_MP_APP_ID')
     app_secret = target_account.get('WX_MP_SECRET')
