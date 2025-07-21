@@ -187,7 +187,6 @@ dag = DAG(
     dag_id=DAG_ID,
     default_args={'owner': 'claude89757'},
     start_date=datetime(2024, 1, 1),
-    schedule_interval=None,
     catchup=False,
     tags=['个人微信'],
     description='聊天记录总结'
