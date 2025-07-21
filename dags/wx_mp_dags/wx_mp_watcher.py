@@ -1170,20 +1170,6 @@ def save_token_usage(**context):
     # 保存token用量到DB
     save_token_usage_to_db(save_token_usage_data)
 
-
-# 创建DAG
-dag = DAG(
-    dag_id=DAG_ID,
-    default_args={'owner': 'claude89757'},
-    start_date=datetime(2024, 1, 1),
-    schedule_interval=None,
-    max_active_runs=50,
-    catchup=False,
-    tags=['微信公众号'],
-    description='微信公众号消息监控',
-)
-
-
 def create_wx_mp_watcher_dag_function(wx_mp_config):
     dag=DAG(
         dag_id=wx_mp_config['dag_id'],
