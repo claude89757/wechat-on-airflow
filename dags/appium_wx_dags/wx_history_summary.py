@@ -19,7 +19,7 @@ from appium_wx_dags.common.mysql_tools import get_wx_chat_history, save_chat_sum
 from utils.dify_sdk import DifyAgent
 
 
-DAG_ID = "wx_chat_history_summary"
+DAG_ID = "wx_history_summary"
 
 
 def extract_json_from_string(text):
@@ -187,7 +187,6 @@ dag = DAG(
     dag_id=DAG_ID,
     default_args={'owner': 'claude89757'},
     start_date=datetime(2024, 1, 1),
-    schedule_interval=None,
     catchup=False,
     tags=['个人微信'],
     description='聊天记录总结'

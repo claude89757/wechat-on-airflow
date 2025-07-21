@@ -328,15 +328,28 @@ class DifyAgent:
             files = []
 
         url = f"{self.base_url}/chat-messages"
-        payload = {
-            "inputs": inputs,
-            "query": query,
-            "response_mode": "streaming",  # 使用流式响应
-            "conversation_id": conversation_id,
-            "user": user_id,
-            "auto_generate_name": False,
-            "files": files
-        }
+        if conversation_id:
+            payload = {
+                "inputs": inputs,
+                "query": query,
+                "response_mode": "streaming",  # 使用流式响应
+                "conversation_id": conversation_id,
+                "user": user_id,
+                "auto_generate_name": False,
+                "files": files
+            }
+        else:
+            payload = {
+                "inputs": inputs,
+                "query": query,
+                "response_mode": "streaming",  # 使用流式响应
+                "user": user_id,
+                "auto_generate_name": False,
+                "files": files
+            }
+        print("="*50)
+        print(f"payload: {payload}")
+        print("="*50)
 
         full_answer = ""
         metadata = {}

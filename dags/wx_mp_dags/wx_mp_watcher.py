@@ -43,11 +43,9 @@ from utils.wechat_mp_channl import WeChatMPBot
 from utils.tts import text_to_speech
 from utils.redis import RedisHandler
 from wx_mp_dags.common.mysql_tools import save_token_usage_to_db
-from wx_mp_dags.common.wx_mp_tools import get_mp_account_info
+from wx_mp_dags.common.wx_mp_tools import get_mp_account_info, upload_mp_image_to_cos
 
-
-
-DAG_ID = "wx_mp_msg_watcher"
+WX_MP_CONFIGS = Variable.get("WX_MP_ACCOUNT_LIST", default_var=[], deserialize_json=True)
 
 # 添加消息类型常量
 WX_MSG_TYPES = {
@@ -60,7 +58,6 @@ WX_MSG_TYPES = {
     'link': '链接消息',
     'event': '事件推送',
 }
-
 
 def process_wx_message(**context):
     """
@@ -83,8 +80,24 @@ def process_wx_message(**context):
     print(json.dumps(message_data, ensure_ascii=False, indent=2))
     print("--------------------------------")
 
+    # 从 context 中获取公众号配置信息
+    try:
+        wx_mp_config = context['wx_mp_config']
+        print(f"[WATCHER] 获取公众号配置信息: {wx_mp_config}")
+    except KeyError:
+        print(f"[WATCHER] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
+        return []
+
+    # 获取 appid 和 appsecret
+    app_id = wx_mp_config.get('WX_MP_APP_ID')
+    app_secret = wx_mp_config.get('WX_MP_SECRET')
+
+    if not all([app_id, app_secret]):
+        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
+        return []
+
     # 获取用户信息(注意，微信公众号并未提供详细的用户消息）
-    mp_bot = WeChatMPBot(appid=Variable.get("WX_MP_APP_ID"), appsecret=Variable.get("WX_MP_SECRET"))
+    mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     user_info = mp_bot.get_user_info(message_data.get('FromUserName'))
     print(f"FromUserName: {message_data.get('FromUserName')}, 用户信息: {user_info}")
         
@@ -118,7 +131,6 @@ def process_wx_message(**context):
         return []
 
 
-
 def handler_text_msg(**context):
     """
     处理文本类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
@@ -134,24 +146,36 @@ def handler_text_msg(**context):
     msg_id = message_data.get('MsgId')  # 消息ID
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
-    
-    # 获取微信公众号配置和初始化客户端
-    appid = Variable.get("WX_MP_APP_ID", default_var="")
-    appsecret = Variable.get("WX_MP_SECRET", default_var="")
-    
-    if not appid or not appsecret:
-        print("[WATCHER] 微信公众号配置缺失")
+
+    # 从 context 中获取公众号配置信息
+    try:
+        wx_mp_config = context['wx_mp_config']
+        print(f"[HANDLER] 获取公众号配置信息: {wx_mp_config}")
+    except KeyError:
+        print(f"[HANDLER] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
         return
+
+    # 获取 appid 和 appsecret
+    app_id = wx_mp_config.get('WX_MP_APP_ID')
+    app_secret = wx_mp_config.get('WX_MP_SECRET')
     
+    if not all([app_id, app_secret]):
+        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
+        return
+
     # 初始化redis
     redis_handler = RedisHandler()
 
     # 初始化微信公众号机器人
-    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
+    mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
+    dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
+    print("="*50)
+    print(f"dify_api_key: {dify_api_key}")
+    print(f"dify_base_url: {dify_base_url}")
+    print("="*50)
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID - 只在这里获取一次
@@ -331,9 +355,9 @@ def save_msg_to_mysql(**context):
     """
     # 获取传入的消息数据
     message_data = context.get('dag_run').conf
-    if not message_data:
-        print("[DB_SAVE] 没有收到消息数据")
-        return
+    
+    # 获取公众号账号信息
+    wx_mp_account_info = context.get('task_instance').xcom_pull(key='wx_mp_account_info')
     
     # 提取消息信息 - 使用正确的微信消息字段
     from_user_name = message_data.get('FromUserName', '')  # 发送者的OpenID
@@ -602,7 +626,8 @@ def download_image_from_wechat_mp(access_token, media_id, save_path=None):
     except Exception as e:
         print(f"[WX_MP] 下载图片异常: {e}")
         return None
-    
+
+
 def handler_image_msg(**context):
     """
     处理图片类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
@@ -627,20 +652,28 @@ def handler_image_msg(**context):
     
     print(f"收到来自 {from_user_name} 的图片消息，MediaId: {media_id}, PicUrl: {pic_url}")
     
-    # 获取微信公众号配置
-    appid = Variable.get("WX_MP_APP_ID", default_var="")
-    appsecret = Variable.get("WX_MP_SECRET", default_var="")
-    
-    if not appid or not appsecret:
-        print("[WATCHER] 微信公众号配置缺失")
+    # 从 context 中获取公众号配置信息
+    try:
+        wx_mp_config = context['wx_mp_config']
+        print(f"[HANDLER] 获取公众号配置信息: {wx_mp_config}")
+    except KeyError:
+        print(f"[HANDLER] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
         return
-    
+
+    # 获取 appid 和 appsecret
+    app_id = wx_mp_config.get('WX_MP_APP_ID')
+    app_secret = wx_mp_config.get('WX_MP_SECRET')
+
+    if not all([app_id, app_secret]):
+        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
+        return
+
     # 初始化微信公众号机器人
-    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
+    mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     access_token = mp_bot.get_access_token()
     
     # 初始化dify
-    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
+    dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
@@ -671,7 +704,6 @@ def handler_image_msg(**context):
         print(f"[WATCHER] 上传图片到Dify成功: {online_img_info}")
 
          # 3. 上传图片到COS
-        from wx_mp_dags.common.wx_mp_tools import upload_mp_image_to_cos
         wx_mp_account_info = context['task_instance'].xcom_pull(key='wx_mp_account_info')
         mp_name = wx_mp_account_info.get('name', to_user_name)
         
@@ -793,19 +825,27 @@ def handler_voice_msg(**context):
     
     print(f"收到来自 {from_user_name} 的语音消息，MediaId: {media_id}, Format: {format_type}, MediaId16K: {media_id_16k}")
     
-    # 获取微信公众号配置
-    appid = Variable.get("WX_MP_APP_ID", default_var="")
-    appsecret = Variable.get("WX_MP_SECRET", default_var="")
-    
-    if not appid or not appsecret:
-        print("[WATCHER] 微信公众号配置缺失")
+    # 从 context 中获取公众号配置信息
+    try:
+        wx_mp_config = context['wx_mp_config']
+        print(f"[HANDLER] 获取公众号配置信息: {wx_mp_config}")
+    except KeyError:
+        print(f"[HANDLER] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
         return
-    
+
+    # 获取 appid 和 appsecret
+    app_id = wx_mp_config.get('WX_MP_APP_ID')
+    app_secret = wx_mp_config.get('WX_MP_SECRET')
+
+    if not all([app_id, app_secret]):
+        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
+        return
+
     # 初始化微信公众号机器人
-    mp_bot = WeChatMPBot(appid=appid, appsecret=appsecret)
+    mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
+    dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
@@ -1086,95 +1126,111 @@ def save_token_usage(**context):
     # 保存token用量到DB
     save_token_usage_to_db(save_token_usage_data)
 
+def create_wx_mp_watcher_dag_function(wx_mp_config):
+    dag=DAG(
+        dag_id=wx_mp_config['dag_id'],
+        default_args={'owner': 'claude89757'},
+        description='微信公众号消息监听处理',
+        start_date=datetime(2025, 4, 22),
+        max_active_runs=50,
+        catchup=False,
+        tags=['微信公众号',wx_mp_config['name']],
+    )
+    
+    op_kwargs = {'wx_mp_config': wx_mp_config}
 
-# 创建DAG
-dag = DAG(
-    dag_id=DAG_ID,
-    default_args={'owner': 'claude89757'},
-    start_date=datetime(2024, 1, 1),
-    schedule_interval=None,
-    max_active_runs=50,
-    catchup=False,
-    tags=['微信公众号'],
-    description='微信公众号消息监控',
-)
+    # 创建处理消息的任务
+    process_message_task = BranchPythonOperator(
+        task_id='process_wx_message',
+        python_callable=process_wx_message,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 创建处理文本消息的任务
+    handler_text_msg_task = PythonOperator(
+        task_id='handler_text_msg',
+        python_callable=handler_text_msg,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 创建处理图片消息的任务
+    handler_image_msg_task = PythonOperator(
+        task_id='handler_image_msg',
+        python_callable=handler_image_msg,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 创建处理语音消息的任务
+    handler_voice_msg_task = PythonOperator(
+        task_id='handler_voice_msg',
+        python_callable=handler_voice_msg,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 创建处理关注事件的任务
+    handler_subscribe_event_task = PythonOperator(
+        task_id='handler_subscribe_event',
+        python_callable=handler_subscribe_event,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 创建保存消息到MySQL的任务
+    save_msg_to_mysql_task = PythonOperator(
+        task_id='save_msg_to_mysql',
+        python_callable=save_msg_to_mysql,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 创建保存图片到MySQL的任务
+    save_image_to_mysql_task = PythonOperator(
+        task_id='save_image_to_mysql',
+        python_callable=save_image_to_mysql,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 保存AI回复的消息到数据库
+    save_ai_reply_msg_task = PythonOperator(
+        task_id='save_ai_reply_msg_to_db',
+        python_callable=save_ai_reply_msg_to_db,
+        provide_context=True,
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    # 保存token用量到数据库
+    save_token_usage_task = PythonOperator(
+        task_id='save_token_usage',
+        python_callable=save_token_usage,
+        provide_context=True,
+        trigger_rule='one_success', 
+        dag=dag,
+        op_kwargs=op_kwargs
+    )
+    
+    
+    # 设置任务依赖关系
+    process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, handler_subscribe_event_task, save_msg_to_mysql_task]
+    handler_text_msg_task >> save_ai_reply_msg_task >> save_token_usage_task
+    handler_image_msg_task >> save_image_to_mysql_task
+    handler_voice_msg_task >> save_token_usage_task
 
-# 创建处理消息的任务
-process_message_task = BranchPythonOperator(
-    task_id='process_wx_message',
-    python_callable=process_wx_message,
-    provide_context=True,
-    dag=dag
-)
+    return dag
 
-# 创建处理文本消息的任务
-handler_text_msg_task = PythonOperator(
-    task_id='handler_text_msg',
-    python_callable=handler_text_msg,
-    provide_context=True,
-    dag=dag
-)
-
-# 创建处理图片消息的任务
-handler_image_msg_task = PythonOperator(
-    task_id='handler_image_msg',
-    python_callable=handler_image_msg,
-    provide_context=True,
-    dag=dag
-)
-
-# 创建处理语音消息的任务
-handler_voice_msg_task = PythonOperator(
-    task_id='handler_voice_msg',
-    python_callable=handler_voice_msg,
-    provide_context=True,
-    dag=dag
-)
-
-# 创建处理关注事件的任务
-handler_subscribe_event_task = PythonOperator(
-    task_id='handler_subscribe_event',
-    python_callable=handler_subscribe_event,
-    provide_context=True,
-    dag=dag
-)
-
-# 创建保存消息到MySQL的任务
-save_msg_to_mysql_task = PythonOperator(
-    task_id='save_msg_to_mysql',
-    python_callable=save_msg_to_mysql,
-    provide_context=True,
-    dag=dag
-)
-
-# 创建保存图片到MySQL的任务
-save_image_to_mysql_task = PythonOperator(
-    task_id='save_image_to_mysql',
-    python_callable=save_image_to_mysql,
-    provide_context=True,
-    dag=dag
-)
-
-# 保存AI回复的消息到数据库
-save_ai_reply_msg_task = PythonOperator(
-    task_id='save_ai_reply_msg_to_db',
-    python_callable=save_ai_reply_msg_to_db,
-    provide_context=True,
-    dag=dag
-)
-
-# 保存token用量到数据库
-save_token_usage_task = PythonOperator(
-    task_id='save_token_usage',
-    python_callable=save_token_usage,
-    provide_context=True,
-    trigger_rule='one_success', 
-    dag=dag
-)
-
-
-# 设置任务依赖关系
-process_message_task >> [handler_text_msg_task, handler_image_msg_task, handler_voice_msg_task, handler_subscribe_event_task, save_msg_to_mysql_task]
-handler_text_msg_task >> save_ai_reply_msg_task >> save_token_usage_task
-handler_image_msg_task >> save_image_to_mysql_task
-handler_voice_msg_task >> save_token_usage_task
+# 动态创建DAG
+for wx_mp_config in WX_MP_CONFIGS:
+    dag_id = wx_mp_config['dag_id']
+    globals()[dag_id] = create_wx_mp_watcher_dag_function(wx_mp_config)
