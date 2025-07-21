@@ -75,6 +75,8 @@ def format_news_message(news_list: list, keyword: str) -> str:
         for news_data in news_list:
             msg_list.append(f"{news_data['name']}")
             msg_list.append(f"{news_data.get('url')}\n")
+
+    msg_list.append(f"\n---\n赞助: @SwingVsion小助手")
     
     return '\n'.join(msg_list)
 
