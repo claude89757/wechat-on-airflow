@@ -47,7 +47,7 @@ from wx_mp_dags.common.wx_mp_tools import get_mp_account_info, upload_mp_image_t
 
 
 
-DAG_ID = "wx_mp_msg_watcher"
+DAG_ID = "wx_mp_msg_land_watcher"
 
 # 添加消息类型常量
 WX_MSG_TYPES = {
