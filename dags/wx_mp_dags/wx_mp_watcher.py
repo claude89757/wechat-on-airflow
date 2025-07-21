@@ -1156,9 +1156,8 @@ def create_wx_mp_watcher_dag_function(wx_mp_config):
         dag_id=wx_mp_config['dag_id'],
         default_args={'owner': 'claude89757'},
         description='微信公众号消息监听处理',
-        schedule=timedelta(seconds=20),
         start_date=datetime(2025, 4, 22),
-        max_active_runs=1,
+        max_active_runs=50,
         catchup=False,
         tags=['微信公众号',wx_mp_config['name']],
     )
