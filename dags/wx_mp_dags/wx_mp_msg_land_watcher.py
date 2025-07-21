@@ -184,9 +184,15 @@ def handler_text_msg(**context):
         print(f"错误：在 'WX_MP_ACCOUNT_LIST' 中未找到名称为 '{target_account_name}' 的账号。")
         return
 
+    print(f"[WATCHER] 找到名称为 '{target_account_name}' 的账号----: {target_account}")
+
     # 获取 appid 和 appsecret
     app_id = target_account.get('WX_MP_APP_ID')
     app_secret = target_account.get('WX_MP_SECRET')
+    print("="*50)
+    print(f"app_id: {app_id}")
+    print(f"app_secret: {app_secret}")
+    print("="*50)
 
     if not all([app_id, app_secret]):
         print(f"错误：名称为 '{target_account_name}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
@@ -199,8 +205,12 @@ def handler_text_msg(**context):
     mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_api_key = target_account.get("WX_MP_DIFY_API_KEY")
+    dify_api_key = target_account.get("WX_MP_DIFY_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
+    print("="*50)
+    print(f"dify_api_key: {dify_api_key}")
+    print(f"dify_base_url: {dify_base_url}")
+    print("="*50)
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID - 只在这里获取一次
