@@ -203,6 +203,10 @@ def handler_text_msg(**context):
     # 初始化dify
     dify_api_key = target_account.get("WX_MP_DIFY_API_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
+    print("="*50)
+    print(f"dify_api_key: {dify_api_key}")
+    print(f"dify_base_url: {dify_base_url}")
+    print("="*50)
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID - 只在这里获取一次
