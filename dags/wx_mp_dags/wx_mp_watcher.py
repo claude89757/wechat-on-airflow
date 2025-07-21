@@ -146,40 +146,21 @@ def handler_text_msg(**context):
     msg_id = message_data.get('MsgId')  # 消息ID
     
     print(f"收到来自 {from_user_name} 的消息: {content}")
-    
-    # 从Variable中获取微信公众号账号列表
-    account_list_str = Variable.get("WX_MP_ACCOUNT_LIST", default_var=None)
-    if not account_list_str:
-        print("错误：未找到名为 'WX_MP_ACCOUNT_LIST' 的Airflow Variable。")
-        return
 
+    # 从 context 中获取公众号配置信息
     try:
-        account_list = json.loads(account_list_str)
-    except json.JSONDecodeError:
-        print("错误：'WX_MP_ACCOUNT_LIST' Variable中的JSON格式不正确。")
+        wx_mp_config = context['wx_mp_config']
+        print(f"[HANDLER] 获取公众号配置信息: {wx_mp_config}")
+    except KeyError:
+        print(f"[HANDLER] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
         return
-
-    # 查找指定名称的账号信息
-    # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "地产"
-    target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
-
-    if not target_account:
-        print(f"错误：在 'WX_MP_ACCOUNT_LIST' 中未找到名称为 '{target_account_name}' 的账号。")
-        return
-
-    print(f"[WATCHER] 找到名称为 '{target_account_name}' 的账号----: {target_account}")
 
     # 获取 appid 和 appsecret
-    app_id = target_account.get('WX_MP_APP_ID')
-    app_secret = target_account.get('WX_MP_SECRET')
-    print("="*50)
-    print(f"app_id: {app_id}")
-    print(f"app_secret: {app_secret}")
-    print("="*50)
-
+    app_id = wx_mp_config.get('WX_MP_APP_ID')
+    app_secret = wx_mp_config.get('WX_MP_SECRET')
+    
     if not all([app_id, app_secret]):
-        print(f"错误：名称为 '{target_account_name}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
+        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
         return
 
     # 初始化redis
@@ -189,7 +170,7 @@ def handler_text_msg(**context):
     mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_api_key = target_account.get("WX_MP_DIFY_KEY")
+    dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     print("="*50)
     print(f"dify_api_key: {dify_api_key}")
