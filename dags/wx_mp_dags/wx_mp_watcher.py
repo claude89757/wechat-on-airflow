@@ -626,7 +626,8 @@ def download_image_from_wechat_mp(access_token, media_id, save_path=None):
     except Exception as e:
         print(f"[WX_MP] 下载图片异常: {e}")
         return None
-    
+
+
 def handler_image_msg(**context):
     """
     处理图片类消息, 通过Dify的AI助手进行聊天, 并回复微信公众号消息
@@ -824,40 +825,27 @@ def handler_voice_msg(**context):
     
     print(f"收到来自 {from_user_name} 的语音消息，MediaId: {media_id}, Format: {format_type}, MediaId16K: {media_id_16k}")
     
-    # 从Variable中获取微信公众号账号列表
-    account_list_str = Variable.get("WX_MP_ACCOUNT_LIST", default_var=None)
-    if not account_list_str:
-        print("错误：未找到名为 'WX_MP_ACCOUNT_LIST' 的Airflow Variable。")
-        return
-
+    # 从 context 中获取公众号配置信息
     try:
-        account_list = json.loads(account_list_str)
-    except json.JSONDecodeError:
-        print("错误：'WX_MP_ACCOUNT_LIST' Variable中的JSON格式不正确。")
-        return
-
-    # 查找指定名称的账号信息
-    # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "地产"
-    target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
-
-    if not target_account:
-        print(f"错误：在 'WX_MP_ACCOUNT_LIST' 中未找到名称为 '{target_account_name}' 的账号。")
+        wx_mp_config = context['wx_mp_config']
+        print(f"[HANDLER] 获取公众号配置信息: {wx_mp_config}")
+    except KeyError:
+        print(f"[HANDLER] 获取公众号配置信息失败: 未在 context 中找到 'wx_mp_config'")
         return
 
     # 获取 appid 和 appsecret
-    app_id = target_account.get('WX_MP_APP_ID')
-    app_secret = target_account.get('WX_MP_SECRET')
+    app_id = wx_mp_config.get('WX_MP_APP_ID')
+    app_secret = wx_mp_config.get('WX_MP_SECRET')
 
     if not all([app_id, app_secret]):
-        print(f"错误：名称为 '{target_account_name}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
+        print(f"错误：名称为 '{wx_mp_config.get('name')}' 的账号缺少 WX_MP_APP_ID 或 WX_MP_SECRET。")
         return
 
     # 初始化微信公众号机器人
     mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_api_key = Variable.get("WX_MP_DIFY_API_KEYS")
+    dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
@@ -1246,7 +1234,3 @@ def create_wx_mp_watcher_dag_function(wx_mp_config):
 for wx_mp_config in WX_MP_CONFIGS:
     dag_id = wx_mp_config['dag_id']
     globals()[dag_id] = create_wx_mp_watcher_dag_function(wx_mp_config)
-
-
-
-
