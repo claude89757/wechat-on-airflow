@@ -177,7 +177,7 @@ def handler_text_msg(**context):
 
     # 查找指定名称的账号信息
     # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "路西智能"
+    target_account_name = "地产"
     target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
 
     if not target_account:
@@ -690,7 +690,7 @@ def handler_image_msg(**context):
 
     # 查找指定名称的账号信息
     # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "路西智能"
+    target_account_name = "地产"
     target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
 
     if not target_account:
@@ -876,7 +876,7 @@ def handler_voice_msg(**context):
 
     # 查找指定名称的账号信息
     # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "路西智能"
+    target_account_name = "地产"
     target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
 
     if not target_account:
