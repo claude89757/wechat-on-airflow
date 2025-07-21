@@ -47,7 +47,7 @@ from wx_mp_dags.common.wx_mp_tools import get_mp_account_info, upload_mp_image_t
 
 
 
-DAG_ID = "wx_mp_msg_watcher"
+DAG_ID = "wx_mp_msg_land_watcher"
 
 # 添加消息类型常量
 WX_MSG_TYPES = {
@@ -97,7 +97,7 @@ def process_wx_message(**context):
 
     # 查找指定名称的账号信息
     # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "路西智能"
+    target_account_name = "地产"
     target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
 
     if not target_account:
@@ -177,7 +177,7 @@ def handler_text_msg(**context):
 
     # 查找指定名称的账号信息
     # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "路西智能"
+    target_account_name = "地产"
     target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
 
     if not target_account:
@@ -199,8 +199,8 @@ def handler_text_msg(**context):
     mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_api_key = target_account.get("WX_MP_DIFY_API_KEY")
+    dify_base_url = Variable.get("DIFY_BASE_URL")
     dify_agent = DifyAgent(api_key=dify_api_key, base_url=dify_base_url)
     
     # 获取会话ID - 只在这里获取一次
@@ -690,7 +690,7 @@ def handler_image_msg(**context):
 
     # 查找指定名称的账号信息
     # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "路西智能"
+    target_account_name = "地产"
     target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
 
     if not target_account:
@@ -876,7 +876,7 @@ def handler_voice_msg(**context):
 
     # 查找指定名称的账号信息
     # TODO: 后续这里的名称应该从message_data中的ToUserName动态获取
-    target_account_name = "路西智能"
+    target_account_name = "地产"
     target_account = next((acc for acc in account_list if acc.get('name') == target_account_name), None)
 
     if not target_account:
