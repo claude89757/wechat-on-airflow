@@ -347,7 +347,9 @@ class DifyAgent:
                 "auto_generate_name": False,
                 "files": files
             }
-        
+        print("="*50)
+        print(f"payload: {payload}")
+        print("="*50)
 
         full_answer = ""
         metadata = {}
