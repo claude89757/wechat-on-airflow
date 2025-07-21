@@ -205,7 +205,7 @@ def handler_text_msg(**context):
     mp_bot = WeChatMPBot(appid=app_id, appsecret=app_secret)
     
     # 初始化dify
-    dify_api_key = target_account.get("WX_MP_DIFY_API_KEY")
+    dify_api_key = target_account.get("WX_MP_DIFY_KEY")
     dify_base_url = Variable.get("DIFY_BASE_URL")
     print("="*50)
     print(f"dify_api_key: {dify_api_key}")
