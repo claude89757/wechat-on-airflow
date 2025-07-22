@@ -77,7 +77,6 @@ WX_MSG_TYPES = {
     1090519089: "文件"
 }
 
-
 def update_wx_user_info(source_ip: str) -> dict:
     """
     获取用户信息，并缓存。对于新用户，会初始化其专属的 enable_ai_room_ids 列表
@@ -133,6 +132,12 @@ def update_wx_user_info(source_ip: str) -> dict:
         init_wx_chat_records_table(new_account['wxid'])
     except Exception as error:
         print(f"[WATCHER] 初始化新用户聊天记录表失败: {error}")
+
+    # 初始化新用户的朋友圈分析表
+    try:
+        init_wx_friend_circle_table(new_account['wxid'])
+    except Exception as error:
+        print(f"[WATCHER] 初始化新用户朋友圈分析表失败: {error}")
 
     # 更新用户列表
     print(f"新用户, 更新用户信息: {new_account}")

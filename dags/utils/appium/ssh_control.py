@@ -68,16 +68,17 @@ def get_image_path(device_ip, username, password, device_serial, port=22):
     """
     # 微信存储图片目录
     wx_image_dir = "/sdcard/Pictures/WeiXin" # （在红米7A上测试得到此路径）//TODO 待确认其他设备上的路径
-
+    wx_image_dir_wc="/sdcard/Pictures/WeChat" #备用目录
     # 构建adb shell命令（指定设备） 
     adb_command = f"bash -l -c 'adb -s {device_serial} shell ls -t {wx_image_dir}' "
-
+    adb_command_wc=f"bash -l -c 'adb -s {device_serial} shell ls -t {wx_image_dir_wc}' "
     output, error = exec_cmd_by_ssh(device_ip, port, username, password, adb_command)
 
     # 检查命令是否成功执行
     if error:
         print(f"Failed to get image path: {error}")
-        return None
+        output, error = exec_cmd_by_ssh(device_ip, port, username, password, adb_command_wc)
+        return wx_image_dir_wc + "/" + output.split("\n")[0]
     else:
         return wx_image_dir + "/" + output.split("\n")[0]
     
@@ -135,18 +136,21 @@ def push_image_to_device(device_ip, username, password, device_serial, local_pat
     # 提取文件名，拼接到微信图片目录
     filename = os.path.basename(device_path)
     wx_image_dir = "/sdcard/Pictures/WeiXin"
+    wx_image_dir_wc = "/sdcard/Pictures/WeChat"
     device_path = f"{wx_image_dir}/{filename}"
-    
+    device_path_wc = f"{wx_image_dir_wc}/{filename}"
     # 构建adb shell命令（指定设备） 
     adb_command = f"bash -l -c 'adb -s {device_serial} push {local_path} {device_path}' "
-    
+    adb_command_wc=f"bash -l -c 'adb -s {device_serial} push {local_path} {device_path_wc}' "
     # 执行命令
     output, error = exec_cmd_by_ssh(device_ip, port, username, password, adb_command)
     
     # 检查命令是否成功执行
     if error and "No such file or directory" in error:
         print(f"Failed to puss file: {error}")
-        return None
+        print('尝试/WeChat路径')
+        output, error = exec_cmd_by_ssh(device_ip, port, username, password, adb_command_wc)
+        return local_path
     elif error:
         print(f"Warning during puss file: {error}")
     else:

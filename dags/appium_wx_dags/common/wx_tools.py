@@ -17,7 +17,7 @@ from datetime import datetime
 from airflow.models import Variable
 from utils.wechat_channl import get_wx_self_info
 from utils.wechat_channl import get_wx_contact_list
-from appium_wx_dags.common.mysql_tools import init_wx_chat_records_table
+from appium_wx_dags.common.mysql_tools import init_wx_chat_records_table, init_wx_friend_circle_table
 
 # 标准库导入
 import os
@@ -80,6 +80,18 @@ WX_MSG_TYPES = {
     1090519089: "文件"
 }
 
+def update_wx_user(wxid: str) -> dict:
+    # 初始化新用户的聊天记录表
+    try:
+        init_wx_chat_records_table(wxid)
+    except Exception as error:
+        print(f"[WATCHER] 初始化新用户聊天记录表失败: {error}")
+
+    # 初始化新用户的朋友圈分析表
+    try:
+        init_wx_friend_circle_table(wxid)
+    except Exception as error:
+        print(f"[WATCHER] 初始化新用户朋友圈分析表失败: {error}")
 
 def update_wx_user_info(source_ip: str) -> dict:
     """

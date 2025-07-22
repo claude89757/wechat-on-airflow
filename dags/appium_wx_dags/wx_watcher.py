@@ -36,6 +36,8 @@ from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
 from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
 
+from appium_wx_dags.common.wx_tools import update_wx_user
+
 WX_CONFIGS = Variable.get("WX_CONFIG_LIST", default_var=[], deserialize_json=True)
 
 
@@ -45,6 +47,7 @@ def monitor_chats(**context):
     try:
         # 从 op_kwargs 传入的参数会被放入 context 中
         appium_server_info = context['wx_config']
+        update_wx_user(appium_server_info['wx_user_id'])
         print(f"[WATCHER] 获取Appium服务器信息: {appium_server_info}")
     except KeyError:
         print(f"[WATCHER] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")

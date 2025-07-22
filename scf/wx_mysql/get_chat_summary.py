@@ -75,10 +75,10 @@ def main_handler(event, context):
     
     # 提取查询参数
     wx_user_id = query_params.get('wx_user_id', '')
-    room_id = query_params.get('room_id', '')
+    contact_name = query_params.get('contact_name', '')
     
     # 如果必要参数存在
-    if wx_user_id and room_id:
+    if wx_user_id and contact_name:
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -87,7 +87,7 @@ def main_handler(event, context):
             query = """
             SELECT 
                 id,
-                room_id,
+                contact_name,
                 room_name,
                 wx_user_id,
                 start_time,
@@ -135,12 +135,12 @@ def main_handler(event, context):
                 created_at,
                 updated_at
             FROM wx_chat_summary
-            WHERE wx_user_id = %s AND room_id = %s
+            WHERE wx_user_id = %s AND contact_name = %s
             ORDER BY updated_at DESC
             LIMIT 1
             """
             
-            cursor.execute(query, (wx_user_id, room_id))
+            cursor.execute(query, (wx_user_id, contact_name))
             result = cursor.fetchone()
             
             # 格式化日期时间
@@ -217,7 +217,7 @@ def main_handler(event, context):
                 # 添加元数据
                 metadata = {
                     "id": result.get('id'),
-                    "room_id": result.get('room_id'),
+                    "contact_name": result.get('contact_name'),
                     "room_name": result.get('room_name'),
                     "wx_user_id": result.get('wx_user_id'),
                     "time_range": {
@@ -268,8 +268,8 @@ def main_handler(event, context):
         missing_params = []
         if not wx_user_id:
             missing_params.append('wx_user_id')
-        if not room_id:
-            missing_params.append('room_id')
+        if not contact_name:
+            missing_params.append('contact_name')
             
         return {
             'code': -1,
