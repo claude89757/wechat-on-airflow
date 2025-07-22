@@ -358,12 +358,7 @@ def check_tennis_courts():
                             reply_to="tennis@zacks.com.cn",
                             trigger_type=1
                         )
-                        
-                        if result["success"]:
-                            print(f"邮件发送成功 - {data['court_name']} {data['date']} {data['start_time']}-{data['end_time']}")
-                        else:
-                            print(f"邮件发送失败: {result['error']}")
-                        
+                        print(result)
                         time.sleep(1)  # 避免发送过快
                 else:
                     print("未配置邮件收件人列表 SZW_EMAIL_LIST")
