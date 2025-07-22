@@ -54,7 +54,7 @@ with DAG(
     dag_id='wx_friend_circle',
     default_args={'owner': 'yuchangongzhu'},
     start_date=datetime(2025, 4, 22),
-    max_active_runs=1,
+    max_active_runs=5,
     catchup=False,
     tags=['个人微信', "朋友圈"],
 ) as dag:
@@ -63,5 +63,7 @@ with DAG(
         task_id='wx_friend_circle_analyze', 
         python_callable=wx_friend_circle_analyze,
         trigger_rule='none_failed_min_one_success',
-        dag=dag
+        dag=dag,
+        retries=3,
+        retry_delay=timedelta(seconds=10)
     )
