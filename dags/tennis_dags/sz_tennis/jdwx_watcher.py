@@ -329,7 +329,7 @@ def check_tennis_courts():
                         
                         result = send_template_email(
                             subject=f"【{data['court_name']}】网球场空场通知",
-                            template_id="33340",
+                            template_id=33340,
                             template_data={
                                 "COURT_NAME": data['court_name'],
                                 "FREE_TIME": f"{formatted_date}(星期{weekday_str}) {data['start_time']}-{data['end_time']}"
