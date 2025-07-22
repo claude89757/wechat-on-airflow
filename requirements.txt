@@ -21,3 +21,4 @@ opencv-python-headless
 pillow_heif
 av
 # ultralytics>=8.0.0
+tencentcloud-sdk-python
