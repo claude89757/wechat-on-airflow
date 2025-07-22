@@ -15,8 +15,8 @@ import ssl
 import urllib3
 from urllib3.poolmanager import PoolManager
 
-from utils.tencent_ses import send_template_email
-from utils.tencent_sms import send_sms_for_news
+from tennis_dags.utils.tencent_ses import send_template_email
+from tennis_dags.utils.tencent_sms import send_sms_for_news
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
