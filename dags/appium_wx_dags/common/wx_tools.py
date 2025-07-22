@@ -396,7 +396,8 @@ def cos_to_device_via_host(
     host_port: int =None,
     host_save_path: Optional[str] = None,
     device_path: str = "/sdcard/DCIM/Camera/",
-    delete_after_transfer: bool = False
+    delete_after_transfer: bool = False,
+    max_retries: int = 3
 ) -> Optional[str]:
     """
     完整流程：从腾讯云COS下载到主机，再从主机传输到手机
@@ -411,25 +412,50 @@ def cos_to_device_via_host(
         host_save_path: 主机上的保存路径
         device_path: 手机上的保存路径，默认为/sdcard/Pictures/
         delete_after_transfer: 传输后是否删除主机上的文件
+        max_retries: 从COS下载到主机的最大重试次数，默认为3次
         
     Returns:
         str: 手机上的文件路径，失败则返回None
     """
     try:
         print(f"从COS下载到主机: {cos_url}",host_address,host_username,host_password,host_key_path,host_port,host_save_path)
-        # 步骤1：从COS下载到主机
-        host_file_path = download_cos_to_host(
-            cos_url=cos_url,
-            host_address=host_address,
-            host_username=host_username,
-            host_password=host_password,
-            host_key_path=host_key_path,
-            host_port=host_port,
-            host_save_path=host_save_path
-        )
+        
+        # 步骤1：从COS下载到主机（带重试机制）
+        host_file_path = None
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"尝试从COS下载到主机 (第{attempt + 1}次/共{max_retries}次)")
+                host_file_path = download_cos_to_host(
+                    cos_url=cos_url,
+                    host_address=host_address,
+                    host_username=host_username,
+                    host_password=host_password,
+                    host_key_path=host_key_path,
+                    host_port=host_port,
+                    host_save_path=host_save_path
+                )
+                
+                if host_file_path:
+                    logger.info(f"从COS下载到主机成功 (第{attempt + 1}次尝试)")
+                    break
+                else:
+                    logger.warning(f"从COS下载到主机失败 (第{attempt + 1}次尝试)")
+                    if attempt < max_retries - 1:
+                        logger.info(f"等待2秒后进行第{attempt + 2}次重试...")
+                        import time
+                        time.sleep(2)
+                    
+            except Exception as e:
+                logger.error(f"从COS下载到主机异常 (第{attempt + 1}次尝试): {str(e)}")
+                if attempt < max_retries - 1:
+                    logger.info(f"等待2秒后进行第{attempt + 2}次重试...")
+                    import time
+                    time.sleep(2)
+                else:
+                    logger.error(f"从COS下载到主机失败，已达到最大重试次数({max_retries}次)")
         
         if not host_file_path:
-            logger.error("从COS下载到主机失败")
+            logger.error(f"从COS下载到主机最终失败，已重试{max_retries}次")
             return None
         
         # 步骤2：从主机传输到手机
