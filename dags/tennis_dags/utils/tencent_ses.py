@@ -23,14 +23,23 @@ class TencentSESClient:
             endpoint: API端点
             region: 地域
         """
-        self.secret_id = secret_id or os.getenv("TENCENTCLOUD_SECRET_ID")
-        self.secret_key = secret_key or os.getenv("TENCENTCLOUD_SECRET_KEY")
+        try:
+            from airflow.models import Variable
+            TENCENT_CLOUD_SECRET_ID = Variable.get("TENCENT_CLOUD_SECRET_ID")
+            TENCENT_CLOUD_SECRET_KEY = Variable.get("TENCENT_CLOUD_SECRET_KEY")
+        except Exception as e:
+            print(f"Error: {e}")
+            TENCENT_CLOUD_SECRET_ID = os.environ.get("TENCENT_CLOUD_SECRET_ID")
+            TENCENT_CLOUD_SECRET_KEY = os.environ.get("TENCENT_CLOUD_SECRET_KEY")
+
+        if not TENCENT_CLOUD_SECRET_ID or not TENCENT_CLOUD_SECRET_KEY:
+            raise ValueError("TENCENT_CLOUD_SECRET_ID or TENCENT_CLOUD_SECRET_KEY is not set")
+
+        self.secret_id = TENCENT_CLOUD_SECRET_ID
+        self.secret_key = TENCENT_CLOUD_SECRET_KEY
         self.endpoint = endpoint
         self.region = region
-        
-        if not self.secret_id or not self.secret_key:
-            raise ValueError("请设置腾讯云密钥：TENCENTCLOUD_SECRET_ID 和 TENCENTCLOUD_SECRET_KEY")
-        
+                
         # 初始化客户端
         self._init_client()
     
