@@ -24,7 +24,7 @@ def handle_text_messages(**context):
     device_name = appium_server_info['device_name']
     appium_url = appium_server_info['appium_url']
     dify_api_url = appium_server_info['dify_api_url']
-    cos_directory = appium_server_info['cos_directory']
+    cos_directory = appium_server_info['cos_directory'][-6:]
     dify_api_key = appium_server_info['dify_api_key']
     login_info = appium_server_info['login_info']
     print(f"[HANDLE] 获取登录信息: {login_info}")
