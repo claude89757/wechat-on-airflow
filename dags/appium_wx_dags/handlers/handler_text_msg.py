@@ -91,7 +91,10 @@ def handle_text_messages(**context):
         print(f"[HANDLE] 没有文本消息处理任务")
 
     # 回复内容保存到XCOM
-    if ai_status == 'open':
+    if ai_status == 'closed':
+        response_msg[contact_name] = ["闭嘴,再重启AI回复之前不再处理消息"]
+        context['ti'].xcom_push(key='text_msg_response', value=response_msg)
+    else:
         context['ti'].xcom_push(key='text_msg_response', value=response_msg)
 
     return recent_new_msg
