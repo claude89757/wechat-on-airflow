@@ -313,7 +313,7 @@ dag = DAG(
     description='监控徐汇网球场地可用情况',
     schedule_interval='*/5 * * * *',  # 每5分钟执行一次
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=3),
+    dagrun_timeout=timedelta(minutes=10),
     catchup=False,
     tags=['上海']
 )
