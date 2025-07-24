@@ -63,6 +63,7 @@ class WeChatOperator:
             autoGrantPermissions=True,  # 自动授予权限
             newCommandTimeout=60,  # 命令超时时间
             resetKeyboard=True,  # 重置输入法
+            adbExecTimeout=60000,  # ADB命令执行超时时间(毫秒)，默认20000ms，增加到60秒
         )
         
         # 登录信息
