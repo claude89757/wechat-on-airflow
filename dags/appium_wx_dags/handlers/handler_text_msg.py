@@ -20,7 +20,7 @@ def handle_text_messages(**context):
         print(f"[HANDLE] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")
         return {}
 
-    wx_name = appium_server_info['wx_name']
+    wx_name = appium_server_info['wx_name'] #AI客服的微信名
     device_name = appium_server_info['device_name']
     appium_url = appium_server_info['appium_url']
     dify_api_url = appium_server_info['dify_api_url']
@@ -51,38 +51,48 @@ def handle_text_messages(**context):
             print(f"[HANDLE] AI回复内容: {response_msg_list}")
             cos_base_url = Variable.get("COS_BASE_URL")
             if response_msg_list:
+                if response_msg_list[0]=='#闭嘴#':
+                    print(f"[HANDLE] AI回复内容为 '#闭嘴#'，此后聊天记录不再处理")
+                    Variable.set(f"{wx_name}_{contact_name}_ai_status", 'closed', serialize_json=False)
+                else:
+                    Variable.set(f"{wx_name}_{contact_name}_ai_status", 'open', serialize_json=False)
                 # 检查并分离图片信息
-                response_image_list = []
-                filtered_msg_list = []
-                
-                for msg in response_msg_list:
-                    if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
-                        response_image_list.append(msg)
-                    else:
-                        filtered_msg_list.append(msg)
-                for img in response_image_list:
-                    cos_to_device_via_host(cos_url=f'{cos_base_url}{cos_directory}//{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
+                ai_status = Variable.get(f"{wx_name}_{contact_name}_ai_status", default_var='open', deserialize_json=False)
+                #不是'闭嘴'的状态才处理信息（回复以及存库）
+                if ai_status == 'open':
+                    print(f"[HANDLE] AI回复状态为 'open'，继续处理图片消息")
+                    response_image_list = []
+                    filtered_msg_list = []
+                    
+                    for msg in response_msg_list:
+                        if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
+                            response_image_list.append(msg)
+                        else:
+                            filtered_msg_list.append(msg)
+                    for img in response_image_list:
+                        cos_to_device_via_host(cos_url=f'{cos_base_url}{cos_directory}//{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
 
-                # 如果有非图片消息，发送文本消息
-                if filtered_msg_list:
-                    send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
-                    
-                    
-                #修改xcom中的图片视频消息的结构
-                response_msg_list = [
-                f"{cos_directory}/{filename}"  if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
-                for filename in response_msg_list
-                    ]
-                #构建回复消息字典
-                response_msg[contact_name] = response_msg_list
-                print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg_list}")    
+                    # 如果有非图片消息，发送文本消息
+                    if filtered_msg_list:
+                        send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
+                        
+                        
+                    #修改xcom中的图片视频消息的结构
+                    response_msg_list = [
+                    f"{cos_directory}/{filename}"  if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
+                    for filename in response_msg_list
+                        ]
+                    #构建回复消息字典
+                    response_msg[contact_name] = response_msg_list
+                    print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg_list}")    
             else:
                 print(f"[HANDLE] 没有AI回复")
     else:
         print(f"[HANDLE] 没有文本消息处理任务")
 
     # 回复内容保存到XCOM
-    context['ti'].xcom_push(key='text_msg_response', value=response_msg)
+    if ai_status == 'open':
+        context['ti'].xcom_push(key='text_msg_response', value=response_msg)
 
     return recent_new_msg
 
