@@ -54,7 +54,7 @@ def handle_text_messages(**context):
                 if response_msg_list[0]=='#闭嘴#':
                     print(f"[HANDLE] AI回复内容为 '#闭嘴#'，此后聊天记录不再处理")
                     Variable.set(f"{wx_name}_{contact_name}_ai_status", 'closed', serialize_json=False)
-                    response_msg[contact_name] = ['已闭嘴,在重启AI回复之前不再处理消息']
+                    response_msg[contact_name] = ['已闭嘴,在重启AI回复之前不再处理消息(@{wx_name}即可重启AI回复)']
                 else:
                     Variable.set(f"{wx_name}_{contact_name}_ai_status", 'open', serialize_json=False)
                 # 检查并分离图片信息
