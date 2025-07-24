@@ -39,7 +39,7 @@ from airflow.utils.state import DagRunState
 
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
-from utils.wechat_mp_channl import WeChatMPBot
+from utils.wechat_mp_channl import WeChatMPBot 
 from utils.tts import text_to_speech
 from utils.redis import RedisHandler
 from wx_mp_dags.common.mysql_tools import save_token_usage_to_db
@@ -171,6 +171,7 @@ def handler_text_msg(**context):
     
     # 初始化dify
     dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
+    cos_directory = wx_mp_config.get("WX_MP_DIFY_KEY")[-6:]
     dify_base_url = Variable.get("DIFY_BASE_URL")
     print("="*50)
     print(f"dify_api_key: {dify_api_key}")
@@ -257,8 +258,13 @@ def handler_text_msg(**context):
     for response_part in re.split(r'\\n\\n|\n\n', response):
         response_part = response_part.replace('\\n', '\n')
         print(f'消息分片后：{response_part}')
-        mp_bot.send_text_message(from_user_name, response_part.strip())
-    
+        if ".jpg" in response_part or ".png" in response_part:
+            cos_base_url = Variable.get("COS_BASE_URL")
+            media_id=mp_bot.upload_temporary_media('image',f'{cos_base_url}{cos_directory}//{response_part}').get('media_id', '')
+            mp_bot.send_image_message(from_user_name, media_id)
+        else:
+            mp_bot.send_text_message(from_user_name, response_part.strip())
+
     # 删除缓存的消息
     redis_handler.delete_msg_key(f'{from_user_name}_{to_user_name}_msg_list')
 
