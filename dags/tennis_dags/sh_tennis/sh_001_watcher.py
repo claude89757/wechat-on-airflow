@@ -172,10 +172,17 @@ def check_tennis_courts():
         for index in range(0, 7):
             input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y%m%d')
             inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
-            data_list, ok_proxy_list = get_free_tennis_court_data(filed_type,
-                                                                 input_date,
-                                                                 proxy_list=proxy_list,
-                                                                 ok_proxy_list=ok_proxy_list)
+            try:
+                data_list, ok_proxy_list = get_free_tennis_court_data(filed_type,
+                                                                      input_date,
+                                                                      proxy_list=proxy_list,
+                                                                      ok_proxy_list=ok_proxy_list)
+            except Exception as e:
+                import traceback
+                print(f"获取空闲场地信息异常: {e}")
+                print(traceback.format_exc())
+                continue
+
             time.sleep(1)
             if data_list:
                 if filed_type == 'in':
