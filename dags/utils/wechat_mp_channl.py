@@ -12,7 +12,8 @@ Date: 2025-02-27
 
 import requests
 import json
-
+import os
+from urllib.parse import urlparse
 class WeChatMPBot:
     def __init__(self, appid, appsecret):
         self.appid = appid
@@ -452,12 +453,12 @@ class WeChatMPBot:
         print(f"获取公众号全部关注者列表的结果: {all_followers}")
         return all_followers
         
-    def upload_temporary_media(self, media_type, media_file_path):
+    def upload_temporary_media(self, media_type, media_file_path_or_cos_url):
         """上传临时素材
         
         参数:
             media_type: 媒体文件类型，可选值：image（图片）、voice（语音）、video（视频）和thumb（缩略图）
-            media_file_path: 媒体文件的本地路径
+            media_file_path_or_cos_url: 媒体文件的本地路径或腾讯云COS URL
             
         返回:
             dict: 包含以下字段的字典:
@@ -480,10 +481,29 @@ class WeChatMPBot:
         url = f"https://api.weixin.qq.com/cgi-bin/media/upload?access_token={self.access_token}&type={media_type}"
         print(f"上传临时素材的 URL: {url}")
         
-        # 准备文件数据
-        with open(media_file_path, 'rb') as media_file:
-            files = {'media': media_file}
+        # 判断是COS URL还是本地文件路径
+        if media_file_path_or_cos_url.startswith('http'):
+            # 从COS下载文件
+            print(f"从COS下载文件: {media_file_path_or_cos_url}")
+            cos_response = requests.get(media_file_path_or_cos_url)
+            if cos_response.status_code != 200:
+                raise Exception(f"从COS下载文件失败: HTTP {cos_response.status_code}")
+            
+            # 获取文件扩展名
+            
+            parsed_url = urlparse(media_file_path_or_cos_url)
+            file_extension = os.path.splitext(parsed_url.path)[1] or '.jpg'
+            filename = f"temp_media{file_extension}"
+            
+            # 直接使用下载的内容上传
+            files = {'media': (filename, cos_response.content, cos_response.headers.get('content-type', 'image/jpeg'))}
             response = requests.post(url, files=files)
+        else:
+            # 本地文件路径
+            print(f"使用本地文件: {media_file_path_or_cos_url}")
+            with open(media_file_path_or_cos_url, 'rb') as media_file:
+                files = {'media': media_file}
+                response = requests.post(url, files=files)
             
         result = response.json()
         print(f"上传临时素材的结果: {result}")

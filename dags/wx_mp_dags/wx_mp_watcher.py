@@ -256,6 +256,7 @@ def handler_text_msg(**context):
     # 发送回复消息时的智能处理
     for response_part in re.split(r'\\n\\n|\n\n', response):
         response_part = response_part.replace('\\n', '\n')
+        print(f'消息分片后：{response_part}')
         mp_bot.send_text_message(from_user_name, response_part.strip())
     
     # 删除缓存的消息
