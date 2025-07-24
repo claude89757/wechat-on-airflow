@@ -104,6 +104,7 @@ def get_free_tennis_court_data(area_id: str, order_date: str, proxy_list: list =
             try:
                 proxies = {"https": proxy}
                 response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=2)
+                print(f"response: {response.text}")
                 if response.status_code == 200:
                     print(f"success for {proxy}")
                     success_proxy_list.append(proxy)
@@ -144,7 +145,6 @@ def get_free_tennis_court_data(area_id: str, order_date: str, proxy_list: list =
                 })
         return free_time_list, success_proxy_list
     else:
-        print(f"请求失败或返回数据格式不正确: {res}")
         raise Exception("请求失败或返回数据格式不正确")
 
 def check_tennis_courts():
