@@ -347,7 +347,7 @@ def check_tennis_courts():
                         formatted_date = date_obj.strftime("%Y年%m月%d日")
                         
                         result = send_template_email(
-                            subject=f"【{data['court_name']}】网球场空场通知",
+                            subject=f"【{data['court_name']}】星期{weekday_str} {data['start_time']} - {data['end_time']}",
                             template_id=33340,
                             template_data={
                                 "COURT_NAME": data['court_name'],
