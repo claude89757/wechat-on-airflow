@@ -54,6 +54,7 @@ def handle_text_messages(**context):
                 if response_msg_list[0]=='#闭嘴#':
                     print(f"[HANDLE] AI回复内容为 '#闭嘴#'，此后聊天记录不再处理")
                     Variable.set(f"{wx_name}_{contact_name}_ai_status", 'closed', serialize_json=False)
+                    response_msg[contact_name] = ['已闭嘴,在重启AI回复之前不再处理消息']
                 else:
                     Variable.set(f"{wx_name}_{contact_name}_ai_status", 'open', serialize_json=False)
                 # 检查并分离图片信息
@@ -91,11 +92,7 @@ def handle_text_messages(**context):
         print(f"[HANDLE] 没有文本消息处理任务")
 
     # 回复内容保存到XCOM
-    if ai_status == 'closed':
-        response_msg[contact_name] = ["闭嘴,再重启AI回复之前不再处理消息"]
-        context['ti'].xcom_push(key='text_msg_response', value=response_msg)
-    else:
-        context['ti'].xcom_push(key='text_msg_response', value=response_msg)
+    context['ti'].xcom_push(key='text_msg_response', value=response_msg)
 
     return recent_new_msg
 
