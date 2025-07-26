@@ -169,7 +169,7 @@ def check_tennis_courts():
     ok_proxy_list = []
     
     for filed_type in ['in', 'out']:
-        for index in range(0, 7):
+        for index in range(0, 3):
             input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y%m%d')
             inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
             try:
