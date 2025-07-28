@@ -254,22 +254,38 @@ def handler_text_msg(**context):
         conversation_infos[from_user_name] = conversation_id
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
 
+    # 构建回复消息列表
+    response_msg = {}
+    response_image_list = []
+    filtered_msg_list = []
+    
     # 发送回复消息时的智能处理
     for response_part in re.split(r'\\n\\n|\n\n', response):
         response_part = response_part.replace('\\n', '\n')
         print(f'消息分片后：{response_part}')
-        if ".jpg" in response_part or ".png" in response_part:
+        if ".jpg" in response_part or ".png" in response_part or ".mp4" in response_part:
+            response_image_list.append(response_part)
             cos_base_url = Variable.get("COS_BASE_URL")
             media_id=mp_bot.upload_temporary_media('image',f'{cos_base_url}{cos_directory}//{response_part}').get('media_id', '')
             mp_bot.send_image_message(from_user_name, media_id)
         else:
+            filtered_msg_list.append(response_part.strip())
             mp_bot.send_text_message(from_user_name, response_part.strip())
+    
+    # 修改xcom中的图片视频消息的结构
+    response_msg_list = [
+        f"{cos_directory}/{filename}" if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
+        for filename in (response_image_list + filtered_msg_list)
+    ]
+    
+    # 构建回复消息字典
+    response_msg[from_user_name] = response_msg_list
 
     # 删除缓存的消息
     redis_handler.delete_msg_key(f'{from_user_name}_{to_user_name}_msg_list')
 
     # 将response缓存到xcom中供后续任务使用
-    context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+    context['task_instance'].xcom_push(key='ai_reply_msg', value=response_msg)
     context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
 
 
