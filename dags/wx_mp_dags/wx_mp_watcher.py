@@ -144,7 +144,7 @@ def handler_text_msg(**context):
     create_time = message_data.get('CreateTime')  # 消息创建时间
     content = message_data.get('Content')  # 消息内容
     msg_id = message_data.get('MsgId')  # 消息ID
-    
+    print(f'message_data: {message_data}')
     print(f"收到来自 {from_user_name} 的消息: {content}")
 
     # 从 context 中获取公众号配置信息
@@ -298,6 +298,7 @@ def save_ai_reply_msg_to_db(**context):
     
     # 获取AI回复的消息
     ai_reply_msg = context.get('task_instance').xcom_pull(key='ai_reply_msg')
+    base_msg_id = int(message_data.get('MsgId', '0'))  # 将原消息ID转换为整数
     for contact_name, messages in ai_reply_msg.items():
         for message in messages:
             # 提取消息信息
@@ -306,7 +307,8 @@ def save_ai_reply_msg_to_db(**context):
             save_msg['from_user_name'] = message_data.get('ToUserName', '')
             save_msg['to_user_id'] = message_data.get('FromUserName', '')  # 接收者是原消息发送者
             save_msg['to_user_name'] = message_data.get('FromUserName', '')
-            save_msg['msg_id'] = f"ai_reply_{message_data.get('MsgId', '')}"  # 使用原消息ID加前缀作为回复消息ID
+            save_msg['msg_id'] = f"ai_reply_{base_msg_id}"  # 使用原消息ID加前缀作为回复消息ID
+            base_msg_id += 1  # 直接对原消息ID自增
             save_msg['msg_type'] = 'text'
             save_msg['msg_type_name'] = WX_MSG_TYPES.get('text')
             save_msg['content'] = message
