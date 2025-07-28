@@ -298,77 +298,78 @@ def save_ai_reply_msg_to_db(**context):
     
     # 获取AI回复的消息
     ai_reply_msg = context.get('task_instance').xcom_pull(key='ai_reply_msg')
-    
-    # 提取消息信息
-    save_msg = {}
-    save_msg['from_user_id'] = message_data.get('ToUserName', '')  # AI回复时发送者是公众号
-    save_msg['from_user_name'] = message_data.get('ToUserName', '')
-    save_msg['to_user_id'] = message_data.get('FromUserName', '')  # 接收者是原消息发送者
-    save_msg['to_user_name'] = message_data.get('FromUserName', '')
-    save_msg['msg_id'] = f"ai_reply_{message_data.get('MsgId', '')}"  # 使用原消息ID加前缀作为回复消息ID
-    save_msg['msg_type'] = 'text'
-    save_msg['msg_type_name'] = WX_MSG_TYPES.get('text')
-    save_msg['content'] = ai_reply_msg
-    save_msg['msg_timestamp'] = int(time.time())
-    save_msg['msg_datetime'] = datetime.now()
-    
-    # 使用相同的数据库连接函数保存AI回复
-    db_conn = None
-    cursor = None
-    try:
-        # 使用get_hook函数获取数据库连接
-        db_hook = BaseHook.get_connection("wx_db")
-        db_conn = db_hook.get_hook().get_conn()
-        cursor = db_conn.cursor()
-        
-        # 插入AI回复数据的SQL
-        insert_sql = """INSERT INTO `wx_mp_chat_records` 
-        (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
-        msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE 
-        content = VALUES(content),
-        msg_type_name = VALUES(msg_type_name),
-        updated_at = CURRENT_TIMESTAMP
-        """
-        
-        # 执行插入
-        cursor.execute(insert_sql, (
-            save_msg['from_user_id'],
-            save_msg['from_user_name'],
-            save_msg['to_user_id'],
-            save_msg['to_user_name'],
-            save_msg['msg_id'],
-            save_msg['msg_type'],
-            save_msg['msg_type_name'],
-            save_msg['content'],
-            save_msg['msg_timestamp'],
-            save_msg['msg_datetime']
-        ))
-        
-        # 提交事务
-        db_conn.commit()
-        print(f"[DB_SAVE] 成功保存AI回复消息到数据库: {save_msg['msg_id']}")
-        
-    except Exception as e:
-        print(f"[DB_SAVE] 保存AI回复消息到数据库失败: {e}")
-        if db_conn:
+    for contact_name, messages in ai_reply_msg.items():
+        for message in messages:
+            # 提取消息信息
+            save_msg = {}
+            save_msg['from_user_id'] = message_data.get('ToUserName', '')  # AI回复时发送者是公众号
+            save_msg['from_user_name'] = message_data.get('ToUserName', '')
+            save_msg['to_user_id'] = message_data.get('FromUserName', '')  # 接收者是原消息发送者
+            save_msg['to_user_name'] = message_data.get('FromUserName', '')
+            save_msg['msg_id'] = f"ai_reply_{message_data.get('MsgId', '')}"  # 使用原消息ID加前缀作为回复消息ID
+            save_msg['msg_type'] = 'text'
+            save_msg['msg_type_name'] = WX_MSG_TYPES.get('text')
+            save_msg['content'] = message
+            save_msg['msg_timestamp'] = int(time.time())
+            save_msg['msg_datetime'] = datetime.now()
+            
+            # 使用相同的数据库连接函数保存AI回复
+            db_conn = None
+            cursor = None
             try:
-                db_conn.rollback()
-            except:
-                pass
-    finally:
-        # 关闭连接
-        if cursor:
-            try:
-                cursor.close()
-            except:
-                pass
-        if db_conn:
-            try:
-                db_conn.close()
-            except:
-                pass
+                # 使用get_hook函数获取数据库连接
+                db_hook = BaseHook.get_connection("wx_db")
+                db_conn = db_hook.get_hook().get_conn()
+                cursor = db_conn.cursor()
+                
+                # 插入AI回复数据的SQL
+                insert_sql = """INSERT INTO `wx_mp_chat_records` 
+                (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
+                msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                content = VALUES(content),
+                msg_type_name = VALUES(msg_type_name),
+                updated_at = CURRENT_TIMESTAMP
+                """
+                
+                # 执行插入
+                cursor.execute(insert_sql, (
+                    save_msg['from_user_id'],
+                    save_msg['from_user_name'],
+                    save_msg['to_user_id'],
+                    save_msg['to_user_name'],
+                    save_msg['msg_id'],
+                    save_msg['msg_type'],
+                    save_msg['msg_type_name'],
+                    save_msg['content'],
+                    save_msg['msg_timestamp'],
+                    save_msg['msg_datetime']
+                ))
+                
+                # 提交事务
+                db_conn.commit()
+                print(f"[DB_SAVE] 成功保存AI回复消息到数据库: {save_msg['msg_id']}")
+                
+            except Exception as e:
+                print(f"[DB_SAVE] 保存AI回复消息到数据库失败: {e}")
+                if db_conn:
+                    try:
+                        db_conn.rollback()
+                    except:
+                        pass
+            finally:
+                # 关闭连接
+                if cursor:
+                    try:
+                        cursor.close()
+                    except:
+                        pass
+                if db_conn:
+                    try:
+                        db_conn.close()
+                    except:
+                        pass
 
 
 
