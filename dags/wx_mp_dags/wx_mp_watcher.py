@@ -309,8 +309,12 @@ def save_ai_reply_msg_to_db(**context):
             save_msg['to_user_name'] = message_data.get('FromUserName', '')
             save_msg['msg_id'] = f"ai_reply_{base_msg_id}"  # 使用原消息ID加前缀作为回复消息ID
             base_msg_id += 1  # 直接对原消息ID自增
-            save_msg['msg_type'] = 'text'
-            save_msg['msg_type_name'] = WX_MSG_TYPES.get('text')
+            # 检查消息是否包含
+            if ".jpg" in message or ".png" in message or ".mp4" in message:
+                save_msg['msg_type'] = 'image'
+            else:
+                save_msg['msg_type'] = 'text'
+            save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'])
             save_msg['content'] = message
             save_msg['msg_timestamp'] = int(time.time())
             save_msg['msg_datetime'] = datetime.now()
