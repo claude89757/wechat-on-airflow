@@ -308,16 +308,19 @@ def get_wx_chat_history(contact_name: str, wx_user_id: str = None, start_time: s
             except:
                 pass
 
-def init_wx_chat_summary_table():
+def init_wx_chat_summary_table(wx_user_id: str = None):
     """
     初始化微信聊天记录摘要表
+    
+    Args:
+        wx_user_id (str, optional): 微信用户ID。如果提供，则创建用户特定的表
     """
     # 使用get_hook函数获取数据库连接
     db_hook = BaseHook.get_connection("wx_db").get_hook()
     db_conn = db_hook.get_conn()
     cursor = db_conn.cursor()
     
-    # 创建聊天记录摘要表
+    # 创建全局聊天记录摘要表
     create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_chat_summary` (
         `id` BIGINT NOT NULL AUTO_INCREMENT,
         `contact_name` VARCHAR(100) NOT NULL COMMENT '联系人名',
@@ -390,6 +393,81 @@ def init_wx_chat_summary_table():
     
     cursor.execute(create_table_sql)
     
+    # 如果提供了wx_user_id，则创建用户特定的表
+    if wx_user_id:
+        create_table_sql_for_user = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_chat_summary` (
+            `id` BIGINT NOT NULL AUTO_INCREMENT,
+            `contact_name` VARCHAR(100) NOT NULL COMMENT '联系人名',
+            `room_name` VARCHAR(100) NOT NULL COMMENT '会话名称',
+            `wx_user_id` VARCHAR(100) NOT NULL COMMENT '微信用户ID',
+            
+            -- I. 基础信息
+            `name` VARCHAR(50) DEFAULT NULL COMMENT '客户姓名',
+            `contact` VARCHAR(100) DEFAULT NULL COMMENT '联系方式',
+            `age_group` VARCHAR(20) DEFAULT '未知' COMMENT '年龄段',
+            `gender` VARCHAR(10) DEFAULT '未知' COMMENT '性别',
+            `city_tier` VARCHAR(20) DEFAULT '未知' COMMENT '城市级别',
+            `specific_location` VARCHAR(100) DEFAULT NULL COMMENT '具体城市/区域',
+            `occupation_type` VARCHAR(20) DEFAULT '未知' COMMENT '职业类型',
+            `marital_status` VARCHAR(20) DEFAULT '未知' COMMENT '婚姻状态',
+            `family_structure` VARCHAR(30) DEFAULT '未知' COMMENT '家庭结构',
+            `income_level_estimated` VARCHAR(20) DEFAULT '未知' COMMENT '估计收入水平',
+            `core_values` JSON DEFAULT NULL COMMENT '核心价值观',
+            `hobbies_interests` JSON DEFAULT NULL COMMENT '爱好和兴趣',
+            `life_status_indicators` JSON DEFAULT NULL COMMENT '生活状态指标',
+            `social_media_activity_level` VARCHAR(20) DEFAULT '未知' COMMENT '社交媒体活跃度',
+            `info_acquisition_habits` JSON DEFAULT NULL COMMENT '信息获取习惯',
+            
+            -- II. 互动与认知
+            `acquisition_channel_type` VARCHAR(20) DEFAULT '未知' COMMENT '获客渠道类型',
+            `acquisition_channel_detail` VARCHAR(100) DEFAULT NULL COMMENT '具体渠道详情',
+            `initial_intent` VARCHAR(20) DEFAULT '未知' COMMENT '初始意图',
+            `intent_details` TEXT DEFAULT NULL COMMENT '具体意图详情',
+            `product_knowledge_level` VARCHAR(20) DEFAULT '未知' COMMENT '产品知识水平',
+            `communication_style` VARCHAR(20) DEFAULT '未知' COMMENT '沟通风格',
+            `current_trust_level` VARCHAR(10) DEFAULT '未知' COMMENT '当前信任水平',
+            `need_urgency` VARCHAR(20) DEFAULT '未知' COMMENT '需求紧迫性',
+            
+            -- III. 购买决策
+            `core_need_type` VARCHAR(20) DEFAULT '未知' COMMENT '核心需求类型',
+            `budget_sensitivity` VARCHAR(30) DEFAULT '未知' COMMENT '预算敏感度',
+            `decision_drivers` JSON DEFAULT NULL COMMENT '决策驱动因素',
+            `main_purchase_obstacles` JSON DEFAULT NULL COMMENT '主要购买障碍',
+            `upsell_readiness` VARCHAR(20) DEFAULT '未知' COMMENT '升单准备度',
+            
+            -- IV. 客户关系与忠诚度
+            `past_satisfaction_level` VARCHAR(20) DEFAULT '未知' COMMENT '过往满意度',
+            `customer_loyalty_status` VARCHAR(30) DEFAULT '未知' COMMENT '客户忠诚度状态',
+            `repurchase_drivers` JSON DEFAULT NULL COMMENT '复购驱动因素',
+            `need_evolution_trend` VARCHAR(20) DEFAULT '未知' COMMENT '需求演变趋势',
+            `engagement_level` VARCHAR(10) DEFAULT '未知' COMMENT '品牌互动活跃度',
+            
+            -- V. 特殊来源
+            `partner_source_type` VARCHAR(20) DEFAULT NULL COMMENT '合作方类型',
+            `partner_name` VARCHAR(100) DEFAULT NULL COMMENT '具体合作方名称',
+            `partner_interest_focus` VARCHAR(30) DEFAULT NULL COMMENT '合作客户兴趣点',
+            `partner_conversion_obstacles` JSON DEFAULT NULL COMMENT '合作客户转化障碍',
+            
+            -- 聊天关键事件
+            `chat_key_event` JSON DEFAULT NULL COMMENT '聊天关键事件/产品咨询',
+            
+            -- 基础信息
+            `start_time` DATETIME NOT NULL COMMENT '聊天开始时间',
+            `end_time` DATETIME NOT NULL COMMENT '聊天结束时间',
+            `message_count` INT NOT NULL DEFAULT 0 COMMENT '消息数量',
+            `raw_summary` TEXT DEFAULT NULL COMMENT '原始摘要文本',
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+            `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+            
+            PRIMARY KEY (`id`),
+            INDEX `idx_room_wx_user` (`contact_name`, `wx_user_id`),
+            INDEX `idx_time_range` (`start_time`, `end_time`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信聊天记录客户标签摘要';
+        """
+        
+        cursor.execute(create_table_sql_for_user)
+        print(f"用户 {wx_user_id} 的微信聊天记录摘要表初始化完成")
+    
     # 提交事务
     db_conn.commit()
     
@@ -409,6 +487,11 @@ def save_chat_summary_to_db(summary_data: dict):
     """
     print(f"[DB_SAVE] 保存聊天记录摘要到数据库, summary_data: {summary_data}")
     
+    # 获取微信用户ID
+    wx_user_id = summary_data.get('wx_user_id')
+    if not wx_user_id:
+        raise Exception("[DB_SAVE] 保存聊天记录摘要失败: 缺少微信用户ID")
+    
     db_conn = None
     cursor = None
     try:
@@ -417,17 +500,22 @@ def save_chat_summary_to_db(summary_data: dict):
         db_conn = db_hook.get_conn()
         cursor = db_conn.cursor()
         
-        # 检查表是否存在，如果不存在则创建
+        # 检查全局表是否存在，如果不存在则创建
         cursor.execute("SHOW TABLES LIKE 'wx_chat_summary'")
         if not cursor.fetchone():
             init_wx_chat_summary_table()
+        
+        # 检查用户特定表是否存在，如果不存在则创建
+        cursor.execute(f"SHOW TABLES LIKE '{wx_user_id}_wx_chat_summary'")
+        if not cursor.fetchone():
+            init_wx_chat_summary_table(wx_user_id)
         
         # 准备数据
         params = {
             # 基础信息
             'contact_name': summary_data.get('contact_name'),
             'room_name': summary_data.get('room_name'),
-            'wx_user_id': summary_data.get('wx_user_id'),
+            'wx_user_id': wx_user_id,
             
             # I. 基础信息
             'name': summary_data.get('name') or summary_data.get('基础信息', {}).get('name'),
@@ -492,6 +580,7 @@ def save_chat_summary_to_db(summary_data: dict):
         fields = ', '.join(params.keys())
         placeholders = ', '.join(['%s'] * len(params))
         
+        # 保存到全局表
         # 检查是否已存在记录
         check_sql = "SELECT id FROM wx_chat_summary WHERE contact_name = %s AND wx_user_id = %s LIMIT 1"
         cursor.execute(check_sql, (params['contact_name'], params['wx_user_id']))
@@ -502,12 +591,30 @@ def save_chat_summary_to_db(summary_data: dict):
             update_parts = [f"{field} = %s" for field in params.keys()]
             update_sql = f"UPDATE wx_chat_summary SET {', '.join(update_parts)} WHERE contact_name = %s AND wx_user_id = %s"
             cursor.execute(update_sql, list(params.values()) + [params['contact_name'], params['wx_user_id']])
-            print(f"[DB_SAVE] 更新聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+            print(f"[DB_SAVE] 更新全局聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
         else:
             # 插入新记录
             insert_sql = f"INSERT INTO wx_chat_summary ({fields}) VALUES ({placeholders})"
             cursor.execute(insert_sql, list(params.values()))
-            print(f"[DB_SAVE] 插入聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+            print(f"[DB_SAVE] 插入全局聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+        
+        # 保存到用户特定表
+        # 检查是否已存在记录
+        check_sql = f"SELECT id FROM `{wx_user_id}_wx_chat_summary` WHERE contact_name = %s AND wx_user_id = %s LIMIT 1"
+        cursor.execute(check_sql, (params['contact_name'], params['wx_user_id']))
+        existing_record = cursor.fetchone()
+        
+        if existing_record:
+            # 更新现有记录
+            update_parts = [f"{field} = %s" for field in params.keys()]
+            update_sql = f"UPDATE `{wx_user_id}_wx_chat_summary` SET {', '.join(update_parts)} WHERE contact_name = %s AND wx_user_id = %s"
+            cursor.execute(update_sql, list(params.values()) + [params['contact_name'], params['wx_user_id']])
+            print(f"[DB_SAVE] 更新用户特定聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+        else:
+            # 插入新记录
+            insert_sql = f"INSERT INTO `{wx_user_id}_wx_chat_summary` ({fields}) VALUES ({placeholders})"
+            cursor.execute(insert_sql, list(params.values()))
+            print(f"[DB_SAVE] 插入用户特定聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
         
         # 提交事务
         db_conn.commit()
@@ -636,23 +743,24 @@ def save_token_usage_to_db(token_usage_data: dict):
                 pass
         
 
-def init_wx_friend_circle_table(wx_user_id: str):
+def init_wx_friend_circle_table(wx_user_id: str = None):
     """
     初始化微信朋友圈分析表
     
     Args:
-        wx_user_id: 微信用户ID
+        wx_user_id (str, optional): 微信用户ID。如果提供，则创建用户特定的表
     """
     # 使用get_hook函数获取数据库连接
     db_hook = BaseHook.get_connection("wx_db").get_hook()
     db_conn = db_hook.get_conn()
     cursor = db_conn.cursor()
     
-    # 朋友圈分析表的创建数据包
-    create_table_sql = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_friend_circle_table` (
+    # 创建全局朋友圈分析表
+    create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_friend_circle_table` (
         `id` bigint(20) NOT NULL AUTO_INCREMENT,
         `wxid` varchar(64) NOT NULL COMMENT '好友微信ID',
         `nickname` varchar(128) DEFAULT NULL COMMENT '好友昵称',
+        `wx_user_id` varchar(64) NOT NULL COMMENT '微信用户ID',
         `basic` JSON DEFAULT NULL COMMENT '基础属性(性别、年龄等)',
         `consumption` JSON DEFAULT NULL COMMENT '消费能力',
         `core_interests` JSON DEFAULT NULL COMMENT '兴趣偏好',
@@ -662,13 +770,36 @@ def init_wx_friend_circle_table(wx_user_id: str):
         `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
         `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
         PRIMARY KEY (`id`),
-        UNIQUE KEY `uk_wxid` (`wxid`),
-        KEY `idx_created_at` (`created_at`)
+        UNIQUE KEY `uk_wxid_user` (`wxid`, `wx_user_id`),
+        KEY `idx_created_at` (`created_at`),
+        KEY `idx_wx_user_id` (`wx_user_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信朋友圈分析';
     """
     
-    # 创建表（如果不存在）
     cursor.execute(create_table_sql)
+    
+    # 如果提供了wx_user_id，则创建用户特定的表
+    if wx_user_id:
+        create_table_sql_for_user = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_friend_circle_table` (
+            `id` bigint(20) NOT NULL AUTO_INCREMENT,
+            `wxid` varchar(64) NOT NULL COMMENT '好友微信ID',
+            `nickname` varchar(128) DEFAULT NULL COMMENT '好友昵称',
+            `basic` JSON DEFAULT NULL COMMENT '基础属性(性别、年龄等)',
+            `consumption` JSON DEFAULT NULL COMMENT '消费能力',
+            `core_interests` JSON DEFAULT NULL COMMENT '兴趣偏好',
+            `life_pattern` JSON DEFAULT NULL COMMENT '生活方式',
+            `social` JSON DEFAULT NULL COMMENT '社交特征',
+            `values` JSON DEFAULT NULL COMMENT '价值观',
+            `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+            `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uk_wxid` (`wxid`),
+            KEY `idx_created_at` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信朋友圈分析';
+        """
+        
+        cursor.execute(create_table_sql_for_user)
+        print(f"用户 {wx_user_id} 的微信朋友圈分析表初始化完成")
     
     # 提交事务
     db_conn.commit()
@@ -676,3 +807,5 @@ def init_wx_friend_circle_table(wx_user_id: str):
     # 关闭连接
     cursor.close()
     db_conn.close()
+    
+    print("微信朋友圈分析表初始化完成")
