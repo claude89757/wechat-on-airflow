@@ -19,6 +19,93 @@ import json
 from airflow.hooks.base import BaseHook
 
 
+def init_token_usage_table(wx_user_id: str = None):
+    """
+    初始化token用量表
+    
+    Args:
+        wx_user_id (str, optional): 微信用户ID。如果提供，则创建用户特定的表
+    """
+    # 使用get_hook函数获取数据库连接
+    db_hook = BaseHook.get_connection("wx_db").get_hook()
+    db_conn = db_hook.get_conn()
+    cursor = db_conn.cursor()
+    
+    # 创建全局token用量表
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS `token_usage` (
+      `id` bigint NOT NULL AUTO_INCREMENT,
+      `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号',
+      `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
+      `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
+      `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
+      `room_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '聊天室id',
+      `room_name` varchar(128) COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '聊天室名称',
+      `prompt_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '提示消耗token数量',
+      `prompt_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示单价',
+      `prompt_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格单位',
+      `prompt_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格',
+      `completion_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '回复/补全消耗token数量',
+      `completion_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全单价',
+      `completion_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格单位',
+      `completion_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格',
+      `total_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '总计消耗token',
+      `total_price` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '总价格',
+      `currency` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '货币',
+      `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`),
+      KEY `idx_wx_user_id` (`wx_user_id`),
+      KEY `idx_msg_id` (`msg_id`),
+      KEY `idx_room_id` (`room_id`),
+      KEY `idx_created_at` (`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='token用量';
+    """
+    
+    cursor.execute(create_table_sql)
+    
+    # 如果提供了wx_user_id，则创建用户特定的表
+    if wx_user_id:
+        create_table_sql_for_user = f"""
+        CREATE TABLE IF NOT EXISTS `{wx_user_id}_token_usage` (
+          `id` bigint NOT NULL AUTO_INCREMENT,
+          `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号',
+          `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
+          `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
+          `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
+          `room_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '聊天室id',
+          `room_name` varchar(128) COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '聊天室名称',
+          `prompt_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '提示消耗token数量',
+          `prompt_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示单价',
+          `prompt_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格单位',
+          `prompt_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格',
+          `completion_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '回复/补全消耗token数量',
+          `completion_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全单价',
+          `completion_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格单位',
+          `completion_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格',
+          `total_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '总计消耗token',
+          `total_price` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '总价格',
+          `currency` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '货币',
+          `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_msg_id` (`msg_id`),
+          KEY `idx_room_id` (`room_id`),
+          KEY `idx_created_at` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='token用量';
+        """
+        
+        cursor.execute(create_table_sql_for_user)
+        print(f"用户 {wx_user_id} 的token用量表初始化完成")
+    
+    # 提交事务
+    db_conn.commit()
+    
+    # 关闭连接
+    cursor.close()
+    db_conn.close()
+    
+    print("token用量表初始化完成")
+
+
 def init_wx_chat_records_table(wx_user_id: str):
     """
     初始化微信聊天记录表
@@ -643,9 +730,12 @@ def save_chat_summary_to_db(summary_data: dict):
                 pass
 
 
-def save_token_usage_to_db(token_usage_data: dict):
+def save_token_usage_to_db(token_usage_data: dict,wx_user_id: str):
     """
     保存token用量到数据库
+    
+    Args:
+        token_usage_data (dict): token用量数据，包含token_source_platform, msg_id等字段
     """
     print(f"[DB_SAVE] 保存token用量到数据库, token_usage_data: {token_usage_data}")
     
@@ -668,27 +758,6 @@ def save_token_usage_to_db(token_usage_data: dict):
     room_id = token_usage_data.get('room_id', '')
     room_name = token_usage_data.get('room_name', '')
 
-    # 插入数据SQL
-    insert_sql = """INSERT INTO `token_usage` 
-    (token_source_platform, 
-    msg_id, 
-    prompt_tokens, 
-    prompt_unit_price, 
-    prompt_price_unit, 
-    prompt_price, 
-    completion_tokens, 
-    completion_unit_price,
-    completion_price_unit, 
-    completion_price, 
-    total_tokens, 
-    total_price, 
-    currency,
-    wx_user_id,
-    wx_user_name,
-    room_id,
-    room_name) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
     db_conn = None
     cursor = None
     try:
@@ -697,8 +766,35 @@ def save_token_usage_to_db(token_usage_data: dict):
         db_conn = db_hook.get_conn()
         cursor = db_conn.cursor()
         
-        # 插入数据
-        cursor.execute(insert_sql, (
+        # 确保表存在
+        if wx_user_id:
+            init_token_usage_table(wx_user_id)
+        else:
+            init_token_usage_table()
+        
+        # 插入数据到全局表
+        insert_global_sql = """INSERT INTO `token_usage` 
+        (token_source_platform, 
+        msg_id, 
+        prompt_tokens, 
+        prompt_unit_price, 
+        prompt_price_unit, 
+        prompt_price, 
+        completion_tokens, 
+        completion_unit_price,
+        completion_price_unit, 
+        completion_price, 
+        total_tokens, 
+        total_price, 
+        currency,
+        wx_user_id,
+        wx_user_name,
+        room_id,
+        room_name) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_global_sql, (
             token_source_platform, 
             msg_id, 
             prompt_tokens, 
@@ -717,6 +813,50 @@ def save_token_usage_to_db(token_usage_data: dict):
             room_id,
             room_name
         ))
+        
+        # 如果有wx_user_id，则同时保存到用户特定表
+        if wx_user_id:
+            insert_user_sql = f"""INSERT INTO `{wx_user_id}_token_usage` 
+            (token_source_platform, 
+            msg_id, 
+            prompt_tokens, 
+            prompt_unit_price, 
+            prompt_price_unit, 
+            prompt_price, 
+            completion_tokens, 
+            completion_unit_price,
+            completion_price_unit, 
+            completion_price, 
+            total_tokens, 
+            total_price, 
+            currency,
+            wx_user_id,
+            wx_user_name,
+            room_id,
+            room_name) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_user_sql, (
+                token_source_platform, 
+                msg_id, 
+                prompt_tokens, 
+                prompt_unit_price, 
+                prompt_price_unit, 
+                prompt_price, 
+                completion_tokens, 
+                completion_unit_price,
+                completion_price_unit, 
+                completion_price, 
+                total_tokens, 
+                total_price, 
+                currency,
+                wx_user_id,
+                wx_user_name,
+                room_id,
+                room_name
+            ))
+            print(f"[DB_SAVE] 成功保存token用量到用户特定表 {wx_user_id}_token_usage: {msg_id}")
         
         # 提交事务
         db_conn.commit()
