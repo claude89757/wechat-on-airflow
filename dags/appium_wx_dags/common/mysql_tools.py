@@ -35,7 +35,7 @@ def init_token_usage_table(wx_user_id: str = None):
     create_table_sql = """
     CREATE TABLE IF NOT EXISTS `token_usage` (
       `id` bigint NOT NULL AUTO_INCREMENT,
-      `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号',
+      `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat','wx_history_summary') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号/微信历史记录',
       `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
       `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
       `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
@@ -68,7 +68,7 @@ def init_token_usage_table(wx_user_id: str = None):
         create_table_sql_for_user = f"""
         CREATE TABLE IF NOT EXISTS `{wx_user_id}_token_usage` (
           `id` bigint NOT NULL AUTO_INCREMENT,
-          `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号',
+          `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat','wx_history_summary') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号/微信历史记录',
           `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
           `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
           `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
