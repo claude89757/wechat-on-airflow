@@ -112,9 +112,9 @@ def summary_chat_history(**context):
             chat_text_list.append(f"[{msg['msg_datetime'].strftime('%Y-%m-%d %H:%M:%S')}] {msg['sender_name']}: {msg['content']}")
     chat_text = "\n".join(chat_text_list)
 
-    print("="*100)
+    print("-"*100)
     print(chat_text)
-    print("="*100)
+    print("-"*100)
 
     # 初始化Dify
     dify_agent = DifyAgent(api_key=Variable.get("CHAT_SUMMARY_TOKEN"), base_url=Variable.get("DIFY_BASE_URL"))
@@ -125,7 +125,7 @@ def summary_chat_history(**context):
         user_id=f"{wx_user_id}_{contact_name}",
         conversation_id=""
     )
-    print(response_data,"---------")
+    print("response_data回复",response_data,"---------")
     context['task_instance'].xcom_push(key='chat_summary_token_usage_data', value=response_data.get("metadata", {}))
     summary_text = response_data.get("answer", "")
     
