@@ -32,36 +32,36 @@ def init_token_usage_table(wx_user_id: str = None):
     cursor = db_conn.cursor()
     
     # 创建全局token用量表
-    create_table_sql = """
-    CREATE TABLE IF NOT EXISTS `token_usage` (
-      `id` bigint NOT NULL AUTO_INCREMENT,
-      `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat','wx_history_summary') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号/微信历史记录',
-      `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
-      `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
-      `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
-      `room_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '聊天室id',
-      `room_name` varchar(128) COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '聊天室名称',
-      `prompt_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '提示消耗token数量',
-      `prompt_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示单价',
-      `prompt_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格单位',
-      `prompt_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格',
-      `completion_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '回复/补全消耗token数量',
-      `completion_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全单价',
-      `completion_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格单位',
-      `completion_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格',
-      `total_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '总计消耗token',
-      `total_price` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '总价格',
-      `currency` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '货币',
-      `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (`id`),
-      KEY `idx_wx_user_id` (`wx_user_id`),
-      KEY `idx_msg_id` (`msg_id`),
-      KEY `idx_room_id` (`room_id`),
-      KEY `idx_created_at` (`created_at`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='token用量';
-    """
+    # create_table_sql = """
+    # CREATE TABLE IF NOT EXISTS `token_usage` (
+    #   `id` bigint NOT NULL AUTO_INCREMENT,
+    #   `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat','wx_history_summary') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号/微信历史记录',
+    #   `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
+    #   `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
+    #   `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
+    #   `room_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '聊天室id',
+    #   `room_name` varchar(128) COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '聊天室名称',
+    #   `prompt_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '提示消耗token数量',
+    #   `prompt_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示单价',
+    #   `prompt_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格单位',
+    #   `prompt_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格',
+    #   `completion_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '回复/补全消耗token数量',
+    #   `completion_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全单价',
+    #   `completion_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格单位',
+    #   `completion_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格',
+    #   `total_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '总计消耗token',
+    #   `total_price` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '总价格',
+    #   `currency` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '货币',
+    #   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    #   PRIMARY KEY (`id`),
+    #   KEY `idx_wx_user_id` (`wx_user_id`),
+    #   KEY `idx_msg_id` (`msg_id`),
+    #   KEY `idx_room_id` (`room_id`),
+    #   KEY `idx_created_at` (`created_at`)
+    # ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='token用量';
+    # """
     
-    cursor.execute(create_table_sql)
+    # cursor.execute(create_table_sql)
     
     # 如果提供了wx_user_id，则创建用户特定的表
     if wx_user_id:
