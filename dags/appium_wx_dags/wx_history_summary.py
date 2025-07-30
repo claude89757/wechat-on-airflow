@@ -113,7 +113,7 @@ def summary_chat_history(**context):
     chat_text = "\n".join(chat_text_list)
 
     print("-"*100)
-    print(chat_text)
+    print('原始聊天内容',chat_text)
     print("-"*100)
 
     # 初始化Dify
@@ -125,20 +125,19 @@ def summary_chat_history(**context):
         user_id=f"{wx_user_id}_{contact_name}",
         conversation_id=""
     )
-    print("response_data回复metadata",response_data.get("metadata", {}),"---------")
     context['task_instance'].xcom_push(key='chat_summary_token_usage_data', value=response_data.get("metadata", {}))
     summary_text = response_data.get("answer", "")
     
     # 从返回的文本中提取JSON数据
     summary_json = extract_json_from_string(summary_text)
     
-    print("="*100)
+    print("-"*100)
     print("原始总结内容:")
     print(summary_text)
     print("-"*100)
     print("提取的JSON内容:")
     print(json.dumps(summary_json, ensure_ascii=False, indent=2))
-    print("="*100)
+    print("-"*100)
     
     # 准备存储到数据库的数据
     db_summary_data = {
@@ -201,17 +200,17 @@ def save_token_usage(**context):
 
     # 提取token信息
     msg_id = token_usage_data.get('message_id', '')
-    prompt_tokens = str(token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_tokens', ''))
-    prompt_unit_price = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_unit_price', '')
-    prompt_price_unit = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_price_unit', '')
-    prompt_price = token_usage_data.get('metadata', {}).get('usage', {}).get('prompt_price', '')
-    completion_tokens = str(token_usage_data.get('metadata', {}).get('usage', {}).get('completion_tokens', ''))
-    completion_unit_price = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_unit_price', '')
-    completion_price_unit = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_price_unit', '')
-    completion_price = token_usage_data.get('metadata', {}).get('usage', {}).get('completion_price', '')
-    total_tokens = str(token_usage_data.get('metadata', {}).get('usage', {}).get('total_tokens', ''))
-    total_price = token_usage_data.get('metadata', {}).get('usage', {}).get('total_price', '')
-    currency = token_usage_data.get('metadata', {}).get('usage', {}).get('currency', '')
+    prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
+    prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
+    prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
+    prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
+    completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
+    completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
+    completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
+    completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
+    total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
+    total_price = token_usage_data.get('usage', {}).get('total_price', '')
+    currency = token_usage_data.get('usage', {}).get('currency', '')
 
     save_token_usage_data = {}
     save_token_usage_data['token_source_platform'] = 'wx_history_summary'
