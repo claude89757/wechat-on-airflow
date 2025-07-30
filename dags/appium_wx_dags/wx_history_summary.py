@@ -232,6 +232,7 @@ def save_token_usage(**context):
     save_token_usage_data['wx_user_name'] = message_data.get('wx_user_id', '')
     save_token_usage_data['room_id'] = message_data.get('contact_name', '')
     save_token_usage_data['room_name'] = message_data.get('contact_name', '')
+    wx_user_id = message_data.get('wx_user_id')
 
     # 保存token用量到DB
     save_token_usage_to_db(save_token_usage_data,wx_user_id)
