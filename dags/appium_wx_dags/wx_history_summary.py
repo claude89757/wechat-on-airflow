@@ -191,7 +191,6 @@ def save_token_usage(**context):
     message_data = context.get('dag_run').conf
 
     # 获取token用量信息
-    print("token_usage_data",context.get('task_instance').xcom_pull(key='chat_summary_token_usage_data'))
     token_usage_data = context.get('task_instance').xcom_pull(key='chat_summary_token_usage_data')
 
     if not token_usage_data:

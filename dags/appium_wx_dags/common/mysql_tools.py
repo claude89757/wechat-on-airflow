@@ -772,47 +772,47 @@ def save_token_usage_to_db(token_usage_data: dict,wx_user_id: str):
         else:
             init_token_usage_table()
         
-        # 插入数据到全局表
-        insert_global_sql = """INSERT INTO `token_usage` 
-        (token_source_platform, 
-        msg_id, 
-        prompt_tokens, 
-        prompt_unit_price, 
-        prompt_price_unit, 
-        prompt_price, 
-        completion_tokens, 
-        completion_unit_price,
-        completion_price_unit, 
-        completion_price, 
-        total_tokens, 
-        total_price, 
-        currency,
-        wx_user_id,
-        wx_user_name,
-        room_id,
-        room_name) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
+        # # 插入数据到全局表
+        # insert_global_sql = """INSERT INTO `token_usage` 
+        # (token_source_platform, 
+        # msg_id, 
+        # prompt_tokens, 
+        # prompt_unit_price, 
+        # prompt_price_unit, 
+        # prompt_price, 
+        # completion_tokens, 
+        # completion_unit_price,
+        # completion_price_unit, 
+        # completion_price, 
+        # total_tokens, 
+        # total_price, 
+        # currency,
+        # wx_user_id,
+        # wx_user_name,
+        # room_id,
+        # room_name) 
+        # VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        # """
         
-        cursor.execute(insert_global_sql, (
-            token_source_platform, 
-            msg_id, 
-            prompt_tokens, 
-            prompt_unit_price, 
-            prompt_price_unit, 
-            prompt_price, 
-            completion_tokens, 
-            completion_unit_price,
-            completion_price_unit, 
-            completion_price, 
-            total_tokens, 
-            total_price, 
-            currency,
-            wx_user_id,
-            wx_user_name,
-            room_id,
-            room_name
-        ))
+        # cursor.execute(insert_global_sql, (
+        #     token_source_platform, 
+        #     msg_id, 
+        #     prompt_tokens, 
+        #     prompt_unit_price, 
+        #     prompt_price_unit, 
+        #     prompt_price, 
+        #     completion_tokens, 
+        #     completion_unit_price,
+        #     completion_price_unit, 
+        #     completion_price, 
+        #     total_tokens, 
+        #     total_price, 
+        #     currency,
+        #     wx_user_id,
+        #     wx_user_name,
+        #     room_id,
+        #     room_name
+        # ))
         
         # 如果有wx_user_id，则同时保存到用户特定表
         if wx_user_id:
