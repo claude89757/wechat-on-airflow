@@ -120,17 +120,20 @@ def main_handler(event, context):
         conditions.append("created_at <= %s")
         params.append(end_time)
     
+    # 构建动态表名
+    table_name = f"{wx_user_id}_token_usage"
+    
     # 构建SQL查询
-    sql = "SELECT * FROM token_usage"
+    sql = f"SELECT * FROM {table_name}"
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
-    
+
     # 添加排序和分页
     sql += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
     params.extend([limit, offset])
-    
+
     # 查询总记录数
-    count_sql = "SELECT COUNT(*) as total FROM token_usage"
+    count_sql = f"SELECT COUNT(*) as total FROM {table_name}"
     if conditions:
         count_sql += " WHERE " + " AND ".join(conditions)
     
