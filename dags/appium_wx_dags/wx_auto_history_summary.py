@@ -19,7 +19,8 @@ from appium_wx_dags.common.mysql_tools import (
     get_wx_chat_history, 
     get_wx_contact_list,
     save_chat_summary_to_db, 
-    save_token_usage_to_db
+    save_token_usage_to_db,
+    get_chat_summary
 )
 from utils.dify_sdk import DifyAgent
 
@@ -89,12 +90,8 @@ def get_latest_summary_record(wx_user_id, contact_name):
     Returns:
         dict: 总结记录，如果不存在则返回None
     """
-    # 使用Airflow变量作为缓存
-    cache_key = f"{wx_user_id}_{contact_name}_chat_summary"
-    try:
-        return Variable.get(cache_key, deserialize_json=True)
-    except:
-        return None
+    # 从数据库中查询最新的总结记录
+    return get_chat_summary(wx_user_id, contact_name)
 
 
 def check_and_process_contact(wx_user_id, contact, **context):

@@ -17,6 +17,7 @@ MySQL数据库工具模块
 
 import json
 from airflow.hooks.base import BaseHook
+from datetime import datetime
 
 
 def init_token_usage_table(wx_user_id: str = None):
@@ -1049,3 +1050,82 @@ def init_wx_friend_circle_table(wx_user_id: str = None):
     db_conn.close()
     
     print("微信朋友圈分析表初始化完成")
+
+
+def get_chat_summary(wx_user_id: str, contact_name: str):
+    """
+    从数据库获取联系人的最新聊天记录总结
+    
+    Args:
+        wx_user_id (str): 微信用户ID
+        contact_name (str): 联系人名称
+        
+    Returns:
+        dict: 总结记录，如果不存在则返回None
+    """
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 首先尝试查询用户特定表
+        table_name = f"{wx_user_id}_wx_chat_summary"
+        
+        # 检查表是否存在
+        cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
+        if not cursor.fetchone():
+            # 如果用户特定表不存在，尝试查询全局表
+            table_name = "wx_chat_summary"
+            cursor.execute("SHOW TABLES LIKE 'wx_chat_summary'")
+            if not cursor.fetchone():
+                # 如果全局表也不存在，返回None
+                return None
+        
+        # 查询最新的聊天记录总结
+        query_sql = f"""
+            SELECT 
+                id, contact_name, room_name, wx_user_id, 
+                start_time, end_time, message_count, raw_summary,
+                created_at, updated_at
+            FROM {table_name}
+            WHERE wx_user_id = %s AND contact_name = %s
+            ORDER BY end_time DESC
+            LIMIT 1
+        """
+        
+        cursor.execute(query_sql, (wx_user_id, contact_name))
+        result = cursor.fetchone()
+        
+        if not result:
+            return None
+            
+        # 将结果转换为字典
+        columns = [desc[0] for desc in cursor.description]
+        summary_dict = dict(zip(columns, result))
+        
+        # 处理日期时间格式，使其可JSON序列化
+        for key, value in summary_dict.items():
+            if isinstance(value, datetime):
+                summary_dict[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+                
+        return summary_dict
+        
+    except Exception as e:
+        print(f"[DB_QUERY] 获取聊天记录总结失败: {e}")
+        return None
+        
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
