@@ -401,95 +401,77 @@ def get_wx_contact_list(wx_user_id: str, contact_type: str = None, limit: int = 
     获取微信联系人列表
     
     Args:
-        wx_user_id (str): 微信用户ID
-        contact_type (str, optional): 联系人类型，可选值：'friend'(好友),'group'(群组),None(全部)
-        limit (int, optional): 返回记录数量限制，默认100
-        offset (int, optional): 分页偏移量，默认0
+        wx_user_id: 微信用户ID
+        contact_type: 联系人类型，可选值：'friend'(好友), 'group'(群组), None(全部)
+        limit: 返回记录数量限制
+        offset: 分页偏移量
         
     Returns:
-        list: 联系人列表
+        联系人列表，每个联系人包含id, wx_user_id, contact_id, contact_name等信息
     """
-    db_conn = None
-    cursor = None
     try:
-        # 使用get_hook函数获取数据库连接
-        db_hook = BaseHook.get_connection("wx_db").get_hook()
-        db_conn = db_hook.get_conn()
-        cursor = db_conn.cursor()
+        # 获取数据库连接
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        # 构建查询条件
-        conditions = ["wx_user_id = %s"]
+        # 从聊天记录表中提取唯一联系人
+        table_name = f"{wx_user_id}_wx_chat_records"
+        
+        # 构建查询SQL - 从聊天记录中提取唯一的发送者信息
+        query_sql = f"""
+            SELECT 
+                MIN(id) as id,
+                wx_user_id,
+                sender_id as contact_id,
+                sender_name as contact_name,
+                '' as remark_name,
+                '' as avatar_url,
+                CASE 
+                    WHEN room_id != sender_id THEN 1
+                    ELSE 0
+                END as is_group,
+                0 as member_count,
+                MIN(msg_datetime) as created_at,
+                MAX(msg_datetime) as updated_at
+            FROM {table_name}
+            WHERE wx_user_id = %s
+            GROUP BY wx_user_id, sender_id, sender_name, room_id
+        """
+        
         params = [wx_user_id]
         
         # 添加联系人类型筛选
         if contact_type:
             if contact_type.lower() == 'friend':
-                conditions.append("is_group = 0")
+                query_sql += " HAVING is_group = 0"
             elif contact_type.lower() == 'group':
-                conditions.append("is_group = 1")
+                query_sql += " HAVING is_group = 1"
         
-        # 根据wx_user_id设置表名
-        table_name = f"{wx_user_id}_wx_contacts"
-        
-        # 构建查询SQL
-        query_sql = f"""
-            SELECT 
-                id,
-                wx_user_id,
-                contact_id,
-                contact_name,
-                remark_name,
-                avatar_url,
-                is_group,
-                member_count,
-                created_at,
-                updated_at
-            FROM {table_name}
-            WHERE {' AND '.join(conditions)}
-            ORDER BY updated_at DESC
-            LIMIT %s OFFSET %s
-        """
-        
-        # 添加分页参数
+        # 添加排序和分页
+        query_sql += " ORDER BY updated_at DESC LIMIT %s OFFSET %s"
         params.extend([limit, offset])
-        
-        # 打印SQL查询和参数
-        print("===== 调试SQL查询 =====")
-        print(f"SQL: {query_sql}")
-        print(f"参数: {params}")
-        print("======================")
         
         # 执行查询
         cursor.execute(query_sql, params)
+        results = cursor.fetchall()
         
-        # 获取列名
-        columns = [desc[0] for desc in cursor.description]
+        # 处理日期时间格式，使其可JSON序列化
+        for record in results:
+            for key, value in record.items():
+                if isinstance(value, datetime):
+                    record[key] = value.strftime('%Y-%m-%d %H:%M:%S')
         
-        # 获取结果
-        results = []
-        for row in cursor.fetchall():
-            result = dict(zip(columns, row))
-            # 转换布尔值
-            result['is_group'] = bool(result['is_group'])
-            results.append(result)
-            
         return results
-        
+    
     except Exception as e:
-        print(f"[DB_QUERY] 获取联系人列表失败: {e}")
-        raise Exception(f"[DB_QUERY] 获取联系人列表失败: {e}")
+        logging.error(f"获取微信联系人列表失败: {str(e)}")
+        return []
+    
     finally:
-        # 关闭连接
-        if cursor:
-            try:
-                cursor.close()
-            except:
-                pass
-        if db_conn:
-            try:
-                db_conn.close()
-            except:
-                pass
+        # 关闭数据库连接
+        if 'conn' in locals() and conn:
+            cursor.close()
+            conn.close()
 
 
 def init_wx_chat_summary_table(wx_user_id: str = None):
@@ -596,6 +578,8 @@ def init_wx_chat_summary_table(wx_user_id: str = None):
             `marital_status` VARCHAR(20) DEFAULT '未知' COMMENT '婚姻状态',
             `family_structure` VARCHAR(30) DEFAULT '未知' COMMENT '家庭结构',
             `income_level_estimated` VARCHAR(20) DEFAULT '未知' COMMENT '估计收入水平',
+            
+            -- 处理JSON字段
             `core_values` JSON DEFAULT NULL COMMENT '核心价值观',
             `hobbies_interests` JSON DEFAULT NULL COMMENT '爱好和兴趣',
             `life_status_indicators` JSON DEFAULT NULL COMMENT '生活状态指标',
