@@ -271,6 +271,7 @@ def auto_summary_chat_history(**context):
     # 从Airflow变量获取需要自动处理的微信用户列表
     try:
         wx_auto_history_list = Variable.get("wx_auto_history_list", deserialize_json=True)
+        print("-------",wx_auto_history_list)
         if not wx_auto_history_list or not isinstance(wx_auto_history_list, list):
             print("未找到有效的自动处理用户列表，或列表格式不正确")
             return {"error": "未找到有效的自动处理用户列表"}
