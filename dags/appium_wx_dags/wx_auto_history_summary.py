@@ -269,25 +269,12 @@ def auto_summary_chat_history(**context):
     检查所有联系人的聊天记录，对符合条件的联系人进行总结
     """
     # 获取输入参数
-    input_data = context.get('dag_run').conf or {}
-    print(f"输入数据: {input_data}")
-    
-    # 获取微信用户ID
-    wx_user_id = input_data.get('wx_user_id')
-    if not wx_user_id:
-        raise ValueError("缺少必填参数: wx_user_id")
-    
-    # 获取联系人列表
-    try:
-        contacts = get_wx_contact_list(wx_user_id=wx_user_id)
-        print(f"获取到 {len(contacts)} 个联系人")
-    except Exception as e:
-        print(f"获取联系人列表失败: {e}")
-        raise
+    wx_auto_history_list = json.loads(Variable.get("wx_auto_history_list"))
+    print(f"微信自动总结配置: {wx_auto_history_list}")
     
     # 处理结果统计
     results = {
-        "total": len(contacts),
+        "total": 0,
         "processed": 0,
         "success": 0,
         "skipped": 0,
@@ -295,45 +282,92 @@ def auto_summary_chat_history(**context):
         "details": []
     }
     
-    # 处理每个联系人
-    for contact in contacts:
+    # 处理每个微信用户
+    for wx_user in wx_auto_history_list:
+        wx_user_id = wx_user.get('wx_user_id')
+        if not wx_user_id:
+            print(f"微信用户ID缺失，跳过处理: {wx_user}")
+            continue
+        
+        if not wx_user.get('auto'):
+            print(f"微信用户 {wx_user_id} 未启用自动总结，跳过处理")
+            continue
+        
+        results["total"] += 1
+        
+        # 获取联系人列表
         try:
-            result = check_and_process_contact(wx_user_id, contact, **context)
-            results["processed"] += 1
-            results["details"].append(result)
-            
-            if result.get("status") == "success":
-                results["success"] += 1
-            elif result.get("status") == "skipped":
-                results["skipped"] += 1
-            else:
-                results["error"] += 1
+            contacts = get_wx_contact_list(wx_user_id=wx_user_id)
+            print(f"获取到 {len(contacts)} 个联系人")
         except Exception as e:
-            print(f"处理联系人失败: {contact.get('contact_name')}, 错误: {e}")
-            results["processed"] += 1
+            print(f"获取联系人列表失败: {e}")
             results["error"] += 1
-            results["details"].append({"status": "error", "contact_name": contact.get('contact_name'), "error": str(e)})
+            results["details"].append({"status": "error", "wx_user_id": wx_user_id, "error": str(e)})
+            continue
+        
+        # 处理每个联系人
+        for contact in contacts:
+            try:
+                result = check_and_process_contact(wx_user_id, contact, **context)
+                results["processed"] += 1
+                results["details"].append(result)
+                
+                if result.get("status") == "success":
+                    results["success"] += 1
+                elif result.get("status") == "skipped":
+                    results["skipped"] += 1
+                else:
+                    results["error"] += 1
+            except Exception as e:
+                print(f"处理联系人失败: {contact.get('contact_name')}, 错误: {e}")
+                results["processed"] += 1
+                results["error"] += 1
+                results["details"].append({"status": "error", "contact_name": contact.get('contact_name'), "error": str(e)})
     
-    print(f"处理完成: 总计 {results['total']} 个联系人, 成功 {results['success']}, 跳过 {results['skipped']}, 错误 {results['error']}")
+    print(f"处理完成: 总计 {results['total']} 个微信用户, 成功 {results['success']}, 跳过 {results['skipped']}, 错误 {results['error']}")
     return results
 
 
 # 创建DAG
 dag = DAG(
     dag_id=DAG_ID,
-    default_args={'owner': 'claude89757'},
+    default_args={'owner': 'yuchangongzhu'},
     start_date=datetime(2024, 1, 1),
     catchup=False,
     schedule_interval='*/5 * * * *',  # 每5分钟执行一次
-    tags=['个人微信'],
-    description='自动化聊天记录总结'
+    tags=['wechat', 'summary'],
+    description="""
+### 微信聊天记录自动总结DAG
+
+该DAG会自动对配置的微信用户的聊天记录进行总结和客户标签分析。
+
+### 触发条件:
+1. 新联系人首次总结
+2. 现有联系人的聊天记录新增了至少25条消息
+
+### 配置方法:
+1. 在Airflow Variables中设置`wx_auto_history_list`变量，格式为JSON数组:
+```json
+[
+  {"wx_user_id": "用户1的微信ID", "auto": true},
+  {"wx_user_id": "用户2的微信ID", "auto": false},
+  {"wx_user_id": "用户3的微信ID", "auto": true}
+]
+```
+
+2. 只有`auto`设置为`true`的用户会被自动处理
+
+### 输出:
+- 会将摘要结果保存到数据库的`wx_chat_summary`表中
+- 同时也会缓存到Airflow变量中，缓存键为`{wx_user_id}_{contact_name}_chat_summary`
+"""
 )
 
 # 为DAG添加文档说明
 dag.doc_md = """
-## 自动化聊天记录总结与客户标签分析DAG
+## 微信聊天记录自动总结DAG
 
-此DAG用于自动化总结微信聊天记录，提取客户标签信息，并使用AI生成摘要。
+该DAG用于自动化总结微信聊天记录，提取客户标签信息，并使用AI生成摘要。
 每5分钟自动检查一次，对符合条件的联系人进行总结。
 
 ### 触发条件:
@@ -341,17 +375,19 @@ dag.doc_md = """
 2. 现有联系人的聊天记录新增了至少25条消息
 
 ### 如何使用:
-1. 点击"Trigger DAG"按钮
-2. 选择"Trigger DAG w/ config"
-3. 在配置框中输入JSON格式的参数:
+1. 在Airflow Variables中设置`wx_auto_history_list`变量，格式为JSON数组:
 ```json
-{
-  "wx_user_id": "你的微信用户ID"
-}
+[
+  {"wx_user_id": "用户1的微信ID", "auto": true},
+  {"wx_user_id": "用户2的微信ID", "auto": false},
+  {"wx_user_id": "用户3的微信ID", "auto": true}
+]
 ```
 
+2. 只有`auto`设置为`true`的用户会被自动处理
+
 ### 必填参数:
-- `wx_user_id`: 你的微信用户ID
+- `wx_auto_history_list`: 微信自动总结配置
 
 ### 输出:
 - 会将摘要结果保存到数据库的`wx_chat_summary`表中
