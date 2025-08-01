@@ -165,8 +165,51 @@ def check_and_process_contact(wx_user_id, contact, **context):
         user_id=f"{wx_user_id}_{contact_name}",
         conversation_id=""
     )
-    context['task_instance'].xcom_push(key=f'chat_summary_token_usage_data_{contact_name}', value=response_data.get("metadata", {}))
+    token_usage_data = response_data.get("metadata", {})
     summary_text = response_data.get("answer", "")
+    
+    # 立即保存token用量到数据库
+    try:
+        # 提取token信息
+        msg_id = token_usage_data.get('message_id', '')
+        prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
+        prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
+        prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
+        prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
+        completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
+        completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
+        completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
+        completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
+        total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
+        total_price = token_usage_data.get('usage', {}).get('total_price', '')
+        currency = token_usage_data.get('usage', {}).get('currency', '')
+        
+        save_token_usage_data = {
+            'token_source_platform': 'wx_history_summary',
+            'msg_id': msg_id,
+            'prompt_tokens': prompt_tokens,
+            'prompt_unit_price': prompt_unit_price,
+            'prompt_price_unit': prompt_price_unit,
+            'prompt_price': prompt_price,
+            'completion_tokens': completion_tokens,
+            'completion_unit_price': completion_unit_price,
+            'completion_price_unit': completion_price_unit,
+            'completion_price': completion_price,
+            'total_tokens': total_tokens,
+            'total_price': total_price,
+            'currency': currency,
+            'source_ip': '',
+            'wx_user_id': wx_user_id,
+            'wx_user_name': wx_user_id,
+            'room_id': contact_name,
+            'room_name': contact_name
+        }
+        
+        # 保存token用量到DB
+        save_token_usage_to_db(save_token_usage_data, wx_user_id)
+        print(f"已保存联系人 {contact_name} 的token用量")
+    except Exception as e:
+        print(f"保存token用量失败: {e}")
     
     # 从返回的文本中提取JSON数据
     summary_json = extract_json_from_string(summary_text)
@@ -278,80 +321,6 @@ def auto_summary_chat_history(**context):
     return results
 
 
-def save_token_usage(**context):
-    """
-    保存token用量到DB
-    """
-    # 获取处理结果
-    summary_results = context.get('task_instance').xcom_pull(task_ids='auto_summary_chat_history')
-    if not summary_results:
-        print("[WATCHER] 没有收到处理结果")
-        return
-    
-    # 获取微信用户ID
-    wx_user_id = context.get('dag_run').conf.get('wx_user_id', '')
-    if not wx_user_id:
-        print("[WATCHER] 缺少微信用户ID")
-        return
-    
-    # 处理每个成功总结的联系人的token用量
-    for detail in summary_results.get('details', []):
-        if detail.get('status') != 'success':
-            continue
-        
-        contact_name = detail.get('contact_name')
-        if not contact_name:
-            continue
-        
-        # 获取token用量信息
-        token_usage_data = context.get('task_instance').xcom_pull(key=f'chat_summary_token_usage_data_{contact_name}')
-        if not token_usage_data:
-            print(f"[WATCHER] 没有收到联系人 {contact_name} 的token用量信息")
-            continue
-        
-        # 提取token信息
-        msg_id = token_usage_data.get('message_id', '')
-        prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
-        prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
-        prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
-        prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
-        completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
-        completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
-        completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
-        completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
-        total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
-        total_price = token_usage_data.get('usage', {}).get('total_price', '')
-        currency = token_usage_data.get('usage', {}).get('currency', '')
-        
-        save_token_usage_data = {
-            'token_source_platform': 'wx_history_summary',
-            'msg_id': msg_id,
-            'prompt_tokens': prompt_tokens,
-            'prompt_unit_price': prompt_unit_price,
-            'prompt_price_unit': prompt_price_unit,
-            'prompt_price': prompt_price,
-            'completion_tokens': completion_tokens,
-            'completion_unit_price': completion_unit_price,
-            'completion_price_unit': completion_price_unit,
-            'completion_price': completion_price,
-            'total_tokens': total_tokens,
-            'total_price': total_price,
-            'currency': currency,
-            'source_ip': '',
-            'wx_user_id': wx_user_id,
-            'wx_user_name': wx_user_id,
-            'room_id': contact_name,
-            'room_name': contact_name
-        }
-        
-        # 保存token用量到DB
-        try:
-            save_token_usage_to_db(save_token_usage_data, wx_user_id)
-            print(f"[WATCHER] 已保存联系人 {contact_name} 的token用量")
-        except Exception as e:
-            print(f"[WATCHER] 保存联系人 {contact_name} 的token用量失败: {e}")
-
-
 # 创建DAG
 dag = DAG(
     dag_id=DAG_ID,
@@ -400,12 +369,5 @@ auto_summary_chat_history_task = PythonOperator(
     dag=dag
 )
 
-save_token_usage_task = PythonOperator(
-    task_id='save_token_usage',
-    python_callable=save_token_usage,
-    provide_context=True,
-    dag=dag
-)
-    
 # 设置依赖关系
-auto_summary_chat_history_task >> save_token_usage_task
+# auto_summary_chat_history_task >> save_token_usage_task
