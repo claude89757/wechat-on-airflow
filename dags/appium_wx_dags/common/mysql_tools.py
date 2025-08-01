@@ -401,18 +401,21 @@ def get_wx_contact_list(wx_user_id: str, contact_type: str = None, limit: int = 
     获取微信联系人列表
     
     Args:
-        wx_user_id: 微信用户ID
-        contact_type: 联系人类型，可选值：'friend'(好友), 'group'(群组), None(全部)
-        limit: 返回记录数量限制
-        offset: 分页偏移量
+        wx_user_id (str): 微信用户ID
+        contact_type (str, optional): 联系人类型，可选值：'friend'(好友),'group'(群组),None(全部)
+        limit (int, optional): 返回记录数量限制，默认100
+        offset (int, optional): 分页偏移量，默认0
         
     Returns:
-        联系人列表，每个联系人包含id, wx_user_id, contact_id, contact_name等信息
+        list: 联系人列表
     """
+    db_conn = None
+    cursor = None
     try:
-        # 获取数据库连接
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
         
         # 从聊天记录表中提取唯一联系人
         table_name = f"{wx_user_id}_wx_chat_records"
@@ -451,27 +454,43 @@ def get_wx_contact_list(wx_user_id: str, contact_type: str = None, limit: int = 
         query_sql += " ORDER BY updated_at DESC LIMIT %s OFFSET %s"
         params.extend([limit, offset])
         
+        # 打印SQL查询和参数
+        print("===== 调试SQL查询 =====")
+        print(f"SQL: {query_sql}")
+        print(f"参数: {params}")
+        print("======================")
+        
         # 执行查询
         cursor.execute(query_sql, params)
-        results = cursor.fetchall()
         
-        # 处理日期时间格式，使其可JSON序列化
-        for record in results:
-            for key, value in record.items():
-                if isinstance(value, datetime):
-                    record[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+        # 获取列名
+        columns = [desc[0] for desc in cursor.description]
         
+        # 获取结果
+        results = []
+        for row in cursor.fetchall():
+            result = dict(zip(columns, row))
+            # 转换布尔值
+            result['is_group'] = bool(result['is_group'])
+            results.append(result)
+            
         return results
-    
+        
     except Exception as e:
-        logging.error(f"获取微信联系人列表失败: {str(e)}")
-        return []
-    
+        print(f"[DB_QUERY] 获取联系人列表失败: {e}")
+        raise Exception(f"[DB_QUERY] 获取联系人列表失败: {e}")
     finally:
-        # 关闭数据库连接
-        if 'conn' in locals() and conn:
-            cursor.close()
-            conn.close()
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
 
 
 def init_wx_chat_summary_table(wx_user_id: str = None):
