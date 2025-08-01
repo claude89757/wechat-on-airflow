@@ -268,32 +268,34 @@ def auto_summary_chat_history(**context):
     自动化聊天记录总结与客户标签分析
     检查所有联系人的聊天记录，对符合条件的联系人进行总结
     """
-    # 获取输入参数
-    wx_auto_history_list = json.loads(Variable.get("wx_auto_history_list"))
-    print(f"微信自动总结配置: {wx_auto_history_list}")
+    # 从Airflow变量获取需要自动处理的微信用户列表
+    try:
+        wx_auto_history_list = Variable.get("wx_auto_history_list", deserialize_json=True)
+        if not wx_auto_history_list or not isinstance(wx_auto_history_list, list):
+            print("未找到有效的自动处理用户列表，或列表格式不正确")
+            return {"error": "未找到有效的自动处理用户列表"}
+    except Exception as e:
+        print(f"获取自动处理用户列表失败: {e}")
+        return {"error": f"获取自动处理用户列表失败: {e}"}
+    
+    # 筛选出需要自动处理的用户
+    auto_users = [user for user in wx_auto_history_list if user.get('auto') is True and user.get('wx_user_id')]
+    if not auto_users:
+        print("没有需要自动处理的用户")
+        return {"processed_users": 0, "details": []}
+    
+    print(f"找到 {len(auto_users)} 个需要自动处理的用户")
     
     # 处理结果统计
-    results = {
-        "total": 0,
-        "processed": 0,
-        "success": 0,
-        "skipped": 0,
-        "error": 0,
+    all_results = {
+        "processed_users": 0,
         "details": []
     }
     
-    # 处理每个微信用户
-    for wx_user in wx_auto_history_list:
-        wx_user_id = wx_user.get('wx_user_id')
-        if not wx_user_id:
-            print(f"微信用户ID缺失，跳过处理: {wx_user}")
-            continue
-        
-        if not wx_user.get('auto'):
-            print(f"微信用户 {wx_user_id} 未启用自动总结，跳过处理")
-            continue
-        
-        results["total"] += 1
+    # 处理每个用户
+    for user in auto_users:
+        wx_user_id = user.get('wx_user_id')
+        print(f"开始处理用户: {wx_user_id}")
         
         # 获取联系人列表
         try:
@@ -301,31 +303,51 @@ def auto_summary_chat_history(**context):
             print(f"获取到 {len(contacts)} 个联系人")
         except Exception as e:
             print(f"获取联系人列表失败: {e}")
-            results["error"] += 1
-            results["details"].append({"status": "error", "wx_user_id": wx_user_id, "error": str(e)})
+            all_results["details"].append({
+                "wx_user_id": wx_user_id,
+                "status": "error",
+                "error": f"获取联系人列表失败: {e}"
+            })
             continue
+        
+        # 处理结果统计
+        user_results = {
+            "wx_user_id": wx_user_id,
+            "total": len(contacts),
+            "processed": 0,
+            "success": 0,
+            "skipped": 0,
+            "error": 0,
+            "details": []
+        }
         
         # 处理每个联系人
         for contact in contacts:
             try:
                 result = check_and_process_contact(wx_user_id, contact, **context)
-                results["processed"] += 1
-                results["details"].append(result)
+                user_results["processed"] += 1
+                user_results["details"].append(result)
                 
                 if result.get("status") == "success":
-                    results["success"] += 1
+                    user_results["success"] += 1
                 elif result.get("status") == "skipped":
-                    results["skipped"] += 1
+                    user_results["skipped"] += 1
                 else:
-                    results["error"] += 1
+                    user_results["error"] += 1
             except Exception as e:
                 print(f"处理联系人失败: {contact.get('contact_name')}, 错误: {e}")
-                results["processed"] += 1
-                results["error"] += 1
-                results["details"].append({"status": "error", "contact_name": contact.get('contact_name'), "error": str(e)})
+                user_results["processed"] += 1
+                user_results["error"] += 1
+                user_results["details"].append({"status": "error", "contact_name": contact.get('contact_name'), "error": str(e)})
+        
+        print(f"用户 {wx_user_id} 处理完成: 总计 {user_results['total']} 个联系人, 成功 {user_results['success']}, 跳过 {user_results['skipped']}, 错误 {user_results['error']}")
+        
+        # 添加到总结果
+        all_results["processed_users"] += 1
+        all_results["details"].append(user_results)
     
-    print(f"处理完成: 总计 {results['total']} 个微信用户, 成功 {results['success']}, 跳过 {results['skipped']}, 错误 {results['error']}")
-    return results
+    print(f"所有用户处理完成: 总计处理 {all_results['processed_users']} 个用户")
+    return all_results
 
 
 # 创建DAG
