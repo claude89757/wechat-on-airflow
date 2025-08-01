@@ -280,7 +280,7 @@ def auto_summary_chat_history(**context):
         return {"error": f"获取自动处理用户列表失败: {e}"}
     
     # 筛选出需要自动处理的用户
-    auto_users = [user for user in wx_auto_history_list if user.get('auto') is True and user.get('wx_user_id')]
+    auto_users = [user for user in wx_auto_history_list if (user.get('auto') is True or user.get('auto') == "true") and user.get('wx_user_id')]
     if not auto_users:
         print("没有需要自动处理的用户")
         return {"processed_users": 0, "details": []}
