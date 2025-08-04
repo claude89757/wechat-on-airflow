@@ -1785,6 +1785,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
         )
         search_btn.click()
+        time.sleep(1)  # 等待搜索界面加载
         print("[1] 点击搜索按钮成功")
             
         # 输入联系人名称
@@ -1793,6 +1794,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']"))
         )
         search_input.send_keys(contact_name)
+        time.sleep(1)  # 等待搜索界面加载
         print("[2] 输入联系人名称成功")
 
         # 点击联系人
@@ -1804,18 +1806,21 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             ))
         )
         contact.click()
+        time.sleep(1)  # 等待搜索界面加载
         print("[3] 成功进入联系人聊天界面")
         print("[4] 正在点击“更多信息”按钮...")
         more_info_btn = WebDriverWait(wx_operator.driver, 10).until(
             EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.ImageView[@content-desc='更多信息']"))
         )
         more_info_btn.click()
+        time.sleep(1)  # 等待搜索界面加载
         print("[4] 点击“更多信息”按钮成功")
 
         detail=WebDriverWait(wx_operator.driver, 10).until(
             EC.presence_of_element_located((AppiumBy.XPATH, f"//android.widget.TextView[@text='{contact_name}']"))
         )
         detail.click()
+        time.sleep(1)  # 等待搜索界面加载
         print("[5] 点击“细节信息”成功")
 
         print("[6] 正在点击朋友圈...")
@@ -1823,6 +1828,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.TextView[@text='朋友圈']"))
         )
         friend_circle_btn.click()
+        time.sleep(1)  # 等待搜索界面加载
         print("[6] 点击朋友圈成功")
 
         # 获取要用的login_info
