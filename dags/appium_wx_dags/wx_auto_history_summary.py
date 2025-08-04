@@ -19,7 +19,8 @@ from appium_wx_dags.common.mysql_tools import (
     get_wx_chat_history, 
     get_wx_contact_list,
     save_chat_summary_to_db, 
-    save_token_usage_to_db
+    save_token_usage_to_db,
+    get_chat_summary
 )
 from utils.dify_sdk import DifyAgent
 
@@ -89,12 +90,8 @@ def get_latest_summary_record(wx_user_id, contact_name):
     Returns:
         dict: 总结记录，如果不存在则返回None
     """
-    # 使用Airflow变量作为缓存
-    cache_key = f"{wx_user_id}_{contact_name}_chat_summary"
-    try:
-        return Variable.get(cache_key, deserialize_json=True)
-    except:
-        return None
+    # 从数据库中查询最新的总结记录
+    return get_chat_summary(wx_user_id, contact_name)
 
 
 def check_and_process_contact(wx_user_id, contact, **context):
@@ -165,8 +162,51 @@ def check_and_process_contact(wx_user_id, contact, **context):
         user_id=f"{wx_user_id}_{contact_name}",
         conversation_id=""
     )
-    context['task_instance'].xcom_push(key=f'chat_summary_token_usage_data_{contact_name}', value=response_data.get("metadata", {}))
+    token_usage_data = response_data.get("metadata", {})
     summary_text = response_data.get("answer", "")
+    
+    # 立即保存token用量到数据库
+    try:
+        # 提取token信息
+        msg_id = token_usage_data.get('message_id', '')
+        prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
+        prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
+        prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
+        prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
+        completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
+        completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
+        completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
+        completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
+        total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
+        total_price = token_usage_data.get('usage', {}).get('total_price', '')
+        currency = token_usage_data.get('usage', {}).get('currency', '')
+        
+        save_token_usage_data = {
+            'token_source_platform': 'wx_history_summary',
+            'msg_id': msg_id,
+            'prompt_tokens': prompt_tokens,
+            'prompt_unit_price': prompt_unit_price,
+            'prompt_price_unit': prompt_price_unit,
+            'prompt_price': prompt_price,
+            'completion_tokens': completion_tokens,
+            'completion_unit_price': completion_unit_price,
+            'completion_price_unit': completion_price_unit,
+            'completion_price': completion_price,
+            'total_tokens': total_tokens,
+            'total_price': total_price,
+            'currency': currency,
+            'source_ip': '',
+            'wx_user_id': wx_user_id,
+            'wx_user_name': wx_user_id,
+            'room_id': contact_name,
+            'room_name': contact_name
+        }
+        
+        # 保存token用量到DB
+        save_token_usage_to_db(save_token_usage_data, wx_user_id)
+        print(f"已保存联系人 {contact_name} 的token用量")
+    except Exception as e:
+        print(f"保存token用量失败: {e}")
     
     # 从返回的文本中提取JSON数据
     summary_json = extract_json_from_string(summary_text)
@@ -228,146 +268,129 @@ def auto_summary_chat_history(**context):
     自动化聊天记录总结与客户标签分析
     检查所有联系人的聊天记录，对符合条件的联系人进行总结
     """
-    # 获取输入参数
-    input_data = context.get('dag_run').conf or {}
-    print(f"输入数据: {input_data}")
-    
-    # 获取微信用户ID
-    wx_user_id = input_data.get('wx_user_id')
-    if not wx_user_id:
-        raise ValueError("缺少必填参数: wx_user_id")
-    
-    # 获取联系人列表
+    # 从Airflow变量获取需要自动处理的微信用户列表
     try:
-        contacts = get_wx_contact_list(wx_user_id=wx_user_id)
-        print(f"获取到 {len(contacts)} 个联系人")
+        wx_auto_history_list = Variable.get("wx_auto_history_list", deserialize_json=True)
+        print("-------",wx_auto_history_list)
+        if not wx_auto_history_list or not isinstance(wx_auto_history_list, list):
+            print("未找到有效的自动处理用户列表，或列表格式不正确")
+            return {"error": "未找到有效的自动处理用户列表"}
     except Exception as e:
-        print(f"获取联系人列表失败: {e}")
-        raise
+        print(f"获取自动处理用户列表失败: {e}")
+        return {"error": f"获取自动处理用户列表失败: {e}"}
+    
+    # 筛选出需要自动处理的用户
+    auto_users = [user for user in wx_auto_history_list if (user.get('auto') is True or user.get('auto') == "true") and user.get('wx_user_id')]
+    if not auto_users:
+        print("没有需要自动处理的用户")
+        return {"processed_users": 0, "details": []}
+    
+    print(f"找到 {len(auto_users)} 个需要自动处理的用户")
     
     # 处理结果统计
-    results = {
-        "total": len(contacts),
-        "processed": 0,
-        "success": 0,
-        "skipped": 0,
-        "error": 0,
+    all_results = {
+        "processed_users": 0,
         "details": []
     }
     
-    # 处理每个联系人
-    for contact in contacts:
+    # 处理每个用户
+    for user in auto_users:
+        wx_user_id = user.get('wx_user_id')
+        print(f"开始处理用户: {wx_user_id}")
+        
+        # 获取联系人列表
         try:
-            result = check_and_process_contact(wx_user_id, contact, **context)
-            results["processed"] += 1
-            results["details"].append(result)
-            
-            if result.get("status") == "success":
-                results["success"] += 1
-            elif result.get("status") == "skipped":
-                results["skipped"] += 1
-            else:
-                results["error"] += 1
+            contacts = get_wx_contact_list(wx_user_id=wx_user_id)
+            print(f"获取到 {len(contacts)} 个联系人")
         except Exception as e:
-            print(f"处理联系人失败: {contact.get('contact_name')}, 错误: {e}")
-            results["processed"] += 1
-            results["error"] += 1
-            results["details"].append({"status": "error", "contact_name": contact.get('contact_name'), "error": str(e)})
-    
-    print(f"处理完成: 总计 {results['total']} 个联系人, 成功 {results['success']}, 跳过 {results['skipped']}, 错误 {results['error']}")
-    return results
-
-
-def save_token_usage(**context):
-    """
-    保存token用量到DB
-    """
-    # 获取处理结果
-    summary_results = context.get('task_instance').xcom_pull(task_ids='auto_summary_chat_history')
-    if not summary_results:
-        print("[WATCHER] 没有收到处理结果")
-        return
-    
-    # 获取微信用户ID
-    wx_user_id = context.get('dag_run').conf.get('wx_user_id', '')
-    if not wx_user_id:
-        print("[WATCHER] 缺少微信用户ID")
-        return
-    
-    # 处理每个成功总结的联系人的token用量
-    for detail in summary_results.get('details', []):
-        if detail.get('status') != 'success':
+            print(f"获取联系人列表失败: {e}")
+            all_results["details"].append({
+                "wx_user_id": wx_user_id,
+                "status": "error",
+                "error": f"获取联系人列表失败: {e}"
+            })
             continue
         
-        contact_name = detail.get('contact_name')
-        if not contact_name:
-            continue
-        
-        # 获取token用量信息
-        token_usage_data = context.get('task_instance').xcom_pull(key=f'chat_summary_token_usage_data_{contact_name}')
-        if not token_usage_data:
-            print(f"[WATCHER] 没有收到联系人 {contact_name} 的token用量信息")
-            continue
-        
-        # 提取token信息
-        msg_id = token_usage_data.get('message_id', '')
-        prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
-        prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
-        prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
-        prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
-        completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
-        completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
-        completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
-        completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
-        total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
-        total_price = token_usage_data.get('usage', {}).get('total_price', '')
-        currency = token_usage_data.get('usage', {}).get('currency', '')
-        
-        save_token_usage_data = {
-            'token_source_platform': 'wx_history_summary',
-            'msg_id': msg_id,
-            'prompt_tokens': prompt_tokens,
-            'prompt_unit_price': prompt_unit_price,
-            'prompt_price_unit': prompt_price_unit,
-            'prompt_price': prompt_price,
-            'completion_tokens': completion_tokens,
-            'completion_unit_price': completion_unit_price,
-            'completion_price_unit': completion_price_unit,
-            'completion_price': completion_price,
-            'total_tokens': total_tokens,
-            'total_price': total_price,
-            'currency': currency,
-            'source_ip': '',
-            'wx_user_id': wx_user_id,
-            'wx_user_name': wx_user_id,
-            'room_id': contact_name,
-            'room_name': contact_name
+        # 处理结果统计
+        user_results = {
+            "wx_user_id": wx_user_id,
+            "total": len(contacts),
+            "processed": 0,
+            "success": 0,
+            "skipped": 0,
+            "error": 0,
+            "details": []
         }
         
-        # 保存token用量到DB
-        try:
-            save_token_usage_to_db(save_token_usage_data, wx_user_id)
-            print(f"[WATCHER] 已保存联系人 {contact_name} 的token用量")
-        except Exception as e:
-            print(f"[WATCHER] 保存联系人 {contact_name} 的token用量失败: {e}")
+        # 处理每个联系人
+        for contact in contacts:
+            try:
+                result = check_and_process_contact(wx_user_id, contact, **context)
+                user_results["processed"] += 1
+                user_results["details"].append(result)
+                
+                if result.get("status") == "success":
+                    user_results["success"] += 1
+                elif result.get("status") == "skipped":
+                    user_results["skipped"] += 1
+                else:
+                    user_results["error"] += 1
+            except Exception as e:
+                print(f"处理联系人失败: {contact.get('contact_name')}, 错误: {e}")
+                user_results["processed"] += 1
+                user_results["error"] += 1
+                user_results["details"].append({"status": "error", "contact_name": contact.get('contact_name'), "error": str(e)})
+        
+        print(f"用户 {wx_user_id} 处理完成: 总计 {user_results['total']} 个联系人, 成功 {user_results['success']}, 跳过 {user_results['skipped']}, 错误 {user_results['error']}")
+        
+        # 添加到总结果
+        all_results["processed_users"] += 1
+        all_results["details"].append(user_results)
+    
+    print(f"所有用户处理完成: 总计处理 {all_results['processed_users']} 个用户")
+    return all_results
 
 
 # 创建DAG
 dag = DAG(
     dag_id=DAG_ID,
-    default_args={'owner': 'claude89757'},
+    default_args={'owner': 'yuchangongzhu'},
     start_date=datetime(2024, 1, 1),
     catchup=False,
     schedule_interval='*/5 * * * *',  # 每5分钟执行一次
-    tags=['个人微信'],
-    description='自动化聊天记录总结'
+    tags=['wechat', 'summary'],
+    description="""
+### 微信聊天记录自动总结DAG
+
+该DAG会自动对配置的微信用户的聊天记录进行总结和客户标签分析。
+
+### 触发条件:
+1. 新联系人首次总结
+2. 现有联系人的聊天记录新增了至少25条消息
+
+### 配置方法:
+1. 在Airflow Variables中设置`wx_auto_history_list`变量，格式为JSON数组:
+```json
+[
+  {"wx_user_id": "用户1的微信ID", "auto": true},
+  {"wx_user_id": "用户2的微信ID", "auto": false},
+  {"wx_user_id": "用户3的微信ID", "auto": true}
+]
+```
+
+2. 只有`auto`设置为`true`的用户会被自动处理
+
+### 输出:
+- 会将摘要结果保存到数据库的`wx_chat_summary`表中
+- 同时也会缓存到Airflow变量中，缓存键为`{wx_user_id}_{contact_name}_chat_summary`
+"""
 )
 
 # 为DAG添加文档说明
 dag.doc_md = """
-## 自动化聊天记录总结与客户标签分析DAG
+## 微信聊天记录自动总结DAG
 
-此DAG用于自动化总结微信聊天记录，提取客户标签信息，并使用AI生成摘要。
+该DAG用于自动化总结微信聊天记录，提取客户标签信息，并使用AI生成摘要。
 每5分钟自动检查一次，对符合条件的联系人进行总结。
 
 ### 触发条件:
@@ -375,17 +398,19 @@ dag.doc_md = """
 2. 现有联系人的聊天记录新增了至少25条消息
 
 ### 如何使用:
-1. 点击"Trigger DAG"按钮
-2. 选择"Trigger DAG w/ config"
-3. 在配置框中输入JSON格式的参数:
+1. 在Airflow Variables中设置`wx_auto_history_list`变量，格式为JSON数组:
 ```json
-{
-  "wx_user_id": "你的微信用户ID"
-}
+[
+  {"wx_user_id": "用户1的微信ID", "auto": true},
+  {"wx_user_id": "用户2的微信ID", "auto": false},
+  {"wx_user_id": "用户3的微信ID", "auto": true}
+]
 ```
 
+2. 只有`auto`设置为`true`的用户会被自动处理
+
 ### 必填参数:
-- `wx_user_id`: 你的微信用户ID
+- `wx_auto_history_list`: 微信自动总结配置
 
 ### 输出:
 - 会将摘要结果保存到数据库的`wx_chat_summary`表中
@@ -400,12 +425,5 @@ auto_summary_chat_history_task = PythonOperator(
     dag=dag
 )
 
-save_token_usage_task = PythonOperator(
-    task_id='save_token_usage',
-    python_callable=save_token_usage,
-    provide_context=True,
-    dag=dag
-)
-    
 # 设置依赖关系
-auto_summary_chat_history_task >> save_token_usage_task
+# auto_summary_chat_history_task >> save_token_usage_task

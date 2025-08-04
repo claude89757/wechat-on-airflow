@@ -104,8 +104,7 @@ def main_handler(event, context):
     conditions.append("token_source_platform = %s")
     params.append(token_source_platform)
     
-    conditions.append("wx_user_id = %s")
-    params.append(wx_user_id)
+    # 不需要添加wx_user_id条件，因为已经在表名中指定了
     
     # 添加选填条件
     if room_id:
@@ -121,7 +120,7 @@ def main_handler(event, context):
         params.append(end_time)
     
     # 构建动态表名
-    table_name = f"{wx_user_id}_token_usage"
+    table_name = f"`{wx_user_id}_token_usage`"
     
     # 构建SQL查询
     sql = f"SELECT * FROM {table_name}"
