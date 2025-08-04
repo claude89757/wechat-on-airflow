@@ -1919,11 +1919,14 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
             
             for i in range(posts_to_process):
                 detail = friend_circle_details[i]
-                
-                content_desc = detail.get_attribute('content-desc')
-                print(f"详情[{processed_posts + actual_processed_count + 1}]: {content_desc}")
-                dify_text_info_list.append(content_desc)
-     
+                try:
+                    content_desc = detail.get_attribute('content-desc')
+                    print(f"详情[{processed_posts + actual_processed_count + 1}]: {content_desc}")
+                    dify_text_info_list.append(content_desc)
+                except Exception as e:
+                    wx_operator.scroll_down(0.8,0.6)
+                    time.sleep(0.5)
+                    break
                 # 分类处理
                 if content_desc:
                     # 优化数据清洗逻辑，处理中文逗号和英文逗号
