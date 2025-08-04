@@ -355,9 +355,9 @@ def auto_summary_chat_history(**context):
 dag = DAG(
     dag_id=DAG_ID,
     default_args={'owner': 'yuchangongzhu'},
-    start_date=datetime(2024, 1, 1),
+    start_date=datetime(2025, 8, 4),
     catchup=False,
-    schedule_interval='*/5 * * * *',  # 每5分钟执行一次
+    schedule_interval='0 * * * *',  # 每小时执行一次
     tags=['wechat', 'summary'],
     description="""
 ### 微信聊天记录自动总结DAG
