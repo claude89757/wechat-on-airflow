@@ -1763,6 +1763,28 @@ def get_wx_account_info_by_appium(appium_server_url: str, device_name: str, logi
 
 
 
+def retry_element_operation(wx_operator, operation_func, operation_name, max_retries=3):
+    """重试元素操作的辅助函数，失败时重新初始化微信操作器"""
+    for retry in range(max_retries):
+        try:
+            return operation_func()
+        except Exception as e:
+            print(f"[WARNING] {operation_name} 第 {retry + 1} 次尝试失败: {str(e)}")
+            if retry < max_retries - 1:
+                print(f"[INFO] 重新初始化微信操作器并等待2秒后重试 {operation_name}...")
+                try:
+                    # 重新初始化微信操作器
+                    wx_operator.close()
+                    time.sleep(2)
+                    wx_operator.__init__(wx_operator.appium_server_url, wx_operator.device_name, force_app_launch=False, login_info=wx_operator.login_info)
+                    print(f"[INFO] 微信操作器重新初始化完成")
+                except Exception as init_e:
+                    print(f"[WARNING] 重新初始化微信操作器失败: {str(init_e)}")
+                time.sleep(2)
+            else:
+                print(f"[ERROR] {operation_name} 达到最大重试次数，操作失败")
+                raise e
+
 def search_contact_name(appium_server_url: str, device_name: str, contact_name: str, login_info: dict):
     try:
         wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False)
@@ -1781,54 +1803,78 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         
         # 点击搜索按钮
         print("[1] 正在点击搜索按钮...")
-        search_btn = WebDriverWait(wx_operator.driver, 10).until(
-            EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
-        )
-        search_btn.click()
-        time.sleep(1)  # 等待搜索界面加载
+        def click_search_btn():
+            search_btn = WebDriverWait(wx_operator.driver, 10).until(
+                EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
+            )
+            search_btn.click()
+            time.sleep(1)
+            return True
+        
+        retry_element_operation(wx_operator, click_search_btn, "点击搜索按钮")
         print("[1] 点击搜索按钮成功")
             
         # 输入联系人名称
         print("[2] 正在输入联系人名称...")
-        search_input = WebDriverWait(wx_operator.driver, 10).until(
-            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']"))
-        )
-        search_input.send_keys(contact_name)
-        time.sleep(1)  # 等待搜索界面加载
+        def input_contact_name():
+            search_input = WebDriverWait(wx_operator.driver, 10).until(
+                EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']"))
+            )
+            search_input.send_keys(contact_name)
+            time.sleep(1)
+            return True
+        
+        retry_element_operation(wx_operator, input_contact_name, "输入联系人名称")
         print("[2] 输入联系人名称成功")
 
         # 点击联系人
         print("[3] 正在点击联系人...")
-        contact = WebDriverWait(wx_operator.driver, 10).until(
-            EC.presence_of_element_located((
-                AppiumBy.XPATH,
-                f"//android.widget.TextView[@text='{contact_name}']"
-            ))
-        )
-        contact.click()
-        time.sleep(1)  # 等待搜索界面加载
+        def click_contact():
+            contact = WebDriverWait(wx_operator.driver, 10).until(
+                EC.presence_of_element_located((
+                    AppiumBy.XPATH,
+                    f"//android.widget.TextView[@text='{contact_name}']"
+                ))
+            )
+            contact.click()
+            time.sleep(1)
+            return True
+        
+        retry_element_operation(wx_operator, click_contact, "点击联系人")
         print("[3] 成功进入联系人聊天界面")
         print("[4] 正在点击“更多信息”按钮...")
-        more_info_btn = WebDriverWait(wx_operator.driver, 10).until(
-            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.ImageView[@content-desc='更多信息']"))
-        )
-        more_info_btn.click()
-        time.sleep(1)  # 等待搜索界面加载
+        def click_more_info():
+            more_info_btn = WebDriverWait(wx_operator.driver, 10).until(
+                EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.ImageView[@content-desc='更多信息']"))
+            )
+            more_info_btn.click()
+            time.sleep(1)
+            return True
+        
+        retry_element_operation(wx_operator, click_more_info, "点击更多信息按钮")
         print("[4] 点击“更多信息”按钮成功")
 
-        detail=WebDriverWait(wx_operator.driver, 10).until(
-            EC.presence_of_element_located((AppiumBy.XPATH, f"//android.widget.TextView[@text='{contact_name}']"))
-        )
-        detail.click()
-        time.sleep(1)  # 等待搜索界面加载
+        def click_detail():
+            detail=WebDriverWait(wx_operator.driver, 10).until(
+                EC.presence_of_element_located((AppiumBy.XPATH, f"//android.widget.TextView[@text='{contact_name}']"))
+            )
+            detail.click()
+            time.sleep(1)
+            return True
+        
+        retry_element_operation(wx_operator, click_detail, "点击细节信息")
         print("[5] 点击“细节信息”成功")
 
         print("[6] 正在点击朋友圈...")
-        friend_circle_btn = WebDriverWait(wx_operator.driver, 10).until(
-            EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.TextView[@text='朋友圈']"))
-        )
-        friend_circle_btn.click()
-        time.sleep(1)  # 等待搜索界面加载
+        def click_friend_circle():
+            friend_circle_btn = WebDriverWait(wx_operator.driver, 10).until(
+                EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.TextView[@text='朋友圈']"))
+            )
+            friend_circle_btn.click()
+            time.sleep(1)
+            return True
+        
+        retry_element_operation(wx_operator, click_friend_circle, "点击朋友圈")
         print("[6] 点击朋友圈成功")
 
         # 获取要用的login_info
@@ -1991,19 +2037,30 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
     if element_y > screen_height * 0.25:
         # 点击标题元素而不是整个卡片
         print("处理图片类型内容:",content)
-        detail.click()
-        time.sleep(1)
-
-        # 点击朋友圈页面的图片
-        img_elem = wx_operator.driver.find_element(
-                    by=AppiumBy.XPATH,
-                    value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
-                )
+        
+        def click_detail_with_retry():
+            detail.click()
+            time.sleep(1)
+            return True
+        
+        def find_img_elem_with_retry():
+            img_elem = wx_operator.driver.find_element(
+                        by=AppiumBy.XPATH,
+                        value=".//android.view.View[@content-desc='图片'][@resource-id='com.tencent.mm:id/q3']"
+                    )
+            return img_elem
+        
+        retry_element_operation(wx_operator, click_detail_with_retry, "点击详情")
+        img_elem = retry_element_operation(wx_operator, find_img_elem_with_retry, "查找图片元素")
         # 保存图片到手机
         print(f"[INFO] 正在保存图片...")
         try:
-            img_elem.click()
-            time.sleep(0.5)
+            def click_img_elem_with_retry():
+                img_elem.click()
+                time.sleep(0.5)
+                return True
+            
+            retry_element_operation(wx_operator, click_img_elem_with_retry, "点击图片元素")
             touch_elem=None
             elems = wx_operator.driver.find_elements(
                 by=AppiumBy.XPATH,
@@ -2033,11 +2090,20 @@ def deal_picture(wx_operator: WeChatOperator,login_info: dict, detail, content: 
                 'y': y,
                 'duration': 1500
             })
-            WebDriverWait(wx_operator.driver, 60). \
-                until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
+            def click_save_btn_with_retry():
+                WebDriverWait(wx_operator.driver, 60). \
+                    until(EC.presence_of_element_located((AppiumBy.XPATH, f'//*[@text="保存图片"]'))).click()
+                return True
+            
+            retry_element_operation(wx_operator, click_save_btn_with_retry, "点击保存图片按钮")
             print(f"[INFO] 图片保存成功")
             time.sleep(1)
-            touch_elem.click()
+            
+            def click_close_img_with_retry():
+                touch_elem.click()
+                return True
+            
+            retry_element_operation(wx_operator, click_close_img_with_retry, "关闭图片")
         except Exception as e:
             print(f"[ERROR] 保存图片失败: {e}")
             
@@ -2184,10 +2250,19 @@ def identify_friend_circle_content(appium_server_url: str, device_name: str, con
 
 def deal_pictures(wx_operator: WeChatOperator,login_info: dict, detail, content: str,contact_name: str,device_name: str):
     print("处理多张图片类型内容:",content)
-    detail.click()
-    time.sleep(1)
+    
+    def click_detail_with_retry():
+        detail.click()
+        time.sleep(1)
+        return True
+    
+    def press_back_key_with_retry():
+        wx_operator.driver.press_keycode(4)
+        return True
+    
+    retry_element_operation(wx_operator, click_detail_with_retry, "点击图片详情")
     wx_operator.print_all_elements()
-    wx_operator.driver.press_keycode(4)
+    retry_element_operation(wx_operator, press_back_key_with_retry, "按返回键")
 
 # 测试代码
 if __name__ == "__main__":    
