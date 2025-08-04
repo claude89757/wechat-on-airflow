@@ -1897,6 +1897,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
         after_scroll_page_source=''    
         while processed_posts < max_posts_limit:
             # 获取当前页面的朋友圈内容
+            time.sleep(3)#保证元素正确加载
             friend_circle_details = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.LinearLayout[@resource-id='com.tencent.mm:id/n9w']")
             frien_circle_texts = wx_operator.driver.find_elements(AppiumBy.XPATH, "//android.widget.TextView[@resource-id='com.tencent.mm:id/cut']")
             
@@ -2014,6 +2015,7 @@ def search_contact_name(appium_server_url: str, device_name: str, contact_name: 
                 except Exception as e:
                     print(f"[WARNING] 页面滑动失败: {str(e)}")
                     break
+            
 
         print("[7] 分析朋友圈成功")
         return full_answer,metadata
