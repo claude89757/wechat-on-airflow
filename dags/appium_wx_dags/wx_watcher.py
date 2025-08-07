@@ -287,7 +287,12 @@ def create_wx_watcher_dag_function(wx_config):
     dag=dag
 )
     # 保存语音消息到数据库
-    save_voice_msg_to_db_task = PythonOperator(task_id='save_voice_msg_to_db', python_callable=save_voice_msg_to_db)
+    save_voice_msg_to_db_task = PythonOperator(
+        task_id='save_voice_msg_to_db', 
+        python_callable=save_voice_msg_to_db,
+        op_kwargs=op_kwargs,
+        dag=dag
+    )
 
 
 # 设置依赖关系
