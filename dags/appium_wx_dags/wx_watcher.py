@@ -35,7 +35,7 @@ from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 # 导入saver
 from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
 from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
-
+from appium_wx_dags.savers.saver_voice_msg import save_voice_msg_to_db
 from appium_wx_dags.common.wx_tools import update_wx_user
 
 WX_CONFIGS = Variable.get("WX_CONFIG_LIST", default_var=[], deserialize_json=True)
@@ -286,11 +286,15 @@ def create_wx_watcher_dag_function(wx_config):
     op_kwargs=op_kwargs,
     dag=dag
 )
+    # 保存语音消息到数据库
+    save_voice_msg_to_db_task = PythonOperator(task_id='save_voice_msg_to_db', python_callable=save_voice_msg_to_db)
+
 
 # 设置依赖关系
     wx_watcher >> wx_text_handler >> save_text_msg_to_db_task
     wx_watcher >> wx_image_handler >> wx_text_handler
-    wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task
+    wx_watcher >> wx_voice_handler>> save_voice_msg_to_db
+    wx_image_handler >> save_image_to_cos_task >> save_voice_msg_to_db_task
     wx_watcher >> wx_voice_handler  
     return dag
 
