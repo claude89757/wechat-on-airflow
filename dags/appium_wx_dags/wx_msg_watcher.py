@@ -280,7 +280,7 @@ with DAG(
 
     wx_image_handler_0 >> save_image_to_cos_0 >> save_image_msg_to_db_0 >> save_voice_msg_to_db_0
 
-    wx_watcher_0 >> wx_voice_handler_0
+    wx_watcher_0 >> wx_voice_handler_0 >> save_voice_msg_to_db_0
     # wx_watcher_0 >> wx_video_handler_0
     # wx_watcher_1 >> wx_video_handler_1
     # wx_watcher_2 >> wx_video_handler_2
