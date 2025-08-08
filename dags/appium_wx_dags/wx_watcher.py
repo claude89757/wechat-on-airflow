@@ -271,13 +271,13 @@ def create_wx_watcher_dag_function(wx_config):
     dag=dag
 )
 
-# 保存图片消息到数据库
-    save_image_msg_to_db_task = PythonOperator(
-    task_id='save_image_msg_to_db',
-    python_callable=save_image_msg_to_db,
-    op_kwargs=op_kwargs,
-    dag=dag
-)
+# # 保存图片消息到数据库
+#     save_image_msg_to_db_task = PythonOperator(
+#     task_id='save_image_msg_to_db',
+#     python_callable=save_image_msg_to_db,
+#     op_kwargs=op_kwargs,
+#     dag=dag
+# )
 
 # 保存图片到腾讯云对象存储
     save_image_to_cos_task = PythonOperator(
