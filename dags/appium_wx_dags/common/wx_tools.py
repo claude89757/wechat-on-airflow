@@ -278,8 +278,10 @@ def download_cos_to_host(
         filename = cos_url.split('/')[-1].split('?')[0]
         file_path = os.path.join(host_save_path, filename)
         
-        # 使用curl下载
-        command = f"curl -s --globoff -o {file_path} '{cos_url}'"
+        # 使用curl下载，确保URL被正确引用
+        # 转义单引号并用双引号包围URL
+        escaped_url = cos_url.replace("'", "'\"'\"'")
+        command = f'curl -s --globoff -o "{file_path}" "{escaped_url}"'
         logger.info(f"在主机上执行: {command}")
         stdin, stdout, stderr = ssh.exec_command(command)
         
