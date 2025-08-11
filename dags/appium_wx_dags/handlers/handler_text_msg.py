@@ -66,10 +66,15 @@ def handle_text_messages(**context):
                     filtered_msg_list = []
                     
                     for msg in response_msg_list:
-                        if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
-                            response_image_list.append(msg)
-                        else:
-                            filtered_msg_list.append(msg)
+                        # 如果消息包含换行符，先拆分为多个独立消息
+                        split_msgs = msg.split('\n') if '\n' in msg else [msg]
+                        for split_msg in split_msgs:
+                            split_msg = split_msg.strip()  # 去除首尾空白字符
+                            if split_msg:  # 确保不是空字符串
+                                if ".jpg" in split_msg or ".png" in split_msg or ".mp4" in split_msg:
+                                    response_image_list.append(split_msg)
+                                else:
+                                    filtered_msg_list.append(split_msg)
                     for img in response_image_list:
                         cos_to_device_via_host(cos_url=f'{cos_base_url}{cos_directory}//{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
 
