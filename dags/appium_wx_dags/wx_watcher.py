@@ -301,7 +301,7 @@ def create_wx_watcher_dag_function(wx_config):
     # wx_watcher >> wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task >> wx_voice_handler >> wx_text_handler
     
     wx_watcher >> wx_text_handler >> save_text_msg_to_db_task
-    wx_voice_handler >> wx_voice_handler >> save_text_msg_to_db_task
+    wx_watcher >> wx_voice_handler >> save_voice_msg_to_db_task
     wx_watcher >> wx_image_handler >> wx_text_handler
     wx_watcher >> wx_image_handler >> wx_voice_handler
     wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task
