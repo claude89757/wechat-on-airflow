@@ -291,6 +291,7 @@ def create_wx_watcher_dag_function(wx_config):
     task_id='save_text_msg_to_db',
     python_callable=save_text_msg_to_db,
     op_kwargs=op_kwargs,
+    trigger_rule='none_failed_min_one_success',
     dag=dag
 )
 
