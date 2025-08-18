@@ -271,13 +271,13 @@ def create_wx_watcher_dag_function(wx_config):
     dag=dag
 )
 
-# # 保存图片消息到数据库
-#     save_image_msg_to_db_task = PythonOperator(
-#     task_id='save_image_msg_to_db',
-#     python_callable=save_image_msg_to_db,
-#     op_kwargs=op_kwargs,
-#     dag=dag
-# )
+# 保存图片消息到数据库
+    save_image_msg_to_db_task = PythonOperator(
+    task_id='save_image_msg_to_db',
+    python_callable=save_image_msg_to_db,
+    op_kwargs=op_kwargs,
+    dag=dag
+)
 
 # 保存图片到腾讯云对象存储
     save_image_to_cos_task = PythonOperator(
@@ -298,7 +298,7 @@ def create_wx_watcher_dag_function(wx_config):
 # 设置依赖关系
     wx_watcher >> wx_text_handler >> save_text_msg_to_db_task
     wx_watcher >> wx_voice_handler >> save_voice_msg_to_db_task >> wx_text_handler
-    wx_watcher >> wx_image_handler >> save_image_to_cos_task >> wx_text_handler
+    wx_watcher >> wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task >> wx_text_handler
     return dag
 
 # 动态创建DAG
