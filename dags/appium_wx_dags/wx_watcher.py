@@ -323,13 +323,12 @@ def create_wx_watcher_dag_function(wx_config):
     # wx_watcher >> wx_voice_handler >> save_voice_msg_to_db_task >> wx_text_handler
     # wx_watcher >> wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task >> wx_voice_handler >> wx_text_handler
     wx_watcher >> wx_text_handler >> save_text_msg_to_db_task
-    wx_watcher >> wx_voice_handler 
+    wx_watcher >> wx_voice_handler >> save_voice_msg_to_db_task >> save_text_msg_to_db_task
     # 修改为互斥分支：图片处理后通过分支决策选择触发文本或语音处理
     wx_watcher >> wx_image_handler >> image_branch
-    image_branch >> wx_text_handler
-    image_branch >> wx_voice_handler 
+    image_branch >> wx_text_handler >> save_text_msg_to_db_task
+    image_branch >> wx_voice_handler >> save_voice_msg_to_db_task >> save_text_msg_to_db_task
     wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task
-    wx_voice_handler >> save_voice_msg_to_db_task >> save_text_msg_to_db_task
     return dag
 
 # 动态创建DAG
