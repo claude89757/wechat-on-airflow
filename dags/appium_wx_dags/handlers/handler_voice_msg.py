@@ -23,7 +23,7 @@ def handle_voice_messages(**context):
     dify_api_url = appium_server_info['dify_api_url']
     dify_api_key = appium_server_info['dify_api_key']
     login_info = appium_server_info['login_info']
-
+    response_msg={}
     # 获取XCOM
     recent_new_msg = context['ti'].xcom_pull(key='voice_msg')
     print(f"[HANDLE] 获取XCOM: {recent_new_msg}")
@@ -44,12 +44,13 @@ def handle_voice_messages(**context):
 
             # AI 回复
             response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
-
+            response_msg[contact_name] = response_msg_list
             if response_msg_list:
                 send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
             else:
                 print(f"[HANDLE] 没有AI回复")
     else:
         print(f"[HANDLE] 没有语音消息处理任务")
-
+    context['ti'].xcom_push(key='voice_msg_response', value=response_msg)
+    print(f"[HANDLE] 处理结果保存到XCOM: {response_msg}")
     return recent_new_msg
