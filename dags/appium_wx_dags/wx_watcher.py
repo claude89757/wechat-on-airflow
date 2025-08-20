@@ -85,6 +85,7 @@ def monitor_chats(**context):
                 include_text = True
                 current_contact_text_msg.append(message)
             elif message['msg_type'] == 'voice':
+                print("监测到语言voice？？？")
                 include_voice = True
                 current_contact_voice_msg.append(message)
             else:
@@ -114,6 +115,7 @@ def monitor_chats(**context):
         need_handle_tasks.append(f'wx_image_handler')
 
     if include_voice_msg:
+        print(f"[HANDLE] include_voice_msg: {include_voice_msg}---")
         context['ti'].xcom_push(key=f'voice_msg', value=include_voice_msg)
         need_handle_tasks.append(f'wx_voice_handler')
 
@@ -281,42 +283,21 @@ def create_wx_watcher_dag_function(wx_config):
     image_branch = BranchPythonOperator(task_id='image_branch', python_callable=image_branch_decision, op_kwargs=op_kwargs, dag=dag)
 
     # 处理语音消息
-    wx_voice_handler = PythonOperator(task_id='wx_voice_handler', python_callable=handle_voice_messages, op_kwargs=op_kwargs, dag=dag)
+    wx_voice_handler = PythonOperator(task_id='wx_voice_handler', python_callable=handle_voice_messages, op_kwargs=op_kwargs, dag=dag,trigger_rule='none_failed_min_one_success')
 
     # 处理视频消息
     # wx_video_handler = PythonOperator(task_id='wx_video_handler', python_callable=handle_video_messages, op_kwargs=op_kwargs, dag=dag)
 
    # 保存文本消息到数据库
-    save_text_msg_to_db_task = PythonOperator(
-    task_id='save_text_msg_to_db',
-    python_callable=save_text_msg_to_db,
-    op_kwargs=op_kwargs,
-    trigger_rule='none_failed_min_one_success',
-    dag=dag
-)
+    save_text_msg_to_db_task = PythonOperator(task_id='save_text_msg_to_db',python_callable=save_text_msg_to_db,op_kwargs=op_kwargs,trigger_rule='none_failed_min_one_success',dag=dag)
 
 # 保存图片消息到数据库
-    save_image_msg_to_db_task = PythonOperator(
-    task_id='save_image_msg_to_db',
-    python_callable=save_image_msg_to_db,
-    op_kwargs=op_kwargs,
-    dag=dag
-)
+    save_image_msg_to_db_task = PythonOperator(task_id='save_image_msg_to_db',python_callable=save_image_msg_to_db,op_kwargs=op_kwargs,dag=dag)
 
 # 保存图片到腾讯云对象存储
-    save_image_to_cos_task = PythonOperator(
-    task_id='save_image_to_cos',
-    python_callable=save_image_to_cos,
-    op_kwargs=op_kwargs,
-    dag=dag
-)
+    save_image_to_cos_task = PythonOperator(task_id='save_image_to_cos',python_callable=save_image_to_cos,op_kwargs=op_kwargs,dag=dag)
     # 保存语音消息到数据库
-    save_voice_msg_to_db_task = PythonOperator(
-        task_id='save_voice_msg_to_db', 
-        python_callable=save_voice_msg_to_db,
-        op_kwargs=op_kwargs,
-        dag=dag
-    )
+    save_voice_msg_to_db_task = PythonOperator(task_id='save_voice_msg_to_db',python_callable=save_voice_msg_to_db,op_kwargs=op_kwargs,dag=dag)
 
 
 # 设置依赖关系
