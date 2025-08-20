@@ -33,7 +33,21 @@ def handle_text_messages(**context):
     password = login_info["password"]
     port = login_info["port"]
     # 获取XCOM
-    recent_new_msg = context['ti'].xcom_pull(key='text_msg')
+    # 检查是否是通过图片分支进入的（没有语音也没有文本信息）
+    image_msg = context['ti'].xcom_pull(key='image_msg')
+    text_msg = context['ti'].xcom_pull(key='text_msg')
+    voice_msg = context['ti'].xcom_pull(key='voice_msg')
+    
+    if image_msg and not text_msg and not voice_msg:
+        # 如果只有图片消息，没有文本和语音消息，使用常量消息
+        print(f"[HANDLE] 通过图片分支进入文本处理（无语音无文本），使用常量消息")
+        recent_new_msg = {}
+        # 构造虚拟的文本消息结构，使用图片消息的联系人信息
+        for contact_name, messages in image_msg.items():
+            recent_new_msg[contact_name] = [{'msg': '分析这张图片'}]
+    else:
+        # 正常的文本消息处理
+        recent_new_msg = text_msg
 
     response_msg = {}
     # 检查是否有消息任务，有则处理

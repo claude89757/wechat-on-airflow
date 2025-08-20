@@ -140,7 +140,7 @@ def image_branch_decision(**context):
     if voice_msg:
         print(f"[IMAGE_BRANCH] 检测到语音消息，触发语音处理")
         return 'wx_voice_handler'
-    else:
+    else :
         print(f"[IMAGE_BRANCH] 触发文本处理流程（检测到文本消息或默认处理）")
         return 'wx_text_handler'
 
