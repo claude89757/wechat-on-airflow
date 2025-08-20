@@ -399,7 +399,7 @@ dag = DAG(
     '深圳湾网球场巡检',
     default_args=default_args,
     description='深圳湾网球场巡检',
-    schedule_interval='*/1 * * * *',  # 每1分钟执行一次
+    schedule_interval=timedelta(seconds=30), 
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
