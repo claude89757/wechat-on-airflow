@@ -136,16 +136,13 @@ def image_branch_decision(**context):
     voice_msg = context['ti'].xcom_pull(key='voice_msg')
     text_msg = context['ti'].xcom_pull(key='text_msg')
     
-    # 根据互斥逻辑决定下一步：优先语音，其次文本
+    # 根据互斥逻辑决定下一步：优先语音，其次文本，默认文本
     if voice_msg:
         print(f"[IMAGE_BRANCH] 检测到语音消息，触发语音处理")
         return 'wx_voice_handler'
-    elif text_msg:
-        print(f"[IMAGE_BRANCH] 检测到文本消息，触发文本处理")
-        return 'wx_text_handler'
     else:
-        print(f"[IMAGE_BRANCH] 无其他消息，跳过后续处理")
-        return None
+        print(f"[IMAGE_BRANCH] 触发文本处理流程（检测到文本消息或默认处理）")
+        return 'wx_text_handler'
 
 
 def handle_video_messages(**context):
