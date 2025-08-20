@@ -85,7 +85,6 @@ def monitor_chats(**context):
                 include_text = True
                 current_contact_text_msg.append(message)
             elif message['msg_type'] == 'voice':
-                print("监测到语言voice？？？")
                 include_voice = True
                 current_contact_voice_msg.append(message)
             else:
