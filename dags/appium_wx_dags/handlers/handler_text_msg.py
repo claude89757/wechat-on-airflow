@@ -9,7 +9,7 @@ from airflow.models import Variable
 from utils.dify_sdk import DifyAgent
 # 自定义库
 from utils.appium.wx_appium import send_wx_msg_by_appium
-from appium_wx_dags.common.wx_tools import cos_to_device_via_host
+from appium_wx_dags.common.wx_tools import cos_to_device_via_host,build_token_usage_data
 from appium_wx_dags.common.mysql_tools import save_token_usage_to_db
 def handle_text_messages(**context):
     """处理文本消息"""
@@ -115,44 +115,10 @@ def handle_text_messages(**context):
     context['ti'].xcom_push(key='text_msg_response', value=response_msg)
         # 立即保存token用量到数据库
     try:
-        token_usage_data=metadata.get("metadata", {})
+        token_usage_data = build_token_usage_data(metadata, wx_user_id, contact_name)
         # 提取token信息
-        msg_id = token_usage_data.get('message_id', '')
-        prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
-        prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
-        prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
-        prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
-        completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
-        completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
-        completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
-        completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
-        total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
-        total_price = token_usage_data.get('usage', {}).get('total_price', '')
-        currency = token_usage_data.get('usage', {}).get('currency', '')
         
-        save_token_usage_data = {
-            'token_source_platform': 'wx_chat',
-            'msg_id': msg_id,
-            'prompt_tokens': prompt_tokens,
-            'prompt_unit_price': prompt_unit_price,
-            'prompt_price_unit': prompt_price_unit,
-            'prompt_price': prompt_price,
-            'completion_tokens': completion_tokens,
-            'completion_unit_price': completion_unit_price,
-            'completion_price_unit': completion_price_unit,
-            'completion_price': completion_price,
-            'total_tokens': total_tokens,
-            'total_price': total_price,
-            'currency': currency,
-            'source_ip': '',
-            'wx_user_id': wx_user_id,
-            'wx_user_name': wx_user_id,
-            'room_id': contact_name,
-            'room_name': contact_name
-        }
-        
-        # 保存token用量到DB
-        save_token_usage_to_db(save_token_usage_data, wx_user_id)
+        save_token_usage_to_db(token_usage_data, wx_user_id)
         print(f"已保存联系人 {contact_name} 的token用量")
     except Exception as e:
         print(f"保存token用量失败: {e}")
