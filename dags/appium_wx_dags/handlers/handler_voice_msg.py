@@ -2,6 +2,8 @@ from airflow.models import Variable
 
 from appium_wx_dags.handlers.handler_text_msg import handle_msg_by_ai
 from utils.appium.wx_appium import send_wx_msg_by_appium
+from appium_wx_dags.common.wx_tools import build_token_usage_data
+from appium_wx_dags.common.mysql_tools import save_token_usage_to_db
 
 '''
     处理语音消息的模块逻辑与处理文字消息的模块逻辑基本一致，appium直接通过语音转文字的形式保存信息
@@ -16,7 +18,7 @@ def handle_voice_messages(**context):
     except KeyError:
         print(f"[HANDLE] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")
         return {}
-
+    wx_user_id = appium_server_info['wx_user_id']
     wx_name = appium_server_info['wx_name']
     device_name = appium_server_info['device_name']
     appium_url = appium_server_info['appium_url']
@@ -49,6 +51,14 @@ def handle_voice_messages(**context):
                 send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
             else:
                 print(f"[HANDLE] 没有AI回复")
+            try:
+                token_usage_data = build_token_usage_data(metadata, wx_user_id, contact_name)
+                # 提取token信息
+                
+                save_token_usage_to_db(token_usage_data, wx_user_id)
+                print(f"已保存联系人 {contact_name} 的token用量")
+            except Exception as e:
+                print(f"保存token用量失败: {e}")
     else:
         print(f"[HANDLE] 没有语音消息处理任务")
     context['ti'].xcom_push(key='voice_msg_response', value=response_msg)
