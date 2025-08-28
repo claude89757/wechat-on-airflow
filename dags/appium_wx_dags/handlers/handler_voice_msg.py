@@ -43,7 +43,7 @@ def handle_voice_messages(**context):
             msg = "\n".join(msg_list)
 
             # AI 回复
-            response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
+            response_msg_list,metadata = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
             response_msg[contact_name] = response_msg_list
             if response_msg_list:
                 send_wx_msg_by_appium(appium_url, device_name, contact_name, response_msg_list)
@@ -52,5 +52,6 @@ def handle_voice_messages(**context):
     else:
         print(f"[HANDLE] 没有语音消息处理任务")
     context['ti'].xcom_push(key='voice_msg_response', value=response_msg)
+    context['task_instance'].xcom_push(key='chat_summary_token_usage_data', value=metadata.get("metadata", {}))
     print(f"[HANDLE] 处理结果保存到XCOM: {response_msg}")
     return recent_new_msg

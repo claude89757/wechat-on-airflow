@@ -10,6 +10,7 @@ from utils.dify_sdk import DifyAgent
 # 自定义库
 from utils.appium.wx_appium import send_wx_msg_by_appium
 from appium_wx_dags.common.wx_tools import cos_to_device_via_host
+from appium_wx_dags.common.mysql_tools import save_token_usage_to_db
 def handle_text_messages(**context):
     """处理文本消息"""
     print(f"[HANDLE] 处理文本消息")
@@ -19,7 +20,7 @@ def handle_text_messages(**context):
     except KeyError:
         print(f"[HANDLE] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")
         return {}
-
+    wx_user_id = appium_server_info['wx_user_id'] #AI客服的微信号
     wx_name = appium_server_info['wx_name'] #AI客服的微信名
     device_name = appium_server_info['device_name']
     appium_url = appium_server_info['appium_url']
@@ -61,7 +62,7 @@ def handle_text_messages(**context):
             msg = "\n".join(msg_list)
 
             # AI 回复
-            response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
+            response_msg_list,metadata = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
             print(f"[HANDLE] AI回复内容: {response_msg_list}")
             cos_base_url = Variable.get("COS_BASE_URL")
             if response_msg_list:
@@ -112,7 +113,49 @@ def handle_text_messages(**context):
 
     # 回复内容保存到XCOM
     context['ti'].xcom_push(key='text_msg_response', value=response_msg)
-
+        # 立即保存token用量到数据库
+    try:
+        token_usage_data=metadata.get("metadata", {})
+        # 提取token信息
+        msg_id = token_usage_data.get('message_id', '')
+        prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
+        prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
+        prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
+        prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
+        completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
+        completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
+        completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
+        completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
+        total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
+        total_price = token_usage_data.get('usage', {}).get('total_price', '')
+        currency = token_usage_data.get('usage', {}).get('currency', '')
+        
+        save_token_usage_data = {
+            'token_source_platform': 'wx_chat',
+            'msg_id': msg_id,
+            'prompt_tokens': prompt_tokens,
+            'prompt_unit_price': prompt_unit_price,
+            'prompt_price_unit': prompt_price_unit,
+            'prompt_price': prompt_price,
+            'completion_tokens': completion_tokens,
+            'completion_unit_price': completion_unit_price,
+            'completion_price_unit': completion_price_unit,
+            'completion_price': completion_price,
+            'total_tokens': total_tokens,
+            'total_price': total_price,
+            'currency': currency,
+            'source_ip': '',
+            'wx_user_id': wx_user_id,
+            'wx_user_name': wx_user_id,
+            'room_id': contact_name,
+            'room_name': contact_name
+        }
+        
+        # 保存token用量到DB
+        save_token_usage_to_db(save_token_usage_data, wx_user_id)
+        print(f"已保存联系人 {contact_name} 的token用量")
+    except Exception as e:
+        print(f"保存token用量失败: {e}")
     return recent_new_msg
 
 
@@ -154,6 +197,7 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
             files=dify_files,
             inputs={}
         )
+        
     except Exception as e:
         if "Variable #conversation.section# not found" in str(e):
             # 清理会话记录
@@ -209,4 +253,4 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
     except Exception as e:
         print(f"[WATCHER] 清除在线图片信息失败: {e}")
 
-    return response_msg_list
+    return response_msg_list, metadata
