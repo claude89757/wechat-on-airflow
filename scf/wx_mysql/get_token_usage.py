@@ -100,9 +100,10 @@ def main_handler(event, context):
     conditions = []
     params = []
     
-    # 添加必填条件
-    conditions.append("token_source_platform = %s")
-    params.append(token_source_platform)
+    # 添加token_source_platform条件（如果不是'all'）
+    if token_source_platform != 'all':
+        conditions.append("token_source_platform = %s")
+        params.append(token_source_platform)
     
     # 不需要添加wx_user_id条件，因为已经在表名中指定了
     
