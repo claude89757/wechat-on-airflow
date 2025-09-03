@@ -278,8 +278,10 @@ def download_cos_to_host(
         filename = cos_url.split('/')[-1].split('?')[0]
         file_path = os.path.join(host_save_path, filename)
         
-        # 使用curl下载
-        command = f"curl -s --globoff -o {file_path} '{cos_url}'"
+        # 使用curl下载，确保URL被正确引用
+        # 转义单引号并用双引号包围URL
+        escaped_url = cos_url.replace("'", "'\"'\"'")
+        command = f'curl -s --globoff -o "{file_path}" "{escaped_url}"'
         logger.info(f"在主机上执行: {command}")
         stdin, stdout, stderr = ssh.exec_command(command)
         
@@ -396,7 +398,8 @@ def cos_to_device_via_host(
     host_port: int =None,
     host_save_path: Optional[str] = None,
     device_path: str = "/sdcard/DCIM/Camera/",
-    delete_after_transfer: bool = False
+    delete_after_transfer: bool = False,
+    max_retries: int = 3
 ) -> Optional[str]:
     """
     完整流程：从腾讯云COS下载到主机，再从主机传输到手机
@@ -411,25 +414,52 @@ def cos_to_device_via_host(
         host_save_path: 主机上的保存路径
         device_path: 手机上的保存路径，默认为/sdcard/Pictures/
         delete_after_transfer: 传输后是否删除主机上的文件
+        max_retries: 从COS下载到主机的最大重试次数，默认为3次
         
     Returns:
         str: 手机上的文件路径，失败则返回None
     """
     try:
+        print(f'cos_url: {cos_url}')
+
         print(f"从COS下载到主机: {cos_url}",host_address,host_username,host_password,host_key_path,host_port,host_save_path)
-        # 步骤1：从COS下载到主机
-        host_file_path = download_cos_to_host(
-            cos_url=cos_url,
-            host_address=host_address,
-            host_username=host_username,
-            host_password=host_password,
-            host_key_path=host_key_path,
-            host_port=host_port,
-            host_save_path=host_save_path
-        )
+        
+        # 步骤1：从COS下载到主机（带重试机制）
+        host_file_path = None
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"尝试从COS下载到主机 (第{attempt + 1}次/共{max_retries}次)")
+                host_file_path = download_cos_to_host(
+                    cos_url=cos_url,
+                    host_address=host_address,
+                    host_username=host_username,
+                    host_password=host_password,
+                    host_key_path=host_key_path,
+                    host_port=host_port,
+                    host_save_path=host_save_path
+                )
+                
+                if host_file_path:
+                    logger.info(f"从COS下载到主机成功 (第{attempt + 1}次尝试)")
+                    break
+                else:
+                    logger.warning(f"从COS下载到主机失败 (第{attempt + 1}次尝试)")
+                    if attempt < max_retries - 1:
+                        logger.info(f"等待2秒后进行第{attempt + 2}次重试...")
+                        import time
+                        time.sleep(2)
+                    
+            except Exception as e:
+                logger.error(f"从COS下载到主机异常 (第{attempt + 1}次尝试): {str(e)}")
+                if attempt < max_retries - 1:
+                    logger.info(f"等待2秒后进行第{attempt + 2}次重试...")
+                    import time
+                    time.sleep(2)
+                else:
+                    logger.error(f"从COS下载到主机失败，已达到最大重试次数({max_retries}次)")
         
         if not host_file_path:
-            logger.error("从COS下载到主机失败")
+            logger.error(f"从COS下载到主机最终失败，已重试{max_retries}次")
             return None
         
         # 步骤2：从主机传输到手机
@@ -696,3 +726,40 @@ def download_voice_from_windows_server(source_ip: str, msg_id: str, max_retries:
     # 返回本地文件路径
     print(f"语音已下载到本地: {local_path}")
     return local_path
+
+def build_token_usage_data(metadata,wx_user_id,contact_name):
+    token_usage_data=metadata.get("metadata", {})
+    # 提取token信息
+    msg_id = token_usage_data.get('message_id', '')
+    prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
+    prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
+    prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
+    prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
+    completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
+    completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
+    completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
+    completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
+    total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
+    total_price = token_usage_data.get('usage', {}).get('total_price', '')
+    currency = token_usage_data.get('usage', {}).get('currency', '')
+    
+    return {
+        'token_source_platform': 'wx_chat',
+        'msg_id': msg_id,
+        'prompt_tokens': prompt_tokens,
+        'prompt_unit_price': prompt_unit_price,
+        'prompt_price_unit': prompt_price_unit,
+        'prompt_price': prompt_price,
+        'completion_tokens': completion_tokens,
+        'completion_unit_price': completion_unit_price,
+        'completion_price_unit': completion_price_unit,
+        'completion_price': completion_price,
+        'total_tokens': total_tokens,
+        'total_price': total_price,
+        'currency': currency,
+        'source_ip': '',
+        'wx_user_id': wx_user_id,
+        'wx_user_name': wx_user_id,
+        'room_id': contact_name,
+        'room_name': contact_name
+    }

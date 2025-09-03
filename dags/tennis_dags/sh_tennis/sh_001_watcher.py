@@ -18,6 +18,8 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
+from tennis_dags.utils.tencent_ses import send_template_email
+
 
 # DAG的默认参数
 default_args = {
@@ -167,13 +169,20 @@ def check_tennis_courts():
     ok_proxy_list = []
     
     for filed_type in ['in', 'out']:
-        for index in range(0, 7):
+        for index in range(0, 3):
             input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y%m%d')
             inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
-            data_list, ok_proxy_list = get_free_tennis_court_data(filed_type,
-                                                                 input_date,
-                                                                 proxy_list=proxy_list,
-                                                                 ok_proxy_list=ok_proxy_list)
+            try:
+                data_list, ok_proxy_list = get_free_tennis_court_data(filed_type,
+                                                                      input_date,
+                                                                      proxy_list=proxy_list,
+                                                                      ok_proxy_list=ok_proxy_list)
+            except Exception as e:
+                import traceback
+                print(f"获取空闲场地信息异常: {e}")
+                print(traceback.format_exc())
+                continue
+
             time.sleep(1)
             if data_list:
                 if filed_type == 'in':
@@ -217,6 +226,7 @@ def check_tennis_courts():
        
         # 添加新的通知
         up_for_send_msg_list = []
+        up_for_send_sms_list = []
         for data in up_for_send_data_list:
             date = data['date']
             court_name = data['court_name']
@@ -232,21 +242,42 @@ def check_tennis_courts():
                 msg = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                 if msg not in sended_msg_list:
                     up_for_send_msg_list.append(msg)
+                    up_for_send_sms_list.append({
+                        "date": date,
+                        "court_name": court_name,
+                        "start_time": free_slot[0],
+                        "end_time": free_slot[1]
+                    })
                 else:
                     print(f"msg {msg} already sended")
 
         print(f"up_for_send_msg_list: {up_for_send_msg_list}")
 
-        # # 发送微信消息
-        # wcf_ip = Variable.get("WCF_IP")
-        # for msg in up_for_send_msg_list:
-        #     send_wx_msg(
-        #         wcf_ip=wcf_ip,
-        #         message=msg,
-        #         receiver="56351399535@chatroom",
-        #         aters=''
-        #     )
-        #     sended_msg_list.append(msg)
+        # 发送邮件
+        try:
+            email_list = Variable.get("SH_TENNIS_EMAIL_LIST", default_var=[], deserialize_json=True)
+            for data in up_for_send_msg_list:
+                date_obj = datetime.datetime.strptime(f"{datetime.datetime.now().year}-{data['date']}", "%Y-%m-%d")
+                weekday = date_obj.weekday()
+                weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
+                formatted_date = date_obj.strftime("%Y年%m月%d日")
+                
+                result = send_template_email(
+                    subject=f"【{data['court_name']}】星期{weekday_str} {data['start_time']} - {data['end_time']}",
+                    template_id=33340,
+                    template_data={
+                        "COURT_NAME": data['court_name'],
+                        "FREE_TIME": f"{formatted_date}(星期{weekday_str}) {data['start_time']}-{data['end_time']}"
+                    },
+                    recipients=email_list,
+                    from_email="Zacks <tennis@zacks.com.cn>",
+                    reply_to="tennis@zacks.com.cn",
+                    trigger_type=1
+                )
+                print(result)
+                time.sleep(1)  # 避免发送过快
+        except Exception as e:
+            print(f"发送邮件异常: {e}")
 
         if up_for_send_msg_list:
             all_in_one_msg = "\n".join(up_for_send_msg_list)

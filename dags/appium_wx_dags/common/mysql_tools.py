@@ -17,6 +17,94 @@ MySQL数据库工具模块
 
 import json
 from airflow.hooks.base import BaseHook
+from datetime import datetime
+
+
+def init_token_usage_table(wx_user_id: str = None):
+    """
+    初始化token用量表
+    
+    Args:
+        wx_user_id (str, optional): 微信用户ID。如果提供，则创建用户特定的表
+    """
+    # 使用get_hook函数获取数据库连接
+    db_hook = BaseHook.get_connection("wx_db").get_hook()
+    db_conn = db_hook.get_conn()
+    cursor = db_conn.cursor()
+    
+    # 创建全局token用量表
+    # create_table_sql = """
+    # CREATE TABLE IF NOT EXISTS `token_usage` (
+    #   `id` bigint NOT NULL AUTO_INCREMENT,
+    #   `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat','wx_history_summary') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号/微信历史记录',
+    #   `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
+    #   `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
+    #   `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
+    #   `room_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '聊天室id',
+    #   `room_name` varchar(128) COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '聊天室名称',
+    #   `prompt_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '提示消耗token数量',
+    #   `prompt_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示单价',
+    #   `prompt_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格单位',
+    #   `prompt_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格',
+    #   `completion_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '回复/补全消耗token数量',
+    #   `completion_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全单价',
+    #   `completion_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格单位',
+    #   `completion_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格',
+    #   `total_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '总计消耗token',
+    #   `total_price` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '总价格',
+    #   `currency` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '货币',
+    #   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    #   PRIMARY KEY (`id`),
+    #   KEY `idx_wx_user_id` (`wx_user_id`),
+    #   KEY `idx_msg_id` (`msg_id`),
+    #   KEY `idx_room_id` (`room_id`),
+    #   KEY `idx_created_at` (`created_at`)
+    # ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='token用量';
+    # """
+    
+    # cursor.execute(create_table_sql)
+    
+    # 如果提供了wx_user_id，则创建用户特定的表
+    if wx_user_id:
+        create_table_sql_for_user = f"""
+        CREATE TABLE IF NOT EXISTS `{wx_user_id}_token_usage` (
+          `id` bigint NOT NULL AUTO_INCREMENT,
+          `token_source_platform` enum('wx_chat','wx_mp_chat','wx_work_chat','wx_history_summary') COLLATE utf8mb4_general_ci NOT NULL COMMENT 'token产生来源：微信/企微/公众号/微信历史记录',
+          `msg_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '消息id',
+          `wx_user_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户id',
+          `wx_user_name` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '微信用户名',
+          `room_id` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '聊天室id',
+          `room_name` varchar(128) COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '聊天室名称',
+          `prompt_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '提示消耗token数量',
+          `prompt_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示单价',
+          `prompt_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格单位',
+          `prompt_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '提示价格',
+          `completion_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '回复/补全消耗token数量',
+          `completion_unit_price` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全单价',
+          `completion_price_unit` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格单位',
+          `completion_price` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '回复/补全价格',
+          `total_tokens` varchar(32) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '总计消耗token',
+          `total_price` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '总价格',
+          `currency` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT '' COMMENT '货币',
+          `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (`id`),
+          KEY `idx_msg_id` (`msg_id`),
+          KEY `idx_room_id` (`room_id`),
+          KEY `idx_created_at` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='token用量';
+        """
+        
+        cursor.execute(create_table_sql_for_user)
+        print(f"用户 {wx_user_id} 的token用量表初始化完成")
+    
+    # 提交事务
+    db_conn.commit()
+    
+    # 关闭连接
+    cursor.close()
+    db_conn.close()
+    
+    print("token用量表初始化完成")
 
 
 def init_wx_chat_records_table(wx_user_id: str):
@@ -308,16 +396,117 @@ def get_wx_chat_history(contact_name: str, wx_user_id: str = None, start_time: s
             except:
                 pass
 
-def init_wx_chat_summary_table():
+
+def get_wx_contact_list(wx_user_id: str, contact_type: str = None, limit: int = 100, offset: int = 0):
+    """
+    获取微信联系人列表
+    
+    Args:
+        wx_user_id (str): 微信用户ID
+        contact_type (str, optional): 联系人类型，可选值：'friend'(好友),'group'(群组),None(全部)
+        limit (int, optional): 返回记录数量限制，默认100
+        offset (int, optional): 分页偏移量，默认0
+        
+    Returns:
+        list: 联系人列表
+    """
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 从聊天记录表中提取唯一联系人
+        table_name = f"{wx_user_id}_wx_chat_records"
+        
+        # 构建查询SQL - 从聊天记录中提取唯一的发送者信息
+        query_sql = f"""
+            SELECT 
+                MIN(id) as id,
+                wx_user_id,
+                sender_id as contact_id,
+                sender_name as contact_name,
+                '' as remark_name,
+                '' as avatar_url,
+                CASE 
+                    WHEN room_id != sender_id THEN 1
+                    ELSE 0
+                END as is_group,
+                0 as member_count,
+                MIN(msg_datetime) as created_at,
+                MAX(msg_datetime) as updated_at
+            FROM {table_name}
+            WHERE wx_user_id = %s
+            GROUP BY wx_user_id, sender_id, sender_name, room_id
+        """
+        
+        params = [wx_user_id]
+        
+        # 添加联系人类型筛选
+        if contact_type:
+            if contact_type.lower() == 'friend':
+                query_sql += " HAVING is_group = 0"
+            elif contact_type.lower() == 'group':
+                query_sql += " HAVING is_group = 1"
+        
+        # 添加排序和分页
+        query_sql += " ORDER BY updated_at DESC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+        
+        # 打印SQL查询和参数
+        print("===== 调试SQL查询 =====")
+        print(f"SQL: {query_sql}")
+        print(f"参数: {params}")
+        print("======================")
+        
+        # 执行查询
+        cursor.execute(query_sql, params)
+        
+        # 获取列名
+        columns = [desc[0] for desc in cursor.description]
+        
+        # 获取结果
+        results = []
+        for row in cursor.fetchall():
+            result = dict(zip(columns, row))
+            # 转换布尔值
+            result['is_group'] = bool(result['is_group'])
+            results.append(result)
+            
+        return results
+        
+    except Exception as e:
+        print(f"[DB_QUERY] 获取联系人列表失败: {e}")
+        raise Exception(f"[DB_QUERY] 获取联系人列表失败: {e}")
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass
+
+
+def init_wx_chat_summary_table(wx_user_id: str = None):
     """
     初始化微信聊天记录摘要表
+    
+    Args:
+        wx_user_id (str, optional): 微信用户ID。如果提供，则创建用户特定的表
     """
     # 使用get_hook函数获取数据库连接
     db_hook = BaseHook.get_connection("wx_db").get_hook()
     db_conn = db_hook.get_conn()
     cursor = db_conn.cursor()
     
-    # 创建聊天记录摘要表
+    # 创建全局聊天记录摘要表
     create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_chat_summary` (
         `id` BIGINT NOT NULL AUTO_INCREMENT,
         `contact_name` VARCHAR(100) NOT NULL COMMENT '联系人名',
@@ -390,6 +579,83 @@ def init_wx_chat_summary_table():
     
     cursor.execute(create_table_sql)
     
+    # 如果提供了wx_user_id，则创建用户特定的表
+    if wx_user_id:
+        create_table_sql_for_user = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_chat_summary` (
+            `id` BIGINT NOT NULL AUTO_INCREMENT,
+            `contact_name` VARCHAR(100) NOT NULL COMMENT '联系人名',
+            `room_name` VARCHAR(100) NOT NULL COMMENT '会话名称',
+            `wx_user_id` VARCHAR(100) NOT NULL COMMENT '微信用户ID',
+            
+            -- I. 基础信息
+            `name` VARCHAR(50) DEFAULT NULL COMMENT '客户姓名',
+            `contact` VARCHAR(100) DEFAULT NULL COMMENT '联系方式',
+            `age_group` VARCHAR(20) DEFAULT '未知' COMMENT '年龄段',
+            `gender` VARCHAR(10) DEFAULT '未知' COMMENT '性别',
+            `city_tier` VARCHAR(20) DEFAULT '未知' COMMENT '城市级别',
+            `specific_location` VARCHAR(100) DEFAULT NULL COMMENT '具体城市/区域',
+            `occupation_type` VARCHAR(20) DEFAULT '未知' COMMENT '职业类型',
+            `marital_status` VARCHAR(20) DEFAULT '未知' COMMENT '婚姻状态',
+            `family_structure` VARCHAR(30) DEFAULT '未知' COMMENT '家庭结构',
+            `income_level_estimated` VARCHAR(20) DEFAULT '未知' COMMENT '估计收入水平',
+            
+            -- 处理JSON字段
+            `core_values` JSON DEFAULT NULL COMMENT '核心价值观',
+            `hobbies_interests` JSON DEFAULT NULL COMMENT '爱好和兴趣',
+            `life_status_indicators` JSON DEFAULT NULL COMMENT '生活状态指标',
+            `social_media_activity_level` VARCHAR(20) DEFAULT '未知' COMMENT '社交媒体活跃度',
+            `info_acquisition_habits` JSON DEFAULT NULL COMMENT '信息获取习惯',
+            
+            -- II. 互动与认知
+            `acquisition_channel_type` VARCHAR(20) DEFAULT '未知' COMMENT '获客渠道类型',
+            `acquisition_channel_detail` VARCHAR(100) DEFAULT NULL COMMENT '具体渠道详情',
+            `initial_intent` VARCHAR(20) DEFAULT '未知' COMMENT '初始意图',
+            `intent_details` TEXT DEFAULT NULL COMMENT '具体意图详情',
+            `product_knowledge_level` VARCHAR(20) DEFAULT '未知' COMMENT '产品知识水平',
+            `communication_style` VARCHAR(20) DEFAULT '未知' COMMENT '沟通风格',
+            `current_trust_level` VARCHAR(10) DEFAULT '未知' COMMENT '当前信任水平',
+            `need_urgency` VARCHAR(20) DEFAULT '未知' COMMENT '需求紧迫性',
+            
+            -- III. 购买决策
+            `core_need_type` VARCHAR(20) DEFAULT '未知' COMMENT '核心需求类型',
+            `budget_sensitivity` VARCHAR(30) DEFAULT '未知' COMMENT '预算敏感度',
+            `decision_drivers` JSON DEFAULT NULL COMMENT '决策驱动因素',
+            `main_purchase_obstacles` JSON DEFAULT NULL COMMENT '主要购买障碍',
+            `upsell_readiness` VARCHAR(20) DEFAULT '未知' COMMENT '升单准备度',
+            
+            -- IV. 客户关系与忠诚度
+            `past_satisfaction_level` VARCHAR(20) DEFAULT '未知' COMMENT '过往满意度',
+            `customer_loyalty_status` VARCHAR(30) DEFAULT '未知' COMMENT '客户忠诚度状态',
+            `repurchase_drivers` JSON DEFAULT NULL COMMENT '复购驱动因素',
+            `need_evolution_trend` VARCHAR(20) DEFAULT '未知' COMMENT '需求演变趋势',
+            `engagement_level` VARCHAR(10) DEFAULT '未知' COMMENT '品牌互动活跃度',
+            
+            -- V. 特殊来源
+            `partner_source_type` VARCHAR(20) DEFAULT NULL COMMENT '合作方类型',
+            `partner_name` VARCHAR(100) DEFAULT NULL COMMENT '具体合作方名称',
+            `partner_interest_focus` VARCHAR(30) DEFAULT NULL COMMENT '合作客户兴趣点',
+            `partner_conversion_obstacles` JSON DEFAULT NULL COMMENT '合作客户转化障碍',
+            
+            -- 聊天关键事件
+            `chat_key_event` JSON DEFAULT NULL COMMENT '聊天关键事件/产品咨询',
+            
+            -- 基础信息
+            `start_time` DATETIME NOT NULL COMMENT '聊天开始时间',
+            `end_time` DATETIME NOT NULL COMMENT '聊天结束时间',
+            `message_count` INT NOT NULL DEFAULT 0 COMMENT '消息数量',
+            `raw_summary` TEXT DEFAULT NULL COMMENT '原始摘要文本',
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+            `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+            
+            PRIMARY KEY (`id`),
+            INDEX `idx_room_wx_user` (`contact_name`, `wx_user_id`),
+            INDEX `idx_time_range` (`start_time`, `end_time`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信聊天记录客户标签摘要';
+        """
+        
+        cursor.execute(create_table_sql_for_user)
+        print(f"用户 {wx_user_id} 的微信聊天记录摘要表初始化完成")
+    
     # 提交事务
     db_conn.commit()
     
@@ -409,6 +675,11 @@ def save_chat_summary_to_db(summary_data: dict):
     """
     print(f"[DB_SAVE] 保存聊天记录摘要到数据库, summary_data: {summary_data}")
     
+    # 获取微信用户ID
+    wx_user_id = summary_data.get('wx_user_id')
+    if not wx_user_id:
+        raise Exception("[DB_SAVE] 保存聊天记录摘要失败: 缺少微信用户ID")
+    
     db_conn = None
     cursor = None
     try:
@@ -417,17 +688,22 @@ def save_chat_summary_to_db(summary_data: dict):
         db_conn = db_hook.get_conn()
         cursor = db_conn.cursor()
         
-        # 检查表是否存在，如果不存在则创建
+        # 检查全局表是否存在，如果不存在则创建
         cursor.execute("SHOW TABLES LIKE 'wx_chat_summary'")
         if not cursor.fetchone():
             init_wx_chat_summary_table()
+        
+        # 检查用户特定表是否存在，如果不存在则创建
+        cursor.execute(f"SHOW TABLES LIKE '{wx_user_id}_wx_chat_summary'")
+        if not cursor.fetchone():
+            init_wx_chat_summary_table(wx_user_id)
         
         # 准备数据
         params = {
             # 基础信息
             'contact_name': summary_data.get('contact_name'),
             'room_name': summary_data.get('room_name'),
-            'wx_user_id': summary_data.get('wx_user_id'),
+            'wx_user_id': wx_user_id,
             
             # I. 基础信息
             'name': summary_data.get('name') or summary_data.get('基础信息', {}).get('name'),
@@ -492,6 +768,7 @@ def save_chat_summary_to_db(summary_data: dict):
         fields = ', '.join(params.keys())
         placeholders = ', '.join(['%s'] * len(params))
         
+        # 保存到全局表
         # 检查是否已存在记录
         check_sql = "SELECT id FROM wx_chat_summary WHERE contact_name = %s AND wx_user_id = %s LIMIT 1"
         cursor.execute(check_sql, (params['contact_name'], params['wx_user_id']))
@@ -502,12 +779,30 @@ def save_chat_summary_to_db(summary_data: dict):
             update_parts = [f"{field} = %s" for field in params.keys()]
             update_sql = f"UPDATE wx_chat_summary SET {', '.join(update_parts)} WHERE contact_name = %s AND wx_user_id = %s"
             cursor.execute(update_sql, list(params.values()) + [params['contact_name'], params['wx_user_id']])
-            print(f"[DB_SAVE] 更新聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+            print(f"[DB_SAVE] 更新全局聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
         else:
             # 插入新记录
             insert_sql = f"INSERT INTO wx_chat_summary ({fields}) VALUES ({placeholders})"
             cursor.execute(insert_sql, list(params.values()))
-            print(f"[DB_SAVE] 插入聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+            print(f"[DB_SAVE] 插入全局聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+        
+        # 保存到用户特定表
+        # 检查是否已存在记录
+        check_sql = f"SELECT id FROM `{wx_user_id}_wx_chat_summary` WHERE contact_name = %s AND wx_user_id = %s LIMIT 1"
+        cursor.execute(check_sql, (params['contact_name'], params['wx_user_id']))
+        existing_record = cursor.fetchone()
+        
+        if existing_record:
+            # 更新现有记录
+            update_parts = [f"{field} = %s" for field in params.keys()]
+            update_sql = f"UPDATE `{wx_user_id}_wx_chat_summary` SET {', '.join(update_parts)} WHERE contact_name = %s AND wx_user_id = %s"
+            cursor.execute(update_sql, list(params.values()) + [params['contact_name'], params['wx_user_id']])
+            print(f"[DB_SAVE] 更新用户特定聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
+        else:
+            # 插入新记录
+            insert_sql = f"INSERT INTO `{wx_user_id}_wx_chat_summary` ({fields}) VALUES ({placeholders})"
+            cursor.execute(insert_sql, list(params.values()))
+            print(f"[DB_SAVE] 插入用户特定聊天记录摘要: contact_name={params['contact_name']}, wx_user_id={params['wx_user_id']}")
         
         # 提交事务
         db_conn.commit()
@@ -536,9 +831,12 @@ def save_chat_summary_to_db(summary_data: dict):
                 pass
 
 
-def save_token_usage_to_db(token_usage_data: dict):
+def save_token_usage_to_db(token_usage_data: dict,wx_user_id: str):
     """
     保存token用量到数据库
+    
+    Args:
+        token_usage_data (dict): token用量数据，包含token_source_platform, msg_id等字段
     """
     print(f"[DB_SAVE] 保存token用量到数据库, token_usage_data: {token_usage_data}")
     
@@ -561,27 +859,6 @@ def save_token_usage_to_db(token_usage_data: dict):
     room_id = token_usage_data.get('room_id', '')
     room_name = token_usage_data.get('room_name', '')
 
-    # 插入数据SQL
-    insert_sql = """INSERT INTO `token_usage` 
-    (token_source_platform, 
-    msg_id, 
-    prompt_tokens, 
-    prompt_unit_price, 
-    prompt_price_unit, 
-    prompt_price, 
-    completion_tokens, 
-    completion_unit_price,
-    completion_price_unit, 
-    completion_price, 
-    total_tokens, 
-    total_price, 
-    currency,
-    wx_user_id,
-    wx_user_name,
-    room_id,
-    room_name) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
     db_conn = None
     cursor = None
     try:
@@ -590,9 +867,58 @@ def save_token_usage_to_db(token_usage_data: dict):
         db_conn = db_hook.get_conn()
         cursor = db_conn.cursor()
         
-        # 插入数据
-        cursor.execute(insert_sql, (
-            token_source_platform, 
+        # 确保表存在
+        if wx_user_id:
+            init_token_usage_table(wx_user_id)
+        else:
+            init_token_usage_table()
+        
+        # # 插入数据到全局表
+        # insert_global_sql = """INSERT INTO `token_usage` 
+        # (token_source_platform, 
+        # msg_id, 
+        # prompt_tokens, 
+        # prompt_unit_price, 
+        # prompt_price_unit, 
+        # prompt_price, 
+        # completion_tokens, 
+        # completion_unit_price,
+        # completion_price_unit, 
+        # completion_price, 
+        # total_tokens, 
+        # total_price, 
+        # currency,
+        # wx_user_id,
+        # wx_user_name,
+        # room_id,
+        # room_name) 
+        # VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        # """
+        
+        # cursor.execute(insert_global_sql, (
+        #     token_source_platform, 
+        #     msg_id, 
+        #     prompt_tokens, 
+        #     prompt_unit_price, 
+        #     prompt_price_unit, 
+        #     prompt_price, 
+        #     completion_tokens, 
+        #     completion_unit_price,
+        #     completion_price_unit, 
+        #     completion_price, 
+        #     total_tokens, 
+        #     total_price, 
+        #     currency,
+        #     wx_user_id,
+        #     wx_user_name,
+        #     room_id,
+        #     room_name
+        # ))
+        
+        # 如果有wx_user_id，则同时保存到用户特定表
+        if wx_user_id:
+            insert_user_sql = f"""INSERT INTO `{wx_user_id}_token_usage` 
+            (token_source_platform, 
             msg_id, 
             prompt_tokens, 
             prompt_unit_price, 
@@ -608,8 +934,30 @@ def save_token_usage_to_db(token_usage_data: dict):
             wx_user_id,
             wx_user_name,
             room_id,
-            room_name
-        ))
+            room_name) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            cursor.execute(insert_user_sql, (
+                token_source_platform, 
+                msg_id, 
+                prompt_tokens, 
+                prompt_unit_price, 
+                prompt_price_unit, 
+                prompt_price, 
+                completion_tokens, 
+                completion_unit_price,
+                completion_price_unit, 
+                completion_price, 
+                total_tokens, 
+                total_price, 
+                currency,
+                wx_user_id,
+                wx_user_name,
+                room_id,
+                room_name
+            ))
+            print(f"[DB_SAVE] 成功保存token用量到用户特定表 {wx_user_id}_token_usage: {msg_id}")
         
         # 提交事务
         db_conn.commit()
@@ -636,23 +984,24 @@ def save_token_usage_to_db(token_usage_data: dict):
                 pass
         
 
-def init_wx_friend_circle_table(wx_user_id: str):
+def init_wx_friend_circle_table(wx_user_id: str = None):
     """
     初始化微信朋友圈分析表
     
     Args:
-        wx_user_id: 微信用户ID
+        wx_user_id (str, optional): 微信用户ID。如果提供，则创建用户特定的表
     """
     # 使用get_hook函数获取数据库连接
     db_hook = BaseHook.get_connection("wx_db").get_hook()
     db_conn = db_hook.get_conn()
     cursor = db_conn.cursor()
     
-    # 朋友圈分析表的创建数据包
-    create_table_sql = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_friend_circle_table` (
+    # 创建全局朋友圈分析表
+    create_table_sql = """CREATE TABLE IF NOT EXISTS `wx_friend_circle_table` (
         `id` bigint(20) NOT NULL AUTO_INCREMENT,
         `wxid` varchar(64) NOT NULL COMMENT '好友微信ID',
         `nickname` varchar(128) DEFAULT NULL COMMENT '好友昵称',
+        `wx_user_id` varchar(64) NOT NULL COMMENT '微信用户ID',
         `basic` JSON DEFAULT NULL COMMENT '基础属性(性别、年龄等)',
         `consumption` JSON DEFAULT NULL COMMENT '消费能力',
         `core_interests` JSON DEFAULT NULL COMMENT '兴趣偏好',
@@ -662,13 +1011,36 @@ def init_wx_friend_circle_table(wx_user_id: str):
         `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
         `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
         PRIMARY KEY (`id`),
-        UNIQUE KEY `uk_wxid` (`wxid`),
-        KEY `idx_created_at` (`created_at`)
+        UNIQUE KEY `uk_wxid_user` (`wxid`, `wx_user_id`),
+        KEY `idx_created_at` (`created_at`),
+        KEY `idx_wx_user_id` (`wx_user_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信朋友圈分析';
     """
     
-    # 创建表（如果不存在）
     cursor.execute(create_table_sql)
+    
+    # 如果提供了wx_user_id，则创建用户特定的表
+    if wx_user_id:
+        create_table_sql_for_user = f"""CREATE TABLE IF NOT EXISTS `{wx_user_id}_wx_friend_circle_table` (
+            `id` bigint(20) NOT NULL AUTO_INCREMENT,
+            `wxid` varchar(64) NOT NULL COMMENT '好友微信ID',
+            `nickname` varchar(128) DEFAULT NULL COMMENT '好友昵称',
+            `basic` JSON DEFAULT NULL COMMENT '基础属性(性别、年龄等)',
+            `consumption` JSON DEFAULT NULL COMMENT '消费能力',
+            `core_interests` JSON DEFAULT NULL COMMENT '兴趣偏好',
+            `life_pattern` JSON DEFAULT NULL COMMENT '生活方式',
+            `social` JSON DEFAULT NULL COMMENT '社交特征',
+            `values` JSON DEFAULT NULL COMMENT '价值观',
+            `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+            `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uk_wxid` (`wxid`),
+            KEY `idx_created_at` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='微信朋友圈分析';
+        """
+        
+        cursor.execute(create_table_sql_for_user)
+        print(f"用户 {wx_user_id} 的微信朋友圈分析表初始化完成")
     
     # 提交事务
     db_conn.commit()
@@ -676,3 +1048,84 @@ def init_wx_friend_circle_table(wx_user_id: str):
     # 关闭连接
     cursor.close()
     db_conn.close()
+    
+    print("微信朋友圈分析表初始化完成")
+
+
+def get_chat_summary(wx_user_id: str, contact_name: str):
+    """
+    从数据库获取联系人的最新聊天记录总结
+    
+    Args:
+        wx_user_id (str): 微信用户ID
+        contact_name (str): 联系人名称
+        
+    Returns:
+        dict: 总结记录，如果不存在则返回None
+    """
+    db_conn = None
+    cursor = None
+    try:
+        # 使用get_hook函数获取数据库连接
+        db_hook = BaseHook.get_connection("wx_db").get_hook()
+        db_conn = db_hook.get_conn()
+        cursor = db_conn.cursor()
+        
+        # 首先尝试查询用户特定表
+        table_name = f"{wx_user_id}_wx_chat_summary"
+        
+        # 检查表是否存在
+        cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
+        if not cursor.fetchone():
+            # 如果用户特定表不存在，尝试查询全局表
+            table_name = "wx_chat_summary"
+            cursor.execute("SHOW TABLES LIKE 'wx_chat_summary'")
+            if not cursor.fetchone():
+                # 如果全局表也不存在，返回None
+                return None
+        
+        # 查询最新的聊天记录总结
+        query_sql = f"""
+            SELECT 
+                id, contact_name, room_name, wx_user_id, 
+                start_time, end_time, message_count, raw_summary,
+                created_at, updated_at
+            FROM {table_name}
+            WHERE wx_user_id = %s AND contact_name = %s
+            ORDER BY end_time DESC
+            LIMIT 1
+        """
+        
+        cursor.execute(query_sql, (wx_user_id, contact_name))
+        result = cursor.fetchone()
+        
+        if not result:
+            return None
+            
+        # 将结果转换为字典
+        columns = [desc[0] for desc in cursor.description]
+        summary_dict = dict(zip(columns, result))
+        
+        # 处理日期时间格式，使其可JSON序列化
+        for key, value in summary_dict.items():
+            if isinstance(value, datetime):
+                summary_dict[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+                
+        return summary_dict
+        
+    except Exception as e:
+        print(f"[DB_QUERY] 获取聊天记录总结失败: {e}")
+        return None
+        
+    finally:
+        # 关闭连接
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass
+        if db_conn:
+            try:
+                db_conn.close()
+            except:
+                pass

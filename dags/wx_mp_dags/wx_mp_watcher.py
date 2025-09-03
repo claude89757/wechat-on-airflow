@@ -39,7 +39,7 @@ from airflow.utils.state import DagRunState
 
 # 自定义库导入
 from utils.dify_sdk import DifyAgent
-from utils.wechat_mp_channl import WeChatMPBot
+from utils.wechat_mp_channl import WeChatMPBot 
 from utils.tts import text_to_speech
 from utils.redis import RedisHandler
 from wx_mp_dags.common.mysql_tools import save_token_usage_to_db
@@ -144,7 +144,7 @@ def handler_text_msg(**context):
     create_time = message_data.get('CreateTime')  # 消息创建时间
     content = message_data.get('Content')  # 消息内容
     msg_id = message_data.get('MsgId')  # 消息ID
-    
+    print(f'message_data: {message_data}')
     print(f"收到来自 {from_user_name} 的消息: {content}")
 
     # 从 context 中获取公众号配置信息
@@ -171,6 +171,7 @@ def handler_text_msg(**context):
     
     # 初始化dify
     dify_api_key = wx_mp_config.get("WX_MP_DIFY_KEY")
+    cos_directory = wx_mp_config.get("WX_MP_DIFY_KEY")[-6:]
     dify_base_url = Variable.get("DIFY_BASE_URL")
     print("="*50)
     print(f"dify_api_key: {dify_api_key}")
@@ -253,16 +254,38 @@ def handler_text_msg(**context):
         conversation_infos[from_user_name] = conversation_id
         Variable.set("wechat_mp_conversation_infos", conversation_infos, serialize_json=True)
 
+    # 构建回复消息列表
+    response_msg = {}
+    response_image_list = []
+    filtered_msg_list = []
+    
     # 发送回复消息时的智能处理
     for response_part in re.split(r'\\n\\n|\n\n', response):
         response_part = response_part.replace('\\n', '\n')
-        mp_bot.send_text_message(from_user_name, response_part.strip())
+        print(f'消息分片后：{response_part}')
+        if ".jpg" in response_part or ".png" in response_part or ".mp4" in response_part:
+            response_image_list.append(response_part)
+            cos_base_url = Variable.get("COS_BASE_URL")
+            media_id=mp_bot.upload_temporary_media('image',f'{cos_base_url}{cos_directory}//{response_part}').get('media_id', '')
+            mp_bot.send_image_message(from_user_name, media_id)
+        else:
+            filtered_msg_list.append(response_part.strip())
+            mp_bot.send_text_message(from_user_name, response_part.strip())
     
+    # 修改xcom中的图片视频消息的结构
+    response_msg_list = [
+        f"{cos_directory}/{filename}" if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
+        for filename in (response_image_list + filtered_msg_list)
+    ]
+    
+    # 构建回复消息字典
+    response_msg[from_user_name] = response_msg_list
+
     # 删除缓存的消息
     redis_handler.delete_msg_key(f'{from_user_name}_{to_user_name}_msg_list')
 
     # 将response缓存到xcom中供后续任务使用
-    context['task_instance'].xcom_push(key='ai_reply_msg', value=response)
+    context['task_instance'].xcom_push(key='ai_reply_msg', value=response_msg)
     context['task_instance'].xcom_push(key='token_usage_data', value=metadata)
 
 
@@ -275,77 +298,84 @@ def save_ai_reply_msg_to_db(**context):
     
     # 获取AI回复的消息
     ai_reply_msg = context.get('task_instance').xcom_pull(key='ai_reply_msg')
-    
-    # 提取消息信息
-    save_msg = {}
-    save_msg['from_user_id'] = message_data.get('ToUserName', '')  # AI回复时发送者是公众号
-    save_msg['from_user_name'] = message_data.get('ToUserName', '')
-    save_msg['to_user_id'] = message_data.get('FromUserName', '')  # 接收者是原消息发送者
-    save_msg['to_user_name'] = message_data.get('FromUserName', '')
-    save_msg['msg_id'] = f"ai_reply_{message_data.get('MsgId', '')}"  # 使用原消息ID加前缀作为回复消息ID
-    save_msg['msg_type'] = 'text'
-    save_msg['msg_type_name'] = WX_MSG_TYPES.get('text')
-    save_msg['content'] = ai_reply_msg
-    save_msg['msg_timestamp'] = int(time.time())
-    save_msg['msg_datetime'] = datetime.now()
-    
-    # 使用相同的数据库连接函数保存AI回复
-    db_conn = None
-    cursor = None
-    try:
-        # 使用get_hook函数获取数据库连接
-        db_hook = BaseHook.get_connection("wx_db")
-        db_conn = db_hook.get_hook().get_conn()
-        cursor = db_conn.cursor()
-        
-        # 插入AI回复数据的SQL
-        insert_sql = """INSERT INTO `wx_mp_chat_records` 
-        (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
-        msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE 
-        content = VALUES(content),
-        msg_type_name = VALUES(msg_type_name),
-        updated_at = CURRENT_TIMESTAMP
-        """
-        
-        # 执行插入
-        cursor.execute(insert_sql, (
-            save_msg['from_user_id'],
-            save_msg['from_user_name'],
-            save_msg['to_user_id'],
-            save_msg['to_user_name'],
-            save_msg['msg_id'],
-            save_msg['msg_type'],
-            save_msg['msg_type_name'],
-            save_msg['content'],
-            save_msg['msg_timestamp'],
-            save_msg['msg_datetime']
-        ))
-        
-        # 提交事务
-        db_conn.commit()
-        print(f"[DB_SAVE] 成功保存AI回复消息到数据库: {save_msg['msg_id']}")
-        
-    except Exception as e:
-        print(f"[DB_SAVE] 保存AI回复消息到数据库失败: {e}")
-        if db_conn:
+    base_msg_id = int(message_data.get('MsgId', '0'))  # 将原消息ID转换为整数
+    for contact_name, messages in ai_reply_msg.items():
+        for message in messages:
+            # 提取消息信息
+            save_msg = {}
+            save_msg['from_user_id'] = message_data.get('ToUserName', '')  # AI回复时发送者是公众号
+            save_msg['from_user_name'] = message_data.get('ToUserName', '')
+            save_msg['to_user_id'] = message_data.get('FromUserName', '')  # 接收者是原消息发送者
+            save_msg['to_user_name'] = message_data.get('FromUserName', '')
+            save_msg['msg_id'] = f"ai_reply_{base_msg_id}"  # 使用原消息ID加前缀作为回复消息ID
+            base_msg_id += 1  # 直接对原消息ID自增
+            # 检查消息是否包含
+            if ".jpg" in message or ".png" in message or ".mp4" in message:
+                save_msg['msg_type'] = 'image'
+            else:
+                save_msg['msg_type'] = 'text'
+            save_msg['msg_type_name'] = WX_MSG_TYPES.get(save_msg['msg_type'])
+            save_msg['content'] = message
+            save_msg['msg_timestamp'] = int(time.time())
+            save_msg['msg_datetime'] = datetime.now()
+            
+            # 使用相同的数据库连接函数保存AI回复
+            db_conn = None
+            cursor = None
             try:
-                db_conn.rollback()
-            except:
-                pass
-    finally:
-        # 关闭连接
-        if cursor:
-            try:
-                cursor.close()
-            except:
-                pass
-        if db_conn:
-            try:
-                db_conn.close()
-            except:
-                pass
+                # 使用get_hook函数获取数据库连接
+                db_hook = BaseHook.get_connection("wx_db")
+                db_conn = db_hook.get_hook().get_conn()
+                cursor = db_conn.cursor()
+                
+                # 插入AI回复数据的SQL
+                insert_sql = """INSERT INTO `wx_mp_chat_records` 
+                (from_user_id, from_user_name, to_user_id, to_user_name, msg_id, 
+                msg_type, msg_type_name, content, msg_timestamp, msg_datetime) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                content = VALUES(content),
+                msg_type_name = VALUES(msg_type_name),
+                updated_at = CURRENT_TIMESTAMP
+                """
+                
+                # 执行插入
+                cursor.execute(insert_sql, (
+                    save_msg['from_user_id'],
+                    save_msg['from_user_name'],
+                    save_msg['to_user_id'],
+                    save_msg['to_user_name'],
+                    save_msg['msg_id'],
+                    save_msg['msg_type'],
+                    save_msg['msg_type_name'],
+                    save_msg['content'],
+                    save_msg['msg_timestamp'],
+                    save_msg['msg_datetime']
+                ))
+                
+                # 提交事务
+                db_conn.commit()
+                print(f"[DB_SAVE] 成功保存AI回复消息到数据库: {save_msg['msg_id']}")
+                
+            except Exception as e:
+                print(f"[DB_SAVE] 保存AI回复消息到数据库失败: {e}")
+                if db_conn:
+                    try:
+                        db_conn.rollback()
+                    except:
+                        pass
+            finally:
+                # 关闭连接
+                if cursor:
+                    try:
+                        cursor.close()
+                    except:
+                        pass
+                if db_conn:
+                    try:
+                        db_conn.close()
+                    except:
+                        pass
 
 
 

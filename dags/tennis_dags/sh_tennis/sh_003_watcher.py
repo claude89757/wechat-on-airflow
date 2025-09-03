@@ -19,6 +19,9 @@ from airflow.models import Variable
 from datetime import timedelta
 
 
+from tennis_dags.utils.tencent_ses import send_template_email
+
+
 # DAG的默认参
 default_args = {
     'owner': 'claude89757',
@@ -101,6 +104,7 @@ def get_free_tennis_court_data(area_id: str, order_date: str, proxy_list: list =
             try:
                 proxies = {"https": proxy}
                 response = requests.post(url, headers=headers, data=data, proxies=proxies, verify=False, timeout=2)
+                print(f"response: {response.text}")
                 if response.status_code == 200:
                     print(f"success for {proxy}")
                     success_proxy_list.append(proxy)
@@ -223,6 +227,7 @@ def check_tennis_courts():
        
         # 添加新的通知
         up_for_send_msg_list = []
+        up_for_send_sms_list = []
         for data in up_for_send_data_list:
             date = data['date']
             court_name = data['court_name']
@@ -238,21 +243,43 @@ def check_tennis_courts():
                 msg = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
                 if msg not in sended_msg_list:
                     up_for_send_msg_list.append(msg)
+                    up_for_send_sms_list.append({
+                        "date": date,
+                        "court_name": court_name,
+                        "start_time": free_slot[0],
+                        "end_time": free_slot[1]
+                    })
                 else:
                     print(f"msg {msg} already sended")
 
         print(f"up_for_send_msg_list: {up_for_send_msg_list}")
 
-        # # 发送微信消息
-        # wcf_ip = Variable.get("WCF_IP")
-        # for msg in up_for_send_msg_list:
-        #     send_wx_msg(
-        #         wcf_ip=wcf_ip,
-        #         message=msg,
-        #         receiver="56351399535@chatroom",
-        #         aters=''
-        #     )
-        #     sended_msg_list.append(msg)
+        # 发送邮件
+        try:
+            email_list = Variable.get("SH_TENNIS_EMAIL_LIST", default_var=[], deserialize_json=True)
+            for data in up_for_send_msg_list:
+                date_obj = datetime.datetime.strptime(f"{datetime.datetime.now().year}-{data['date']}", "%Y-%m-%d")
+                weekday = date_obj.weekday()
+                weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
+                formatted_date = date_obj.strftime("%Y年%m月%d日")
+                
+                result = send_template_email(
+                    subject=f"【{data['court_name']}】星期{weekday_str} {data['start_time']} - {data['end_time']}",
+                    template_id=33340,
+                    template_data={
+                        "COURT_NAME": data['court_name'],
+                        "FREE_TIME": f"{formatted_date}(星期{weekday_str}) {data['start_time']}-{data['end_time']}"
+                    },
+                    recipients=email_list,
+                    from_email="Zacks <tennis@zacks.com.cn>",
+                    reply_to="tennis@zacks.com.cn",
+                    trigger_type=1
+                )
+                print(result)
+                time.sleep(1)  # 避免发送过快
+        except Exception as e:
+            print(f"发送邮件异常: {e}")
+
 
         if up_for_send_msg_list:
             chat_names = Variable.get("SH_TENNIS_CHATROOMS", default_var="")
@@ -287,7 +314,7 @@ dag = DAG(
     description='监控徐汇网球场地可用情况',
     schedule_interval='*/5 * * * *',  # 每5分钟执行一次
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=3),
+    dagrun_timeout=timedelta(minutes=10),
     catchup=False,
     tags=['上海']
 )

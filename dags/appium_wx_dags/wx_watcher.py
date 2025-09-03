@@ -35,7 +35,7 @@ from appium_wx_dags.handlers.handler_voice_msg import handle_voice_messages
 # 导入saver
 from appium_wx_dags.savers.saver_text_msg import save_text_msg_to_db
 from appium_wx_dags.savers.saver_image_msg import save_image_msg_to_db, save_image_to_cos
-
+from appium_wx_dags.savers.saver_voice_msg import save_voice_msg_to_db
 from appium_wx_dags.common.wx_tools import update_wx_user
 
 WX_CONFIGS = Variable.get("WX_CONFIG_LIST", default_var=[], deserialize_json=True)
@@ -114,6 +114,7 @@ def monitor_chats(**context):
         need_handle_tasks.append(f'wx_image_handler')
 
     if include_voice_msg:
+        print(f"[HANDLE] include_voice_msg: {include_voice_msg}---")
         context['ti'].xcom_push(key=f'voice_msg', value=include_voice_msg)
         need_handle_tasks.append(f'wx_voice_handler')
 
@@ -125,6 +126,23 @@ def monitor_chats(**context):
     
     print(f"[WATCHER] 需要处理的任务: {need_handle_tasks}")
     return need_handle_tasks
+
+
+def image_branch_decision(**context):
+    """图片处理后的分支决策函数"""
+    print(f"[IMAGE_BRANCH] 决定图片处理后的下一步")
+    
+    # 从XCom获取消息类型信息
+    voice_msg = context['ti'].xcom_pull(key='voice_msg')
+    text_msg = context['ti'].xcom_pull(key='text_msg')
+    
+    # 根据互斥逻辑决定下一步：优先语音，其次文本，默认文本
+    if voice_msg:
+        print(f"[IMAGE_BRANCH] 检测到语音消息，触发语音处理")
+        return 'wx_voice_handler'
+    else :
+        print(f"[IMAGE_BRANCH] 触发文本处理流程（检测到文本消息或默认处理）")
+        return 'wx_text_handler'
 
 
 def handle_video_messages(**context):
@@ -254,44 +272,41 @@ def create_wx_watcher_dag_function(wx_config):
     # 处理文本消息
     wx_text_handler = PythonOperator(task_id='wx_text_handler', python_callable=handle_text_messages, op_kwargs=op_kwargs, trigger_rule='none_failed_min_one_success',dag=dag)
 
-    # 处理图片消息
+    # 处理图片消息（先处理图片，然后分支决策）
     wx_image_handler = PythonOperator(task_id='wx_image_handler', python_callable=handle_image_messages, op_kwargs=op_kwargs, dag=dag)
+    
+    # 图片处理后的分支决策
+    image_branch = BranchPythonOperator(task_id='image_branch', python_callable=image_branch_decision, op_kwargs=op_kwargs, dag=dag)
 
     # 处理语音消息
-    wx_voice_handler = PythonOperator(task_id='wx_voice_handler', python_callable=handle_voice_messages, op_kwargs=op_kwargs, dag=dag)
+    wx_voice_handler = PythonOperator(task_id='wx_voice_handler', python_callable=handle_voice_messages, op_kwargs=op_kwargs, dag=dag,trigger_rule='none_failed_min_one_success')
 
     # 处理视频消息
     # wx_video_handler = PythonOperator(task_id='wx_video_handler', python_callable=handle_video_messages, op_kwargs=op_kwargs, dag=dag)
 
    # 保存文本消息到数据库
-    save_text_msg_to_db_task = PythonOperator(
-    task_id='save_text_msg_to_db',
-    python_callable=save_text_msg_to_db,
-    op_kwargs=op_kwargs,
-    dag=dag
-)
+    save_text_msg_to_db_task = PythonOperator(task_id='save_text_msg_to_db',python_callable=save_text_msg_to_db,op_kwargs=op_kwargs,trigger_rule='none_failed_min_one_success',dag=dag)
 
 # 保存图片消息到数据库
-    save_image_msg_to_db_task = PythonOperator(
-    task_id='save_image_msg_to_db',
-    python_callable=save_image_msg_to_db,
-    op_kwargs=op_kwargs,
-    dag=dag
-)
+    save_image_msg_to_db_task = PythonOperator(task_id='save_image_msg_to_db',python_callable=save_image_msg_to_db,op_kwargs=op_kwargs,dag=dag)
 
 # 保存图片到腾讯云对象存储
-    save_image_to_cos_task = PythonOperator(
-    task_id='save_image_to_cos',
-    python_callable=save_image_to_cos,
-    op_kwargs=op_kwargs,
-    dag=dag
-)
+    save_image_to_cos_task = PythonOperator(task_id='save_image_to_cos',python_callable=save_image_to_cos,op_kwargs=op_kwargs,dag=dag)
+    # 保存语音消息到数据库
+    save_voice_msg_to_db_task = PythonOperator(task_id='save_voice_msg_to_db',python_callable=save_voice_msg_to_db,op_kwargs=op_kwargs,dag=dag)
+
 
 # 设置依赖关系
+    # wx_watcher >> wx_text_handler >> save_text_msg_to_db_task
+    # wx_watcher >> wx_voice_handler >> save_voice_msg_to_db_task >> wx_text_handler
+    # wx_watcher >> wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task >> wx_voice_handler >> wx_text_handler
     wx_watcher >> wx_text_handler >> save_text_msg_to_db_task
-    wx_watcher >> wx_image_handler >> wx_text_handler
+    wx_watcher >> wx_voice_handler >> save_voice_msg_to_db_task >> save_text_msg_to_db_task
+    # 修改为互斥分支：图片处理后通过分支决策选择触发文本或语音处理
+    wx_watcher >> wx_image_handler >> image_branch
+    image_branch >> wx_text_handler >> save_text_msg_to_db_task
+    image_branch >> wx_voice_handler >> save_voice_msg_to_db_task >> save_text_msg_to_db_task
     wx_image_handler >> save_image_to_cos_task >> save_image_msg_to_db_task
-    wx_watcher >> wx_voice_handler  
     return dag
 
 # 动态创建DAG

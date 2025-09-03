@@ -83,9 +83,8 @@ def main_handler(event, context):
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # 查询指定用户和聊天室的客户标签分析总结
-            query = """
-            SELECT 
+            # 定义查询字段
+            select_fields = """
                 id,
                 contact_name,
                 room_name,
@@ -134,13 +133,20 @@ def main_handler(event, context):
                 chat_key_event,
                 created_at,
                 updated_at
-            FROM wx_chat_summary
-            WHERE wx_user_id = %s AND contact_name = %s
+            """
+            
+            # 直接查询用户特定表
+            logger.info(f"查询用户特定表: {wx_user_id}_wx_chat_summary")
+            user_query = f"""
+            SELECT 
+                {select_fields}
+            FROM `{wx_user_id}_wx_chat_summary`
+            WHERE contact_name = %s
             ORDER BY updated_at DESC
             LIMIT 1
             """
             
-            cursor.execute(query, (wx_user_id, contact_name))
+            cursor.execute(user_query, (contact_name,))
             result = cursor.fetchone()
             
             # 格式化日期时间

@@ -9,7 +9,8 @@ from airflow.models import Variable
 from utils.dify_sdk import DifyAgent
 # 自定义库
 from utils.appium.wx_appium import send_wx_msg_by_appium
-from appium_wx_dags.common.wx_tools import cos_to_device_via_host
+from appium_wx_dags.common.wx_tools import cos_to_device_via_host,build_token_usage_data
+from appium_wx_dags.common.mysql_tools import save_token_usage_to_db
 def handle_text_messages(**context):
     """处理文本消息"""
     print(f"[HANDLE] 处理文本消息")
@@ -19,12 +20,12 @@ def handle_text_messages(**context):
     except KeyError:
         print(f"[HANDLE] 获取Appium服务器信息失败: 未在 context 中找到 'wx_config'")
         return {}
-
-    wx_name = appium_server_info['wx_name']
+    wx_user_id = appium_server_info['wx_user_id'] #AI客服的微信号
+    wx_name = appium_server_info['wx_name'] #AI客服的微信名
     device_name = appium_server_info['device_name']
     appium_url = appium_server_info['appium_url']
     dify_api_url = appium_server_info['dify_api_url']
-    cos_directory = appium_server_info['cos_directory']
+    cos_directory = appium_server_info['cos_directory'][-6:]
     dify_api_key = appium_server_info['dify_api_key']
     login_info = appium_server_info['login_info']
     print(f"[HANDLE] 获取登录信息: {login_info}")
@@ -33,7 +34,21 @@ def handle_text_messages(**context):
     password = login_info["password"]
     port = login_info["port"]
     # 获取XCOM
-    recent_new_msg = context['ti'].xcom_pull(key='text_msg')
+    # 检查是否是通过图片分支进入的（没有语音也没有文本信息）
+    image_msg = context['ti'].xcom_pull(key='image_msg')
+    text_msg = context['ti'].xcom_pull(key='text_msg')
+    voice_msg = context['ti'].xcom_pull(key='voice_msg')
+    
+    if image_msg and not text_msg and not voice_msg:
+        # 如果只有图片消息，没有文本和语音消息，使用常量消息
+        print(f"[HANDLE] 通过图片分支进入文本处理（无语音无文本），使用常量消息")
+        recent_new_msg = {}
+        # 构造虚拟的文本消息结构，使用图片消息的联系人信息
+        for contact_name, messages in image_msg.items():
+            recent_new_msg[contact_name] = [{'msg': '分析这张图片'}]
+    else:
+        # 正常的文本消息处理
+        recent_new_msg = text_msg
 
     response_msg = {}
     # 检查是否有消息任务，有则处理
@@ -47,35 +62,50 @@ def handle_text_messages(**context):
             msg = "\n".join(msg_list)
 
             # AI 回复
-            response_msg_list = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
+            response_msg_list,metadata = handle_msg_by_ai(dify_api_url, dify_api_key, wx_name, contact_name, msg)
             print(f"[HANDLE] AI回复内容: {response_msg_list}")
             cos_base_url = Variable.get("COS_BASE_URL")
             if response_msg_list:
+                if response_msg_list[0]=='#闭嘴#':
+                    print(f"[HANDLE] AI回复内容为 '#闭嘴#'，此后聊天记录不再处理")
+                    Variable.set(f"{wx_name}_{contact_name}_ai_status", 'closed', serialize_json=False)
+                    response_msg[contact_name] = ['已闭嘴,在重启AI回复之前不再处理消息(@{wx_name}即可重启AI回复)']
+                else:
+                    Variable.set(f"{wx_name}_{contact_name}_ai_status", 'open', serialize_json=False)
                 # 检查并分离图片信息
-                response_image_list = []
-                filtered_msg_list = []
-                
-                for msg in response_msg_list:
-                    if ".jpg" in msg or ".png" in msg or ".mp4" in msg:
-                        response_image_list.append(msg)
-                    else:
-                        filtered_msg_list.append(msg)
-                for img in response_image_list:
-                    cos_to_device_via_host(cos_url=f'{cos_base_url}{cos_directory}//{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
+                ai_status = Variable.get(f"{wx_name}_{contact_name}_ai_status", default_var='open', deserialize_json=False)
+                #不是'闭嘴'的状态才处理信息（回复以及存库）
+                if ai_status == 'open':
+                    print(f"[HANDLE] AI回复状态为 'open'，继续处理图片消息")
+                    response_image_list = []
+                    filtered_msg_list = []
+                    
+                    for msg in response_msg_list:
+                        # 如果消息包含换行符，先拆分为多个独立消息
+                        split_msgs = msg.split('\n') if '\n' in msg else [msg]
+                        for split_msg in split_msgs:
+                            split_msg = split_msg.strip()  # 去除首尾空白字符
+                            if split_msg:  # 确保不是空字符串
+                                if ".jpg" in split_msg or ".png" in split_msg or ".mp4" in split_msg:
+                                    response_image_list.append(split_msg)
+                                else:
+                                    filtered_msg_list.append(split_msg)
+                    for img in response_image_list:
+                        cos_to_device_via_host(cos_url=f'{cos_base_url}{cos_directory}//{img}', host_address=device_ip, host_username=username, device_id=device_name, host_password=password, host_port=port)
 
-                # 如果有非图片消息，发送文本消息
-                if filtered_msg_list:
-                    send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
-                    
-                    
-                #修改xcom中的图片视频消息的结构
-                response_msg_list = [
-                f"{cos_directory}/{filename}"  if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
-                for filename in response_msg_list
-                    ]
-                #构建回复消息字典
-                response_msg[contact_name] = response_msg_list
-                print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg_list}")    
+                    # 如果有非图片消息，发送文本消息
+                    if filtered_msg_list:
+                        send_wx_msg_by_appium(appium_url, device_name, contact_name, filtered_msg_list,response_image_list)
+                        
+                        
+                    #修改xcom中的图片视频消息的结构
+                    response_msg_list = [
+                    f"{cos_directory}/{filename}"  if ".jpg" in filename or ".png" in filename or ".mp4" in filename else filename
+                    for filename in response_msg_list
+                        ]
+                    #构建回复消息字典
+                    response_msg[contact_name] = response_msg_list
+                    print(f"[HANDLE] 处理完图片消息后的AI回复内容: {response_msg_list}")    
             else:
                 print(f"[HANDLE] 没有AI回复")
     else:
@@ -83,7 +113,15 @@ def handle_text_messages(**context):
 
     # 回复内容保存到XCOM
     context['ti'].xcom_push(key='text_msg_response', value=response_msg)
-
+        # 立即保存token用量到数据库
+    try:
+        token_usage_data = build_token_usage_data(metadata, wx_user_id, contact_name)
+        # 提取token信息
+        
+        save_token_usage_to_db(token_usage_data, wx_user_id)
+        print(f"已保存联系人 {contact_name} 的token用量")
+    except Exception as e:
+        print(f"保存token用量失败: {e}")
     return recent_new_msg
 
 
@@ -125,6 +163,7 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
             files=dify_files,
             inputs={}
         )
+        
     except Exception as e:
         if "Variable #conversation.section# not found" in str(e):
             # 清理会话记录
@@ -180,4 +219,4 @@ def handle_msg_by_ai(dify_api_url, dify_api_key, wx_user_name, room_id, msg) -> 
     except Exception as e:
         print(f"[WATCHER] 清除在线图片信息失败: {e}")
 
-    return response_msg_list
+    return response_msg_list, metadata
