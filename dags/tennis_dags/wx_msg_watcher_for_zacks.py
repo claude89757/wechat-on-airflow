@@ -55,24 +55,24 @@ def monitor_chats(**context):
     login_info = appium_server_info['login_info']
     wx_id = "zacks"
 
-    # 获取最近的新消息
-    recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name, wx_id, wx_name, login_info)
-    print(f"[WATCHER] 获取最近的新消息: {recent_new_msg}")
+    # # 获取最近的新消息
+    # recent_new_msg = get_recent_new_msg_by_appium(appium_url, device_name, wx_id, wx_name, login_info)
+    # print(f"[WATCHER] 获取最近的新消息: {recent_new_msg}")
 
     include_video_msg = {}
     include_text_msg = {}
-    for contact_name, messages in recent_new_msg.items():
-        include_video = False
-        for message in messages:
-            if message['msg_type'] == 'video':
-                include_video = True
-                break
-            else:
-                pass
-        if include_video:
-            include_video_msg[contact_name] = messages
-        else:
-            include_text_msg[contact_name] = messages
+    # for contact_name, messages in recent_new_msg.items():
+    #     include_video = False
+    #     for message in messages:
+    #         if message['msg_type'] == 'video':
+    #             include_video = True
+    #             break
+    #         else:
+    #             pass
+    #     if include_video:
+    #         include_video_msg[contact_name] = messages
+    #     else:
+    #         include_text_msg[contact_name] = messages
     
     # 缓存到XCOM
     need_handle_tasks = []
