@@ -10,6 +10,7 @@ import time
 import datetime
 import requests
 import random
+import json
 
 from typing import List
 from airflow import DAG
@@ -35,7 +36,7 @@ def get_tennis_court_infos():
         print(f"Checking {court_name}...")
         print("-"*100)
         data = Variable.get(f"tennis_court_{court_name}", default_var={}, deserialize_json=True)
-        print(f"data: {data}")
+        print(json.dumps(data, ensure_ascii=False, indent=2))
         if not data:
             print(f"{court_name} not found")
             continue
