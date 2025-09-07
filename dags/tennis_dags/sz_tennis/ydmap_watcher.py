@@ -25,6 +25,7 @@ TENNIS_COURT_NAME_LIST = [
     "莲花体育中心",
     "香蜜体育中心",
     "黄木岗网球中心",
+    "简上体育综合体",
 ]
 
 def get_tennis_court_infos():
