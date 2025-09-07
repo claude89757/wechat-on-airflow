@@ -44,7 +44,7 @@ def get_tennis_court_infos():
         print(f"Checking {court_name}...")
         print("-"*100)
         data = Variable.get(f"tennis_court_{court_name}", default_var={}, deserialize_json=True)
-        print(json.dumps(data, ensure_ascii=False, indent=2))
+        print(json.dumps(data.get('availabilityTable', {}), ensure_ascii=False, indent=2))
         if not data:
             print(f"{court_name} not found")
             continue
