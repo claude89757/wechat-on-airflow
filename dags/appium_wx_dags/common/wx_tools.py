@@ -726,3 +726,40 @@ def download_voice_from_windows_server(source_ip: str, msg_id: str, max_retries:
     # 返回本地文件路径
     print(f"语音已下载到本地: {local_path}")
     return local_path
+
+def build_token_usage_data(metadata,wx_user_id,contact_name):
+    token_usage_data=metadata.get("metadata", {})
+    # 提取token信息
+    msg_id = token_usage_data.get('message_id', '')
+    prompt_tokens = str(token_usage_data.get('usage', {}).get('prompt_tokens', ''))
+    prompt_unit_price = token_usage_data.get('usage', {}).get('prompt_unit_price', '')
+    prompt_price_unit = token_usage_data.get('usage', {}).get('prompt_price_unit', '')
+    prompt_price = token_usage_data.get('usage', {}).get('prompt_price', '')
+    completion_tokens = str(token_usage_data.get('usage', {}).get('completion_tokens', ''))
+    completion_unit_price = token_usage_data.get('usage', {}).get('completion_unit_price', '')
+    completion_price_unit = token_usage_data.get('usage', {}).get('completion_price_unit', '')
+    completion_price = token_usage_data.get('usage', {}).get('completion_price', '')
+    total_tokens = str(token_usage_data.get('usage', {}).get('total_tokens', ''))
+    total_price = token_usage_data.get('usage', {}).get('total_price', '')
+    currency = token_usage_data.get('usage', {}).get('currency', '')
+    
+    return {
+        'token_source_platform': 'wx_chat',
+        'msg_id': msg_id,
+        'prompt_tokens': prompt_tokens,
+        'prompt_unit_price': prompt_unit_price,
+        'prompt_price_unit': prompt_price_unit,
+        'prompt_price': prompt_price,
+        'completion_tokens': completion_tokens,
+        'completion_unit_price': completion_unit_price,
+        'completion_price_unit': completion_price_unit,
+        'completion_price': completion_price,
+        'total_tokens': total_tokens,
+        'total_price': total_price,
+        'currency': currency,
+        'source_ip': '',
+        'wx_user_id': wx_user_id,
+        'wx_user_name': wx_user_id,
+        'room_id': contact_name,
+        'room_name': contact_name
+    }

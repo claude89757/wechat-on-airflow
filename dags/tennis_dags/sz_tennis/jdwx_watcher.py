@@ -243,13 +243,13 @@ def check_tennis_courts():
                         end_time = datetime.datetime.strptime(slot[1], "%H:%M")
                         
                         if is_weekend:
-                            # 周末关注15点到21点的场地
+                            # 周末关注15点到22点的场地
                             target_start = datetime.datetime.strptime("16:00", "%H:%M")
-                            target_end = datetime.datetime.strptime("21:00", "%H:%M")
+                            target_end = datetime.datetime.strptime("22:00", "%H:%M")
                         else:
-                            # 工作日关注18点到21点的场地
+                            # 工作日关注18点到22点的场地
                             target_start = datetime.datetime.strptime("18:00", "%H:%M")
-                            target_end = datetime.datetime.strptime("21:00", "%H:%M")
+                            target_end = datetime.datetime.strptime("22:00", "%H:%M")
                         
                         # 判断时间段是否有重叠：max(start1, start2) < min(end1, end2)
                         if max(start_time, target_start) < min(end_time, target_end):
