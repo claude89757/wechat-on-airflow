@@ -144,9 +144,9 @@ def update_proxy_file(filename, available_proxies):
         if proxy not in all_proxies:
             all_proxies.append(proxy)
     
-    # 如果超过100个，只保留最近的100个
-    if len(all_proxies) > 100:
-        all_proxies = all_proxies[:100]
+    # 如果超过200个，只保留最近的200个
+    if len(all_proxies) > 200:
+        all_proxies = all_proxies[:200]
     
     # 写入文件
     with open(filename, "w") as file:
