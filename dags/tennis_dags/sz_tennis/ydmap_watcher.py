@@ -209,7 +209,7 @@ dag = DAG(
         'start_date': datetime.datetime(2024, 1, 1),
     },
     description='I深圳网球场信息监控',
-    schedule_interval=timedelta(seconds=60), 
+    schedule_interval=timedelta(seconds=15), 
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=3),
     catchup=False,
