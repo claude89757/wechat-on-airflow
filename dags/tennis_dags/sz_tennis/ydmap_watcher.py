@@ -132,10 +132,56 @@ def get_tennis_court_infos():
                 summary = data['summary']
                 print(f"总共 {summary.get('totalAvailableSlots', 0)} 小时可用")
     
-    # 发送微信消息
+    # 发送邮件和微信消息
     if up_for_send_msg_list:
         print(f"准备发送 {len(up_for_send_msg_list)} 条新消息")
         all_in_one_msg = "\n".join(up_for_send_msg_list)
+        
+        # 发送邮件
+        try:
+            email_list = Variable.get("YDMAP_EMAIL_LIST", default_var=[], deserialize_json=True)
+            if email_list:
+                for msg in up_for_send_msg_list:
+                    # 解析消息格式: 【场地名】星期X(MM-DD)空场: HH:MM-HH:MM
+                    parts = msg.split('】')
+                    if len(parts) >= 2:
+                        court_name = parts[0].replace('【', '')
+                        time_info = parts[1]
+                        
+                        # 解析星期和日期
+                        weekday_match = time_info.split('(')[0] if '(' in time_info else ""
+                        date_match = time_info.split('(')[1].split(')')[0] if '(' in time_info and ')' in time_info else ""
+                        
+                        # 解析时间段
+                        time_slot = time_info.split('空场: ')[1] if '空场: ' in time_info else ""
+                        
+                        # 构建格式化日期
+                        current_year = datetime.datetime.now().year
+                        if date_match:
+                            month, day = date_match.split('-')
+                            formatted_date = f"{current_year}年{month}月{day}日"
+                        else:
+                            formatted_date = ""
+                        
+                        # 发送邮件
+                        result = send_template_email(
+                            subject=f"【{court_name}】{weekday_match} {time_slot}",
+                            template_id=33340,
+                            template_data={
+                                "COURT_NAME": court_name,
+                                "FREE_TIME": f"{formatted_date}({weekday_match}) {time_slot}"
+                            },
+                            recipients=email_list,
+                            from_email="Zacks <tennis@zacks.com.cn>",
+                            reply_to="tennis@zacks.com.cn",
+                            trigger_type=1
+                        )
+                        print(f"邮件发送结果: {result}")
+                        time.sleep(1)  # 避免发送过快
+            else:
+                print("未配置邮件收件人列表 YDMAP_EMAIL_LIST")
+        except Exception as e:
+            print(f"发送邮件异常: {e}")
         
         # 获取微信群配置
         chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
