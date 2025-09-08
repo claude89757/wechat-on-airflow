@@ -37,7 +37,7 @@ SKIP_COURT_NAME_KEY_WORD = [
 def get_tennis_court_infos():
     """从 Airflow Variable 中获取 I 深圳网球场信息"""
     
-    # 要发送的消息列表
+    # 要发送的消息列表（全局收集）
     up_for_send_msg_list = []
     
     for court_name in TENNIS_COURT_NAME_LIST:
@@ -54,6 +54,9 @@ def get_tennis_court_infos():
             # 获取缓存key和已发送消息列表
             cache_key = f"YDMAP_{court_name}_网球场"
             sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
+            
+            # 当前场馆的新消息列表
+            current_court_new_msgs = []
             
             # 访问可用时段 - 适配新的数据结构
             availability_table = data.get('availabilityTable', {})
@@ -107,15 +110,16 @@ def get_tennis_court_infos():
                                 
                                 # 检查是否已发送过此消息
                                 if notification not in sended_msg_list:
-                                    up_for_send_msg_list.append(notification)
+                                    current_court_new_msgs.append(notification)
+                                    up_for_send_msg_list.append(notification)  # 同时添加到全局发送列表
                                     print(f"新空场: {notification}")
                                 else:
                                     print(f"已发送过: {notification}")
             
-            # 更新已发送消息的缓存
-            if up_for_send_msg_list:
-                # 将新消息添加到已发送列表
-                sended_msg_list.extend(up_for_send_msg_list)
+            # 更新当前场馆的已发送消息缓存
+            if current_court_new_msgs:
+                # 只将当前场馆的新消息添加到该场馆的已发送列表
+                sended_msg_list.extend(current_court_new_msgs)
                 
                 # 更新缓存（只保留最近100条）
                 description = f"{court_name}网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
@@ -125,7 +129,7 @@ def get_tennis_court_infos():
                     description=description,
                     serialize_json=True
                 )
-                print(f"更新{cache_key}缓存，共{len(sended_msg_list)}条消息")
+                print(f"更新{cache_key}缓存，新增{len(current_court_new_msgs)}条消息，总共{len(sended_msg_list)}条消息")
             
             # 打印汇总信息（如果存在）
             if 'summary' in data:
@@ -182,6 +186,7 @@ def get_tennis_court_infos():
                 print("未配置邮件收件人列表 YDMAP_EMAIL_LIST")
         except Exception as e:
             print(f"发送邮件异常: {e}")
+            raise Exception(f"发送邮件异常: {e}")
         
         # 获取微信群配置
         chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
