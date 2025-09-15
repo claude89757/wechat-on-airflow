@@ -220,70 +220,51 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         raise Exception("all proxies failed")
 
 
-def check_tennis_courts():
-    """主要检查逻辑"""
+def check_and_notify_for_day(day_offset: int):
+    """检查指定天数后的网球场可用情况并发送通知
+
+    Args:
+        day_offset: 相对于今天的偏移天数（0表示今天，1表示明天，以此类推）
+    """
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
-        print("每天0点-8点不巡检")
+        print(f"Day {day_offset}: 每天0点-8点不巡检")
         return
-    
+
     run_start_time = time.time()
-    print_with_timestamp("start to check...")
-
-    # 获取系统代理
-    system_proxy = Variable.get("PROXY_URL", default_var="")
-    if system_proxy:
-        proxies = {"https": system_proxy}
-    else:
-        proxies = None
-
-    # 获取代理列表
-    url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
-    response = requests.get(url, proxies=proxies)
-    text = response.text.strip()
-    proxy_list = [line.strip() for line in text.split("\n")]    
-    random.shuffle(proxy_list)
-
-    # 设置查询时间范围
-    time_range = {
-        "start_time": "08:30",
-        "end_time": "22:30"
-    }
+    input_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime('%Y-%m-%d')
+    inform_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime('%m-%d')
+    print_with_timestamp(f"Checking tennis courts for {input_date}...")    
 
     # 使用可用代理查询空闲的球场信息
     up_for_send_data_list = []
-    for index in range(0, 4):
-        input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
-        inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
-        
-        try:
-            court_data = get_free_tennis_court_infos_for_szw(input_date, proxy_list, time_range)
-            print(f"court_data: {court_data}")
-            time.sleep(1)
-            
-            for court_name, free_slots in court_data.items():
-                if free_slots:
-                    filtered_slots = []
-                    check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
-                    is_weekend = check_date.weekday() >= 5
-                    
-                    for slot in free_slots:
-                        hour_num = int(slot[0].split(':')[0])
-                        if is_weekend:
-                            if 16 <= hour_num <= 21:  # 周末关注15点到21点的场地
-                                filtered_slots.append(slot)
-                        else:
-                            if 18 <= hour_num <= 21:  # 工作日仍然只关注18点到21点的场地
-                                filtered_slots.append(slot)
-                    
-                    if filtered_slots:
-                        up_for_send_data_list.append({
-                            "date": inform_date,
-                            "court_name": f"深圳湾{court_name}",
-                            "free_slot_list": filtered_slots
-                        })
-        except Exception as e:
-            print(f"Error checking date {input_date}: {str(e)}")
-            continue
+    try:
+        time_range = {"start_time": "08:30","end_time": "22:30"}
+        court_data = get_free_tennis_court_infos_for_szw(input_date, ["不使用代理"], time_range)
+        print(f"{input_date} court_data: {court_data}")
+
+        for court_name, free_slots in court_data.items():
+            if free_slots:
+                filtered_slots = []
+                check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
+                is_weekend = check_date.weekday() >= 5
+
+                for slot in free_slots:
+                    hour_num = int(slot[0].split(':')[0])
+                    if is_weekend:
+                        if 16 <= hour_num <= 21:  # 周末关注16点到21点的场地
+                            filtered_slots.append(slot)
+                    else:
+                        if 18 <= hour_num <= 21:  # 工作日关注18点到21点的场地
+                            filtered_slots.append(slot)
+
+                if filtered_slots:
+                    up_for_send_data_list.append({
+                        "date": inform_date,
+                        "court_name": f"深圳湾{court_name}",
+                        "free_slot_list": filtered_slots
+                    })
+    except Exception as e:
+        print(f"Error checking date {input_date}: {str(e)}")
 
     # 处理通知逻辑
     up_for_send_sms_list = []
@@ -311,30 +292,8 @@ def check_tennis_courts():
                         "end_time": free_slot[1]
                     })
 
-        # 获取微信发送配置
-        # wcf_ip = Variable.get("WCF_IP", default_var="")
-        # for chat_room_id in ["38763452635@chatroom", "51998713028@chatroom"]:
-        #     print(f"sending to {chat_room_id}")
-        #     for msg in up_for_send_msg_list:
-        #         send_wx_msg(
-        #             wcf_ip=wcf_ip,
-        #             message=msg,
-        #             receiver=chat_room_id,
-        #             aters=''
-        #         )
-        #         sended_msg_list.append(msg)
-        #     time.sleep(10)
-
         if up_for_send_msg_list:
             all_in_one_msg = "\n".join(up_for_send_msg_list)
-
-            # # 发送短信
-            # for data in up_for_send_sms_list:
-            #     try:
-            #         phone_num_list = Variable.get("SZW_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
-            #         send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
-            #     except Exception as e:
-            #         print(f"Error sending sms: {e}")
 
             # 发送邮件
             try:
@@ -392,29 +351,29 @@ def check_tennis_courts():
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
-    print_with_timestamp(f"Total cost time：{execution_time} s")
+    print_with_timestamp(f"Day {day_offset} ({input_date}) completed in {execution_time:.2f}s")
 
 # 创建DAG
 dag = DAG(
     '深圳湾网球场巡检',
     default_args=default_args,
-    description='深圳湾网球场巡检',
-    schedule_interval=timedelta(seconds=30), 
+    description='深圳湾网球场巡检（并行多天）',
+    schedule_interval=timedelta(seconds=30),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
     tags=['深圳']
 )
 
-# 创建任务
-check_courts_task = PythonOperator(
-    task_id='check_tennis_courts',
-    python_callable=check_tennis_courts,
-    dag=dag,
-)
-
-# 设置任务依赖关系
-check_courts_task
+# 动态创建巡检和通知任务（每天一个独立任务，并行执行）
+for day_offset in range(4):  # 巡检今天到未来3天，共4天
+    task = PythonOperator(
+        task_id=f'check_and_notify_day_{day_offset}',
+        python_callable=check_and_notify_for_day,
+        op_kwargs={'day_offset': day_offset},
+        dag=dag,
+    )
+    # 每个任务独立执行，互不依赖
 
 
 # # 测试
