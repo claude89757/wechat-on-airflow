@@ -358,9 +358,9 @@ dag = DAG(
     '深圳湾网球场巡检',
     default_args=default_args,
     description='深圳湾网球场巡检（并行多天）',
-    schedule_interval=timedelta(seconds=30),
+    schedule_interval=timedelta(seconds=15),
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=10),
+    dagrun_timeout=timedelta(minutes=1),
     catchup=False,
     tags=['深圳']
 )
