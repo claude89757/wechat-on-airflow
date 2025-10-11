@@ -23,10 +23,10 @@ from tennis_dags.utils.tencent_ses import send_template_email
 
 
 TENNIS_COURT_NAME_LIST = [
-    "莲花体育中心",
-    "香蜜体育中心",
-    "黄木岗网球中心",
-    "简上体育综合体",
+    "大沙河国际网球交流中心",
+    # "香蜜体育中心",
+    # "黄木岗网球中心",
+    # "简上体育综合体",
 ]
 
 SKIP_COURT_NAME_KEY_WORD = [
@@ -44,7 +44,7 @@ def get_tennis_court_infos():
         print(f"Checking {court_name}...")
         print("-"*100)
         data = Variable.get(f"tennis_court_{court_name}", default_var={}, deserialize_json=True)
-        print(json.dumps(data.get('availabilityTable', {}), ensure_ascii=False, indent=2))
+        print(json.dumps(data.get('dates', []), ensure_ascii=False, indent=2))
         if not data:
             print(f"{court_name} not found")
             continue
@@ -59,16 +59,21 @@ def get_tennis_court_infos():
             current_court_new_msgs = []
             
             # 访问可用时段 - 适配新的数据结构
-            availability_table = data.get('availabilityTable', {})
+            dates = data.get('dates', [])
             
             # 遍历每个日期的可用时段
-            for date_with_weekday, venues in availability_table.items():
-                # 解析日期和星期 (格式: "09-08(星期一)")
-                date_part = date_with_weekday.split('(')[0]  # "09-08"
-                weekday_part = date_with_weekday.split('(')[1].replace(')', '')  # "星期一"
+            for date_obj in dates:
+                # 从日期对象中获取信息
+                date_part = date_obj.get('date', '')  # "10-11"
+                weekday_part = date_obj.get('weekday', '')  # "星期六"
+                no_bookings = date_obj.get('noBookings', [])  # 可预定时段列表
                 
-                # 遍历每个场地的可用时段
-                for venue_name, time_slots in venues.items():
+                # 遍历每个可预定时段
+                for booking in no_bookings:
+                    venue_name = booking.get('venueName', '')
+                    time_slot = booking.get('timeSlot', '')
+                    
+                    # 跳过不符合条件的场地名称
                     skip_flag = False
                     for skip_keyword in SKIP_COURT_NAME_KEY_WORD:
                         if skip_keyword in venue_name:
@@ -78,43 +83,40 @@ def get_tennis_court_infos():
                     if skip_flag:
                         continue
                     
-                    if time_slots:  # 如果有可用时段
-                        for time_slot in time_slots:
-                            # 解析时间段，可能是 "13:00-14:00" 或 ["13:00", "14:00"] 格式
-                            if isinstance(time_slot, str):
-                                start_time, end_time = time_slot.split('-')
-                            elif isinstance(time_slot, list) and len(time_slot) == 2:
-                                start_time, end_time = time_slot[0], time_slot[1]
+                    if time_slot:  # 如果有时间段
+                        # 解析时间段
+                        if '-' in time_slot:
+                            start_time, end_time = time_slot.split('-')
+                        else:
+                            continue
+                        
+                        # 过滤时间段 - 只关注黄金时段
+                        start_hour = int(start_time.split(':')[0])
+                        
+                        # 判断是否为周末
+                        is_weekend = '六' in weekday_part or '日' in weekday_part
+                        
+                        should_notify = False
+                        if is_weekend:
+                            # 周末关注下午和晚上的场地（12-21点）
+                            if 12 <= start_hour <= 21:
+                                should_notify = True
+                        else:
+                            # 工作日关注晚上的场地（18-21点）
+                            if 18 <= start_hour <= 21:
+                                should_notify = True
+                        
+                        if should_notify:
+                            # 构建通知消息
+                            notification = f"【{court_name}{venue_name}】{weekday_part}({date_part})空场: {start_time}-{end_time}"
+                            
+                            # 检查是否已发送过此消息
+                            if notification not in sended_msg_list:
+                                current_court_new_msgs.append(notification)
+                                up_for_send_msg_list.append(notification)  # 同时添加到全局发送列表
+                                print(f"新空场: {notification}")
                             else:
-                                continue
-                            
-                            # 过滤时间段 - 只关注黄金时段
-                            start_hour = int(start_time.split(':')[0])
-                            
-                            # 判断是否为周末
-                            is_weekend = '六' in weekday_part or '日' in weekday_part
-                            
-                            should_notify = False
-                            if is_weekend:
-                                # 周末关注下午和晚上的场地（12-21点）
-                                if 12 <= start_hour <= 21:
-                                    should_notify = True
-                            else:
-                                # 工作日关注晚上的场地（18-21点）
-                                if 18 <= start_hour <= 21:
-                                    should_notify = True
-                            
-                            if should_notify:
-                                # 构建通知消息
-                                notification = f"【{court_name}{venue_name}】{weekday_part}({date_part})空场: {start_time}-{end_time}"
-                                
-                                # 检查是否已发送过此消息
-                                if notification not in sended_msg_list:
-                                    current_court_new_msgs.append(notification)
-                                    up_for_send_msg_list.append(notification)  # 同时添加到全局发送列表
-                                    print(f"新空场: {notification}")
-                                else:
-                                    print(f"已发送过: {notification}")
+                                print(f"已发送过: {notification}")
             
             # 更新当前场馆的已发送消息缓存
             if current_court_new_msgs:
@@ -134,7 +136,7 @@ def get_tennis_court_infos():
             # 打印汇总信息（如果存在）
             if 'summary' in data:
                 summary = data['summary']
-                print(f"总共 {summary.get('totalAvailableSlots', 0)} 小时可用")
+                print(f"总共 {summary.get('totalNoBookings', 0)} 个可预定时段")
     
     # 发送邮件和微信消息
     if up_for_send_msg_list:
