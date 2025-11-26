@@ -193,7 +193,7 @@ def check_tennis_courts():
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
-    for index in range(0, 2):
+    for index in range(0, 4):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
         print(f"checking {input_date}...")
