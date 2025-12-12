@@ -200,8 +200,9 @@ def task_check_proxies():
             isz_successful_proxies.append({
                 "https": f"http://{proxy}",
             })
-    Variable.set('ISZ_SUCCESSFUL_PROXIES', isz_successful_proxies, serialize_json=True, 
-                 description=f"update by ydmap_https_proxy_watcher at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # Variable.set('ISZ_SUCCESSFUL_PROXIES', isz_successful_proxies, serialize_json=True, 
+    #              description=f"update by ydmap_https_proxy_watcher at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    Variable.delete('ISZ_SUCCESSFUL_PROXIES')
 
 def upload_file_to_github(filename):
     """
