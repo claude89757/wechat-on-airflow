@@ -99,7 +99,7 @@ def get_tennis_court_infos():
                         should_notify = False
                         if is_weekend:
                             # 周末关注下午和晚上的场地（12-21点）
-                            if 12 <= start_hour <= 21:
+                            if 14 <= start_hour <= 21:
                                 should_notify = True
                         else:
                             # 工作日关注晚上的场地（18-21点）
