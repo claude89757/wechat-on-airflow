@@ -23,10 +23,7 @@ from tennis_dags.utils.tencent_ses import send_template_email
 
 
 TENNIS_COURT_NAME_LIST = [
-    "大沙河国际网球交流中心",
-    # "宝安网球中心",
-    # "黄木岗网球中心",
-    # "简上体育综合体",
+    "宝安网球中心",
 ]
 
 SKIP_COURT_NAME_KEY_WORD = [
@@ -191,10 +188,14 @@ def get_tennis_court_infos():
             raise Exception(f"发送邮件异常: {e}")
         
         # 获取微信群配置
-        chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+        chat_names = [
+            "Zacks_宝安网球中心",
+            "Zacks网球场预定小助手",
+            "Zacks网球场预定小助手_2群"
+        ]
         zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
         
-        for contact_name in str(chat_names).splitlines():
+        for contact_name in chat_names:
             if contact_name.strip():
                 zacks_up_for_send_msg_list.append({
                     "room_name": contact_name.strip(),
@@ -209,13 +210,13 @@ def get_tennis_court_infos():
 
 # 创建DAG
 dag = DAG(
-    'I深圳网球场信息监控',
+    '宝安网球中心信息监控',
     default_args={
         'owner': 'claude89757',
         'depends_on_past': False,
         'start_date': datetime.datetime(2024, 1, 1),
     },
-    description='I深圳网球场信息监控',
+    description='宝安网球中心信息监控',
     schedule_interval=timedelta(seconds=15), 
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=3),
