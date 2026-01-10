@@ -24,7 +24,7 @@ from tennis_dags.utils.tencent_ses import send_template_email
 
 TENNIS_COURT_NAME_LIST = [
     "大沙河国际网球交流中心",
-    # "香蜜体育中心",
+    "宝安网球中心",
     # "黄木岗网球中心",
     # "简上体育综合体",
 ]
