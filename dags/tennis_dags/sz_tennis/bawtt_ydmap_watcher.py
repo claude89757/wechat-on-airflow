@@ -52,7 +52,9 @@ def get_tennis_court_infos():
             cache_key = f"YDMAP_{court_name}_网球场"
             sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
             
-            # 当前场馆的新消息列表
+            # 当前场馆的所有可预定时段列表（用于发送）
+            all_available_slots = []
+            # 当前场馆的新消息列表（用于判断是否有新空场）
             current_court_new_msgs = []
             
             # 访问可用时段 - 适配新的数据结构
@@ -107,17 +109,24 @@ def get_tennis_court_infos():
                             # 构建通知消息
                             notification = f"【{court_name}{venue_name}】{weekday_part}({date_part})空场: {start_time}-{end_time}"
                             
-                            # 检查是否已发送过此消息
+                            # 添加到所有可预定时段列表
+                            all_available_slots.append(notification)
+                            print(f"可预定: {notification}")
+                            
+                            # 检查是否为新出现的空场
                             if notification not in sended_msg_list:
                                 current_court_new_msgs.append(notification)
-                                up_for_send_msg_list.append(notification)  # 同时添加到全局发送列表
-                                print(f"新空场: {notification}")
+                                print(f"  -> 新空场!")
                             else:
-                                print(f"已发送过: {notification}")
+                                print(f"  -> 已发送过")
             
-            # 更新当前场馆的已发送消息缓存
+            # 当有新空场时，发送该场馆的所有可预定时段
             if current_court_new_msgs:
-                # 只将当前场馆的新消息添加到该场馆的已发送列表
+                # 将所有可预定时段添加到全局发送列表（而不仅仅是新消息）
+                up_for_send_msg_list.extend(all_available_slots)
+                print(f"检测到{len(current_court_new_msgs)}个新空场，将发送该场馆全部{len(all_available_slots)}个可预定时段")
+                
+                # 只将新消息添加到已发送列表（避免重复触发）
                 sended_msg_list.extend(current_court_new_msgs)
                 
                 # 更新缓存（只保留最近100条）
@@ -129,6 +138,8 @@ def get_tennis_court_infos():
                     serialize_json=True
                 )
                 print(f"更新{cache_key}缓存，新增{len(current_court_new_msgs)}条消息，总共{len(sended_msg_list)}条消息")
+            else:
+                print(f"没有新空场，当前共有{len(all_available_slots)}个可预定时段")
             
             # 打印汇总信息（如果存在）
             if 'summary' in data:
