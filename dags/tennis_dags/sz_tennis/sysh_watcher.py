@@ -180,7 +180,7 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
             )
             if response.status_code == 200:
                 json_data = response.json()
-                if json_data.get('code') == 1 or json_data.get('msg') == 'success':
+                if json_data.get('status') == 200 or json_data.get('msg') == 'ok':
                     print(f"代理成功: {proxy}")
                     print("--------------------------------")
                     print(response.text[:500])  # 只打印前500字符
@@ -209,25 +209,32 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
     if got_response and response:
         json_data = response.json()
         if json_data.get('data') and json_data['data'].get('children'):
+            # 按场地名称收集可用时段
+            # API 结构: data.children[] = 时间段列表，每个时间段的 children[] = 场地列表
+            court_availability = {}  # {"1号场": [["06:00", "07:00"], ...]}
+
+            for time_slot in json_data['data']['children']:
+                # 解析时间段 "6:00~7:00" -> ["06:00", "07:00"]
+                time_range = time_slot.get('time', '')  # e.g., "6:00~7:00"
+                if '~' not in time_range:
+                    continue
+
+                start_time, end_time = time_range.split('~')
+                start_time = normalize_time(start_time)
+                end_time = normalize_time(end_time)
+
+                # 遍历该时段的所有场地
+                for court in time_slot.get('children', []):
+                    if court.get('active') == "1":
+                        court_name = court.get('name', '未知场地')
+                        if court_name not in court_availability:
+                            court_availability[court_name] = []
+                        court_availability[court_name].append([start_time, end_time])
+
+            # 合并连续时间段
             available_slots_infos = {}
-            for court_info in json_data['data']['children']:
-                court_name = court_info.get('name', '未知场地')
-                available_slots = []
-
-                # 遍历时间段
-                time_slots = court_info.get('children', [])
-                for slot in time_slots:
-                    # active === "1" 表示可预订
-                    if slot.get('active') == "1":
-                        start_time = normalize_time(slot.get('start_time', ''))
-                        end_time = normalize_time(slot.get('end_time', ''))
-                        if start_time and end_time:
-                            available_slots.append([start_time, end_time])
-
-                if available_slots:
-                    available_slots_infos[court_name] = merge_time_ranges(available_slots)
-                else:
-                    available_slots_infos[court_name] = []
+            for court_name in court_availability:
+                available_slots_infos[court_name] = merge_time_ranges(court_availability[court_name])
 
             print(f"available_slots_infos: {available_slots_infos}")
             return available_slots_infos
