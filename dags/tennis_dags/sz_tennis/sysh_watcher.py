@@ -267,9 +267,9 @@ def check_tennis_courts():
         print(f"获取代理列表失败: {e}")
         proxy_list = []
 
-    # 查询空闲的球场信息 - 未来7天
+    # 查询空闲的球场信息 - 未来6天
     up_for_send_data_list = []
-    for index in range(0, 7):
+    for index in range(0, 6):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
         print(f"checking {input_date}...")
