@@ -115,7 +115,7 @@ services:
   # 数据库服务
   postgresql:
     <<: *common
-    image: bitnami/postgresql:latest
+    image: bitnami/postgresql:17
     environment: 
       POSTGRESQL_DATABASE: *db_name
       POSTGRESQL_USERNAME: *db_user
