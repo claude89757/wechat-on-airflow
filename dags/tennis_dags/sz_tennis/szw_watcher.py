@@ -8,12 +8,9 @@
 """
 import time
 import datetime
+import re
 import requests
-import random
 from typing import List
-import ssl
-import urllib3
-from urllib3.poolmanager import PoolManager
 
 from tennis_dags.utils.tencent_ses import send_template_email
 from tennis_dags.utils.tencent_sms import send_sms_for_news
@@ -34,6 +31,12 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
+
+SZW_MATRIX_API_URL = "https://wlhmobile.crland.com.cn/business/client/field/area/matrix"
+SZW_HOST = "wlhmobile.crland.com.cn"
+SZW_APP_ID = "wx020209beec4251e0"
+SZW_PROJECT_UUID = "3a59e62a07f811f1bec0aeefcf2e061a"
+SZW_FIELD_AREA_UUID = "b7f8a0770a4d11f198f45a68b1262c30"
 
 def print_with_timestamp(*args, **kwargs):
     """打印函数带上当前时间戳"""
@@ -72,29 +75,16 @@ def find_available_slots(booked_slots: List[List[str]], time_range: dict) -> Lis
     
     return available
 
-def get_legacy_session():
-    class CustomHttpAdapter(requests.adapters.HTTPAdapter):
-        def __init__(self, *args, **kwargs):
-            self.poolmanager = None
-            super().__init__(*args, **kwargs)
 
-        def init_poolmanager(self, connections, maxsize, block=False):
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-            ctx.options |= 0x4  # 启用legacy renegotiation
-            self.poolmanager = PoolManager(
-                num_pools=connections,
-                maxsize=maxsize,
-                block=block,
-                ssl_context=ctx
-            )
-    
-    session = requests.Session()
-    adapter = CustomHttpAdapter()
-    session.mount('https://', adapter)
-    return session
+def extract_time_hhmm(time_value: str) -> str:
+    """从接口时间字段中提取 HH:MM。"""
+    if not time_value:
+        return ""
+
+    matched = re.search(r"\d{2}:\d{2}", str(time_value))
+    if matched:
+        return matched.group(0)
+    return ""
 
 def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:
     """
@@ -106,118 +96,113 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     Returns:
         dict: 场地信息，格式为{场地名: [[开始时间, 结束时间], ...]}
     """
-    szw_cookie = Variable.get("SZW_COOKIE", default_var="")
+    szw_authorization = Variable.get("SZW_API_AUTHORIZATION", default_var="").strip()
+    if not szw_authorization:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 未配置")
+    if "\n" in szw_authorization or "\r" in szw_authorization:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 格式非法")
+
     got_response = False
-    response = None
-    
-    session = get_legacy_session()
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)  # 禁用不安全请求警告
-    
+    response_data = None
+    last_error = None
+
     for proxy in proxy_list:
-        data = {
-            'VenueTypeID': 'd3bc78ba-0d9c-4996-9ac5-5a792324decb',
-            'VenueTypeDisplayName': '',
-            # 'IsGetPrice': 'true',
-            # 'isApp': 'true',
-            'billDay': {date},
-            # 'webApiUniqueID': '811e68e7-f189-675c-228d-3739e48e57b2'
+        payload = {
+            "fieldAreaUuid": SZW_FIELD_AREA_UUID,
+            "reserveDate": date,
+            "enterpriseUuid": "",
+            "discountSpecUuid": "",
+            "projectUuid": SZW_PROJECT_UUID,
         }
         headers = {
-            "Host": "program.springcocoon.com",
-            "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"98\"",
-            # "X-XSRF-TOKEN": "rs3gB5gQUqeG-YcaRXgB13JMlQAn9N4e_vS29wl-_HV5-MZb6gCL7eLhiC030tJP-cFa0c2qgK9UfSKuwLH5vhZK_
-            # 2KYA_j7Df_NAn9ts9q3N0A9XIJe7vAXdhZLTaywn0VRMA2",
-            "sec-ch-ua-mobile": "?0",
-            # "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)
-            # Chrome/98.0.4758.102 Safari/537.36 MicroMessenger/6.8.0(0x16080000) NetType/WIFI MiniProgramEnv
-            # /Mac MacWechat/WMPF XWEB/30803",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "X-Requested-With": "XMLHttpRequest",
-            "sec-ch-ua-platform": "\"macOS\"",
-            "Origin": "https://program.springcocoon.com",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Dest": "empty",
-            "Referer": "https://program.springcocoon.com/szbay/AppVenue/VenueBill/"
-                       "VenueBill?VenueTypeID=d3bc78ba-0d9c-4996-9ac5-5a792324decb",
-            "Accept-Language": "zh-CN,zh",
-            "Cookie": szw_cookie
+            "Host": SZW_HOST,
+            "appid": SZW_APP_ID,
+            "authorization": szw_authorization,
+            "projectuuid": SZW_PROJECT_UUID,
+            "xweb_xhr": "1",
+            "content-type": "application/json",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 "
+                          "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
+                          "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
+                          "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641739) XWEB/18926",
+            "accept": "*/*",
+            "sec-fetch-site": "cross-site",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-dest": "empty",
+            "referer": "https://servicewechat.com/wx020209beec4251e0/15/page-frame.html",
+            "accept-language": "zh-CN,zh;q=0.9",
         }
-        url = 'https://program.springcocoon.com/szbay/api/services/app/VenueBill/GetVenueBillDataAsync'
-        
+        request_kwargs = {
+            "headers": headers,
+            "json": payload,
+            "timeout": 15,
+        }
+        if proxy and proxy != "不使用代理":
+            request_kwargs["proxies"] = {"https": proxy}
+
         print(f"trying for {proxy}")
         try:
-            print(f"data: {data}")
-            print(f"headers: {headers}" )
-            response = session.post(url, headers=headers, data=data, timeout=15, verify=False)
-            print(f"response: {response.text}")
+            print(f"data: {payload}")
+            response = requests.post(SZW_MATRIX_API_URL, **request_kwargs)
+            print(f"response status_code: {response.status_code}")
             if response.status_code == 200:
                 try:
-                    print(response.json())
+                    response_data = response.json()
                 except Exception as e:
-                    print(f"error: {e}")
+                    last_error = f"invalid json response: {e}"
+                    print(last_error)
                     continue
-                got_response = True
-                time.sleep(1)
-                break
+                if response_data.get("code") == 200 and response_data.get("result"):
+                    print(f"api success, text: {response_data.get('text')}")
+                    got_response = True
+                    time.sleep(1)
+                    break
+                last_error = f"api error code={response_data.get('code')}, text={response_data.get('text')}"
+                print(f"api error for {proxy}: {last_error}")
             else:
-                print(f"failed for {proxy}: {response.text}")
+                last_error = f"http status code={response.status_code}"
+                print(f"failed for {proxy}: {last_error}")
                 continue
         except Exception as error:
-            print(f"failed for {proxy}: {error}")
+            last_error = str(error)
+            print(f"failed for {proxy}: {last_error}")
             continue
 
-    if got_response and response:
-        if response.status_code == 200:
-            if len(response.json()['result']) == 1:
-                # 场地名称转换
-                venue_name_infos = {}
-                for venue in response.json()['result'][0]['listVenue']:
-                    venue_name_infos[venue['id']] = venue['displayName']
-                print(venue_name_infos)
+    if got_response and response_data:
+        result = response_data["result"]
+        venue_name_infos = {
+            venue["fieldUuid"]: venue["fieldName"]
+            for venue in result.get("fieldList", [])
+        }
+        print(venue_name_infos)
 
-                booked_court_infos = {}
-                if response.json()['result'][0].get("listWebVenueStatus") \
-                        and response.json()['result'][0]['listWebVenueStatus']:
-                    for venue_info in response.json()['result'][0]['listWebVenueStatus']:
-                        if str(venue_info.get('bookLinker')) == '可定' or str(venue_info.get('bookLinker')) == '可订':
-                            pass
-                        else:
-                            start_time = str(venue_info['timeStartEndName']).split('-')[0]
-                            end_time = str(venue_info['timeStartEndName']).split('-')[1]
-                            venue_name = venue_name_infos[venue_info['venueID']]
-                            if booked_court_infos.get(venue_name):
-                                booked_court_infos[venue_name].append([start_time, end_time])
-                            else:
-                                booked_court_infos[venue_name] = [[start_time, end_time]]
-                else:
-                    if response.json()['result'][0].get("listWeixinVenueStatus") and \
-                            response.json()['result'][0]['listWeixinVenueStatus']:
-                        for venue_info in response.json()['result'][0]['listWeixinVenueStatus']:
-                            if venue_info['status'] == 20:
-                                start_time = str(venue_info['timeStartEndName']).split('-')[0]
-                                end_time = str(venue_info['timeStartEndName']).split('-')[1]
-                                venue_name = venue_name_infos[venue_info['venueID']]
-                                if booked_court_infos.get(venue_name):
-                                    booked_court_infos[venue_name].append([start_time, end_time])
-                                else:
-                                    booked_court_infos[venue_name] = [[start_time, end_time]]
-                            else:
-                                pass
-                    else:
-                        pass
+        booked_court_infos = {}
 
-                available_slots_infos = {}
-                for venue_id, booked_slots in booked_court_infos.items():
-                    available_slots = find_available_slots(booked_slots, time_range)
-                    available_slots_infos[venue_id] = available_slots
-                return available_slots_infos
-            else:
-                raise Exception(response.text)
-        else:
-            raise Exception(response.text)
+        for venue_info in result.get("matrix", []):
+            venue_name = venue_name_infos.get(venue_info.get("fieldUuid"))
+            if not venue_name:
+                continue
+            booked_court_infos.setdefault(venue_name, [])
+
+            for slot_info in venue_info.get("matrix", []):
+                if slot_info.get("isAbleReserve"):
+                    continue
+
+                start_time = extract_time_hhmm(slot_info.get("startTime", ""))
+                end_time = extract_time_hhmm(slot_info.get("endTime", ""))
+                if len(start_time) != 5 or len(end_time) != 5:
+                    continue
+                booked_court_infos[venue_name].append([start_time, end_time])
+
+        available_slots_infos = {}
+        for venue_name, booked_slots in booked_court_infos.items():
+            available_slots = find_available_slots(booked_slots, time_range)
+            if available_slots:
+                available_slots_infos[venue_name] = available_slots
+        return available_slots_infos
     else:
-        raise Exception("all proxies failed")
+        raise Exception(f"all attempts failed: {last_error}")
 
 
 def check_and_notify_for_day(day_offset: int):
