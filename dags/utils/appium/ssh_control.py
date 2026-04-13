@@ -1,8 +1,10 @@
 import os
 import re
+import shlex
+import time
 import paramiko
 
-def exec_cmd_by_ssh(host, port, username, password, cmd):
+def exec_cmd_by_ssh_with_status(host, port, username, password, cmd):
     """
     通过ssh远程执行命令
     :param host: 主机ip
@@ -10,25 +12,38 @@ def exec_cmd_by_ssh(host, port, username, password, cmd):
     :param username: 主机用户名
     :param password: 主机密码
     :param cmd: 要执行的命令
-    :return: 命令执行结果
+    :return: 命令执行结果和退出码
     """
+    ssh = None
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         print(f'正在连接{host}:{port}...')
         ssh.connect(hostname=host, port=port, username=username, password=password)
         _, stdout, stderr = ssh.exec_command(cmd)
+        exit_status = stdout.channel.recv_exit_status()
         print(f'命令{cmd}执行完成，返回结果')
-        out = stdout.read().decode()
-        err = stderr.read().decode()
-        return out, err
+        out = stdout.read().decode(errors="replace")
+        err = stderr.read().decode(errors="replace")
+        if exit_status != 0 and not err:
+            err = f"command exited with status {exit_status}"
+        return out, err, exit_status
 
     except Exception as e:
         print(e)
-        return None, None
+        return None, str(e), None
     finally:
         # 保证ssh连接关闭
-        ssh.close()
+        if ssh is not None:
+            ssh.close()
+
+
+def exec_cmd_by_ssh(host, port, username, password, cmd):
+    """
+    兼容旧调用方的双返回值封装。
+    """
+    out, err, _ = exec_cmd_by_ssh_with_status(host, port, username, password, cmd)
+    return out, err
 
 
 def get_device_id_by_adb(host, port, username, password) -> list:
@@ -41,19 +56,130 @@ def get_device_id_by_adb(host, port, username, password) -> list:
         :return: 设备号列表
     '''
 
-    cmd = 'adb devices'
+    cmd = build_login_shell_adb_command('devices')
     # 执行adb命令
     out, _ = exec_cmd_by_ssh(host, port, username, password, cmd)
+    if not out:
+        return []
 
     # 解析adb命令的输出，获取设备号
     device_id_list = []
-    for line in out.splitlines()[1:]:
+    for line in out.splitlines():
+        if "List of devices attached" in line:
+            continue
         # 如果该行有非空字符内容
         if line.strip():
             device_id = re.split(r'\s+', line)[0]
             print(f'设备号：{device_id}') 
             device_id_list.append(device_id)
     return device_id_list
+
+
+def build_login_shell_adb_command(adb_command: str) -> str:
+    """在登录 shell 中执行 adb，复用现有环境变量加载方式。"""
+    return f"bash -l -c {shlex.quote(f'adb {adb_command}')}"
+
+
+def parse_adb_devices_output(output: str, device_serial: str) -> bool:
+    """判断目标设备是否以 device 状态出现在 adb devices 结果中。"""
+    if not output:
+        return False
+
+    for line in output.splitlines():
+        if "List of devices attached" in line:
+            continue
+        parts = re.split(r"\s+", line.strip())
+        if len(parts) >= 2 and parts[0] == device_serial and parts[1] == "device":
+            return True
+    return False
+
+
+def is_boot_completed_output(output: str) -> bool:
+    """判断系统启动是否完成。"""
+    return bool(output and output.strip() == "1")
+
+
+def reboot_device_via_ssh_adb(device_ip, username, password, device_serial, port=22) -> bool:
+    """通过 SSH 在宿主机上执行 adb reboot。"""
+    adb_command = build_login_shell_adb_command(f"-s {device_serial} reboot")
+    output, error, exit_status = exec_cmd_by_ssh_with_status(
+        device_ip, port, username, password, adb_command
+    )
+
+    if exit_status is None:
+        print(f"设备 {device_serial} 重启失败: {error}")
+        return False
+
+    if exit_status != 0:
+        print(f"设备 {device_serial} 重启失败: {error}")
+        return False
+
+    if error:
+        print(f"设备 {device_serial} 重启命令返回告警: {error}")
+
+    print(f"设备 {device_serial} 已发送重启命令")
+    if output:
+        print(output)
+    return True
+
+
+def is_device_online_via_ssh_adb(device_ip, username, password, device_serial, port=22) -> bool:
+    """检查设备是否重新出现在 adb devices 中。"""
+    adb_command = build_login_shell_adb_command("devices")
+    output, error, exit_status = exec_cmd_by_ssh_with_status(
+        device_ip, port, username, password, adb_command
+    )
+
+    if exit_status is None:
+        print(f"检查设备在线状态失败: {error}")
+        return False
+
+    if exit_status != 0:
+        print(f"检查设备在线状态失败: {error}")
+        return False
+
+    if error:
+        print(f"检查设备 {device_serial} 在线状态时有告警: {error}")
+
+    return parse_adb_devices_output(output, device_serial)
+
+
+def wait_for_device_boot_completed(device_ip, username, password, device_serial, port=22, timeout=300, interval=10) -> bool:
+    """等待设备重新上线并完成系统启动。"""
+    deadline = time.time() + timeout
+    adb_boot_command = build_login_shell_adb_command(f"-s {device_serial} shell getprop sys.boot_completed")
+
+    while time.time() < deadline:
+        if not is_device_online_via_ssh_adb(device_ip, username, password, device_serial, port=port):
+            print(f"设备 {device_serial} 尚未重新上线，{interval}s 后重试")
+            time.sleep(interval)
+            continue
+
+        output, error, exit_status = exec_cmd_by_ssh_with_status(
+            device_ip, port, username, password, adb_boot_command
+        )
+        if exit_status is None:
+            print(f"获取设备启动状态失败: {error}")
+            time.sleep(interval)
+            continue
+
+        if exit_status != 0:
+            print(f"获取设备启动状态失败: {error}")
+            time.sleep(interval)
+            continue
+
+        if error:
+            print(f"获取设备 {device_serial} 启动状态时有告警: {error}")
+
+        if is_boot_completed_output(output):
+            print(f"设备 {device_serial} 已完成启动")
+            return True
+
+        print(f"设备 {device_serial} 已在线，但系统尚未完成启动，{interval}s 后重试")
+        time.sleep(interval)
+
+    print(f"等待设备 {device_serial} 启动完成超时，超时时间 {timeout}s")
+    return False
 
 
 def get_image_path(device_ip, username, password, device_serial, port=22):
