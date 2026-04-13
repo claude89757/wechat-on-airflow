@@ -69,7 +69,10 @@ def get_device_id_by_adb(host, port, username, password) -> list:
             continue
         # 如果该行有非空字符内容
         if line.strip():
-            device_id = re.split(r'\s+', line)[0]
+            parts = re.split(r'\s+', line.strip())
+            if len(parts) < 2 or parts[1] != "device":
+                continue
+            device_id = parts[0]
             print(f'设备号：{device_id}') 
             device_id_list.append(device_id)
     return device_id_list
