@@ -319,7 +319,7 @@ def check_tennis_courts():
 
             # 发送邮件
             try:
-                email_list = Variable.get("SZW_EMAIL_LIST", default_var=[], deserialize_json=True)
+                email_list = Variable.get("JDWX_EMAIL_LIST", default_var=[], deserialize_json=True)
                 if email_list:
                     for data in up_for_send_sms_list:
                         date_obj = datetime.datetime.strptime(f"{datetime.datetime.now().year}-{data['date']}", "%Y-%m-%d")
