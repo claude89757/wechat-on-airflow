@@ -248,6 +248,8 @@ def send_text_messages(
             )
             time.sleep(restart_wait_seconds)
             if not operator.is_at_main_page():
+                operator.return_to_chats()
+            if not operator.is_at_main_page():
                 raise DeviceNotReadyError("WeChat main page is not available")
 
         operator.send_message(receiver=receiver, messages=normalized_messages)

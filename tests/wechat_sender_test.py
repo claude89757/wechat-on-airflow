@@ -41,6 +41,17 @@ class FailingOperator(FakeOperator):
         raise RuntimeError("send button missing")
 
 
+class RecoveringRestartOperator(FakeOperator):
+    def __init__(self, appium_server_url, device_name, force_app_launch=False):
+        super().__init__(appium_server_url, device_name, force_app_launch)
+        self.at_main_page = False
+        self.return_to_chats_calls = 0
+
+    def return_to_chats(self):
+        self.return_to_chats_calls += 1
+        self.at_main_page = True
+
+
 class WeChatSenderTest(unittest.TestCase):
     def setUp(self):
         FakeOperator.created = []
@@ -84,6 +95,22 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertFalse(FakeOperator.created[0].force_app_launch)
         self.assertTrue(FakeOperator.created[0].closed)
         self.assertTrue(FakeOperator.created[1].force_app_launch)
+        self.assertEqual(FakeOperator.created[1].sent, [("文件传输助手", ["hello"])])
+
+    def test_attempts_to_return_to_chats_after_restart_before_failing(self):
+        result = send_text_messages(
+            appium_server_url="http://47.115.144.127:6002",
+            device_name="971bd67c0107",
+            receiver="文件传输助手",
+            messages=["hello"],
+            operator_factory=RecoveringRestartOperator,
+            startup_wait_seconds=0,
+            restart_wait_seconds=0,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(len(FakeOperator.created), 2)
+        self.assertEqual(FakeOperator.created[1].return_to_chats_calls, 1)
         self.assertEqual(FakeOperator.created[1].sent, [("文件传输助手", ["hello"])])
 
     def test_invalid_messages_raise_invalid_request(self):
