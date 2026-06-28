@@ -1,9 +1,12 @@
 import unittest
 
 from wechat_sender.appium_text_sender import (
+    DeviceNotReadyError,
     InvalidSendRequestError,
     SendFailedError,
     SendResult,
+    _run_stale_retry,
+    cleanup_appium_device,
     send_text_messages,
 )
 
@@ -79,6 +82,193 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertEqual(FakeOperator.created[0].sent, [("文件传输助手", ["hello", "world"])])
         self.assertTrue(FakeOperator.created[0].closed)
 
+    def test_cleans_appium_state_before_creating_session(self):
+        events = []
+
+        class RecordingOperator(FakeOperator):
+            def __init__(self, appium_server_url, device_name, force_app_launch=False):
+                events.append(("operator", force_app_launch))
+                super().__init__(appium_server_url, device_name, force_app_launch)
+
+        def cleanup(appium_server_url, device_name):
+            events.append(("cleanup", appium_server_url, device_name))
+
+        result = send_text_messages(
+            appium_server_url="http://127.0.0.1:6002",
+            device_name="971bd67c0107",
+            receiver="文件传输助手",
+            messages=["hello"],
+            operator_factory=RecordingOperator,
+            startup_wait_seconds=0,
+            restart_wait_seconds=0,
+            preflight_cleanup=cleanup,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(events[0], ("cleanup", "http://127.0.0.1:6002", "971bd67c0107"))
+        self.assertEqual(events[1], ("operator", False))
+
+    def test_cleanup_deletes_device_sessions_and_stops_uiautomator2(self):
+        http_calls = []
+        command_calls = []
+        get_count = 0
+
+        def http_request(method, url):
+            nonlocal get_count
+            http_calls.append((method, url))
+            if method == "GET":
+                get_count += 1
+                if get_count > 1:
+                    return {"value": []}
+                return {
+                    "value": [
+                        {
+                            "id": "matching-session",
+                            "capabilities": {"udid": "971bd67c0107"},
+                        },
+                        {
+                            "id": "other-session",
+                            "capabilities": {"udid": "other-device"},
+                        },
+                    ]
+                }
+            return {"value": None}
+
+        def command_runner(command, timeout):
+            command_calls.append((command, timeout))
+
+        cleanup_appium_device(
+            appium_server_url="http://127.0.0.1:6002",
+            device_name="971bd67c0107",
+            http_request=http_request,
+            command_runner=command_runner,
+            sleeper=lambda _seconds: None,
+        )
+
+        self.assertIn(("GET", "http://127.0.0.1:6002/sessions"), http_calls)
+        self.assertIn(
+            ("DELETE", "http://127.0.0.1:6002/session/matching-session"),
+            http_calls,
+        )
+        self.assertNotIn(
+            ("DELETE", "http://127.0.0.1:6002/session/other-session"),
+            http_calls,
+        )
+        self.assertIn(
+            (
+                [
+                    "adb",
+                    "-s",
+                    "971bd67c0107",
+                    "shell",
+                    "am",
+                    "force-stop",
+                    "io.appium.uiautomator2.server",
+                ],
+                10,
+            ),
+            command_calls,
+        )
+        self.assertIn(
+            (
+                [
+                    "adb",
+                    "-s",
+                    "971bd67c0107",
+                    "shell",
+                    "am",
+                    "force-stop",
+                    "io.appium.uiautomator2.server.test",
+                ],
+                10,
+            ),
+            command_calls,
+        )
+
+    def test_cleanup_retries_when_sessions_endpoint_is_temporarily_busy(self):
+        http_calls = []
+
+        def http_request(method, url):
+            http_calls.append((method, url))
+            if len(http_calls) == 1:
+                raise TimeoutError("appium is busy")
+            return {"value": []}
+
+        cleanup_appium_device(
+            appium_server_url="http://127.0.0.1:6002",
+            device_name="971bd67c0107",
+            http_request=http_request,
+            command_runner=lambda _command, _timeout: None,
+            sleeper=lambda _seconds: None,
+        )
+
+        self.assertEqual(
+            http_calls,
+            [
+                ("GET", "http://127.0.0.1:6002/sessions"),
+                ("GET", "http://127.0.0.1:6002/sessions"),
+            ],
+        )
+
+    def test_cleanup_raises_when_existing_session_cannot_be_cleared(self):
+        def http_request(method, _url):
+            if method == "GET":
+                return {
+                    "value": [
+                        {
+                            "id": "stuck-session",
+                            "capabilities": {"udid": "971bd67c0107"},
+                        }
+                    ]
+                }
+            return {"value": None}
+
+        with self.assertRaises(DeviceNotReadyError):
+            cleanup_appium_device(
+                appium_server_url="http://127.0.0.1:6002",
+                device_name="971bd67c0107",
+                http_request=http_request,
+                command_runner=lambda _command, _timeout: None,
+                sleeper=lambda _seconds: None,
+                max_attempts=2,
+            )
+
+    def test_retries_stale_object_errors(self):
+        attempts = []
+        sleeps = []
+
+        def operation():
+            attempts.append("called")
+            if len(attempts) == 1:
+                raise RuntimeError("androidx.test.uiautomator.StaleObjectException")
+            return "ok"
+
+        result = _run_stale_retry(
+            operation,
+            attempts=3,
+            sleeper=lambda seconds: sleeps.append(seconds),
+        )
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(sleeps, [0.5])
+
+    def test_does_not_retry_non_stale_errors(self):
+        attempts = []
+
+        def operation():
+            attempts.append("called")
+            raise RuntimeError("send button missing")
+
+        with self.assertRaises(RuntimeError):
+            _run_stale_retry(
+                operation,
+                attempts=3,
+                sleeper=lambda _seconds: None,
+            )
+
+        self.assertEqual(len(attempts), 1)
+
     def test_restarts_wechat_when_initial_session_is_not_at_main_page(self):
         result = send_text_messages(
             appium_server_url="http://47.115.144.127:6002",
@@ -96,6 +286,46 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertTrue(FakeOperator.created[0].closed)
         self.assertTrue(FakeOperator.created[1].force_app_launch)
         self.assertEqual(FakeOperator.created[1].sent, [("文件传输助手", ["hello"])])
+
+    def test_waits_after_closing_before_restart(self):
+        events = []
+
+        class RecordingRestartOperator(FakeOperator):
+            def __init__(self, appium_server_url, device_name, force_app_launch=False):
+                events.append(("operator", force_app_launch))
+                super().__init__(appium_server_url, device_name, force_app_launch)
+                self.at_main_page = force_app_launch
+
+            def close(self):
+                events.append(("close", self.force_app_launch))
+                super().close()
+
+        def sleeper(seconds):
+            events.append(("sleep", seconds))
+
+        result = send_text_messages(
+            appium_server_url="http://47.115.144.127:6002",
+            device_name="971bd67c0107",
+            receiver="文件传输助手",
+            messages=["hello"],
+            operator_factory=RecordingRestartOperator,
+            startup_wait_seconds=0,
+            close_wait_seconds=1,
+            restart_wait_seconds=0,
+            sleeper=sleeper,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(
+            events[:4],
+            [
+                ("operator", False),
+                ("sleep", 0),
+                ("close", False),
+                ("sleep", 1),
+            ],
+        )
+        self.assertEqual(events[4], ("operator", True))
 
     def test_attempts_to_return_to_chats_after_restart_before_failing(self):
         result = send_text_messages(

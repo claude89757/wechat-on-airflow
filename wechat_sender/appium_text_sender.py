@@ -1,7 +1,10 @@
+import json
 import random
+import subprocess
 import time
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable, Optional
+from urllib.request import Request, urlopen
 
 
 class WeChatSenderError(Exception):
@@ -34,6 +37,141 @@ class SendResult:
     device_name: str
     receiver: str
     sent_count: int
+
+
+def _appium_url(appium_server_url: str, path: str) -> str:
+    return f"{appium_server_url.rstrip('/')}{path}"
+
+
+def _http_json_request(method: str, url: str) -> dict[str, Any]:
+    request = Request(url, method=method)
+    with urlopen(request, timeout=10) as response:
+        body = response.read()
+    if not body:
+        return {}
+    return json.loads(body.decode("utf-8"))
+
+
+def _run_cleanup_command(command: list[str], timeout: int) -> None:
+    subprocess.run(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _session_matches_device(session: dict[str, Any], device_name: str) -> bool:
+    capabilities = session.get("capabilities") or {}
+    candidates = {
+        capabilities.get("udid"),
+        capabilities.get("deviceName"),
+        capabilities.get("appium:udid"),
+        capabilities.get("appium:deviceName"),
+    }
+    return device_name in candidates
+
+
+def _is_stale_object_error(exc: Exception) -> bool:
+    message = str(exc)
+    return (
+        "StaleObjectException" in message
+        or "StaleElementReferenceException" in message
+        or "stale element reference" in message.lower()
+    )
+
+
+def _run_stale_retry(
+    operation: Callable[[], Any],
+    attempts: int = 3,
+    sleeper: Callable[[float], None] = time.sleep,
+    wait_seconds: float = 0.5,
+) -> Any:
+    tries = max(attempts, 1)
+    for attempt in range(tries):
+        try:
+            return operation()
+        except Exception as exc:
+            if not _is_stale_object_error(exc) or attempt == tries - 1:
+                raise
+            sleeper(wait_seconds)
+    raise RuntimeError("unreachable")
+
+
+def cleanup_appium_device(
+    appium_server_url: str,
+    device_name: str,
+    http_request: Callable[[str, str], dict[str, Any]] = _http_json_request,
+    command_runner: Callable[[list[str], int], None] = _run_cleanup_command,
+    sleeper: Callable[[float], None] = time.sleep,
+    max_attempts: int = 5,
+    poll_seconds: float = 1.0,
+) -> None:
+    last_error = None
+    session_url = _appium_url(appium_server_url, "/sessions")
+    attempts = max(max_attempts, 1)
+
+    for attempt in range(attempts):
+        try:
+            sessions = http_request("GET", session_url)
+        except Exception as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                sleeper(poll_seconds)
+                continue
+            raise DeviceNotReadyError("unable to read Appium sessions before send") from exc
+
+        matching_sessions = [
+            session
+            for session in sessions.get("value", [])
+            if _session_matches_device(session, device_name)
+        ]
+        if not matching_sessions:
+            break
+
+        for session in matching_sessions:
+            session_id = session.get("id")
+            if not session_id:
+                continue
+            try:
+                http_request("DELETE", _appium_url(appium_server_url, f"/session/{session_id}"))
+            except Exception as exc:
+                last_error = exc
+
+        if attempt < attempts - 1:
+            sleeper(poll_seconds)
+    else:
+        raise DeviceNotReadyError(
+            f"unable to clear existing Appium sessions for device {device_name}"
+        ) from last_error
+
+    for package_name in (
+        "io.appium.uiautomator2.server",
+        "io.appium.uiautomator2.server.test",
+    ):
+        try:
+            command_runner(
+                [
+                    "adb",
+                    "-s",
+                    device_name,
+                    "shell",
+                    "am",
+                    "force-stop",
+                    package_name,
+                ],
+                10,
+            )
+        except Exception:
+            pass
+
+    try:
+        command_runner(["adb", "-s", device_name, "forward", "--remove", "tcp:8200"], 10)
+    except Exception:
+        pass
+
+    sleeper(poll_seconds)
 
 
 class TextWeChatOperator:
@@ -77,36 +215,48 @@ class TextWeChatOperator:
 
         if not self.is_contact_in_recent_chats(receiver):
             try:
-                search_btn = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
-                )
-                search_btn.click()
+                def click_search_button() -> None:
+                    search_btn = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
+                    )
+                    search_btn.click()
+
+                _run_stale_retry(click_search_button)
                 search_input = WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located(
                         (AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']")
                     )
                 )
                 search_input.send_keys(receiver)
-                contact = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located(
-                        (AppiumBy.XPATH, f"//android.widget.TextView[@text='{receiver}']")
+                def click_search_result() -> None:
+                    contact = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located(
+                            (AppiumBy.XPATH, f"//android.widget.TextView[@text='{receiver}']")
+                        )
                     )
-                )
-                contact.click()
+                    contact.click()
+
+                _run_stale_retry(click_search_result)
             except TimeoutException as exc:
                 raise ContactNotFoundError(f"receiver not found: {receiver}") from exc
 
         for index, message in enumerate(messages):
             try:
-                message_input = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((AppiumBy.XPATH, "//android.widget.EditText"))
-                )
-                message_input.send_keys(message)
-                send_btn = self.driver.find_element(
-                    by=AppiumBy.XPATH,
-                    value="//android.widget.Button[@text='发送']",
-                )
-                send_btn.click()
+                def send_current_message() -> None:
+                    message_input = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located(
+                            (AppiumBy.XPATH, "//android.widget.EditText")
+                        )
+                    )
+                    message_input.send_keys(message)
+                    send_btn = WebDriverWait(self.driver, 10).until(
+                        EC.presence_of_element_located(
+                            (AppiumBy.XPATH, "//android.widget.Button[@text='发送']")
+                        )
+                    )
+                    send_btn.click()
+
+                _run_stale_retry(send_current_message)
                 if index < len(messages) - 1:
                     time.sleep(random.uniform(0.3, 3))
             except TimeoutException as exc:
@@ -124,14 +274,19 @@ class TextWeChatOperator:
             time.sleep(1)
 
         for attempt in range(5):
-            contact_elements = self.driver.find_elements(
-                by=AppiumBy.XPATH,
-                value=f"//android.view.View[@text='{receiver}']",
-            )
-            if len(contact_elements) > 1:
-                raise ContactNotFoundError(f"multiple recent chats named {receiver}")
-            if contact_elements:
+            def click_recent_chat_if_visible() -> bool:
+                contact_elements = self.driver.find_elements(
+                    by=AppiumBy.XPATH,
+                    value=f"//android.view.View[@text='{receiver}']",
+                )
+                if len(contact_elements) > 1:
+                    raise ContactNotFoundError(f"multiple recent chats named {receiver}")
+                if not contact_elements:
+                    return False
                 contact_elements[0].click()
+                return True
+
+            if _run_stale_retry(click_recent_chat_if_visible):
                 time.sleep(1)
                 return True
             if attempt < 4:
@@ -221,7 +376,10 @@ def send_text_messages(
     messages: Iterable[str],
     operator_factory: Callable[..., TextWeChatOperator] = TextWeChatOperator,
     startup_wait_seconds: float = 1.0,
+    close_wait_seconds: float = 1.0,
     restart_wait_seconds: float = 3.0,
+    preflight_cleanup: Optional[Callable[[str, str], None]] = None,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> SendResult:
     normalized_messages = _validate_send_request(
         appium_server_url=appium_server_url,
@@ -232,21 +390,24 @@ def send_text_messages(
 
     operator = None
     try:
+        if preflight_cleanup:
+            preflight_cleanup(appium_server_url, device_name)
         operator = operator_factory(
             appium_server_url=appium_server_url,
             device_name=device_name,
             force_app_launch=False,
         )
-        time.sleep(startup_wait_seconds)
+        sleeper(startup_wait_seconds)
         if not operator.is_at_main_page():
             operator.close()
             operator = None
+            sleeper(close_wait_seconds)
             operator = operator_factory(
                 appium_server_url=appium_server_url,
                 device_name=device_name,
                 force_app_launch=True,
             )
-            time.sleep(restart_wait_seconds)
+            sleeper(restart_wait_seconds)
             if not operator.is_at_main_page():
                 operator.return_to_chats()
             if not operator.is_at_main_page():

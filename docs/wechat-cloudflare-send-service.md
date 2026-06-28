@@ -6,7 +6,7 @@
 Caller
   -> Cloudflare Worker /v1/wechat/send
   -> sender-agent on 47.115.144.127
-  -> Appium http://47.115.144.127:6002
+  -> Appium http://127.0.0.1:6002
   -> Android device 971bd67c0107
   -> WeChat Zacks
 ```
@@ -34,7 +34,7 @@ python -m pip install -r requirements-sender-agent.txt
 ```bash
 test -n "${WECHAT_AGENT_TOKEN:?set WECHAT_AGENT_TOKEN before starting sender-agent}"
 export WECHAT_ALLOWED_DEVICE_NAME="971bd67c0107"
-export WECHAT_APPIUM_URL="http://47.115.144.127:6002"
+export WECHAT_APPIUM_URL="http://127.0.0.1:6002"
 uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1
 ```
 
@@ -60,6 +60,8 @@ local_ip = 127.0.0.1
 local_port = 7001
 remote_port = 7001
 ```
+
+The previous `appium-6002` public frp mapping is disabled in the current Raspberry Pi deployment. The sender-agent reaches Appium through `127.0.0.1:6002`; exposing `6002` publicly lets legacy Airflow callers create competing Appium sessions against the same phone.
 
 ## Local Sender-Agent Smoke Test
 
@@ -132,6 +134,7 @@ If `workers.dev` resolves to a non-Cloudflare address or TLS fails before the re
 - Do not expose Appium `6002` as the public API.
 - Expose only sender-agent `7001`.
 - Keep sender-agent at one process unless an external lock is introduced.
+- The sender-agent cleans stale Appium sessions for device `971bd67c0107` and restarts UiAutomator2 state before opening a new session.
 - `409 device_busy` means another request is currently controlling the phone.
 - `502 upstream_unavailable` means Cloudflare cannot reach sender-agent.
 - Log request IDs and error codes at the caller side; do not log token values.

@@ -8,11 +8,16 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from wechat_sender import InvalidSendRequestError, WeChatSenderError, send_text_messages
+from wechat_sender import (
+    InvalidSendRequestError,
+    WeChatSenderError,
+    cleanup_appium_device,
+    send_text_messages,
+)
 
 
 APP_NAME = "wechat-sender-agent"
-DEFAULT_APPIUM_URL = "http://47.115.144.127:6002"
+DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
 DEFAULT_DEVICE_NAME = "971bd67c0107"
 
 app = FastAPI(title=APP_NAME)
@@ -94,6 +99,7 @@ def send_wechat(request: SendRequest, authorization: Optional[str] = Header(defa
             device_name=request.device_name,
             receiver=request.receiver,
             messages=request.messages,
+            preflight_cleanup=cleanup_appium_device,
         )
         return {
             "success": result.success,

@@ -6,13 +6,13 @@ os.environ["WECHAT_AGENT_TOKEN"] = "agent-secret"
 
 from fastapi.testclient import TestClient
 
-from sender_agent.app import app
+import sender_agent.app as sender_app
 from wechat_sender import SendFailedError, SendResult
 
 
 class SenderAgentTest(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        self.client = TestClient(sender_app.app)
         self.headers = {"Authorization": "Bearer agent-secret"}
 
     @patch("sender_agent.app.send_text_messages")
@@ -45,6 +45,16 @@ class SenderAgentTest(unittest.TestCase):
             },
         )
         mock_send.assert_called_once()
+        self.assertIs(
+            mock_send.call_args.kwargs["preflight_cleanup"],
+            sender_app.cleanup_appium_device,
+        )
+
+    def test_defaults_to_local_appium_on_sender_host(self):
+        with patch.dict(os.environ, {}, clear=True):
+            from sender_agent.app import _appium_url
+
+            self.assertEqual(_appium_url(), "http://127.0.0.1:6002")
 
     def test_rejects_missing_token(self):
         response = self.client.post(

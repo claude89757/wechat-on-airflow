@@ -7,6 +7,7 @@ from .appium_text_sender import (
     SendResult,
     TextWeChatOperator,
     WeChatSenderError,
+    cleanup_appium_device,
     send_text_messages,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "SendResult",
     "TextWeChatOperator",
     "WeChatSenderError",
+    "cleanup_appium_device",
     "send_text_messages",
 ]
