@@ -106,6 +106,12 @@ npx wrangler secret put SENDER_AGENT_TOKEN
 
 ## Worker Smoke Test
 
+Current Worker URL:
+
+```bash
+https://wechat-send-gateway.claude89757.workers.dev
+```
+
 ```bash
 curl -sS -X POST "${WECHAT_WORKER_URL:?set WECHAT_WORKER_URL}/v1/wechat/send" \
   -H "Authorization: Bearer ${PUBLIC_API_TOKEN:?set PUBLIC_API_TOKEN}" \
@@ -118,6 +124,8 @@ curl -sS -X POST "${WECHAT_WORKER_URL:?set WECHAT_WORKER_URL}/v1/wechat/send" \
 ```
 
 Expected response has `success: true` and `sent_count: 1`.
+
+If `workers.dev` resolves to a non-Cloudflare address or TLS fails before the request reaches Cloudflare, verify DNS with a trusted resolver or attach a custom domain to the Worker.
 
 ## Operational Notes
 
