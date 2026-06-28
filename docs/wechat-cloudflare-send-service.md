@@ -1,17 +1,17 @@
-# WeChat Cloudflare Send Service
+# WeChat Direct Send Service
 
 ## Architecture
 
 ```text
 Caller
-  -> Cloudflare Worker /v1/wechat/send
+  -> http://47.115.144.127:7001/v1/wechat/send
   -> sender-agent on 47.115.144.127
   -> Appium http://127.0.0.1:6002
   -> Android device 971bd67c0107
   -> WeChat Zacks
 ```
 
-The runtime path does not depend on Airflow. Airflow DAGs can keep using their own code paths, but the remote synchronous API calls only the Worker and sender-agent.
+The current runtime path does not depend on Airflow or a Cloudflare Worker. Callers reach the sender-agent directly through the public IP.
 
 ## Sender-Agent Environment
 
@@ -32,13 +32,12 @@ python -m pip install -r requirements-sender-agent.txt
 ```
 
 ```bash
-test -n "${WECHAT_AGENT_TOKEN:?set WECHAT_AGENT_TOKEN before starting sender-agent}"
 export WECHAT_ALLOWED_DEVICE_NAME="971bd67c0107"
 export WECHAT_APPIUM_URL="http://127.0.0.1:6002"
 uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1
 ```
 
-`WECHAT_AGENT_TOKEN` must match the Cloudflare Worker secret `SENDER_AGENT_TOKEN`.
+The sender endpoint is intentionally public and does not require a token.
 
 For the current Raspberry Pi deployment, the process is started with `nohup` and tracked by `sender-agent.pid`:
 
@@ -68,8 +67,7 @@ The previous `appium-6002` public frp mapping is disabled in the current Raspber
 Run from a machine that can reach `47.115.144.127:7001`:
 
 ```bash
-curl -sS -X POST "http://wechat.claude89757.cc:7001/v1/wechat/send" \
-  -H "Authorization: Bearer ${WECHAT_AGENT_TOKEN:?set WECHAT_AGENT_TOKEN}" \
+curl -sS -X POST "http://47.115.144.127:7001/v1/wechat/send" \
   -H "Content-Type: application/json" \
   -d '{
     "receiver": "文件传输助手",
@@ -89,9 +87,11 @@ Expected response:
 }
 ```
 
-`wechat.claude89757.cc` is a DNS-only Cloudflare A record pointing to `47.115.144.127`. Keep the explicit `:7001` port in direct calls.
+`wechat.claude89757.cc` is a DNS-only Cloudflare A record pointing to `47.115.144.127`, but requests using that Host header are currently intercepted by Aliyun's ICP filing block page. Use the public IP endpoint until the domain is filed or the endpoint is moved behind a proxy/tunnel that avoids this Host-header block. Keep the explicit `:7001` port in direct calls.
 
-## Cloudflare Worker Environment
+## Legacy Cloudflare Worker Environment
+
+The Worker path below is not used by the current public endpoint. Keep it only if a token-protected gateway is needed again later.
 
 Non-secret configuration is committed in `cloudflare/wechat-worker/wrangler.jsonc`:
 
@@ -133,10 +133,11 @@ If `workers.dev` resolves to a non-Cloudflare address or TLS fails before the re
 
 ## Operational Notes
 
+- The direct endpoint is intentionally public. Anyone who can reach it can request a WeChat send from this device.
 - Do not expose Appium `6002` as the public API.
 - Expose only sender-agent `7001`.
 - Keep sender-agent at one process unless an external lock is introduced.
 - The sender-agent cleans stale Appium sessions for device `971bd67c0107` and restarts UiAutomator2 state before opening a new session.
 - `409 device_busy` means another request is currently controlling the phone.
 - `502 upstream_unavailable` means Cloudflare cannot reach sender-agent.
-- Log request IDs and error codes at the caller side; do not log token values.
+- Log request IDs and error codes at the caller side.

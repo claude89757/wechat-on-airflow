@@ -2,8 +2,6 @@ import os
 import unittest
 from unittest.mock import patch
 
-os.environ["WECHAT_AGENT_TOKEN"] = "agent-secret"
-
 from fastapi.testclient import TestClient
 
 import sender_agent.app as sender_app
@@ -13,7 +11,6 @@ from wechat_sender import SendFailedError, SendResult
 class SenderAgentTest(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(sender_app.app)
-        self.headers = {"Authorization": "Bearer agent-secret"}
 
     @patch("sender_agent.app.send_text_messages")
     def test_send_success(self, mock_send):
@@ -26,7 +23,6 @@ class SenderAgentTest(unittest.TestCase):
 
         response = self.client.post(
             "/v1/wechat/send",
-            headers=self.headers,
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],
@@ -56,7 +52,15 @@ class SenderAgentTest(unittest.TestCase):
 
             self.assertEqual(_appium_url(), "http://127.0.0.1:6002")
 
-    def test_rejects_missing_token(self):
+    @patch("sender_agent.app.send_text_messages")
+    def test_allows_request_without_token(self, mock_send):
+        mock_send.return_value = SendResult(
+            success=True,
+            device_name="971bd67c0107",
+            receiver="文件传输助手",
+            sent_count=1,
+        )
+
         response = self.client.post(
             "/v1/wechat/send",
             json={
@@ -66,13 +70,13 @@ class SenderAgentTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["error"], "unauthorized")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        mock_send.assert_called_once()
 
     def test_rejects_wrong_device(self):
         response = self.client.post(
             "/v1/wechat/send",
-            headers=self.headers,
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],
@@ -86,7 +90,6 @@ class SenderAgentTest(unittest.TestCase):
     def test_rejects_invalid_messages(self):
         response = self.client.post(
             "/v1/wechat/send",
-            headers=self.headers,
             json={
                 "receiver": "文件传输助手",
                 "messages": [],
@@ -100,7 +103,6 @@ class SenderAgentTest(unittest.TestCase):
     def test_rejects_empty_message_item(self):
         response = self.client.post(
             "/v1/wechat/send",
-            headers=self.headers,
             json={
                 "receiver": "文件传输助手",
                 "messages": [""],
@@ -117,7 +119,6 @@ class SenderAgentTest(unittest.TestCase):
 
         response = self.client.post(
             "/v1/wechat/send",
-            headers=self.headers,
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],
@@ -134,7 +135,6 @@ class SenderAgentTest(unittest.TestCase):
 
         response = self.client.post(
             "/v1/wechat/send",
-            headers=self.headers,
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],

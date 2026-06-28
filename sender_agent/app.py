@@ -1,9 +1,7 @@
-import hmac
 import os
 from threading import Lock
-from typing import Optional
 
-from fastapi import FastAPI, Header
+from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -51,23 +49,12 @@ def _json_error(status_code: int, error: str, message: str) -> JSONResponse:
     )
 
 
-def _agent_token() -> str:
-    return os.getenv("WECHAT_AGENT_TOKEN", "")
-
-
 def _allowed_device_name() -> str:
     return os.getenv("WECHAT_ALLOWED_DEVICE_NAME", DEFAULT_DEVICE_NAME)
 
 
 def _appium_url() -> str:
     return os.getenv("WECHAT_APPIUM_URL", DEFAULT_APPIUM_URL)
-
-
-def _is_authorized(authorization: Optional[str]) -> bool:
-    token = _agent_token()
-    if not token or not authorization:
-        return False
-    return hmac.compare_digest(authorization, f"Bearer {token}")
 
 
 @app.exception_handler(RequestValidationError)
@@ -81,10 +68,7 @@ def healthz():
 
 
 @app.post("/v1/wechat/send")
-def send_wechat(request: SendRequest, authorization: Optional[str] = Header(default=None)):
-    if not _is_authorized(authorization):
-        return _json_error(401, "unauthorized", "missing or invalid bearer token")
-
+def send_wechat(request: SendRequest):
     allowed_device_name = _allowed_device_name()
     if request.device_name != allowed_device_name:
         return _json_error(403, "device_not_allowed", "requested device is not allowed")
