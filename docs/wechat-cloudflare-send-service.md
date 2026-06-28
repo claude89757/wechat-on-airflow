@@ -17,6 +17,12 @@ The runtime path does not depend on Airflow. Airflow DAGs can keep using their o
 
 Run the sender-agent on `47.115.144.127` with one Uvicorn worker. The in-process device lock is valid only when the service is a single process.
 
+Current deployment directory:
+
+```bash
+/home/claude/wechat-sender-agent
+```
+
 Install the minimal runtime dependencies:
 
 ```bash
@@ -33,6 +39,27 @@ uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1
 ```
 
 `WECHAT_AGENT_TOKEN` must match the Cloudflare Worker secret `SENDER_AGENT_TOKEN`.
+
+For the current Raspberry Pi deployment, the process is started with `nohup` and tracked by `sender-agent.pid`:
+
+```bash
+cd /home/claude/wechat-sender-agent
+set -a
+. ./.env
+set +a
+nohup .venv/bin/python -m uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1 > sender-agent.log 2>&1 &
+echo $! > sender-agent.pid
+```
+
+The current frpc mapping exposes the sender-agent publicly:
+
+```ini
+[wechat-sender-agent]
+type = tcp
+local_ip = 127.0.0.1
+local_port = 7001
+remote_port = 7001
+```
 
 ## Local Sender-Agent Smoke Test
 
