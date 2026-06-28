@@ -17,6 +17,14 @@ The runtime path does not depend on Airflow. Airflow DAGs can keep using their o
 
 Run the sender-agent on `47.115.144.127` with one Uvicorn worker. The in-process device lock is valid only when the service is a single process.
 
+Install the minimal runtime dependencies:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-sender-agent.txt
+```
+
 ```bash
 test -n "${WECHAT_AGENT_TOKEN:?set WECHAT_AGENT_TOKEN before starting sender-agent}"
 export WECHAT_ALLOWED_DEVICE_NAME="971bd67c0107"
