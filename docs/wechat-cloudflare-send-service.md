@@ -68,7 +68,7 @@ The previous `appium-6002` public frp mapping is disabled in the current Raspber
 Run from a machine that can reach `47.115.144.127:7001`:
 
 ```bash
-curl -sS -X POST "http://47.115.144.127:7001/v1/wechat/send" \
+curl -sS -X POST "http://wechat.claude89757.cc:7001/v1/wechat/send" \
   -H "Authorization: Bearer ${WECHAT_AGENT_TOKEN:?set WECHAT_AGENT_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -88,6 +88,8 @@ Expected response:
   "sent_count": 1
 }
 ```
+
+`wechat.claude89757.cc` is a DNS-only Cloudflare A record pointing to `47.115.144.127`. Keep the explicit `:7001` port in direct calls.
 
 ## Cloudflare Worker Environment
 
