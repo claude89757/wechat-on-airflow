@@ -82,6 +82,20 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertEqual(FakeOperator.created[0].sent, [("文件传输助手", ["hello", "world"])])
         self.assertTrue(FakeOperator.created[0].closed)
 
+    def test_normalizes_receiver_whitespace_before_sending(self):
+        result = send_text_messages(
+            appium_server_url="http://47.115.144.127:6002",
+            device_name="971bd67c0107",
+            receiver="  Zacks_大沙河限定免费  ",
+            messages=["hello"],
+            operator_factory=FakeOperator,
+            startup_wait_seconds=0,
+            restart_wait_seconds=0,
+        )
+
+        self.assertEqual(result.receiver, "Zacks_大沙河限定免费")
+        self.assertEqual(FakeOperator.created[0].sent, [("Zacks_大沙河限定免费", ["hello"])])
+
     def test_cleans_appium_state_before_creating_session(self):
         events = []
 

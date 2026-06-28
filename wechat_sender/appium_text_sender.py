@@ -387,6 +387,7 @@ def send_text_messages(
         receiver=receiver,
         messages=messages,
     )
+    normalized_receiver = receiver.strip()
 
     operator = None
     try:
@@ -413,11 +414,11 @@ def send_text_messages(
             if not operator.is_at_main_page():
                 raise DeviceNotReadyError("WeChat main page is not available")
 
-        operator.send_message(receiver=receiver, messages=normalized_messages)
+        operator.send_message(receiver=normalized_receiver, messages=normalized_messages)
         return SendResult(
             success=True,
             device_name=device_name,
-            receiver=receiver,
+            receiver=normalized_receiver,
             sent_count=len(normalized_messages),
         )
     except WeChatSenderError:
