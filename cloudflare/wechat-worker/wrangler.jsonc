@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "wechat-send-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ALLOWED_DEVICE_NAME": "971bd67c0107",
+    "SENDER_AGENT_URL": "http://47.115.144.127:7001"
+  },
+  "secrets": {
+    "required": ["PUBLIC_API_TOKEN", "SENDER_AGENT_TOKEN"]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}
