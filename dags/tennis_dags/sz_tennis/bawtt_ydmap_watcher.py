@@ -20,6 +20,7 @@ from datetime import timedelta
 
 from tennis_dags.utils.tencent_sms import send_sms_for_news
 from tennis_dags.utils.tencent_ses import send_template_email
+from utils.wechat_send_api import send_wechat_text_to_chatrooms
 
 
 TENNIS_COURT_NAME_LIST = [
@@ -204,17 +205,8 @@ def get_tennis_court_infos():
             "Zacks网球场预定小助手",
             "Zacks网球场预定小助手_2群"
         ]
-        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-        
-        for contact_name in chat_names:
-            if contact_name.strip():
-                zacks_up_for_send_msg_list.append({
-                    "room_name": contact_name.strip(),
-                    "msg": all_in_one_msg
-                })
-        
-        Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
-        print(f"已添加消息到发送队列: {all_in_one_msg}")
+        send_wechat_text_to_chatrooms(chat_names, all_in_one_msg)
+        print(f"已通过同步接口发送微信消息: {all_in_one_msg}")
     else:
         print("没有新的空场信息需要发送")
 

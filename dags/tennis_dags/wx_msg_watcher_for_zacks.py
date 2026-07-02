@@ -27,6 +27,7 @@ from utils.appium.wx_appium import send_top_n_image_or_video_msg_by_appium
 from utils.appium.handler_video import push_file_to_device
 from utils.appium.handler_video import clear_mp4_files_in_directory
 from utils.appium.handler_video import upload_file_to_device_via_sftp
+from utils.wechat_send_api import send_wechat_text
 
 
 def monitor_chats(**context):
@@ -84,7 +85,7 @@ def monitor_chats(**context):
         need_handle_tasks.append(f'wx_text_handler_{task_index}')
 
     # 处理Zacks的待发送消息
-    zacks_up_for_send_msg_list = Variable.get(f"ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[])
+    zacks_up_for_send_msg_list = Variable.get(f"ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
     if zacks_up_for_send_msg_list and task_index == 0:
         need_handle_tasks.append('handle_zacks_up_for_send_msg')
 
@@ -105,20 +106,18 @@ def handle_zacks_up_for_send_msg(**context):
     # 乱序待发送的消息列表，保证每个群的优先级是随机的
     # random.shuffle(zacks_up_for_send_msg_list)
 
-    # 发送消息
-    zacks_appium_url = context['ti'].xcom_pull(key=f'zacks_appium_url')
-    zacks_device_name = context['ti'].xcom_pull(key=f'zacks_device_name')
-    print(f"[HANDLE] 获取XCOM: {zacks_appium_url}, {zacks_device_name}")
+    remaining_messages = []
     for msg_info in zacks_up_for_send_msg_list:
         print(f"[HANDLE] 发送消息: {msg_info}")
         try:
-            send_wx_msg_by_appium(zacks_appium_url, zacks_device_name, msg_info['room_name'], [msg_info['msg']])
+            send_wechat_text(msg_info['room_name'], [msg_info['msg']])
         except Exception as e:
             print(f"[HANDLE] 发送消息失败: {e}")
+            remaining_messages.append(msg_info)
         time.sleep(10)
 
-    # 清空Zacks的待发送消息
-    Variable.set(f"ZACKS_UP_FOR_SEND_MSG_LIST", [], serialize_json=True)
+    # 只保留失败的历史队列消息，避免成功消息重复发送
+    Variable.set(f"ZACKS_UP_FOR_SEND_MSG_LIST", remaining_messages, serialize_json=True)
 
 def handle_text_messages(**context):
     """处理文本消息"""

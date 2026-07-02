@@ -35,6 +35,7 @@ from utils.appium.ssh_control import (
     get_image_path,
     pull_image_from_device
 )
+from utils.wechat_send_api import send_wechat_text
 
 class WeChatOperator:
     def __init__(self, appium_server_url: str = 'http://localhost:4723', device_name: str = 'BH901V3R9E', force_app_launch: bool = False, login_info: dict = None):
@@ -1373,42 +1374,16 @@ class WeChatOperator:
 
 def send_wx_msg_by_appium(appium_server_url: str, device_name: str, contact_name: str, messages: list[str]):
     """
-    发送消息到微信, 支持多条消息
-    appium_server_url: Appium服务器URL
+    发送文本消息到微信, 支持多条消息。
+
+    文本发送已切换到远程同步接口，接口地址从 Airflow Variable
+    WECHAT_SEND_API_URL 读取。appium_server_url 参数保留用于兼容历史调用。
+    appium_server_url: 历史Appium服务器URL
     device_name: 设备名称
     contact_name: 联系人名称
     messages: 消息列表
     """
-    # 发送消息
-    wx_operator = None
-    try:
-        # 首先尝试不重启应用
-        print("[INFO] 尝试不重启应用，检查当前是否在微信...")
-        wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=False)
-        time.sleep(1)
-        
-        # 检查是否在微信主页面
-        if wx_operator.is_at_main_page():
-            print("[INFO] 已在微信主页面，无需重启应用")
-        else:
-            # 不在主页面，可能需要关闭当前实例并重启
-            print("[INFO] 不在微信主页面，将关闭当前实例并重启应用")
-            if wx_operator:
-                wx_operator.close()
-
-            # 重新启动微信
-            wx_operator = WeChatOperator(appium_server_url=appium_server_url, device_name=device_name, force_app_launch=True)
-            time.sleep(3)
-        
-        wx_operator.send_message(contact_name=contact_name, messages=messages)
-    except Exception as e:
-        print(f"[ERROR] 发送消息时出错: {str(e)}")
-        import traceback
-        print(f"[ERROR] 详细错误堆栈:\n{traceback.format_exc()}")
-    finally:
-        # 关闭操作器
-        if wx_operator:
-            wx_operator.close()
+    return send_wechat_text(receiver=contact_name, messages=messages, device_name=device_name)
         
 
 def get_recent_new_msg_by_appium(appium_server_url: str, device_name: str, login_info: dict = None) -> dict:

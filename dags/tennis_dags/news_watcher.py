@@ -10,7 +10,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models.variable import Variable
 
-from utils.wechat_channl import send_wx_msg
+from utils.wechat_send_api import send_wechat_text_to_chatrooms
 
 
 def get_bing_news_msg(query: str) -> list:
@@ -112,15 +112,9 @@ def send_news(**context) -> None:
     msg = format_news_message(news_list, keyword)
 
     # 获取微信发送配置
-    zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
     news_room_list = Variable.get("NEWS_ROOM_LIST", deserialize_json=True, default_var=[])
     print(f"news_room_list: {news_room_list}")
-    for news_room in news_room_list:
-        zacks_up_for_send_msg_list.append({
-            "room_name": news_room,
-            "msg": msg
-        })
-    Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+    send_wechat_text_to_chatrooms(news_room_list, msg)
 
 # DAG 定义
 default_args = {

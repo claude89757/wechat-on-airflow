@@ -89,6 +89,23 @@ Expected response:
 
 `wechat.claude89757.cc` is a DNS-only Cloudflare A record pointing to `47.115.144.127`, but requests using that Host header are currently intercepted by Aliyun's ICP filing block page. Use the public IP endpoint until the domain is filed or the endpoint is moved behind a proxy/tunnel that avoids this Host-header block. Keep the explicit `:7001` port in direct calls.
 
+## Airflow DAG Caller Configuration
+
+Airflow DAGs call the sender-agent through `utils.wechat_send_api`. Keep the endpoint in Airflow Variables, not in DAG code.
+
+Required variables:
+
+- `WECHAT_SEND_API_URL`: full sender-agent endpoint URL.
+- `WECHAT_SEND_DEVICE_NAME`: allowed device name, currently `971bd67c0107`.
+
+Optional variables:
+
+- `WECHAT_SEND_TIMEOUT_SECONDS`: request timeout, default `120`.
+- `WECHAT_SEND_RETRY_COUNT`: attempts per send, default `3`.
+- `WECHAT_SEND_RETRY_DELAY_SECONDS`: delay between attempts, default `5`.
+
+Text sends previously routed through `send_wx_msg_by_appium`, `send_wx_msg`, or `ZACKS_UP_FOR_SEND_MSG_LIST` now call the synchronous sender API directly. Media sends still use the existing Appium media helper because `/v1/wechat/send` currently accepts text messages only.
+
 ## Legacy Cloudflare Worker Environment
 
 The Worker path below is not used by the current public endpoint. Keep it only if a token-protected gateway is needed again later.

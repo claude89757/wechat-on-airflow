@@ -24,6 +24,7 @@ from redis import Redis
 
 # 导入LLM功能
 from utils.openrouter import OpenRouter
+from utils.wechat_send_api import send_wechat_text
 
 # 从Airflow变量获取仓库配置
 GITHUB_REPOS = [
@@ -52,6 +53,14 @@ GITHUB_REPOS = [
 # DAG ID
 DAG_ID = "github_multi_repos_watcher"
 DAILY_SUMMARY_DAG_ID = "github_daily_summary"
+
+
+def send_dev_chat_message(message: str) -> None:
+    chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="").strip()
+    if not chat_name:
+        print("未配置 DEV_CHATROOM_NAME，跳过微信发送")
+        return
+    send_wechat_text(chat_name, [message])
 
 # 最大保存的提交记录数量
 MAX_COMMITS = 1000
@@ -201,14 +210,8 @@ def send_github_commits_to_wechat(commits):
         
         message = '\n'.join(msg_list)
         
-        # 发送消息到每个群
-        chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
-        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-        zacks_up_for_send_msg_list.append({
-            "room_name": chat_name,
-            "msg": message
-        })
-        Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+        # 发送消息到开发群
+        send_dev_chat_message(message)
 
 
 def generate_daily_summary(**context):
@@ -277,13 +280,7 @@ def generate_daily_summary(**context):
     # 如果没有今天的提交，返回
     if not all_commits_today:
         print("今天没有任何仓库有提交记录")
-        chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
-        zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-        zacks_up_for_send_msg_list.append({
-            "room_name": chat_name,
-            "msg": f"【GitHub日报】{today}\n今天无提交记录。"
-        })
-        Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+        send_dev_chat_message(f"【GitHub日报】{today}\n今天无提交记录。")
         return
     
     # 准备所有仓库的提交信息，用于生成综合摘要
@@ -348,13 +345,7 @@ def generate_daily_summary(**context):
         return
     
     # 发送综合摘要到微信群
-    chat_name = Variable.get("DEV_CHATROOM_NAME", default_var="")
-    zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-    zacks_up_for_send_msg_list.append({
-        "room_name": chat_name,
-        "msg": f"【GitHub日报】{today}\n{summary}"
-    })
-    Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+    send_dev_chat_message(f"【GitHub日报】{today}\n{summary}")
 
 # 定义实时监控DAG参数
 default_args = {

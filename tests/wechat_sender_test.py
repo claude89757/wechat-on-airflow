@@ -5,7 +5,9 @@ from wechat_sender.appium_text_sender import (
     InvalidSendRequestError,
     SendFailedError,
     SendResult,
+    _recent_chat_xpaths,
     _run_stale_retry,
+    _xpath_literal,
     cleanup_appium_device,
     send_text_messages,
 )
@@ -282,6 +284,21 @@ class WeChatSenderTest(unittest.TestCase):
             )
 
         self.assertEqual(len(attempts), 1)
+
+    def test_recent_chat_xpaths_include_text_view_locator(self):
+        xpaths = _recent_chat_xpaths("Zacks_大沙河限定免费")
+
+        self.assertIn(
+            "//android.widget.TextView[@text='Zacks_大沙河限定免费']",
+            xpaths,
+        )
+        self.assertIn(
+            "//android.view.View[@text='Zacks_大沙河限定免费']",
+            xpaths,
+        )
+
+    def test_xpath_literal_handles_single_quotes(self):
+        self.assertEqual(_xpath_literal("Bob's Group"), '"Bob\'s Group"')
 
     def test_restarts_wechat_when_initial_session_is_not_at_main_page(self):
         result = send_text_messages(

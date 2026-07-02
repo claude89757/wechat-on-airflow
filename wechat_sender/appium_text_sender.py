@@ -99,6 +99,23 @@ def _run_stale_retry(
     raise RuntimeError("unreachable")
 
 
+def _xpath_literal(value: str) -> str:
+    if "'" not in value:
+        return f"'{value}'"
+    if '"' not in value:
+        return f'"{value}"'
+    return "concat(%s)" % ", \"'\", ".join(f"'{part}'" for part in value.split("'"))
+
+
+def _recent_chat_xpaths(receiver: str) -> list[str]:
+    receiver_literal = _xpath_literal(receiver)
+    return [
+        f"//android.widget.TextView[@text={receiver_literal}]",
+        f"//android.view.View[@text={receiver_literal}]",
+        f"//*[contains(@content-desc, {receiver_literal})]",
+    ]
+
+
 def cleanup_appium_device(
     appium_server_url: str,
     device_name: str,
@@ -275,16 +292,18 @@ class TextWeChatOperator:
 
         for attempt in range(5):
             def click_recent_chat_if_visible() -> bool:
-                contact_elements = self.driver.find_elements(
-                    by=AppiumBy.XPATH,
-                    value=f"//android.view.View[@text='{receiver}']",
-                )
-                if len(contact_elements) > 1:
-                    raise ContactNotFoundError(f"multiple recent chats named {receiver}")
-                if not contact_elements:
-                    return False
-                contact_elements[0].click()
-                return True
+                for xpath in _recent_chat_xpaths(receiver):
+                    contact_elements = self.driver.find_elements(
+                        by=AppiumBy.XPATH,
+                        value=xpath,
+                    )
+                    for contact_element in contact_elements:
+                        try:
+                            contact_element.click()
+                            return True
+                        except Exception:
+                            continue
+                return False
 
             if _run_stale_retry(click_recent_chat_if_visible):
                 time.sleep(1)

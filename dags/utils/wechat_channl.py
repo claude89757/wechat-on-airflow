@@ -6,30 +6,24 @@ import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 import socket
 
+from utils.wechat_send_api import send_wechat_text
+
 
 def send_wx_msg(wcf_ip: str, message: str, receiver: str, aters: str = "") -> bool:
     """
-    通过WCF API发送微信消息
+    通过统一的远程微信发送接口发送文本消息。
+
+    保留 wcf_ip/aters 参数是为了兼容历史 DAG 调用；新的发送地址从
+    Airflow Variable WECHAT_SEND_API_URL 读取。
     Args:
-        wcf_ip: WCF服务器IP
+        wcf_ip: 历史WCF服务器IP，当前不再使用
         message: 要发送的消息内容
         receiver: 接收者
-        aters: 要@的用户，可选
+        aters: 历史@参数，当前远程发送接口暂不支持
     """
-    wcf_port = os.getenv("WCF_API_PORT", "9999")
-    wcf_api_url = f"http://{wcf_ip}:{wcf_port}/text"
-
-    payload = {"msg": message, "receiver": receiver, "aters": aters}
-
-    print(f"[WECHAT_CHANNEL] wcf_api_url: {wcf_api_url}")
-    print(f"[WECHAT_CHANNEL] Payload: {payload}")
-    response = requests.post(wcf_api_url, json=payload, headers={'Content-Type': 'application/json'})
-    print(f"[WECHAT_CHANNEL] response: {response.status_code} - {response.text}")
-    
-    response.raise_for_status()
-    result = response.json()
-    if result.get('status') != 0:
-        raise Exception(f"发送失败: {result.get('message', '未知错误')}")
+    if aters:
+        print("[WECHAT_CHANNEL] aters is ignored by the remote text sender api")
+    send_wechat_text(receiver=receiver, messages=[message])
     return True
         
 

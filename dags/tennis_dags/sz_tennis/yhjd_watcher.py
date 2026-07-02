@@ -26,6 +26,7 @@ from Crypto.Util.Padding import unpad
 
 from tennis_dags.utils.tencent_sms import send_sms_for_news
 from tennis_dags.utils.tencent_ses import send_template_email
+from utils.wechat_send_api import send_wechat_text_to_chatrooms
 
 
 # DAG的默认参数
@@ -503,15 +504,9 @@ def check_tennis_courts():
 
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
-            zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
             chat_names_list = str(chat_names).splitlines()
             print(f"chat_names_list: {chat_names_list}")
-            for contact_name in chat_names_list:
-                zacks_up_for_send_msg_list.append({
-                    "room_name": contact_name,
-                    "msg": all_in_one_msg
-                })
-            Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+            send_wechat_text_to_chatrooms(chat_names_list, all_in_one_msg)
 
             sended_msg_list.extend(up_for_send_msg_list)
 

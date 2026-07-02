@@ -18,6 +18,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.tencent_sms import send_sms_for_news
+from utils.wechat_send_api import send_wechat_text_to_chatrooms
 
 # DAG的默认参数
 default_args = {
@@ -320,13 +321,7 @@ def check_tennis_courts():
 
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
-            zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-            for contact_name in str(chat_names).splitlines():
-                zacks_up_for_send_msg_list.append({
-                    "room_name": contact_name,
-                    "msg": all_in_one_msg
-                })
-            Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
+            send_wechat_text_to_chatrooms(chat_names, all_in_one_msg)
                     
             sended_msg_list.extend(up_for_send_msg_list)
 
@@ -366,4 +361,4 @@ check_courts_task = PythonOperator(
 )
 
 # 设置任务依赖关系
-check_courts_task 
+check_courts_task

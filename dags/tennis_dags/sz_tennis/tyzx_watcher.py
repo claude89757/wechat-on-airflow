@@ -22,6 +22,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.tencent_sms import send_sms_for_news
+from utils.wechat_send_api import send_wechat_text_to_chatrooms
 
 # ============================
 # 签名算法部分
@@ -808,16 +809,8 @@ def check_tennis_courts():
                 for chat_name in chat_list:
                     print(f"  💬 {chat_name}")
                 
-                zacks_up_for_send_msg_list = Variable.get("ZACKS_UP_FOR_SEND_MSG_LIST", default_var=[], deserialize_json=True)
-                for contact_name in chat_list:
-                    zacks_up_for_send_msg_list.append({
-                        "room_name": contact_name,
-                        "msg": all_in_one_msg
-                    })
-                    print(f"✅ 已加入发送队列: {contact_name}")
-                
-                Variable.set("ZACKS_UP_FOR_SEND_MSG_LIST", zacks_up_for_send_msg_list, serialize_json=True)
-                print(f"📤 微信消息队列已更新, 当前队列长度: {len(zacks_up_for_send_msg_list)}")
+                send_wechat_text_to_chatrooms(chat_list, all_in_one_msg)
+                print("📤 微信消息已通过同步接口发送")
             else:
                 print(f"⚠️ 未配置微信群聊 (SZ_TYZX_TENNIS_CHATROOMS为空)")
                     

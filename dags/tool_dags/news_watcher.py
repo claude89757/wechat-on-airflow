@@ -10,7 +10,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models.variable import Variable
 
-from utils.wechat_channl import send_wx_msg
+from utils.wechat_send_api import send_wechat_text_to_chatrooms
 
 
 def get_bing_news_msg(query: str) -> list:
@@ -110,17 +110,10 @@ def send_news(**context) -> None:
     msg = format_news_message(news_list, keyword)
 
     # 获取微信发送配置
-    wcf_ip = Variable.get("WCF_IP")
     news_room_id_list = Variable.get("NEWS_ROOM_ID_LIST", deserialize_json=True, default_var=[])
 
     # 发送消息到每个群
-    for room_id in news_room_id_list:
-        send_wx_msg(
-            wcf_ip=wcf_ip,
-            message=msg,
-            receiver=room_id,
-            aters=''
-        )
+    send_wechat_text_to_chatrooms(news_room_id_list, msg)
 
 # DAG 定义
 default_args = {
