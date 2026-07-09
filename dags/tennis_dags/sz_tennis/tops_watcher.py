@@ -471,20 +471,23 @@ def check_tennis_courts():
         )
 
         if up_for_send_msg_list:
+            # 先落库再发送：发送失败也不重复推同一时段，避免邮件/微信刷屏
+            sended_msg_list.extend(up_for_send_msg_list)
+            description = (
+                f"TOPS科技园网球场场地通知 - 最后更新: "
+                f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            Variable.set(
+                key=CACHE_KEY,
+                value=sended_msg_list[-100:],
+                description=description,
+                serialize_json=True
+            )
+            print(f"updated {CACHE_KEY} with {len(sended_msg_list)} records")
+
             all_in_one_msg = "\n".join(up_for_send_msg_list)
             send_email_notifications(up_for_send_sms_list)
             enqueue_wechat_message(all_in_one_msg)
-            sended_msg_list.extend(up_for_send_msg_list)
-
-        # 更新Variable - 保留最近100条
-        description = f"TOPS科技园网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        Variable.set(
-            key=CACHE_KEY,
-            value=sended_msg_list[-100:],
-            description=description,
-            serialize_json=True
-        )
-        print(f"updated {CACHE_KEY} with {len(sended_msg_list)} records")
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time
