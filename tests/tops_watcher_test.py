@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
+ROOT_DIR = Path(__file__).resolve().parents[1]
 DAGS_DIR = ROOT_DIR / "dags"
 if str(DAGS_DIR) not in sys.path:
     sys.path.insert(0, str(DAGS_DIR))
