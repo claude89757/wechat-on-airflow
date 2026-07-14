@@ -103,6 +103,9 @@ Optional variables:
 - `WECHAT_SEND_TIMEOUT_SECONDS`: request timeout, default `120`.
 - `WECHAT_SEND_RETRY_COUNT`: attempts per send, default `3`.
 - `WECHAT_SEND_RETRY_DELAY_SECONDS`: delay between attempts, default `5`.
+- `WECHAT_SEND_FALLBACK_MAX_ITEMS`: maximum failed-send records retained, default `200`.
+
+Venue notification DAGs use a best-effort WeChat path. They persist the venue notification cache first, send email second, and attempt WeChat last. A WeChat failure does not fail the DAG or cause the same email notification to be sent again. Failed chat sends are deduplicated into the Airflow-managed `WECHAT_SEND_FALLBACK_OUTBOX` variable with timestamps and an attempt count; this outbox is diagnostic and is not retried automatically.
 
 Text sends previously routed through `send_wx_msg_by_appium`, `send_wx_msg`, or `ZACKS_UP_FOR_SEND_MSG_LIST` now call the synchronous sender API directly. Media sends still use the existing Appium media helper because `/v1/wechat/send` currently accepts text messages only.
 

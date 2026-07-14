@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import hashlib
 import time
+from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 import requests
@@ -12,6 +14,8 @@ WECHAT_SEND_DEVICE_NAME_VAR = "WECHAT_SEND_DEVICE_NAME"
 WECHAT_SEND_TIMEOUT_SECONDS_VAR = "WECHAT_SEND_TIMEOUT_SECONDS"
 WECHAT_SEND_RETRY_COUNT_VAR = "WECHAT_SEND_RETRY_COUNT"
 WECHAT_SEND_RETRY_DELAY_SECONDS_VAR = "WECHAT_SEND_RETRY_DELAY_SECONDS"
+WECHAT_SEND_FALLBACK_OUTBOX_VAR = "WECHAT_SEND_FALLBACK_OUTBOX"
+WECHAT_SEND_FALLBACK_MAX_ITEMS_VAR = "WECHAT_SEND_FALLBACK_MAX_ITEMS"
 
 
 class WeChatSendApiError(Exception):
@@ -22,6 +26,16 @@ def _get_variable(key: str, default_var=None, deserialize_json: bool = False):
     from airflow.models import Variable
 
     return Variable.get(key, default_var=default_var, deserialize_json=deserialize_json)
+
+
+def _set_variable(key: str, value, serialize_json: bool = False):
+    from airflow.models import Variable
+
+    Variable.set(key, value, serialize_json=serialize_json)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _normalize_messages(messages: Iterable[str]) -> list[str]:
@@ -144,6 +158,81 @@ def send_wechat_text_to_chatrooms(chatrooms, message: str, device_name: Optional
 
     for chatroom in chatroom_list:
         results.append(send_wechat_text(chatroom, [message], device_name=device_name))
+    return results
+
+
+def _record_failed_send(receiver: str, message: str, source: str, error: Exception) -> dict:
+    now = _utc_now()
+    failure_id = hashlib.sha256(
+        f"{source}\0{receiver}\0{message}".encode("utf-8")
+    ).hexdigest()
+    outbox = _get_variable(
+        WECHAT_SEND_FALLBACK_OUTBOX_VAR,
+        default_var=[],
+        deserialize_json=True,
+    )
+    if not isinstance(outbox, list):
+        outbox = []
+
+    entry = {
+        "id": failure_id,
+        "source": source,
+        "receiver": receiver,
+        "message": message,
+        "error": str(error)[:1000],
+        "first_failed_at": now,
+        "last_failed_at": now,
+        "attempt_count": 1,
+    }
+
+    for index, existing in enumerate(outbox):
+        if isinstance(existing, dict) and existing.get("id") == failure_id:
+            entry["first_failed_at"] = existing.get("first_failed_at") or now
+            entry["attempt_count"] = int(existing.get("attempt_count") or 0) + 1
+            outbox[index] = entry
+            break
+    else:
+        outbox.append(entry)
+
+    max_items = max(_get_int_variable(WECHAT_SEND_FALLBACK_MAX_ITEMS_VAR, 200), 1)
+    _set_variable(
+        WECHAT_SEND_FALLBACK_OUTBOX_VAR,
+        outbox[-max_items:],
+        serialize_json=True,
+    )
+    return entry
+
+
+def send_wechat_text_to_chatrooms_best_effort(
+    chatrooms,
+    message: str,
+    device_name: Optional[str] = None,
+    source: str = "unknown",
+) -> list[dict]:
+    """Send each chat independently and persist failures without raising."""
+    results = []
+    chatroom_list = _normalize_chatrooms(chatrooms)
+    normalized_source = str(source).strip() or "unknown"
+    print(f"[WECHAT_SEND_FALLBACK] target_chatrooms={chatroom_list}, source={normalized_source}")
+
+    for chatroom in chatroom_list:
+        try:
+            result = send_wechat_text(chatroom, [message], device_name=device_name)
+            results.append({"success": True, "receiver": chatroom, "result": result})
+        except Exception as exc:
+            print(
+                f"[WECHAT_SEND_FALLBACK] send failed receiver={chatroom}, "
+                f"source={normalized_source}, error={exc}"
+            )
+            try:
+                _record_failed_send(chatroom, message, normalized_source, exc)
+            except Exception as fallback_exc:
+                print(
+                    f"[WECHAT_SEND_FALLBACK] persistence failed receiver={chatroom}, "
+                    f"source={normalized_source}, error={fallback_exc}"
+                )
+            results.append({"success": False, "receiver": chatroom, "error": str(exc)})
+
     return results
 
 

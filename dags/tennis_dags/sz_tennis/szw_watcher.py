@@ -19,7 +19,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
-from utils.wechat_send_api import send_wechat_text_to_chatrooms
+from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
 
 
 # DAG的默认参数
@@ -279,6 +279,16 @@ def check_and_notify_for_day(day_offset: int):
                     })
 
         if up_for_send_msg_list:
+            sended_msg_list.extend(up_for_send_msg_list)
+            description = f"深圳湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            Variable.set(
+                key=cache_key,
+                value=sended_msg_list[-100:],
+                description=description,
+                serialize_json=True
+            )
+            print(f"updated {cache_key} with {sended_msg_list} before delivery")
+
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
             # 发送邮件
@@ -314,19 +324,11 @@ def check_and_notify_for_day(day_offset: int):
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
             chat_names_list = str(chat_names).splitlines()
             print(f"chat_names_list: {chat_names_list}")
-            send_wechat_text_to_chatrooms(chat_names_list, all_in_one_msg)
-            
-            sended_msg_list.extend(up_for_send_msg_list)
-
-        # 更新Variable
-        description = f"深圳湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        Variable.set(
-            key=cache_key,
-            value=sended_msg_list[-100:],
-            description=description,
-            serialize_json=True
-        )
-        print(f"updated {cache_key} with {sended_msg_list}")
+            send_wechat_text_to_chatrooms_best_effort(
+                chat_names_list,
+                all_in_one_msg,
+                source="深圳湾网球场巡检",
+            )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

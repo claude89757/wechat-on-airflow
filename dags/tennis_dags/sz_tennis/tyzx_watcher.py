@@ -22,7 +22,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from utils.tencent_sms import send_sms_for_news
-from utils.wechat_send_api import send_wechat_text_to_chatrooms
+from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
 
 # ============================
 # 签名算法部分
@@ -797,7 +797,17 @@ def check_tennis_courts():
             print(f"\n📨 准备发送 {len(up_for_send_msg_list)} 条新通知:")
             for i, msg in enumerate(up_for_send_msg_list, 1):
                 print(f"  {i}. {msg}")
-            
+
+            sended_msg_list.extend(up_for_send_msg_list)
+            description = f"深圳市体育中心网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            Variable.set(
+                key=cache_key,
+                value=sended_msg_list[-10:],
+                description=description,
+                serialize_json=True
+            )
+            print(f"💾 updated {cache_key} before delivery")
+
             all_in_one_msg = "\n".join(up_for_send_msg_list) 
 
             # 发送微信消息
@@ -809,30 +819,14 @@ def check_tennis_courts():
                 for chat_name in chat_list:
                     print(f"  💬 {chat_name}")
                 
-                send_wechat_text_to_chatrooms(chat_list, all_in_one_msg)
-                print("📤 微信消息已通过同步接口发送")
+                send_wechat_text_to_chatrooms_best_effort(
+                    chat_list,
+                    all_in_one_msg,
+                    source="深圳市体育中心网球场巡检",
+                )
+                print("📤 微信消息已交由 best-effort 旁路处理")
             else:
                 print(f"⚠️ 未配置微信群聊 (SZ_TYZX_TENNIS_CHATROOMS为空)")
-                    
-            sended_msg_list.extend(up_for_send_msg_list)
-
-        # 更新Variable
-        description = f"深圳市体育中心网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        Variable.set(
-            key=cache_key,
-            value=sended_msg_list[-10:],  # 只保留最近10条记录
-            description=description,
-            serialize_json=True
-        )
-        print(f"\n💾 更新通知缓存:")
-        print(f"   📝 缓存键: {cache_key}")
-        print(f"   📊 保留记录数: {len(sended_msg_list[-10:])}/10")
-        print(f"   🕐 更新时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        if up_for_send_msg_list:
-            print(f"   ✅ 本次新增: {len(up_for_send_msg_list)} 条通知")
-        else:
-            print(f"   ℹ️ 本次无新通知")
     else:
         print(f"\n📭 本次巡检结果: 未发现符合条件的空闲场地")
 

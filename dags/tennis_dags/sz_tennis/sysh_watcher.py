@@ -18,7 +18,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
-from utils.wechat_send_api import send_wechat_text_to_chatrooms
+from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
 
 from tennis_dags.utils.tencent_ses import send_template_email
 
@@ -382,6 +382,16 @@ def check_tennis_courts():
                     })
 
         if up_for_send_msg_list:
+            sended_msg_list.extend(up_for_send_msg_list)
+            description = f"上越沙河网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            Variable.set(
+                key=CACHE_KEY,
+                value=sended_msg_list[-100:],
+                description=description,
+                serialize_json=True
+            )
+            print(f"updated {CACHE_KEY} with {len(sended_msg_list)} records before delivery")
+
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
             # 发送邮件
@@ -417,19 +427,11 @@ def check_tennis_courts():
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
             chat_names_list = str(chat_names).splitlines()
             print(f"chat_names_list: {chat_names_list}")
-            send_wechat_text_to_chatrooms(chat_names_list, all_in_one_msg)
-
-            sended_msg_list.extend(up_for_send_msg_list)
-
-        # 更新Variable - 保留最近100条
-        description = f"上越沙河网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        Variable.set(
-            key=CACHE_KEY,
-            value=sended_msg_list[-100:],
-            description=description,
-            serialize_json=True
-        )
-        print(f"updated {CACHE_KEY} with {len(sended_msg_list)} records")
+            send_wechat_text_to_chatrooms_best_effort(
+                chat_names_list,
+                all_in_one_msg,
+                source="上越沙河网球场巡检",
+            )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

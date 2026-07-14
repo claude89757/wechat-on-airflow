@@ -213,7 +213,7 @@ class TopsWatcherTest(unittest.TestCase):
         finally:
             tops_watcher.requests.post = original_post
 
-    def test_check_tennis_courts_persists_cache_before_send_failure(self):
+    def test_check_tennis_courts_keeps_email_and_cache_when_wechat_falls_back(self):
         FakeVariable.values = {}
         expected_msg = "【TOPS科技园室外6号场】星期六(07-11)空场: 07:00-17:00"
 
@@ -239,25 +239,27 @@ class TopsWatcherTest(unittest.TestCase):
             return {}
 
         email_calls = []
+        wechat_calls = []
 
         def fake_send_email(payloads):
             email_calls.append(payloads)
 
-        def fail_wechat(msg):
-            raise RuntimeError("device_busy")
+        def fallback_wechat(msg):
+            wechat_calls.append(msg)
+            return [{"success": False, "error": "device_busy"}]
 
         tops_watcher.load_proxy_list = lambda: []
         tops_watcher.get_tennis_court_availability = fake_get_availability
         tops_watcher.send_email_notifications = fake_send_email
-        tops_watcher.enqueue_wechat_message = fail_wechat
+        tops_watcher.enqueue_wechat_message = fallback_wechat
         tops_watcher.datetime = FixedDatetimeModule
 
         try:
-            with self.assertRaisesRegex(RuntimeError, "device_busy"):
-                tops_watcher.check_tennis_courts()
+            tops_watcher.check_tennis_courts()
 
             self.assertIn(expected_msg, FakeVariable.values.get(tops_watcher.CACHE_KEY, []))
             self.assertEqual(len(email_calls), 1)
+            self.assertEqual(wechat_calls, [expected_msg])
         finally:
             tops_watcher.load_proxy_list = original_load_proxy
             tops_watcher.get_tennis_court_availability = original_get_availability

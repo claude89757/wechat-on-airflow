@@ -20,7 +20,7 @@ from airflow.models import Variable
 from datetime import timedelta
 
 from tennis_dags.utils.tencent_ses import send_template_email
-from utils.wechat_send_api import send_wechat_text_to_chatrooms
+from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
 
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -394,11 +394,15 @@ def print_court_data(input_date: str, court_data: Dict[str, List[List[str]]]):
 
 
 def enqueue_wechat_message(all_in_one_msg: str):
-    """通过同步接口发送微信消息。"""
+    """通过 best-effort 旁路发送微信消息。"""
     chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
     chat_names_list = str(chat_names).splitlines()
     print(f"chat_names_list: {chat_names_list}")
-    send_wechat_text_to_chatrooms(chat_names_list, all_in_one_msg)
+    return send_wechat_text_to_chatrooms_best_effort(
+        chat_names_list,
+        all_in_one_msg,
+        source="TOPS科技园网球场巡检",
+    )
 
 
 def send_email_notifications(up_for_send_sms_list: List[dict]):
