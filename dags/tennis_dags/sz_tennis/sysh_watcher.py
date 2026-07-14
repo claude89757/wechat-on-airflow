@@ -394,7 +394,11 @@ def check_tennis_courts():
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
-            send_venue_email_batch("上越沙河网球场", up_for_send_sms_list)
+            send_venue_email_batch(
+                "上越沙河网球场",
+                up_for_send_sms_list,
+                recipients_var="SYSH_EMAIL_LIST",
+            )
 
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")

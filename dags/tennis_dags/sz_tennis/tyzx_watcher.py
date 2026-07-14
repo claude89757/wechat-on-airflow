@@ -809,7 +809,11 @@ def check_tennis_courts():
             )
             print(f"💾 updated {cache_key} before delivery")
 
-            send_venue_email_batch("深圳市体育中心网球场", up_for_send_sms_list)
+            send_venue_email_batch(
+                "深圳市体育中心网球场",
+                up_for_send_sms_list,
+                recipients_var="TYZX_EMAIL_LIST",
+            )
 
             all_in_one_msg = "\n".join(up_for_send_msg_list) 
 

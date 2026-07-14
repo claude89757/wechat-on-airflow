@@ -1,10 +1,14 @@
 # Venue Email Notifications
 
-All active Shenzhen venue watchers share one Airflow Variable:
+Each active Shenzhen venue watcher uses its own Airflow Variable:
 
-- `SZ_TENNIS_EMAIL_LIST`: JSON list containing the subscribers for all active venues.
+- `SZW_EMAIL_LIST`: Shenzhen Bay subscribers.
+- `JDWX_EMAIL_LIST`: Jindi subscribers.
+- `SYSH_EMAIL_LIST`: Shangyue Shahe subscribers.
+- `TOPS_EMAIL_LIST`: TOPS subscribers.
+- `TYZX_EMAIL_LIST`: Shenzhen Sports Center subscribers.
 
-The legacy `SZW_EMAIL_LIST` and `JDWX_EMAIL_LIST` variables are retained only for rollback and are not read by active DAG code.
+Each variable must be a JSON list of email addresses. There is no global recipient list and no fallback to another venue's list. A venue with a missing, empty, or invalid list does not send email; its failure is written to the fallback outbox instead.
 
 Each venue watcher persists its detection cache first and then calls the common venue email helper. All newly detected slots from one watcher run are combined into one Tencent SES request. This prevents one-email-per-slot bursts from triggering per-recipient frequency limits.
 

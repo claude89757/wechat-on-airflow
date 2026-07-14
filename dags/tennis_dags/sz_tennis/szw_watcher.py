@@ -291,7 +291,11 @@ def check_and_notify_for_day(day_offset: int):
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
-            send_venue_email_batch("深圳湾网球场", up_for_send_sms_list)
+            send_venue_email_batch(
+                "深圳湾网球场",
+                up_for_send_sms_list,
+                recipients_var="SZW_EMAIL_LIST",
+            )
 
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")

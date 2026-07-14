@@ -7,7 +7,6 @@ import re
 from datetime import datetime, timezone
 from typing import Iterable
 
-SZ_TENNIS_EMAIL_LIST_VAR = "SZ_TENNIS_EMAIL_LIST"
 EMAIL_SEND_FALLBACK_OUTBOX_VAR = "EMAIL_SEND_FALLBACK_OUTBOX"
 EMAIL_SEND_FALLBACK_MAX_ITEMS_VAR = "EMAIL_SEND_FALLBACK_MAX_ITEMS"
 EMAIL_TEMPLATE_ID = 33340
@@ -44,9 +43,9 @@ def _get_int_variable(key: str, default: int) -> int:
         return default
 
 
-def _normalize_recipients(value) -> list[str]:
+def _normalize_recipients(value, recipients_var: str) -> list[str]:
     if not isinstance(value, list):
-        raise ValueError(f"Airflow Variable {SZ_TENNIS_EMAIL_LIST_VAR} must be a JSON list")
+        raise ValueError(f"Airflow Variable {recipients_var} must be a JSON list")
 
     recipients = []
     seen = set()
@@ -65,10 +64,10 @@ def _normalize_recipients(value) -> list[str]:
 
     if invalid_count:
         raise ValueError(
-            f"Airflow Variable {SZ_TENNIS_EMAIL_LIST_VAR} contains {invalid_count} invalid email entries"
+            f"Airflow Variable {recipients_var} contains {invalid_count} invalid email entries"
         )
     if not recipients:
-        raise ValueError(f"Airflow Variable {SZ_TENNIS_EMAIL_LIST_VAR} must contain recipients")
+        raise ValueError(f"Airflow Variable {recipients_var} must contain recipients")
     return recipients
 
 
@@ -88,10 +87,17 @@ def _normalize_notifications(notifications: Iterable[dict]) -> list[dict]:
     return normalized
 
 
-def _record_failed_batch(source: str, notifications: list[dict], error: str) -> dict:
+def _record_failed_batch(
+    source: str,
+    notifications: list[dict],
+    recipients_var: str,
+    error: str,
+) -> dict:
     now = _utc_now()
     canonical_payload = json.dumps(notifications, ensure_ascii=False, sort_keys=True)
-    failure_id = hashlib.sha256(f"{source}\0{canonical_payload}".encode("utf-8")).hexdigest()
+    failure_id = hashlib.sha256(
+        f"{source}\0{recipients_var}\0{canonical_payload}".encode("utf-8")
+    ).hexdigest()
     outbox = _get_variable(
         EMAIL_SEND_FALLBACK_OUTBOX_VAR,
         default_var=[],
@@ -103,6 +109,7 @@ def _record_failed_batch(source: str, notifications: list[dict], error: str) -> 
     entry = {
         "id": failure_id,
         "source": source,
+        "recipients_var": recipients_var,
         "notifications": notifications,
         "notification_count": len(notifications),
         "error": str(error)[:1000],
@@ -128,9 +135,14 @@ def _record_failed_batch(source: str, notifications: list[dict], error: str) -> 
     return entry
 
 
-def _record_failure_safely(source: str, notifications: list[dict], error: str) -> bool:
+def _record_failure_safely(
+    source: str,
+    notifications: list[dict],
+    recipients_var: str,
+    error: str,
+) -> bool:
     try:
-        _record_failed_batch(source, notifications, error)
+        _record_failed_batch(source, notifications, recipients_var, error)
         return True
     except Exception as fallback_exc:
         print(
@@ -140,25 +152,55 @@ def _record_failure_safely(source: str, notifications: list[dict], error: str) -
         return False
 
 
-def send_venue_email_batch(source: str, notifications: Iterable[dict]) -> dict:
+def send_venue_email_batch(
+    source: str,
+    notifications: Iterable[dict],
+    *,
+    recipients_var: str,
+) -> dict:
     """Send one email for all newly detected slots without raising to the DAG."""
     normalized_source = str(source).strip() or "unknown"
+    normalized_recipients_var = str(recipients_var).strip()
     normalized_notifications = _normalize_notifications(notifications)
     if not normalized_notifications:
         return {"success": True, "skipped": True, "notification_count": 0}
 
+    if not normalized_recipients_var:
+        error = "recipients_var must be provided for each venue"
+        recorded = _record_failure_safely(
+            normalized_source,
+            normalized_notifications,
+            normalized_recipients_var,
+            error,
+        )
+        return {
+            "success": False,
+            "error": error,
+            "fallback_recorded": recorded,
+            "notification_count": len(normalized_notifications),
+        }
+
     try:
         recipients = _normalize_recipients(
             _get_variable(
-                SZ_TENNIS_EMAIL_LIST_VAR,
+                normalized_recipients_var,
                 default_var=[],
                 deserialize_json=True,
-            )
+            ),
+            normalized_recipients_var,
         )
     except Exception as exc:
         error = str(exc)
-        recorded = _record_failure_safely(normalized_source, normalized_notifications, error)
-        print(f"[VENUE_EMAIL] configuration failed source={normalized_source}, error={error}")
+        recorded = _record_failure_safely(
+            normalized_source,
+            normalized_notifications,
+            normalized_recipients_var,
+            error,
+        )
+        print(
+            f"[VENUE_EMAIL] configuration failed source={normalized_source}, "
+            f"config_var={normalized_recipients_var}, error={error}"
+        )
         return {
             "success": False,
             "error": error,
@@ -172,7 +214,9 @@ def send_venue_email_batch(source: str, notifications: Iterable[dict]) -> dict:
     ]
     print(
         f"[VENUE_EMAIL] sending source={normalized_source}, "
-        f"notification_count={len(normalized_notifications)}, recipient_count={len(recipients)}"
+        f"config_var={normalized_recipients_var}, "
+        f"notification_count={len(normalized_notifications)}, "
+        f"recipient_count={len(recipients)}"
     )
 
     try:
@@ -199,7 +243,12 @@ def send_venue_email_batch(source: str, notifications: Iterable[dict]) -> dict:
         return result
 
     error = str(result.get("error") or "email send failed")
-    recorded = _record_failure_safely(normalized_source, normalized_notifications, error)
+    recorded = _record_failure_safely(
+        normalized_source,
+        normalized_notifications,
+        normalized_recipients_var,
+        error,
+    )
     print(f"[VENUE_EMAIL] send failed source={normalized_source}, error={error}")
     return {
         **result,

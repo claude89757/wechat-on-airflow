@@ -407,7 +407,11 @@ def enqueue_wechat_message(all_in_one_msg: str):
 
 def send_email_notifications(up_for_send_sms_list: List[dict]):
     """批量发送邮件通知。"""
-    return send_venue_email_batch("TOPS科技园网球场", up_for_send_sms_list)
+    return send_venue_email_batch(
+        "TOPS科技园网球场",
+        up_for_send_sms_list,
+        recipients_var="TOPS_EMAIL_LIST",
+    )
 
 
 def check_tennis_courts():
