@@ -20,7 +20,7 @@ from airflow.models import Variable
 from datetime import timedelta
 from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
 
-from tennis_dags.utils.tencent_ses import send_template_email
+from tennis_dags.utils.venue_email import send_venue_email_batch
 
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -394,34 +394,7 @@ def check_tennis_courts():
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
-            # 发送邮件
-            try:
-                email_list = Variable.get("SZW_EMAIL_LIST", default_var=[], deserialize_json=True)
-                if email_list:
-                    for data in up_for_send_sms_list:
-                        date_obj = datetime.datetime.strptime(f"{datetime.datetime.now().year}-{data['date']}", "%Y-%m-%d")
-                        weekday = date_obj.weekday()
-                        weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
-                        formatted_date = date_obj.strftime("%Y年%m月%d日")
-
-                        result = send_template_email(
-                            subject=f"【{data['court_name']}】星期{weekday_str} {data['start_time']} - {data['end_time']}",
-                            template_id=33340,
-                            template_data={
-                                "COURT_NAME": data['court_name'],
-                                "FREE_TIME": f"{formatted_date}(星期{weekday_str}) {data['start_time']}-{data['end_time']}"
-                            },
-                            recipients=email_list,
-                            from_email="Zacks <tennis@zacks.com.cn>",
-                            reply_to="tennis@zacks.com.cn",
-                            trigger_type=1
-                        )
-                        print(result)
-                        time.sleep(1)  # 避免发送过快
-                else:
-                    print("未配置邮件收件人列表 SZW_EMAIL_LIST")
-            except Exception as e:
-                print(f"发送邮件异常: {e}")
+            send_venue_email_batch("上越沙河网球场", up_for_send_sms_list)
 
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")

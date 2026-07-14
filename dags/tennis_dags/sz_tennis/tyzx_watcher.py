@@ -21,6 +21,7 @@ from airflow.operators.python import PythonOperator
 from airflow.models import Variable
 from datetime import timedelta
 
+from tennis_dags.utils.venue_email import send_venue_email_batch
 from utils.tencent_sms import send_sms_for_news
 from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
 
@@ -807,6 +808,8 @@ def check_tennis_courts():
                 serialize_json=True
             )
             print(f"💾 updated {cache_key} before delivery")
+
+            send_venue_email_batch("深圳市体育中心网球场", up_for_send_sms_list)
 
             all_in_one_msg = "\n".join(up_for_send_msg_list) 
 
