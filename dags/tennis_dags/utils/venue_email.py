@@ -4,13 +4,15 @@
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Iterable
 
 EMAIL_SEND_FALLBACK_OUTBOX_VAR = "EMAIL_SEND_FALLBACK_OUTBOX"
 EMAIL_SEND_FALLBACK_MAX_ITEMS_VAR = "EMAIL_SEND_FALLBACK_MAX_ITEMS"
-EMAIL_TEMPLATE_ID = 33340
+EMAIL_TEMPLATE_ID_VAR = "VENUE_EMAIL_TEMPLATE_ID"
+DEFAULT_EMAIL_TEMPLATE_ID = 33340
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+WEEKDAY_NAMES = ("一", "二", "三", "四", "五", "六", "日")
 
 
 def send_template_email(**kwargs):
@@ -35,12 +37,23 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _today() -> date:
+    return datetime.now().date()
+
+
 def _get_int_variable(key: str, default: int) -> int:
     value = _get_variable(key, default_var=str(default))
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _get_email_template_id() -> int:
+    template_id = _get_int_variable(EMAIL_TEMPLATE_ID_VAR, DEFAULT_EMAIL_TEMPLATE_ID)
+    if template_id <= 0:
+        raise ValueError(f"Airflow Variable {EMAIL_TEMPLATE_ID_VAR} must be a positive integer")
+    return template_id
 
 
 def _normalize_recipients(value, recipients_var: str) -> list[str]:
@@ -85,6 +98,34 @@ def _normalize_notifications(notifications: Iterable[dict]) -> list[dict]:
         if all(item.values()):
             normalized.append(item)
     return normalized
+
+
+def _parse_notification_date(value: str) -> date:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+
+    reference_date = _today()
+    candidates = []
+    for year in (reference_date.year - 1, reference_date.year, reference_date.year + 1):
+        try:
+            candidates.append(datetime.strptime(f"{year}-{value}", "%Y-%m-%d").date())
+        except ValueError:
+            continue
+    if not candidates:
+        raise ValueError(f"invalid notification date: {value}")
+    return min(candidates, key=lambda candidate: abs((candidate - reference_date).days))
+
+
+def _format_notification(notification: dict) -> str:
+    notification_date = _parse_notification_date(notification["date"])
+    weekday = WEEKDAY_NAMES[notification_date.weekday()]
+    display_date = notification_date.strftime("%m-%d")
+    return (
+        f"{notification['court_name']} {display_date} 星期{weekday} "
+        f"{notification['start_time']}-{notification['end_time']}"
+    )
 
 
 def _record_failed_batch(
@@ -208,10 +249,27 @@ def send_venue_email_batch(
             "notification_count": len(normalized_notifications),
         }
 
-    free_time_lines = [
-        f"{item['court_name']} {item['date']} {item['start_time']}-{item['end_time']}"
-        for item in normalized_notifications
-    ]
+    try:
+        notification_lines = [
+            _format_notification(item)
+            for item in normalized_notifications
+        ]
+    except Exception as exc:
+        error = str(exc)
+        recorded = _record_failure_safely(
+            normalized_source,
+            normalized_notifications,
+            normalized_recipients_var,
+            error,
+        )
+        print(f"[VENUE_EMAIL] formatting failed source={normalized_source}, error={error}")
+        return {
+            "success": False,
+            "error": error,
+            "fallback_recorded": recorded,
+            "notification_count": len(normalized_notifications),
+        }
+
     print(
         f"[VENUE_EMAIL] sending source={normalized_source}, "
         f"config_var={normalized_recipients_var}, "
@@ -220,13 +278,17 @@ def send_venue_email_batch(
     )
 
     try:
+        template_id = _get_email_template_id()
+        template_data = {
+            "FREE_TIME": "\n".join(notification_lines),
+        }
+        if template_id == DEFAULT_EMAIL_TEMPLATE_ID:
+            template_data["COURT_NAME"] = normalized_source
+
         result = send_template_email(
-            subject=f"【{normalized_source}】发现{len(normalized_notifications)}个可订时段",
-            template_id=EMAIL_TEMPLATE_ID,
-            template_data={
-                "COURT_NAME": normalized_source,
-                "FREE_TIME": "；".join(free_time_lines),
-            },
+            subject=notification_lines[0],
+            template_id=template_id,
+            template_data=template_data,
             recipients=recipients,
             from_email="Zacks <tennis@zacks.com.cn>",
             reply_to="tennis@zacks.com.cn",

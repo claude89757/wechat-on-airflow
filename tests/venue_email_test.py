@@ -1,5 +1,6 @@
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ class VenueEmailTest(unittest.TestCase):
                 "a@example.com",
                 "b@example.com",
             ],
+            venue_email.EMAIL_TEMPLATE_ID_VAR: "54297",
             venue_email.EMAIL_SEND_FALLBACK_OUTBOX_VAR: [],
             venue_email.EMAIL_SEND_FALLBACK_MAX_ITEMS_VAR: "200",
         }
@@ -49,6 +51,7 @@ class VenueEmailTest(unittest.TestCase):
         with (
             patch("tennis_dags.utils.venue_email._get_variable", side_effect=self.get_variable),
             patch("tennis_dags.utils.venue_email._set_variable", side_effect=self.set_variable),
+            patch("tennis_dags.utils.venue_email._today", return_value=date(2026, 7, 16)),
             patch(
                 "tennis_dags.utils.venue_email.send_template_email",
                 return_value={"success": True, "message_id": "message-1"},
@@ -64,10 +67,64 @@ class VenueEmailTest(unittest.TestCase):
         mock_send.assert_called_once()
         call_kwargs = mock_send.call_args.kwargs
         self.assertEqual(call_kwargs["recipients"], ["a@example.com", "b@example.com"])
-        self.assertIn("发现2个可订时段", call_kwargs["subject"])
-        self.assertIn("深圳湾1号场 07-15 18:00-19:00", call_kwargs["template_data"]["FREE_TIME"])
-        self.assertIn("深圳湾2号场 07-16 20:00-21:00", call_kwargs["template_data"]["FREE_TIME"])
+        self.assertEqual(call_kwargs["subject"], "深圳湾1号场 07-15 星期三 18:00-19:00")
+        self.assertEqual(call_kwargs["template_id"], 54297)
+        self.assertEqual(
+            call_kwargs["template_data"],
+            {
+                "FREE_TIME": (
+                    "深圳湾1号场 07-15 星期三 18:00-19:00\n"
+                    "深圳湾2号场 07-16 星期四 20:00-21:00"
+                )
+            },
+        )
+        self.assertNotIn("发现", call_kwargs["subject"])
         self.assertEqual(self.variables[venue_email.EMAIL_SEND_FALLBACK_OUTBOX_VAR], [])
+
+    def test_weekday_uses_nearest_year_across_new_year(self):
+        notification = {
+            "date": "01-01",
+            "court_name": "测试场",
+            "start_time": "09:00",
+            "end_time": "10:00",
+        }
+
+        with patch("tennis_dags.utils.venue_email._today", return_value=date(2026, 12, 31)):
+            line = venue_email._format_notification(notification)
+
+        self.assertEqual(line, "测试场 01-01 星期五 09:00-10:00")
+
+    def test_approved_template_can_be_activated_without_redeploy(self):
+        self.variables[venue_email.EMAIL_TEMPLATE_ID_VAR] = "33340"
+        notifications = [
+            {
+                "date": "07-16",
+                "court_name": "深圳湾1号场",
+                "start_time": "18:00",
+                "end_time": "19:00",
+            }
+        ]
+
+        with (
+            patch("tennis_dags.utils.venue_email._get_variable", side_effect=self.get_variable),
+            patch("tennis_dags.utils.venue_email._set_variable", side_effect=self.set_variable),
+            patch("tennis_dags.utils.venue_email._today", return_value=date(2026, 7, 16)),
+            patch(
+                "tennis_dags.utils.venue_email.send_template_email",
+                return_value={"success": True},
+            ) as mock_send,
+        ):
+            venue_email.send_venue_email_batch(
+                "深圳湾网球场",
+                notifications,
+                recipients_var="SZW_EMAIL_LIST",
+            )
+
+        self.assertEqual(mock_send.call_args.kwargs["template_id"], 33340)
+        self.assertEqual(
+            mock_send.call_args.kwargs["template_data"]["COURT_NAME"],
+            "深圳湾网球场",
+        )
 
     def test_failed_send_is_recorded_without_raising(self):
         notifications = [
