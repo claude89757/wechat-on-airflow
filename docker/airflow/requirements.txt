@@ -1,0 +1,7 @@
+apache-airflow-providers-celery==3.21.0
+apache-airflow-providers-fab==3.7.1
+apache-airflow-providers-redis==4.5.0
+apache-airflow-providers-standard==1.15.0
+paramiko==3.5.1
+requests==2.34.2
+tencentcloud-sdk-python==3.1.134

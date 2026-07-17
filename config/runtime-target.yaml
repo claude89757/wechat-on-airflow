@@ -1,0 +1,44 @@
+schema_version: 1
+target:
+  airflow: "3.3.0"
+  python: "3.12"
+  executor: CeleryExecutor
+  auth_manager: FabAuthManager
+  base_image: apache/airflow:3.3.0-python3.12@sha256:b572e9241d7b09b295c9ea97adeb7b3dfc932e2fbcdebec59256dad69061bb29
+  providers:
+    apache-airflow-providers-celery: "3.21.0"
+    apache-airflow-providers-fab: "3.7.1"
+    apache-airflow-providers-redis: "4.5.0"
+    apache-airflow-providers-standard: "1.15.0"
+  services:
+    - airflow-api-server
+    - airflow-scheduler
+    - airflow-dag-processor
+    - airflow-worker
+    - airflow-triggerer
+    - postgresql
+    - redis
+  database:
+    engine: PostgreSQL
+    major_version: 17
+    production_major_migration_requires_approval: true
+  broker:
+    engine: Redis
+    visibility_timeout_seconds: 86400
+images:
+  postgresql: bitnami/postgresql@sha256:db9bc963e434771f650d4506b5a631c6126525c8be0c9b7c0ec61228a632c33f
+  redis: bitnami/redis@sha256:660edb35a17e1c954be0845fed4ecca3183a7e6e0bf322ad20f997e45d750d5f
+  wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
+managed_services:
+  wechat_sender:
+    compose_file: docker-compose.sender.yml
+    health_endpoint: /healthz
+    production_health_url: http://127.0.0.1:7001/readyz
+    workers_per_device: 1
+verification:
+  required_commands:
+    - make verify
+    - make test-dags
+    - make deploy-check
+    - make rollback-check
+  production_cycles: 3

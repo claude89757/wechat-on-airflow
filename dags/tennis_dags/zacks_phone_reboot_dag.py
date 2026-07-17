@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 每天定时重启 Zacks 对应手机的运维 DAG。
 """
 
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from airflow import DAG
-from airflow.models import Variable
-from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import DAG, Variable
 
-from utils.appium.ssh_control import (
+from wechat_airflow.clients.android_device import (
     get_device_id_by_adb,
     reboot_device_via_ssh_adb,
     wait_for_device_boot_completed,
 )
-
 
 TARGET_IDENTIFIERS = ("zacks",)
 DAG_ID = "zacks_phone_daily_reboot"
@@ -202,28 +200,25 @@ with DAG(
     },
     description="每天定时重启 zacks 手机",
     schedule="0 5 * * *",
-    start_date=datetime(2025, 4, 13),
+    start_date=datetime(2025, 4, 13, tzinfo=ZoneInfo("Asia/Shanghai")),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=45),
     catchup=False,
     tags=["个人微信", "zacks", "运维"],
 ) as dag:
-    resolve_zacks_device_config_task = PythonOperator(
+    resolve_zacks_device_config = PythonOperator(
         task_id="resolve_zacks_device_config",
         python_callable=resolve_zacks_device_config,
-        provide_context=True,
     )
 
-    reboot_zacks_phone_task = PythonOperator(
+    reboot_zacks_phone = PythonOperator(
         task_id="reboot_zacks_phone",
         python_callable=reboot_zacks_phone,
-        provide_context=True,
     )
 
-    wait_until_phone_ready_task = PythonOperator(
+    wait_until_phone_ready = PythonOperator(
         task_id="wait_until_phone_ready",
         python_callable=wait_until_phone_ready,
-        provide_context=True,
     )
 
-    resolve_zacks_device_config_task >> reboot_zacks_phone_task >> wait_until_phone_ready_task
+    resolve_zacks_device_config >> reboot_zacks_phone >> wait_until_phone_ready

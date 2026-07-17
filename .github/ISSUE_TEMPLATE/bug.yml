@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a reproducible workflow or operations defect
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproduction and redacted evidence
+      description: Do not include Variables, credentials, addresses, or tokens.
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Git commit

@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -10,13 +10,22 @@ from wechat_sender import SendFailedError, SendResult
 
 class SenderAgentTest(unittest.TestCase):
     def setUp(self):
+        self.env_patcher = patch.dict(
+            os.environ,
+            {"WECHAT_ALLOWED_DEVICE_NAME": "test-device"},
+            clear=False,
+        )
+        self.env_patcher.start()
         self.client = TestClient(sender_app.app)
+
+    def tearDown(self):
+        self.env_patcher.stop()
 
     @patch("sender_agent.app.send_text_messages")
     def test_send_success(self, mock_send):
         mock_send.return_value = SendResult(
             success=True,
-            device_name="971bd67c0107",
+            device_name="test-device",
             receiver="文件传输助手",
             sent_count=1,
         )
@@ -26,7 +35,7 @@ class SenderAgentTest(unittest.TestCase):
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],
-                "device_name": "971bd67c0107",
+                "device_name": "test-device",
             },
         )
 
@@ -35,7 +44,7 @@ class SenderAgentTest(unittest.TestCase):
             response.json(),
             {
                 "success": True,
-                "device_name": "971bd67c0107",
+                "device_name": "test-device",
                 "receiver": "文件传输助手",
                 "sent_count": 1,
             },
@@ -52,11 +61,59 @@ class SenderAgentTest(unittest.TestCase):
 
             self.assertEqual(_appium_url(), "http://127.0.0.1:6002")
 
+    def test_health_reports_required_runtime_configuration(self):
+        response = self.client.get("/healthz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "service": "wechat-sender-agent",
+                "configured": True,
+            },
+        )
+
+    @patch("sender_agent.app.urlopen")
+    def test_readiness_checks_appium_without_using_the_device(self, mock_urlopen):
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = b'{"value":{"ready":true}}'
+        mock_urlopen.return_value.__enter__.return_value = response
+
+        result = self.client.get("/readyz")
+
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()["appium_ready"], True)
+        mock_urlopen.assert_called_once_with("http://127.0.0.1:6002/status", timeout=5)
+
+    @patch("sender_agent.app.urlopen", side_effect=TimeoutError)
+    def test_readiness_reports_appium_failure_without_endpoint_details(self, _mock_urlopen):
+        result = self.client.get("/readyz")
+
+        self.assertEqual(result.status_code, 503)
+        self.assertEqual(result.json()["error"], "appium_unavailable")
+        self.assertNotIn("127.0.0.1", result.text)
+
+    def test_send_rejects_missing_device_configuration(self):
+        with patch.dict(os.environ, {}, clear=True):
+            response = self.client.post(
+                "/v1/wechat/send",
+                json={
+                    "receiver": "test-chat",
+                    "messages": ["hello"],
+                    "device_name": "test-device",
+                },
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["error"], "service_misconfigured")
+
     @patch("sender_agent.app.send_text_messages")
     def test_allows_request_without_token(self, mock_send):
         mock_send.return_value = SendResult(
             success=True,
-            device_name="971bd67c0107",
+            device_name="test-device",
             receiver="文件传输助手",
             sent_count=1,
         )
@@ -66,7 +123,7 @@ class SenderAgentTest(unittest.TestCase):
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],
-                "device_name": "971bd67c0107",
+                "device_name": "test-device",
             },
         )
 
@@ -93,7 +150,7 @@ class SenderAgentTest(unittest.TestCase):
             json={
                 "receiver": "文件传输助手",
                 "messages": [],
-                "device_name": "971bd67c0107",
+                "device_name": "test-device",
             },
         )
 
@@ -106,7 +163,7 @@ class SenderAgentTest(unittest.TestCase):
             json={
                 "receiver": "文件传输助手",
                 "messages": [""],
-                "device_name": "971bd67c0107",
+                "device_name": "test-device",
             },
         )
 
@@ -122,7 +179,7 @@ class SenderAgentTest(unittest.TestCase):
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],
-                "device_name": "971bd67c0107",
+                "device_name": "test-device",
             },
         )
 
@@ -138,7 +195,7 @@ class SenderAgentTest(unittest.TestCase):
             json={
                 "receiver": "文件传输助手",
                 "messages": ["hello"],
-                "device_name": "971bd67c0107",
+                "device_name": "test-device",
             },
         )
 

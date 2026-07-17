@@ -1,36 +1,33 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 @Time    : 2024/3/20
 @Author  : claude89757
 @File    : szw_watcher.py
 @Software: PyCharm
 """
-import time
+
 import datetime
 import re
-import requests
-from typing import List
-
-from tennis_dags.utils.venue_email import send_venue_email_batch
-from tennis_dags.utils.tencent_sms import send_sms_for_news
-
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.models import Variable
+import time
 from datetime import timedelta
-from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
+from zoneinfo import ZoneInfo
 
+import requests
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import DAG, Variable
+
+from wechat_airflow.notifications.email import send_venue_email_batch
+from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
 
 # DAG的默认参数
 default_args = {
-    'owner': 'claude89757',
-    'depends_on_past': False,
-    'start_date': datetime.datetime(2024, 1, 1),
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    "owner": "claude89757",
+    "depends_on_past": False,
+    "start_date": datetime.datetime(2024, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+    "email_on_failure": False,
+    "email_on_retry": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=5),
 }
 
 SZW_MATRIX_API_URL = "https://wlhmobile.crland.com.cn/business/client/field/area/matrix"
@@ -39,41 +36,50 @@ SZW_APP_ID = "wx020209beec4251e0"
 SZW_PROJECT_UUID = "3a59e62a07f811f1bec0aeefcf2e061a"
 SZW_FIELD_AREA_UUID = "b7f8a0770a4d11f198f45a68b1262c30"
 
+
 def print_with_timestamp(*args, **kwargs):
     """打印函数带上当前时间戳"""
     timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]", time.localtime())
     print(timestamp, *args, **kwargs)
 
-def find_available_slots(booked_slots: List[List[str]], time_range: dict) -> List[List[str]]:
+
+def find_available_slots(booked_slots: list[list[str]], time_range: dict) -> list[list[str]]:
     """查找可用的时间段"""
     if not booked_slots:
-        return [[time_range['start_time'], time_range['end_time']]]
-    
+        return [[time_range["start_time"], time_range["end_time"]]]
+
     # 将时间转换为分钟
-    booked_in_minutes = sorted([(int(start[:2]) * 60 + int(start[3:]), 
-                                int(end[:2]) * 60 + int(end[3:]))
-                               for start, end in booked_slots])
-    
-    start_minutes = int(time_range['start_time'][:2]) * 60 + int(time_range['start_time'][3:])
-    end_minutes = int(time_range['end_time'][:2]) * 60 + int(time_range['end_time'][3:])
-    
+    booked_in_minutes = sorted(
+        [
+            (int(start[:2]) * 60 + int(start[3:]), int(end[:2]) * 60 + int(end[3:]))
+            for start, end in booked_slots
+        ]
+    )
+
+    start_minutes = int(time_range["start_time"][:2]) * 60 + int(time_range["start_time"][3:])
+    end_minutes = int(time_range["end_time"][:2]) * 60 + int(time_range["end_time"][3:])
+
     available = []
     current = start_minutes
-    
+
     for booked_start, booked_end in booked_in_minutes:
         if current < booked_start:
-            available.append([
-                f"{current // 60:02d}:{current % 60:02d}",
-                f"{booked_start // 60:02d}:{booked_start % 60:02d}"
-            ])
+            available.append(
+                [
+                    f"{current // 60:02d}:{current % 60:02d}",
+                    f"{booked_start // 60:02d}:{booked_start % 60:02d}",
+                ]
+            )
         current = max(current, booked_end)
-    
+
     if current < end_minutes:
-        available.append([
-            f"{current // 60:02d}:{current % 60:02d}",
-            f"{end_minutes // 60:02d}:{end_minutes % 60:02d}"
-        ])
-    
+        available.append(
+            [
+                f"{current // 60:02d}:{current % 60:02d}",
+                f"{end_minutes // 60:02d}:{end_minutes % 60:02d}",
+            ]
+        )
+
     return available
 
 
@@ -86,6 +92,7 @@ def extract_time_hhmm(time_value: str) -> str:
     if matched:
         return matched.group(0)
     return ""
+
 
 def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:
     """
@@ -123,10 +130,10 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
             "xweb_xhr": "1",
             "content-type": "application/json",
             "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 "
-                          "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
-                          "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
-                          "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641739) XWEB/18926",
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 "
+            "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
+            "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
+            "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641739) XWEB/18926",
             "accept": "*/*",
             "sec-fetch-site": "cross-site",
             "sec-fetch-mode": "cors",
@@ -159,7 +166,9 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
                     got_response = True
                     time.sleep(1)
                     break
-                last_error = f"api error code={response_data.get('code')}, text={response_data.get('text')}"
+                last_error = (
+                    f"api error code={response_data.get('code')}, text={response_data.get('text')}"
+                )
                 print(f"api error for {proxy}: {last_error}")
             else:
                 last_error = f"http status code={response.status_code}"
@@ -173,8 +182,7 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     if got_response and response_data:
         result = response_data["result"]
         venue_name_infos = {
-            venue["fieldUuid"]: venue["fieldName"]
-            for venue in result.get("fieldList", [])
+            venue["fieldUuid"]: venue["fieldName"] for venue in result.get("fieldList", [])
         }
         print(venue_name_infos)
 
@@ -217,25 +225,27 @@ def check_and_notify_for_day(day_offset: int):
         return
 
     run_start_time = time.time()
-    input_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime('%Y-%m-%d')
-    inform_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime('%m-%d')
-    print_with_timestamp(f"Checking tennis courts for {input_date}...")    
+    input_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime(
+        "%Y-%m-%d"
+    )
+    inform_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime("%m-%d")
+    print_with_timestamp(f"Checking tennis courts for {input_date}...")
 
     # 使用可用代理查询空闲的球场信息
     up_for_send_data_list = []
     try:
-        time_range = {"start_time": "08:30","end_time": "22:30"}
+        time_range = {"start_time": "08:30", "end_time": "22:30"}
         court_data = get_free_tennis_court_infos_for_szw(input_date, ["不使用代理"], time_range)
         print(f"{input_date} court_data: {court_data}")
 
         for court_name, free_slots in court_data.items():
             if free_slots:
                 filtered_slots = []
-                check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
+                check_date = datetime.datetime.strptime(input_date, "%Y-%m-%d")
                 is_weekend = check_date.weekday() >= 5
 
                 for slot in free_slots:
-                    hour_num = int(slot[0].split(':')[0])
+                    hour_num = int(slot[0].split(":")[0])
                     if is_weekend:
                         if 16 <= hour_num <= 21:  # 周末关注16点到21点的场地
                             filtered_slots.append(slot)
@@ -244,11 +254,13 @@ def check_and_notify_for_day(day_offset: int):
                             filtered_slots.append(slot)
 
                 if filtered_slots:
-                    up_for_send_data_list.append({
-                        "date": inform_date,
-                        "court_name": f"深圳湾{court_name}",
-                        "free_slot_list": filtered_slots
-                    })
+                    up_for_send_data_list.append(
+                        {
+                            "date": inform_date,
+                            "court_name": f"深圳湾{court_name}",
+                            "free_slot_list": filtered_slots,
+                        }
+                    )
     except Exception as e:
         print(f"Error checking date {input_date}: {str(e)}")
 
@@ -259,24 +271,30 @@ def check_and_notify_for_day(day_offset: int):
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
         up_for_send_msg_list = []
         for data in up_for_send_data_list:
-            date = data['date']
-            court_name = data['court_name']
-            free_slot_list = data['free_slot_list']
-            
-            date_obj = datetime.datetime.strptime(f"{datetime.datetime.now().year}-{date}", "%Y-%m-%d")
+            date = data["date"]
+            court_name = data["court_name"]
+            free_slot_list = data["free_slot_list"]
+
+            date_obj = datetime.datetime.strptime(
+                f"{datetime.datetime.now().year}-{date}", "%Y-%m-%d"
+            )
             weekday = date_obj.weekday()
             weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
-            
+
             for free_slot in free_slot_list:
-                notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                notification = (
+                    f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                )
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
-                    up_for_send_sms_list.append({
-                        "date": date,
-                        "court_name": court_name,
-                        "start_time": free_slot[0],
-                        "end_time": free_slot[1]
-                    })
+                    up_for_send_sms_list.append(
+                        {
+                            "date": date,
+                            "court_name": court_name,
+                            "start_time": free_slot[0],
+                            "end_time": free_slot[1],
+                        }
+                    )
 
         if up_for_send_msg_list:
             sended_msg_list.extend(up_for_send_msg_list)
@@ -285,7 +303,7 @@ def check_and_notify_for_day(day_offset: int):
                 key=cache_key,
                 value=sended_msg_list[-100:],
                 description=description,
-                serialize_json=True
+                serialize_json=True,
             )
             print(f"updated {cache_key} with {sended_msg_list} before delivery")
 
@@ -311,24 +329,25 @@ def check_and_notify_for_day(day_offset: int):
     execution_time = run_end_time - run_start_time
     print_with_timestamp(f"Day {day_offset} ({input_date}) completed in {execution_time:.2f}s")
 
+
 # 创建DAG
 dag = DAG(
-    '深圳湾网球场巡检',
+    "深圳湾网球场巡检",
     default_args=default_args,
-    description='深圳湾网球场巡检（并行多天）',
-    schedule_interval=timedelta(seconds=15),
+    description="深圳湾网球场巡检（并行多天）",
+    schedule=timedelta(seconds=15),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=1),
     catchup=False,
-    tags=['深圳']
+    tags=["深圳"],
 )
 
 # 动态创建巡检和通知任务（每天一个独立任务，并行执行）
 for day_offset in range(4):  # 巡检今天到未来3天，共4天
     task = PythonOperator(
-        task_id=f'check_and_notify_day_{day_offset}',
+        task_id=f"check_and_notify_day_{day_offset}",
         python_callable=check_and_notify_for_day,
-        op_kwargs={'day_offset': day_offset},
+        op_kwargs={"day_offset": day_offset},
         dag=dag,
     )
     # 每个任务独立执行，互不依赖

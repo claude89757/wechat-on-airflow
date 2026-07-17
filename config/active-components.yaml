@@ -1,0 +1,293 @@
+schema_version: 1
+observed_at: "2026-07-16T23:35:00+08:00"
+production:
+  repository_path: /root/wechat-on-airflow
+  deployed_commit: 2e74766256c97ff0af00f70b0af6ebb2777abe3e
+  current_airflow: "2.10.5"
+  target_airflow: "3.3.0"
+  python: "3.12"
+  executor: CeleryExecutor
+  metadata_database: PostgreSQL 17
+  broker: Redis
+  variable_values_documented: false
+  connection_values_documented: false
+
+shared_contracts:
+  venue_email:
+    modules:
+      - wechat_airflow.notifications.email
+      - wechat_airflow.clients.tencent_ses
+    variables:
+      - EMAIL_SEND_FALLBACK_OUTBOX
+      - EMAIL_SEND_FALLBACK_MAX_ITEMS
+      - TENCENT_CLOUD_SECRET_ID
+      - TENCENT_CLOUD_SECRET_KEY
+      - VENUE_EMAIL_FROM_ADDRESS
+      - VENUE_EMAIL_REPLY_TO
+      - VENUE_EMAIL_TEMPLATE_ID
+    invariants:
+      - failures_do_not_fail_venue_dag
+      - recipient_lists_are_venue_specific
+      - no_real_delivery_in_tests
+  wechat_delivery:
+    modules:
+      - wechat_airflow.notifications.wechat
+    variables:
+      - WECHAT_SEND_API_URL
+      - WECHAT_SEND_DEVICE_NAME
+      - WECHAT_SEND_TIMEOUT_SECONDS
+      - WECHAT_SEND_RETRY_COUNT
+      - WECHAT_SEND_RETRY_DELAY_SECONDS
+      - WECHAT_SEND_FALLBACK_OUTBOX
+      - WECHAT_SEND_FALLBACK_MAX_ITEMS
+    invariants:
+      - failures_are_isolated_per_chat
+      - email_delivery_is_independent
+      - no_real_delivery_in_tests
+
+active_dags:
+  - dag_id: airflow_db_cleanup
+    file: dags/tool_dags/db_cleanup.py
+    schedule: every_24_hours
+    tasks:
+      - db_cleanup
+    variables: []
+    direct_modules: []
+    external_services:
+      - airflow_metadata_database
+    notifications: []
+    purpose: Delete supported Airflow metadata older than the configured retention.
+    verification:
+      - dag_imports
+      - latest_run_succeeds
+    migration_note: Replace internal Python API use with an Airflow 3 supported maintenance command.
+
+  - dag_id: HTTPS可用代理巡检
+    file: dags/tennis_dags/proxy_tools/https_proxy_watcher.py
+    schedule: "*/5 * * * *"
+    tasks:
+      - check_proxies
+    variables:
+      - GIT_TOKEN
+    direct_modules: []
+    external_services:
+      - github_api
+      - public_proxy_sources
+      - baidu
+    notifications: []
+    purpose: Refresh the shared HTTPS proxy list in a separate GitHub repository.
+    verification:
+      - dag_imports
+      - latest_run_succeeds
+      - outbound_requests_have_timeouts
+
+  - dag_id: HTTPS可用代理巡检_ydmap
+    file: dags/tennis_dags/proxy_tools/ydmap_https_proxy_watcher.py
+    schedule: "*/5 * * * *"
+    tasks:
+      - check_proxies
+    variables:
+      - GIT_TOKEN
+    direct_modules: []
+    external_services:
+      - github_api
+      - public_proxy_sources
+      - ydmap
+    notifications: []
+    purpose: Refresh the YDMap-compatible HTTPS proxy list.
+    verification:
+      - dag_imports
+      - latest_run_succeeds
+      - outbound_requests_have_timeouts
+
+  - dag_id: 深圳湾网球场巡检
+    file: dags/tennis_dags/sz_tennis/szw_watcher.py
+    schedule: every_15_seconds
+    tasks:
+      - check_and_notify_day_0
+      - check_and_notify_day_1
+      - check_and_notify_day_2
+      - check_and_notify_day_3
+    variables:
+      - SZW_API_AUTHORIZATION
+      - SZW_EMAIL_LIST
+      - SZ_TENNIS_CHATROOMS
+      - 深圳湾网球场
+    direct_modules:
+      - wechat_airflow.notifications.email
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - szw_booking_api
+      - tencent_ses
+      - wechat_sender_api
+    notifications:
+      - email
+      - wechat
+    purpose: Detect and notify Shenzhen Bay tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - dedupe_cache_written_before_delivery
+
+  - dag_id: 深圳金地网球场巡检
+    file: dags/tennis_dags/sz_tennis/jdwx_watcher.py
+    schedule: every_30_seconds
+    tasks:
+      - check_tennis_courts
+    variables:
+      - JDWX_EMAIL_LIST
+      - JDWX_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - 金地威新网球场
+    direct_modules:
+      - wechat_airflow.notifications.email
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - jdwx_booking_api
+      - public_proxy_list
+      - tencent_ses
+      - wechat_sender_api
+    notifications:
+      - email
+      - wechat
+    purpose: Detect and notify Jindi Weixin tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - dedupe_cache_written_before_delivery
+
+  - dag_id: 上越沙河网球场巡检
+    file: dags/tennis_dags/sz_tennis/sysh_watcher.py
+    schedule: every_30_seconds
+    tasks:
+      - check_tennis_courts
+    variables:
+      - SYSH_EMAIL_LIST
+      - SYSH_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - 上越沙河网球场
+    direct_modules:
+      - wechat_airflow.notifications.email
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - tennis168
+      - public_proxy_list
+      - tencent_ses
+      - wechat_sender_api
+    notifications:
+      - email
+      - wechat
+    purpose: Detect and notify Shangyue Shahe tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - dedupe_cache_written_before_delivery
+
+  - dag_id: TOPS科技园网球场巡检
+    file: dags/tennis_dags/sz_tennis/tops_watcher.py
+    schedule: every_30_seconds
+    tasks:
+      - check_tennis_courts
+    variables:
+      - TOPS_EMAIL_LIST
+      - TOPS_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - TOPS科技园网球场
+    direct_modules:
+      - wechat_airflow.notifications.email
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - tops_booking_api
+      - public_proxy_list
+      - tencent_ses
+      - wechat_sender_api
+    notifications:
+      - email
+      - wechat
+    purpose: Detect and notify TOPS Technology Park tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - dedupe_cache_written_before_delivery
+
+  - dag_id: 深圳市体育中心网球场巡检
+    file: dags/tennis_dags/sz_tennis/tyzx_watcher.py
+    schedule: "*/1 * * * *"
+    tasks:
+      - check_tennis_courts
+    variables:
+      - TYZX_EMAIL_LIST
+      - TYZX_SUCCESSFUL_PROXIES_CACHE
+      - SZ_TYZX_TENNIS_CHATROOMS
+      - 深圳市体育中心网球场
+    direct_modules:
+      - wechat_airflow.notifications.email
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - sports_center_booking_api
+      - public_proxy_list
+      - tencent_ses
+      - wechat_sender_api
+    notifications:
+      - email
+      - wechat
+    purpose: Detect and notify Shenzhen Sports Center tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - dedupe_cache_written_before_delivery
+
+  - dag_id: zacks_phone_daily_reboot
+    file: dags/tennis_dags/zacks_phone_reboot_dag.py
+    schedule: "0 5 * * *"
+    tasks:
+      - resolve_zacks_device_config
+      - reboot_zacks_phone
+      - wait_until_phone_ready
+    variables:
+      - APPIUM_SERVER_LIST
+    direct_modules:
+      - wechat_airflow.clients.android_device
+    external_services:
+      - remote_android_host_ssh
+      - adb
+    notifications: []
+    purpose: Reboot and verify the Android device used by the WeChat sender.
+    verification:
+      - dag_imports
+      - device_config_contract
+      - latest_run_succeeds
+    known_issue: Two most recent observed runs failed during device resolution.
+
+excluded_stale_components:
+  - dag_id: appium_wx_msg_watcher_for_zacks
+    file: dags/tennis_dags/wx_msg_watcher_for_zacks.py
+    evidence:
+      - absent_from_current_dagbag
+      - persistent_missing_appium_import_error
+      - direct_wechat_delivery_replaced_by_remote_sender_api
+    action: removed
+
+active_services:
+  - service_id: wechat_sender
+    files:
+      - sender_agent/app.py
+      - wechat_sender/appium_text_sender.py
+      - docker/sender/Dockerfile
+      - docker-compose.sender.yml
+    endpoint_config: WECHAT_SEND_API_URL
+    runtime_owner: production_airflow_host
+    external_services:
+      - appium
+      - android_device
+      - wechat
+    invariants:
+      - public_http_contract_has_no_token
+      - one_process_per_device_lock
+      - automatic_restart_and_healthcheck
+      - tests_never_send_real_messages
+      - recent_chat_is_checked_before_search
+    verification:
+      - unit_tests
+      - health_endpoint
+      - real_send_requires_human_approval

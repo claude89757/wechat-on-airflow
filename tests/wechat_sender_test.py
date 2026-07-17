@@ -63,8 +63,8 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_send_text_messages_returns_structured_result(self):
         result = send_text_messages(
-            appium_server_url="http://47.115.144.127:6002",
-            device_name="971bd67c0107",
+            appium_server_url="http://appium.test:6002",
+            device_name="test-device",
             receiver="文件传输助手",
             messages=["hello", "world"],
             operator_factory=FakeOperator,
@@ -76,7 +76,7 @@ class WeChatSenderTest(unittest.TestCase):
             result,
             SendResult(
                 success=True,
-                device_name="971bd67c0107",
+                device_name="test-device",
                 receiver="文件传输助手",
                 sent_count=2,
             ),
@@ -86,8 +86,8 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_normalizes_receiver_whitespace_before_sending(self):
         result = send_text_messages(
-            appium_server_url="http://47.115.144.127:6002",
-            device_name="971bd67c0107",
+            appium_server_url="http://appium.test:6002",
+            device_name="test-device",
             receiver="  Zacks_大沙河限定免费  ",
             messages=["hello"],
             operator_factory=FakeOperator,
@@ -111,7 +111,7 @@ class WeChatSenderTest(unittest.TestCase):
 
         result = send_text_messages(
             appium_server_url="http://127.0.0.1:6002",
-            device_name="971bd67c0107",
+            device_name="test-device",
             receiver="文件传输助手",
             messages=["hello"],
             operator_factory=RecordingOperator,
@@ -121,7 +121,7 @@ class WeChatSenderTest(unittest.TestCase):
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(events[0], ("cleanup", "http://127.0.0.1:6002", "971bd67c0107"))
+        self.assertEqual(events[0], ("cleanup", "http://127.0.0.1:6002", "test-device"))
         self.assertEqual(events[1], ("operator", False))
 
     def test_cleanup_deletes_device_sessions_and_stops_uiautomator2(self):
@@ -140,7 +140,7 @@ class WeChatSenderTest(unittest.TestCase):
                     "value": [
                         {
                             "id": "matching-session",
-                            "capabilities": {"udid": "971bd67c0107"},
+                            "capabilities": {"udid": "test-device"},
                         },
                         {
                             "id": "other-session",
@@ -155,7 +155,7 @@ class WeChatSenderTest(unittest.TestCase):
 
         cleanup_appium_device(
             appium_server_url="http://127.0.0.1:6002",
-            device_name="971bd67c0107",
+            device_name="test-device",
             http_request=http_request,
             command_runner=command_runner,
             sleeper=lambda _seconds: None,
@@ -175,7 +175,7 @@ class WeChatSenderTest(unittest.TestCase):
                 [
                     "adb",
                     "-s",
-                    "971bd67c0107",
+                    "test-device",
                     "shell",
                     "am",
                     "force-stop",
@@ -190,7 +190,7 @@ class WeChatSenderTest(unittest.TestCase):
                 [
                     "adb",
                     "-s",
-                    "971bd67c0107",
+                    "test-device",
                     "shell",
                     "am",
                     "force-stop",
@@ -212,7 +212,7 @@ class WeChatSenderTest(unittest.TestCase):
 
         cleanup_appium_device(
             appium_server_url="http://127.0.0.1:6002",
-            device_name="971bd67c0107",
+            device_name="test-device",
             http_request=http_request,
             command_runner=lambda _command, _timeout: None,
             sleeper=lambda _seconds: None,
@@ -233,7 +233,7 @@ class WeChatSenderTest(unittest.TestCase):
                     "value": [
                         {
                             "id": "stuck-session",
-                            "capabilities": {"udid": "971bd67c0107"},
+                            "capabilities": {"udid": "test-device"},
                         }
                     ]
                 }
@@ -242,7 +242,7 @@ class WeChatSenderTest(unittest.TestCase):
         with self.assertRaises(DeviceNotReadyError):
             cleanup_appium_device(
                 appium_server_url="http://127.0.0.1:6002",
-                device_name="971bd67c0107",
+                device_name="test-device",
                 http_request=http_request,
                 command_runner=lambda _command, _timeout: None,
                 sleeper=lambda _seconds: None,
@@ -302,8 +302,8 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_restarts_wechat_when_initial_session_is_not_at_main_page(self):
         result = send_text_messages(
-            appium_server_url="http://47.115.144.127:6002",
-            device_name="971bd67c0107",
+            appium_server_url="http://appium.test:6002",
+            device_name="test-device",
             receiver="文件传输助手",
             messages=["hello"],
             operator_factory=RestartingFakeOperator,
@@ -335,8 +335,8 @@ class WeChatSenderTest(unittest.TestCase):
             events.append(("sleep", seconds))
 
         result = send_text_messages(
-            appium_server_url="http://47.115.144.127:6002",
-            device_name="971bd67c0107",
+            appium_server_url="http://appium.test:6002",
+            device_name="test-device",
             receiver="文件传输助手",
             messages=["hello"],
             operator_factory=RecordingRestartOperator,
@@ -360,8 +360,8 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_attempts_to_return_to_chats_after_restart_before_failing(self):
         result = send_text_messages(
-            appium_server_url="http://47.115.144.127:6002",
-            device_name="971bd67c0107",
+            appium_server_url="http://appium.test:6002",
+            device_name="test-device",
             receiver="文件传输助手",
             messages=["hello"],
             operator_factory=RecoveringRestartOperator,
@@ -377,8 +377,8 @@ class WeChatSenderTest(unittest.TestCase):
     def test_invalid_messages_raise_invalid_request(self):
         with self.assertRaises(InvalidSendRequestError) as error:
             send_text_messages(
-                appium_server_url="http://47.115.144.127:6002",
-                device_name="971bd67c0107",
+                appium_server_url="http://appium.test:6002",
+                device_name="test-device",
                 receiver="文件传输助手",
                 messages=[""],
                 operator_factory=FakeOperator,
@@ -391,8 +391,8 @@ class WeChatSenderTest(unittest.TestCase):
     def test_underlying_send_failure_is_raised(self):
         with self.assertRaises(SendFailedError) as error:
             send_text_messages(
-                appium_server_url="http://47.115.144.127:6002",
-                device_name="971bd67c0107",
+                appium_server_url="http://appium.test:6002",
+                device_name="test-device",
                 receiver="文件传输助手",
                 messages=["hello"],
                 operator_factory=FailingOperator,

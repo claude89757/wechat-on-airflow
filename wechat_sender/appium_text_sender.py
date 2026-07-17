@@ -2,8 +2,9 @@ import json
 import random
 import subprocess
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Optional
+from typing import Any
 from urllib.request import Request, urlopen
 
 
@@ -104,7 +105,8 @@ def _xpath_literal(value: str) -> str:
         return f"'{value}'"
     if '"' not in value:
         return f'"{value}"'
-    return "concat(%s)" % ", \"'\", ".join(f"'{part}'" for part in value.split("'"))
+    parts = ', "\'", '.join(f"'{part}'" for part in value.split("'"))
+    return f"concat({parts})"
 
 
 def _recent_chat_xpaths(receiver: str) -> list[str]:
@@ -232,6 +234,7 @@ class TextWeChatOperator:
 
         if not self.is_contact_in_recent_chats(receiver):
             try:
+
                 def click_search_button() -> None:
                     search_btn = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
@@ -245,6 +248,7 @@ class TextWeChatOperator:
                     )
                 )
                 search_input.send_keys(receiver)
+
                 def click_search_result() -> None:
                     contact = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located(
@@ -259,13 +263,14 @@ class TextWeChatOperator:
 
         for index, message in enumerate(messages):
             try:
-                def send_current_message() -> None:
+
+                def send_current_message(current_message: str = message) -> None:
                     message_input = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located(
                             (AppiumBy.XPATH, "//android.widget.EditText")
                         )
                     )
-                    message_input.send_keys(message)
+                    message_input.send_keys(current_message)
                     send_btn = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located(
                             (AppiumBy.XPATH, "//android.widget.Button[@text='发送']")
@@ -291,6 +296,7 @@ class TextWeChatOperator:
             time.sleep(1)
 
         for attempt in range(5):
+
             def click_recent_chat_if_visible() -> bool:
                 for xpath in _recent_chat_xpaths(receiver):
                     contact_elements = self.driver.find_elements(
@@ -397,7 +403,7 @@ def send_text_messages(
     startup_wait_seconds: float = 1.0,
     close_wait_seconds: float = 1.0,
     restart_wait_seconds: float = 3.0,
-    preflight_cleanup: Optional[Callable[[str, str], None]] = None,
+    preflight_cleanup: Callable[[str, str], None] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> SendResult:
     normalized_messages = _validate_send_request(

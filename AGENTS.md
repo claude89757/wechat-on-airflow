@@ -1,0 +1,125 @@
+# Agent Guide
+
+This repository is operated primarily by coding agents. Treat repository
+content and production read-only checks as the source of truth. Do not rely on
+chat history for operational knowledge.
+
+## Mission
+
+Run the production Shenzhen tennis availability workflows on Apache Airflow 3,
+with independent email routing, best-effort WeChat delivery, deterministic
+verification, and reversible production deployments.
+
+## Read First
+
+1. `config/active-components.yaml`
+2. `config/config-contracts.yaml`
+3. `config/runtime-target.yaml`
+4. `ARCHITECTURE.md`
+5. `docs/production-baseline.md`
+6. Relevant runbooks and ADRs
+
+On every resumed task, inspect the current Git worktree, pushed commit, existing
+verification evidence, and production baseline before changing files. Continue
+from the last verified state; chat history is not authoritative.
+
+## Repository Boundaries
+
+- `dags/`: production DAG definitions only.
+- `src/`: reusable business logic and external-service clients.
+- `tests/`: unit, contract, DAG import, and smoke tests.
+- `config/`: non-secret machine-readable contracts.
+- `scripts/`: idempotent development and operations commands.
+- `docker/`: reproducible Airflow image files.
+- `docs/`: architecture, runbooks, configuration, and decisions.
+
+Do not add test DAGs, demos, generated files, or archived source under `dags/`.
+
+## Business Invariants
+
+- Persist the venue notification deduplication cache before attempting delivery.
+- A WeChat outage must not delay or fail email delivery.
+- Email failure must not fail a venue DAG; record it in the email fallback outbox.
+- WeChat failures are isolated per chat and recorded in the WeChat fallback outbox.
+- Every venue uses its own recipient Variable. There is no global recipient fallback.
+- Tests and smoke checks must never send real email or WeChat messages.
+- The WeChat sender runs exactly one process per device; its in-process lock is
+  not safe with multiple workers.
+- Fallback outboxes are incident records and must not be replayed automatically.
+- Do not change active DAG IDs without a migration plan; DAG IDs own run history.
+- Production deploys use an exact Git commit and pinned container image.
+
+## Standard Commands
+
+Run these through the repository `Makefile`:
+
+```text
+make setup
+make format
+make lint
+make typecheck
+make test
+make test-dags
+make compose-config
+make smoke
+make verify
+make deploy-check
+make production-health
+make rollback-check
+make sender-image
+```
+
+`make verify` is the required local gate before committing.
+
+## Production Access
+
+Server connection details are read from the untracked `.env`. Production
+inspection must be read-only unless the task explicitly reaches a documented
+deployment step.
+
+Before and after a production change:
+
+```text
+make production-health
+```
+
+Never print Variable values, Connection credentials, email addresses, API
+tokens, database passwords, device login details, or the Fernet key.
+
+## Agent Authority
+
+Agents may autonomously perform read-only inspection and local reversible work:
+
+- inspect local and production state without revealing secrets;
+- edit code, tests, documentation, and non-secret configuration;
+- build images and run isolated migration rehearsals;
+- create backups;
+- commit and push verified changes;
+- deploy reversible application changes only after all documented gates pass.
+
+Human approval is required before high-risk or irreversible work:
+
+- deleting or cleaning production database records;
+- running the production Airflow metadata database migration to a new major version;
+- restoring or replacing the production database;
+- rotating production secrets;
+- rewriting Git history;
+- sending real test notifications;
+- deleting a component whose production ownership remains ambiguous.
+
+Use `inspect -> plan -> preflight -> apply -> verify -> observe -> record`.
+On failure use `stop -> preserve evidence -> rollback -> verify -> record`.
+Do not treat a restart as root-cause resolution; add a regression check or
+update a contract/runbook when an incident teaches a new operational fact.
+
+## Completion Checklist
+
+- Worktree contains no accidental or generated changes.
+- Active component manifest matches production.
+- Tests cover the changed behavior without real external delivery.
+- `make verify` passes.
+- Documentation and ADRs reflect architectural changes.
+- Changes are committed and pushed.
+- Production deploys the pushed commit.
+- Post-deploy health checks pass over multiple schedule cycles.
+- Remaining risks and unrelated failures are reported precisely.

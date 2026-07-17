@@ -1,0 +1,155 @@
+schema_version: 1
+values_are_documented: false
+variables:
+  APPIUM_SERVER_LIST:
+    type: json_list
+    required_by: [zacks_phone_daily_reboot]
+    sensitive: true
+  EMAIL_SEND_FALLBACK_MAX_ITEMS:
+    type: positive_integer
+    required_by: [venue_email]
+    sensitive: false
+    default: 200
+  EMAIL_SEND_FALLBACK_OUTBOX:
+    type: json_list
+    required_by: [venue_email]
+    sensitive: true
+    managed_by_application: true
+  GIT_TOKEN:
+    type: string
+    required_by: [HTTPS可用代理巡检, HTTPS可用代理巡检_ydmap]
+    sensitive: true
+  JDWX_EMAIL_LIST:
+    type: json_email_list
+    required_by: [深圳金地网球场巡检]
+    sensitive: true
+  JDWX_PROXY_CACHE:
+    type: json_list
+    required_by: [深圳金地网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  SZW_API_AUTHORIZATION:
+    type: string
+    required_by: [深圳湾网球场巡检]
+    sensitive: true
+  SZW_EMAIL_LIST:
+    type: json_email_list
+    required_by: [深圳湾网球场巡检]
+    sensitive: true
+  SYSH_EMAIL_LIST:
+    type: json_email_list
+    required_by: [上越沙河网球场巡检]
+    sensitive: true
+  SYSH_PROXY_CACHE:
+    type: json_list
+    required_by: [上越沙河网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  TOPS_EMAIL_LIST:
+    type: json_email_list
+    required_by: [TOPS科技园网球场巡检]
+    sensitive: true
+  TOPS_PROXY_CACHE:
+    type: json_list
+    required_by: [TOPS科技园网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  TYZX_EMAIL_LIST:
+    type: json_email_list
+    required_by: [深圳市体育中心网球场巡检]
+    sensitive: true
+  TYZX_SUCCESSFUL_PROXIES_CACHE:
+    type: json_list
+    required_by: [深圳市体育中心网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  SZ_TENNIS_CHATROOMS:
+    type: newline_separated_string
+    required_by:
+      - 深圳湾网球场巡检
+      - 深圳金地网球场巡检
+      - 上越沙河网球场巡检
+      - TOPS科技园网球场巡检
+    sensitive: true
+  SZ_TYZX_TENNIS_CHATROOMS:
+    type: newline_separated_string
+    required_by: [深圳市体育中心网球场巡检]
+    sensitive: true
+  TENCENT_CLOUD_SECRET_ID:
+    type: string
+    required_by: [venue_email]
+    sensitive: true
+  TENCENT_CLOUD_SECRET_KEY:
+    type: string
+    required_by: [venue_email]
+    sensitive: true
+  VENUE_EMAIL_FROM_ADDRESS:
+    type: sender_email_address
+    required_by: [venue_email]
+    sensitive: true
+  VENUE_EMAIL_REPLY_TO:
+    type: email_address
+    required_by: [venue_email]
+    sensitive: true
+  VENUE_EMAIL_TEMPLATE_ID:
+    type: positive_integer
+    required_by: [venue_email]
+    sensitive: false
+  WECHAT_SEND_API_URL:
+    type: url
+    required_by: [wechat_delivery]
+    sensitive: true
+  WECHAT_SEND_DEVICE_NAME:
+    type: string
+    required_by: [wechat_delivery]
+    sensitive: true
+  WECHAT_SEND_FALLBACK_MAX_ITEMS:
+    type: positive_integer
+    required_by: [wechat_delivery]
+    sensitive: false
+    default: 200
+  WECHAT_SEND_FALLBACK_OUTBOX:
+    type: json_list
+    required_by: [wechat_delivery]
+    sensitive: true
+    managed_by_application: true
+  WECHAT_SEND_RETRY_COUNT:
+    type: positive_integer
+    required_by: [wechat_delivery]
+    sensitive: false
+    default: 3
+  WECHAT_SEND_RETRY_DELAY_SECONDS:
+    type: non_negative_number
+    required_by: [wechat_delivery]
+    sensitive: false
+    default: 5
+  WECHAT_SEND_TIMEOUT_SECONDS:
+    type: positive_integer
+    required_by: [wechat_delivery]
+    sensitive: false
+    default: 120
+  TOPS科技园网球场:
+    type: json_list
+    required_by: [TOPS科技园网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  上越沙河网球场:
+    type: json_list
+    required_by: [上越沙河网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  深圳市体育中心网球场:
+    type: json_list
+    required_by: [深圳市体育中心网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  深圳湾网球场:
+    type: json_list
+    required_by: [深圳湾网球场巡检]
+    sensitive: false
+    managed_by_application: true
+  金地威新网球场:
+    type: json_list
+    required_by: [深圳金地网球场巡检]
+    sensitive: false
+    managed_by_application: true

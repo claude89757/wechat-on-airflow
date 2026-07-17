@@ -1,49 +1,52 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 @Time    : 2024/3/20
 @Author  : claude89757
 @File    : jdwx_watcher.py
 @Software: PyCharm
 """
-import time
+
 import datetime
-import requests
 import random
-
-from typing import List
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.models import Variable
+import time
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
-from tennis_dags.utils.tencent_sms import send_sms_for_news
-from tennis_dags.utils.venue_email import send_venue_email_batch
-from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
+import requests
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import DAG, Variable
 
+from wechat_airflow.notifications.email import send_venue_email_batch
+from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
 
 # DAG的默认参数
 default_args = {
-    'owner': 'claude89757',
-    'depends_on_past': False,
-    'start_date': datetime.datetime(2024, 1, 1),
-    'email_on_failure': False,
-    'email_on_retry': False,
+    "owner": "claude89757",
+    "depends_on_past": False,
+    "start_date": datetime.datetime(2024, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+    "email_on_failure": False,
+    "email_on_retry": False,
 }
+
 
 def print_with_timestamp(*args, **kwargs):
     """打印函数带上当前时间戳"""
     timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]", time.localtime())
     print(timestamp, *args, **kwargs)
 
-def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
+
+def merge_time_ranges(data: list[list[str]]) -> list[list[str]]:
     """将时间段合并"""
     if not data:
         return data
-    
+
     print(f"merging {data}")
-    data_in_minutes = sorted([(int(start[:2]) * 60 + int(start[3:]), int(end[:2]) * 60 + int(end[3:]))
-                              for start, end in data])
+    data_in_minutes = sorted(
+        [
+            (int(start[:2]) * 60 + int(start[3:]), int(end[:2]) * 60 + int(end[3:]))
+            for start, end in data
+        ]
+    )
 
     merged_data = []
     start, end = data_in_minutes[0]
@@ -56,18 +59,22 @@ def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
             start, end = next_start, next_end
     merged_data.append((start, end))
 
-    result = [[f'{start // 60:02d}:{start % 60:02d}', f'{end // 60:02d}:{end % 60:02d}'] for start, end in merged_data]
+    result = [
+        [f"{start // 60:02d}:{start % 60:02d}", f"{end // 60:02d}:{end % 60:02d}"]
+        for start, end in merged_data
+    ]
     print(f"merged {result}")
     return result
+
 
 def update_proxy_cache(proxy: str, success: bool):
     """更新代理缓存"""
     cache_key = "JDWX_PROXY_CACHE"
     try:
         cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
-    except:
+    except Exception:
         cached_proxies = []
-    
+
     if success:
         # 成功的代理加入缓存（如果不存在的话）
         if proxy not in cached_proxies:
@@ -79,62 +86,63 @@ def update_proxy_cache(proxy: str, success: bool):
         if proxy in cached_proxies:
             cached_proxies.remove(proxy)
             print(f"从缓存中移除失败代理: {proxy}")
-    
+
     Variable.set(cache_key, cached_proxies, serialize_json=True)
     return cached_proxies
+
 
 def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
     """从弘金地获取可预订的场地信息"""
     got_response = False
     response = None
     successful_proxy = None
-    
+
     # 获取缓存的代理
     cache_key = "JDWX_PROXY_CACHE"
     try:
         cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
-    except:
+    except Exception:
         cached_proxies = []
-    
+
     print(f"缓存的代理数量: {len(cached_proxies)}")
-    
+
     # 准备代理列表：优先使用缓存的代理，然后是其他代理
     remaining_proxies = [p for p in proxy_list if p not in cached_proxies]
     random.shuffle(remaining_proxies)
     all_proxies_to_try = cached_proxies + remaining_proxies
-    
-    print(f"总共尝试代理数量: {len(all_proxies_to_try)} (缓存: {len(cached_proxies)}, 其他: {len(remaining_proxies)})")
-    
-    params = {
-        "gymId": "1479063349546192897",
-        "sportsType": "1",
-        "reserveDate": date
-    }
+
+    print(
+        f"总共尝试代理数量: {len(all_proxies_to_try)} (缓存: {len(cached_proxies)}, 其他: {len(remaining_proxies)})"
+    )
+
+    params = {"gymId": "1479063349546192897", "sportsType": "1", "reserveDate": date}
     headers = {
         "Host": "gateway.gemdalesports.com",
         "referer": "https://servicewechat.com/wxf7ae96551d92f600/34/page-frame.html",
         "xweb_xhr": "1",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/"
-                      "98.0.4758.102 Safari/537.36 MicroMessenger/6.8.0(0x16080000)"
-                      " NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF XWEB/30626",
+        "(KHTML, like Gecko) Chrome/"
+        "98.0.4758.102 Safari/537.36 MicroMessenger/6.8.0(0x16080000)"
+        " NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF XWEB/30626",
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "*/*",
         "Sec-Fetch-Site": "cross-site",
         "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty"
+        "Sec-Fetch-Dest": "empty",
     }
     url = "https://gateway.gemdalesports.com/inside-frontend/api/field/fieldReserve"
-    
+
     for index, proxy in enumerate(all_proxies_to_try):
         is_cached_proxy = proxy in cached_proxies
         print(f"尝试第 {index + 1} 个代理: {proxy} {'(缓存)' if is_cached_proxy else '(新)'}")
-        
+
         try:
             proxies = {"https": proxy}
-            response = requests.get(url, headers=headers, params=params, proxies=proxies, verify=False, timeout=5)
-            if response.status_code == 200 and response.json()['success']:
+            response = requests.get(
+                url, headers=headers, params=params, proxies=proxies, verify=False, timeout=5
+            )
+            if response.status_code == 200 and response.json()["success"]:
                 print(f"代理成功: {proxy}")
                 print("--------------------------------")
                 print(response.text)
@@ -154,20 +162,20 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
             # 更新代理缓存：标记为失败
             update_proxy_cache(proxy, False)
             continue
-    
+
     # 如果成功，更新代理缓存
     if successful_proxy:
         update_proxy_cache(successful_proxy, True)
 
     if got_response and response:
-        if response.json()['data'].get('array'):
+        if response.json()["data"].get("array"):
             available_slots_infos = {}
-            for file_info in response.json()['data']['array']:
+            for file_info in response.json()["data"]["array"]:
                 available_slots = []
-                for slot in file_info['daySource']:
-                    if slot['occupy']:  # 这里是特殊的逻辑, occupy为True表示空闲
-                        available_slots.append([slot['startTime'], slot['endTime']])
-                available_slots_infos[file_info['fieldName']] = merge_time_ranges(available_slots)
+                for slot in file_info["daySource"]:
+                    if slot["occupy"]:  # 这里是特殊的逻辑, occupy为True表示空闲
+                        available_slots.append([slot["startTime"], slot["endTime"]])
+                available_slots_infos[file_info["fieldName"]] = merge_time_ranges(available_slots)
             print(f"available_slots_infos: {available_slots_infos}")
             return available_slots_infos
         else:
@@ -175,18 +183,20 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
     else:
         raise Exception("all proxies failed")
 
-def check_tennis_courts():
+
+def run_check_tennis_courts():
     """主要检查逻辑"""
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print("每天0点-8点不巡检")
         return
-    
+
     run_start_time = time.time()
     print_with_timestamp("start to check...")
 
     # 获取代理列表
     url = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
-    response = requests.get(url)
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
     text = response.text.strip()
     proxy_list = [line.strip() for line in text.split("\n")]
     random.shuffle(proxy_list)
@@ -195,12 +205,12 @@ def check_tennis_courts():
     # 查询空闲的球场信息
     up_for_send_data_list = []
     for index in range(0, 3):
-        input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
-        inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
+        input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%Y-%m-%d")
+        inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%m-%d")
         print(f"checking {input_date}...")
         try:
             court_data = get_free_tennis_court_infos_for_hjd(input_date, proxy_list)
-            
+
             # 打印网球场可预订场地详细信息
             print_with_timestamp(f"=== {input_date} 可预订场地详细信息 ===")
             if court_data:
@@ -211,38 +221,40 @@ def check_tennis_courts():
                             start_time = datetime.datetime.strptime(slot[0], "%H:%M")
                             end_time = datetime.datetime.strptime(slot[1], "%H:%M")
                             duration_minutes = (end_time - start_time).total_seconds() / 60
-                            print_with_timestamp(f"  - {slot[0]}-{slot[1]} (时长: {int(duration_minutes)}分钟)")
+                            print_with_timestamp(
+                                f"  - {slot[0]}-{slot[1]} (时长: {int(duration_minutes)}分钟)"
+                            )
                     else:
                         print_with_timestamp("  - 无可预订时间段")
             else:
                 print_with_timestamp("无可预订场地数据")
             print_with_timestamp("=" * 50)
-            
+
             time.sleep(1)
-            
+
             for court_name, free_slots in court_data.items():
                 if free_slots:
                     filtered_slots = []
-                    check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
+                    check_date = datetime.datetime.strptime(input_date, "%Y-%m-%d")
                     is_weekend = check_date.weekday() >= 5
-                    
-                    for slot in free_slots:                        
+
+                    for slot in free_slots:
                         # 计算时间段长度（分钟）
                         start_time = datetime.datetime.strptime(slot[0], "%H:%M")
                         end_time = datetime.datetime.strptime(slot[1], "%H:%M")
                         duration_minutes = (end_time - start_time).total_seconds() / 60
-                        
+
                         # 只处理1小时或以上的时间段
                         if duration_minutes < 60:
                             print(f"slot: {slot}, duration_minutes: {duration_minutes}, skip")
                             continue
                         else:
                             print(f"slot: {slot}, duration_minutes: {duration_minutes}, process")
-                            
+
                         # 检查时间段是否与目标时间范围有重叠
                         start_time = datetime.datetime.strptime(slot[0], "%H:%M")
                         end_time = datetime.datetime.strptime(slot[1], "%H:%M")
-                        
+
                         if is_weekend:
                             # 周末关注15点到22点的场地
                             target_start = datetime.datetime.strptime("16:00", "%H:%M")
@@ -251,21 +263,23 @@ def check_tennis_courts():
                             # 工作日关注18点到22点的场地
                             target_start = datetime.datetime.strptime("18:00", "%H:%M")
                             target_end = datetime.datetime.strptime("22:00", "%H:%M")
-                        
+
                         # 判断时间段是否有重叠：max(start1, start2) < min(end1, end2)
                         if max(start_time, target_start) < min(end_time, target_end):
                             filtered_slots.append(slot)
-                    
+
                     if filtered_slots:
-                        up_for_send_data_list.append({
-                            "date": inform_date,
-                            "court_name": f"威新{court_name}",
-                            "free_slot_list": filtered_slots
-                        })
+                        up_for_send_data_list.append(
+                            {
+                                "date": inform_date,
+                                "court_name": f"威新{court_name}",
+                                "free_slot_list": filtered_slots,
+                            }
+                        )
         except Exception as e:
             print(f"Error checking date {input_date}: {str(e)}")
             continue
-    
+
     print(f"up_for_send_data_list: {up_for_send_data_list}")
     # 处理通知逻辑
     if up_for_send_data_list:
@@ -274,24 +288,30 @@ def check_tennis_courts():
         up_for_send_msg_list = []
         up_for_send_sms_list = []
         for data in up_for_send_data_list:
-            date = data['date']
-            court_name = data['court_name']
-            free_slot_list = data['free_slot_list']
-            
-            date_obj = datetime.datetime.strptime(f"{datetime.datetime.now().year}-{date}", "%Y-%m-%d")
+            date = data["date"]
+            court_name = data["court_name"]
+            free_slot_list = data["free_slot_list"]
+
+            date_obj = datetime.datetime.strptime(
+                f"{datetime.datetime.now().year}-{date}", "%Y-%m-%d"
+            )
             weekday = date_obj.weekday()
             weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
-            
+
             for free_slot in free_slot_list:
-                notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                notification = (
+                    f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                )
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
-                    up_for_send_sms_list.append({
-                        "date": date,
-                        "court_name": court_name,
-                        "start_time": free_slot[0],
-                        "end_time": free_slot[1]
-                    })
+                    up_for_send_sms_list.append(
+                        {
+                            "date": date,
+                            "court_name": court_name,
+                            "start_time": free_slot[0],
+                            "end_time": free_slot[1],
+                        }
+                    )
 
         # # 获取微信发送配置
         # wcf_ip = Variable.get("WCF_IP", default_var="")
@@ -314,19 +334,11 @@ def check_tennis_courts():
                 key=cache_key,
                 value=sended_msg_list[-10:],
                 description=description,
-                serialize_json=True
+                serialize_json=True,
             )
             print(f"updated {cache_key} with {sended_msg_list} before delivery")
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
-
-            # # 发送短信
-            # for data in up_for_send_sms_list:
-            #     try:
-            #         phone_num_list = Variable.get("JDWX_PHONE_NUM_LIST", default_var=[], deserialize_json=True)
-            #         send_sms_for_news(phone_num_list, param_list=[data["date"], data["court_name"], data["start_time"], data["end_time"]])
-            #     except Exception as e:
-            #         print(f"Error sending sms: {e}")
 
             send_venue_email_batch(
                 "深圳金地网球场",
@@ -350,24 +362,22 @@ def check_tennis_courts():
     execution_time = run_end_time - run_start_time
     print_with_timestamp(f"Total cost time：{execution_time} s")
 
+
 # 创建DAG
 dag = DAG(
-    '深圳金地网球场巡检',
+    "深圳金地网球场巡检",
     default_args=default_args,
-    description='金地威新网球场巡检',
-    schedule_interval=timedelta(seconds=30), 
+    description="金地威新网球场巡检",
+    schedule=timedelta(seconds=30),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
-    tags=['深圳']
+    tags=["深圳"],
 )
 
 # 创建任务
-check_courts_task = PythonOperator(
-    task_id='check_tennis_courts',
-    python_callable=check_tennis_courts,
+check_tennis_courts = PythonOperator(
+    task_id="check_tennis_courts",
+    python_callable=run_check_tennis_courts,
     dag=dag,
 )
-
-# 设置任务依赖关系
-check_courts_task

@@ -1,13 +1,11 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import call
-from unittest.mock import patch
+from unittest.mock import call, patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
-
-from utils import wechat_send_api
+from wechat_airflow.notifications import wechat as wechat_send_api
 
 
 class FakeResponse:
@@ -34,11 +32,13 @@ class WeChatSendApiTest(unittest.TestCase):
         }
         return values.get(key, default_var)
 
-    @patch("utils.wechat_send_api.requests.post")
+    @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_uses_airflow_variable_endpoint(self, mock_post):
         mock_post.return_value = FakeResponse({"success": True, "sent_count": 2})
 
-        with patch("utils.wechat_send_api._get_variable", side_effect=self.variable_getter):
+        with patch(
+            "wechat_airflow.notifications.wechat._get_variable", side_effect=self.variable_getter
+        ):
             result = wechat_send_api.send_wechat_text(" 文件传输助手 ", ["hello", "world"])
 
         self.assertEqual(result["sent_count"], 2)
@@ -52,39 +52,45 @@ class WeChatSendApiTest(unittest.TestCase):
             timeout=30,
         )
 
-    @patch("utils.wechat_send_api.requests.post")
+    @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_allows_explicit_device_name(self, mock_post):
         mock_post.return_value = FakeResponse()
 
-        with patch("utils.wechat_send_api._get_variable", side_effect=self.variable_getter):
+        with patch(
+            "wechat_airflow.notifications.wechat._get_variable", side_effect=self.variable_getter
+        ):
             wechat_send_api.send_wechat_text("Zacks", ["hello"], device_name="explicit-device")
 
         self.assertEqual(mock_post.call_args.kwargs["json"]["device_name"], "explicit-device")
 
-    @patch("utils.wechat_send_api.requests.post")
+    @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_raises_on_api_failure(self, mock_post):
         mock_post.return_value = FakeResponse(
             {"success": False, "error": "device_busy", "message": "busy"},
             status_code=409,
         )
 
-        with patch("utils.wechat_send_api._get_variable", side_effect=self.variable_getter):
+        with patch(
+            "wechat_airflow.notifications.wechat._get_variable", side_effect=self.variable_getter
+        ):
             with self.assertRaises(wechat_send_api.WeChatSendApiError) as error:
                 wechat_send_api.send_wechat_text("Zacks", ["hello"])
 
         self.assertIn("device_busy", str(error.exception))
 
-    @patch("utils.wechat_send_api.requests.post")
+    @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_wraps_request_errors(self, mock_post):
         mock_post.side_effect = wechat_send_api.requests.Timeout("timeout")
 
-        with patch("utils.wechat_send_api._get_variable", side_effect=self.variable_getter):
+        with patch(
+            "wechat_airflow.notifications.wechat._get_variable", side_effect=self.variable_getter
+        ):
             with self.assertRaises(wechat_send_api.WeChatSendApiError) as error:
                 wechat_send_api.send_wechat_text("Zacks", ["hello"])
 
         self.assertIn("request failed", str(error.exception))
 
-    @patch("utils.wechat_send_api.send_wechat_text")
+    @patch("wechat_airflow.notifications.wechat.send_wechat_text")
     def test_send_wechat_text_to_chatrooms_normalizes_lines(self, mock_send):
         wechat_send_api.send_wechat_text_to_chatrooms(" A \n\n B ", "hello")
 
@@ -106,16 +112,19 @@ class WeChatSendApiTest(unittest.TestCase):
             variables[key] = value
 
         with (
-            patch("utils.wechat_send_api._get_variable", side_effect=get_variable),
-            patch("utils.wechat_send_api._set_variable", side_effect=set_variable),
+            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
+            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
             patch(
-                "utils.wechat_send_api.send_wechat_text",
+                "wechat_airflow.notifications.wechat.send_wechat_text",
                 side_effect=[
                     wechat_send_api.WeChatSendApiError("sender unavailable"),
                     {"success": True, "sent_count": 1},
                 ],
             ) as mock_send,
-            patch("utils.wechat_send_api._utc_now", return_value="2026-07-14T15:00:00+00:00"),
+            patch(
+                "wechat_airflow.notifications.wechat._utc_now",
+                return_value="2026-07-14T15:00:00+00:00",
+            ),
         ):
             results = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
                 ["A", "B"],
@@ -123,7 +132,10 @@ class WeChatSendApiTest(unittest.TestCase):
                 source="test-dag",
             )
 
-        self.assertEqual(mock_send.call_args_list, [call("A", ["hello"], device_name=None), call("B", ["hello"], device_name=None)])
+        self.assertEqual(
+            mock_send.call_args_list,
+            [call("A", ["hello"], device_name=None), call("B", ["hello"], device_name=None)],
+        )
         self.assertEqual([result["success"] for result in results], [False, True])
         self.assertEqual(len(variables["WECHAT_SEND_FALLBACK_OUTBOX"]), 1)
         self.assertEqual(variables["WECHAT_SEND_FALLBACK_OUTBOX"][0]["receiver"], "A")
@@ -142,19 +154,23 @@ class WeChatSendApiTest(unittest.TestCase):
             variables[key] = value
 
         with (
-            patch("utils.wechat_send_api._get_variable", side_effect=get_variable),
-            patch("utils.wechat_send_api._set_variable", side_effect=set_variable),
+            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
+            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
             patch(
-                "utils.wechat_send_api.send_wechat_text",
+                "wechat_airflow.notifications.wechat.send_wechat_text",
                 side_effect=wechat_send_api.WeChatSendApiError("sender unavailable"),
             ),
             patch(
-                "utils.wechat_send_api._utc_now",
+                "wechat_airflow.notifications.wechat._utc_now",
                 side_effect=["2026-07-14T15:00:00+00:00", "2026-07-14T15:01:00+00:00"],
             ),
         ):
-            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(["A"], "hello", source="test-dag")
-            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(["A"], "hello", source="test-dag")
+            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["A"], "hello", source="test-dag"
+            )
+            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["A"], "hello", source="test-dag"
+            )
 
         fallback = variables["WECHAT_SEND_FALLBACK_OUTBOX"]
         self.assertEqual(len(fallback), 1)
@@ -162,9 +178,12 @@ class WeChatSendApiTest(unittest.TestCase):
         self.assertEqual(fallback[0]["first_failed_at"], "2026-07-14T15:00:00+00:00")
         self.assertEqual(fallback[0]["last_failed_at"], "2026-07-14T15:01:00+00:00")
 
-    @patch("utils.wechat_send_api._record_failed_send", side_effect=RuntimeError("variable unavailable"))
     @patch(
-        "utils.wechat_send_api.send_wechat_text",
+        "wechat_airflow.notifications.wechat._record_failed_send",
+        side_effect=RuntimeError("variable unavailable"),
+    )
+    @patch(
+        "wechat_airflow.notifications.wechat.send_wechat_text",
         side_effect=wechat_send_api.WeChatSendApiError("sender unavailable"),
     )
     def test_best_effort_send_swallows_fallback_persistence_failure(self, mock_send, mock_record):

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 @Time    : 2026/1/23
 @Author  : claude89757
@@ -7,20 +6,20 @@
 @Software: PyCharm
 @Description: 上越沙河网球场巡检 - 监控 Tennis168 平台未来 7 天的场地可预订情况
 """
-import time
+
 import datetime
-import requests
 import random
-import urllib3
-
-from typing import Dict, List
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.models import Variable
+import time
 from datetime import timedelta
-from utils.wechat_send_api import send_wechat_text_to_chatrooms_best_effort
+from zoneinfo import ZoneInfo
 
-from tennis_dags.utils.venue_email import send_venue_email_batch
+import requests
+import urllib3
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import DAG, Variable
+
+from wechat_airflow.notifications.email import send_venue_email_batch
+from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
 
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -34,11 +33,11 @@ API_URL = "https://sysh.tennis168.vip/api/sports/space/date_list"
 
 # DAG的默认参数
 default_args = {
-    'owner': 'claude89757',
-    'depends_on_past': False,
-    'start_date': datetime.datetime(2024, 1, 1),
-    'email_on_failure': False,
-    'email_on_retry': False,
+    "owner": "claude89757",
+    "depends_on_past": False,
+    "start_date": datetime.datetime(2024, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
+    "email_on_failure": False,
+    "email_on_retry": False,
 }
 
 
@@ -64,7 +63,7 @@ def normalize_time(time_str: str) -> str:
     return time_str
 
 
-def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
+def merge_time_ranges(data: list[list[str]]) -> list[list[str]]:
     """将时间段合并"""
     if not data:
         return data
@@ -77,10 +76,9 @@ def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
         minute = int(time_str[3:])
         return hour * 60 + minute
 
-    data_in_minutes = sorted([
-        (time_to_minutes(start), time_to_minutes(end))
-        for start, end in data
-    ])
+    data_in_minutes = sorted(
+        [(time_to_minutes(start), time_to_minutes(end)) for start, end in data]
+    )
 
     merged_data = []
     start, end = data_in_minutes[0]
@@ -93,7 +91,10 @@ def merge_time_ranges(data: List[List[str]]) -> List[List[str]]:
             start, end = next_start, next_end
     merged_data.append((start, end))
 
-    result = [[f'{start // 60:02d}:{start % 60:02d}', f'{end // 60:02d}:{end % 60:02d}'] for start, end in merged_data]
+    result = [
+        [f"{start // 60:02d}:{start % 60:02d}", f"{end // 60:02d}:{end % 60:02d}"]
+        for start, end in merged_data
+    ]
     print(f"merged {result}")
     return result
 
@@ -102,7 +103,7 @@ def update_proxy_cache(proxy: str, success: bool):
     """更新代理缓存"""
     try:
         cached_proxies = Variable.get(PROXY_CACHE_KEY, deserialize_json=True, default_var=[])
-    except:
+    except Exception:
         cached_proxies = []
 
     if success:
@@ -121,7 +122,7 @@ def update_proxy_cache(proxy: str, success: bool):
     return cached_proxies
 
 
-def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List[List[str]]]:
+def get_tennis_court_availability(date: str, proxy_list: list) -> dict[str, list[list[str]]]:
     """
     调用 Tennis168 API 获取场地可用情况
 
@@ -139,7 +140,7 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
     # 获取缓存的代理
     try:
         cached_proxies = Variable.get(PROXY_CACHE_KEY, deserialize_json=True, default_var=[])
-    except:
+    except Exception:
         cached_proxies = []
 
     print(f"缓存的代理数量: {len(cached_proxies)}")
@@ -149,20 +150,19 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
     random.shuffle(remaining_proxies)
     all_proxies_to_try = cached_proxies + remaining_proxies
 
-    print(f"总共尝试代理数量: {len(all_proxies_to_try)} (缓存: {len(cached_proxies)}, 其他: {len(remaining_proxies)})")
+    print(
+        f"总共尝试代理数量: {len(all_proxies_to_try)} (缓存: {len(cached_proxies)}, 其他: {len(remaining_proxies)})"
+    )
 
-    params = {
-        "date": date,
-        "store_id": STORE_ID
-    }
+    params = {"date": date, "store_id": STORE_ID}
     headers = {
         "Host": "sysh.tennis168.vip",
         "store-id": str(STORE_ID),
         "Content-Type": "application/json",
         "Accept": "application/json, text/plain, */*",
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 "
-                      "(KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.38(0x18002629) "
-                      "NetType/WIFI Language/zh_CN"
+        "(KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.38(0x18002629) "
+        "NetType/WIFI Language/zh_CN",
     }
 
     for index, proxy in enumerate(all_proxies_to_try):
@@ -177,11 +177,11 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
                 params=params,
                 proxies=proxies,
                 verify=False,  # SSL证书链不完整，需禁用验证
-                timeout=5
+                timeout=5,
             )
             if response.status_code == 200:
                 json_data = response.json()
-                if json_data.get('status') == 200 or json_data.get('msg') == 'ok':
+                if json_data.get("status") == 200 or json_data.get("msg") == "ok":
                     print(f"代理成功: {proxy}")
                     print("--------------------------------")
                     print(response.text[:500])  # 只打印前500字符
@@ -209,25 +209,25 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
 
     if got_response and response:
         json_data = response.json()
-        if json_data.get('data') and json_data['data'].get('children'):
+        if json_data.get("data") and json_data["data"].get("children"):
             # 按场地名称收集可用时段
             # API 结构: data.children[] = 时间段列表，每个时间段的 children[] = 场地列表
             court_availability = {}  # {"1号场": [["06:00", "07:00"], ...]}
 
-            for time_slot in json_data['data']['children']:
+            for time_slot in json_data["data"]["children"]:
                 # 解析时间段 "6:00~7:00" -> ["06:00", "07:00"]
-                time_range = time_slot.get('time', '')  # e.g., "6:00~7:00"
-                if '~' not in time_range:
+                time_range = time_slot.get("time", "")  # e.g., "6:00~7:00"
+                if "~" not in time_range:
                     continue
 
-                start_time, end_time = time_range.split('~')
+                start_time, end_time = time_range.split("~")
                 start_time = normalize_time(start_time)
                 end_time = normalize_time(end_time)
 
                 # 遍历该时段的所有场地
-                for court in time_slot.get('children', []):
-                    if court.get('active') == "1":
-                        court_name = court.get('name', '未知场地')
+                for court in time_slot.get("children", []):
+                    if court.get("active") == "1":
+                        court_name = court.get("name", "未知场地")
                         if court_name not in court_availability:
                             court_availability[court_name] = []
                         court_availability[court_name].append([start_time, end_time])
@@ -235,7 +235,9 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
             # 合并连续时间段
             available_slots_infos = {}
             for court_name in court_availability:
-                available_slots_infos[court_name] = merge_time_ranges(court_availability[court_name])
+                available_slots_infos[court_name] = merge_time_ranges(
+                    court_availability[court_name]
+                )
 
             print(f"available_slots_infos: {available_slots_infos}")
             return available_slots_infos
@@ -246,7 +248,7 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> Dict[str, List
         raise Exception("all proxies failed")
 
 
-def check_tennis_courts():
+def run_check_tennis_courts():
     """主要检查逻辑"""
     # 0-8点不巡检
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
@@ -271,8 +273,8 @@ def check_tennis_courts():
     # 查询空闲的球场信息 - 未来6天
     up_for_send_data_list = []
     for index in range(0, 6):
-        input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%Y-%m-%d')
-        inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime('%m-%d')
+        input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%Y-%m-%d")
+        inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%m-%d")
         print(f"checking {input_date}...")
         try:
             court_data = get_tennis_court_availability(input_date, proxy_list)
@@ -287,11 +289,15 @@ def check_tennis_courts():
                             start_time = datetime.datetime.strptime(slot[0], "%H:%M")
                             # 处理 24:00 的情况
                             if slot[1] == "24:00":
-                                end_time = datetime.datetime.strptime("23:59", "%H:%M") + datetime.timedelta(minutes=1)
+                                end_time = datetime.datetime.strptime(
+                                    "23:59", "%H:%M"
+                                ) + datetime.timedelta(minutes=1)
                             else:
                                 end_time = datetime.datetime.strptime(slot[1], "%H:%M")
                             duration_minutes = (end_time - start_time).total_seconds() / 60
-                            print_with_timestamp(f"  - {slot[0]}-{slot[1]} (时长: {int(duration_minutes)}分钟)")
+                            print_with_timestamp(
+                                f"  - {slot[0]}-{slot[1]} (时长: {int(duration_minutes)}分钟)"
+                            )
                     else:
                         print_with_timestamp("  - 无可预订时间段")
             else:
@@ -303,7 +309,7 @@ def check_tennis_courts():
             for court_name, free_slots in court_data.items():
                 if free_slots:
                     filtered_slots = []
-                    check_date = datetime.datetime.strptime(input_date, '%Y-%m-%d')
+                    check_date = datetime.datetime.strptime(input_date, "%Y-%m-%d")
                     is_weekend = check_date.weekday() >= 5
 
                     for slot in free_slots:
@@ -311,7 +317,9 @@ def check_tennis_courts():
                         start_time = datetime.datetime.strptime(slot[0], "%H:%M")
                         # 处理 24:00 的情况
                         if slot[1] == "24:00":
-                            end_time = datetime.datetime.strptime("23:59", "%H:%M") + datetime.timedelta(minutes=1)
+                            end_time = datetime.datetime.strptime(
+                                "23:59", "%H:%M"
+                            ) + datetime.timedelta(minutes=1)
                         else:
                             end_time = datetime.datetime.strptime(slot[1], "%H:%M")
                         duration_minutes = (end_time - start_time).total_seconds() / 60
@@ -326,7 +334,9 @@ def check_tennis_courts():
                         # 检查时间段是否与目标时间范围有重叠
                         start_time = datetime.datetime.strptime(slot[0], "%H:%M")
                         if slot[1] == "24:00":
-                            end_time = datetime.datetime.strptime("22:00", "%H:%M")  # 22点后的不考虑
+                            end_time = datetime.datetime.strptime(
+                                "22:00", "%H:%M"
+                            )  # 22点后的不考虑
                         else:
                             end_time = datetime.datetime.strptime(slot[1], "%H:%M")
 
@@ -344,11 +354,13 @@ def check_tennis_courts():
                             filtered_slots.append(slot)
 
                     if filtered_slots:
-                        up_for_send_data_list.append({
-                            "date": inform_date,
-                            "court_name": f"{VENUE_NAME}{court_name}",
-                            "free_slot_list": filtered_slots
-                        })
+                        up_for_send_data_list.append(
+                            {
+                                "date": inform_date,
+                                "court_name": f"{VENUE_NAME}{court_name}",
+                                "free_slot_list": filtered_slots,
+                            }
+                        )
         except Exception as e:
             print(f"Error checking date {input_date}: {str(e)}")
             continue
@@ -362,24 +374,30 @@ def check_tennis_courts():
         up_for_send_sms_list = []
 
         for data in up_for_send_data_list:
-            date = data['date']
-            court_name = data['court_name']
-            free_slot_list = data['free_slot_list']
+            date = data["date"]
+            court_name = data["court_name"]
+            free_slot_list = data["free_slot_list"]
 
-            date_obj = datetime.datetime.strptime(f"{datetime.datetime.now().year}-{date}", "%Y-%m-%d")
+            date_obj = datetime.datetime.strptime(
+                f"{datetime.datetime.now().year}-{date}", "%Y-%m-%d"
+            )
             weekday = date_obj.weekday()
             weekday_str = ["一", "二", "三", "四", "五", "六", "日"][weekday]
 
             for free_slot in free_slot_list:
-                notification = f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                notification = (
+                    f"【{court_name}】星期{weekday_str}({date})空场: {free_slot[0]}-{free_slot[1]}"
+                )
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
-                    up_for_send_sms_list.append({
-                        "date": date,
-                        "court_name": court_name,
-                        "start_time": free_slot[0],
-                        "end_time": free_slot[1]
-                    })
+                    up_for_send_sms_list.append(
+                        {
+                            "date": date,
+                            "court_name": court_name,
+                            "start_time": free_slot[0],
+                            "end_time": free_slot[1],
+                        }
+                    )
 
         if up_for_send_msg_list:
             sended_msg_list.extend(up_for_send_msg_list)
@@ -388,7 +406,7 @@ def check_tennis_courts():
                 key=CACHE_KEY,
                 value=sended_msg_list[-100:],
                 description=description,
-                serialize_json=True
+                serialize_json=True,
             )
             print(f"updated {CACHE_KEY} with {len(sended_msg_list)} records before delivery")
 
@@ -417,22 +435,19 @@ def check_tennis_courts():
 
 # 创建DAG
 dag = DAG(
-    '上越沙河网球场巡检',
+    "上越沙河网球场巡检",
     default_args=default_args,
-    description='上越沙河网球场巡检 - Tennis168平台',
-    schedule_interval=timedelta(seconds=30),
+    description="上越沙河网球场巡检 - Tennis168平台",
+    schedule=timedelta(seconds=30),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
-    tags=['深圳']
+    tags=["深圳"],
 )
 
 # 创建任务
-check_courts_task = PythonOperator(
-    task_id='check_tennis_courts',
-    python_callable=check_tennis_courts,
+check_tennis_courts = PythonOperator(
+    task_id="check_tennis_courts",
+    python_callable=run_check_tennis_courts,
     dag=dag,
 )
-
-# 设置任务依赖关系
-check_courts_task

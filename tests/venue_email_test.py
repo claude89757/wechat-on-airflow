@@ -4,10 +4,9 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
-
-from tennis_dags.utils import venue_email
+from wechat_airflow.notifications import email as venue_email
 
 
 class VenueEmailTest(unittest.TestCase):
@@ -22,6 +21,8 @@ class VenueEmailTest(unittest.TestCase):
                 "b@example.com",
             ],
             venue_email.EMAIL_TEMPLATE_ID_VAR: "54297",
+            venue_email.EMAIL_FROM_ADDRESS_VAR: "Sender <sender@example.com>",
+            venue_email.EMAIL_REPLY_TO_VAR: "reply@example.com",
             venue_email.EMAIL_SEND_FALLBACK_OUTBOX_VAR: [],
             venue_email.EMAIL_SEND_FALLBACK_MAX_ITEMS_VAR: "200",
         }
@@ -49,11 +50,15 @@ class VenueEmailTest(unittest.TestCase):
         ]
 
         with (
-            patch("tennis_dags.utils.venue_email._get_variable", side_effect=self.get_variable),
-            patch("tennis_dags.utils.venue_email._set_variable", side_effect=self.set_variable),
-            patch("tennis_dags.utils.venue_email._today", return_value=date(2026, 7, 16)),
             patch(
-                "tennis_dags.utils.venue_email.send_template_email",
+                "wechat_airflow.notifications.email._get_variable", side_effect=self.get_variable
+            ),
+            patch(
+                "wechat_airflow.notifications.email._set_variable", side_effect=self.set_variable
+            ),
+            patch("wechat_airflow.notifications.email._today", return_value=date(2026, 7, 16)),
+            patch(
+                "wechat_airflow.notifications.email.send_template_email",
                 return_value={"success": True, "message_id": "message-1"},
             ) as mock_send,
         ):
@@ -69,12 +74,13 @@ class VenueEmailTest(unittest.TestCase):
         self.assertEqual(call_kwargs["recipients"], ["a@example.com", "b@example.com"])
         self.assertEqual(call_kwargs["subject"], "深圳湾1号场 07-15 星期三 18:00-19:00")
         self.assertEqual(call_kwargs["template_id"], 54297)
+        self.assertEqual(call_kwargs["from_email"], "Sender <sender@example.com>")
+        self.assertEqual(call_kwargs["reply_to"], "reply@example.com")
         self.assertEqual(
             call_kwargs["template_data"],
             {
                 "FREE_TIME": (
-                    "深圳湾1号场 07-15 星期三 18:00-19:00\n"
-                    "深圳湾2号场 07-16 星期四 20:00-21:00"
+                    "深圳湾1号场 07-15 星期三 18:00-19:00\n深圳湾2号场 07-16 星期四 20:00-21:00"
                 )
             },
         )
@@ -89,7 +95,7 @@ class VenueEmailTest(unittest.TestCase):
             "end_time": "10:00",
         }
 
-        with patch("tennis_dags.utils.venue_email._today", return_value=date(2026, 12, 31)):
+        with patch("wechat_airflow.notifications.email._today", return_value=date(2026, 12, 31)):
             line = venue_email._format_notification(notification)
 
         self.assertEqual(line, "测试场 01-01 星期五 09:00-10:00")
@@ -106,11 +112,15 @@ class VenueEmailTest(unittest.TestCase):
         ]
 
         with (
-            patch("tennis_dags.utils.venue_email._get_variable", side_effect=self.get_variable),
-            patch("tennis_dags.utils.venue_email._set_variable", side_effect=self.set_variable),
-            patch("tennis_dags.utils.venue_email._today", return_value=date(2026, 7, 16)),
             patch(
-                "tennis_dags.utils.venue_email.send_template_email",
+                "wechat_airflow.notifications.email._get_variable", side_effect=self.get_variable
+            ),
+            patch(
+                "wechat_airflow.notifications.email._set_variable", side_effect=self.set_variable
+            ),
+            patch("wechat_airflow.notifications.email._today", return_value=date(2026, 7, 16)),
+            patch(
+                "wechat_airflow.notifications.email.send_template_email",
                 return_value={"success": True},
             ) as mock_send,
         ):
@@ -137,11 +147,18 @@ class VenueEmailTest(unittest.TestCase):
         ]
 
         with (
-            patch("tennis_dags.utils.venue_email._get_variable", side_effect=self.get_variable),
-            patch("tennis_dags.utils.venue_email._set_variable", side_effect=self.set_variable),
-            patch("tennis_dags.utils.venue_email._utc_now", return_value="2026-07-14T16:00:00+00:00"),
             patch(
-                "tennis_dags.utils.venue_email.send_template_email",
+                "wechat_airflow.notifications.email._get_variable", side_effect=self.get_variable
+            ),
+            patch(
+                "wechat_airflow.notifications.email._set_variable", side_effect=self.set_variable
+            ),
+            patch(
+                "wechat_airflow.notifications.email._utc_now",
+                return_value="2026-07-14T16:00:00+00:00",
+            ),
+            patch(
+                "wechat_airflow.notifications.email.send_template_email",
                 return_value={"success": False, "error": "FailedOperation.FrequencyLimit"},
             ),
         ):
@@ -170,10 +187,17 @@ class VenueEmailTest(unittest.TestCase):
         ]
 
         with (
-            patch("tennis_dags.utils.venue_email._get_variable", side_effect=self.get_variable),
-            patch("tennis_dags.utils.venue_email._set_variable", side_effect=self.set_variable),
-            patch("tennis_dags.utils.venue_email._utc_now", return_value="2026-07-14T16:00:00+00:00"),
-            patch("tennis_dags.utils.venue_email.send_template_email") as mock_send,
+            patch(
+                "wechat_airflow.notifications.email._get_variable", side_effect=self.get_variable
+            ),
+            patch(
+                "wechat_airflow.notifications.email._set_variable", side_effect=self.set_variable
+            ),
+            patch(
+                "wechat_airflow.notifications.email._utc_now",
+                return_value="2026-07-14T16:00:00+00:00",
+            ),
+            patch("wechat_airflow.notifications.email.send_template_email") as mock_send,
         ):
             result = venue_email.send_venue_email_batch(
                 "TOPS科技园网球场巡检",

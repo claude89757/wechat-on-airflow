@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 import importlib
 import sys
 import types
 import unittest
 from pathlib import Path
-
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DAGS_DIR = ROOT_DIR / "dags"
@@ -18,11 +16,20 @@ class FakeDAG:
         self.args = args
         self.kwargs = kwargs
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
 
 class FakePythonOperator:
     def __init__(self, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
+
+    def __rshift__(self, other):
+        return other
 
 
 class FakeVariable:
@@ -39,23 +46,24 @@ class FakeVariable:
 
 def install_import_stubs():
     airflow_module = types.ModuleType("airflow")
-    airflow_module.DAG = FakeDAG
+    airflow_sdk_module = types.ModuleType("airflow.sdk")
+    airflow_sdk_module.DAG = FakeDAG
+    airflow_sdk_module.Variable = FakeVariable
 
     operators_module = types.ModuleType("airflow.operators")
-    python_module = types.ModuleType("airflow.operators.python")
+    providers_module = types.ModuleType("airflow.providers")
+    standard_module = types.ModuleType("airflow.providers.standard")
+    standard_operators_module = types.ModuleType("airflow.providers.standard.operators")
+    python_module = types.ModuleType("airflow.providers.standard.operators.python")
     python_module.PythonOperator = FakePythonOperator
 
-    models_module = types.ModuleType("airflow.models")
-    models_module.Variable = FakeVariable
-
-    tencent_ses_module = types.ModuleType("tennis_dags.utils.tencent_ses")
-    tencent_ses_module.send_template_email = lambda **kwargs: {"ok": True}
-
     sys.modules["airflow"] = airflow_module
+    sys.modules["airflow.sdk"] = airflow_sdk_module
     sys.modules["airflow.operators"] = operators_module
-    sys.modules["airflow.operators.python"] = python_module
-    sys.modules["airflow.models"] = models_module
-    sys.modules["tennis_dags.utils.tencent_ses"] = tencent_ses_module
+    sys.modules["airflow.providers"] = providers_module
+    sys.modules["airflow.providers.standard"] = standard_module
+    sys.modules["airflow.providers.standard.operators"] = standard_operators_module
+    sys.modules["airflow.providers.standard.operators.python"] = python_module
 
 
 install_import_stubs()
@@ -163,9 +171,7 @@ class TopsWatcherTest(unittest.TestCase):
                 "free_slot_list": [["18:00", "19:00"], ["19:00", "20:00"]],
             }
         ]
-        sent_messages = [
-            "【TOPS科技园风雨棚1号场】星期一(06-08)空场: 18:00-19:00"
-        ]
+        sent_messages = ["【TOPS科技园风雨棚1号场】星期一(06-08)空场: 18:00-19:00"]
 
         messages, email_payloads = tops_watcher.build_new_notifications(
             data_list,
@@ -255,7 +261,7 @@ class TopsWatcherTest(unittest.TestCase):
         tops_watcher.datetime = FixedDatetimeModule
 
         try:
-            tops_watcher.check_tennis_courts()
+            tops_watcher.run_check_tennis_courts()
 
             self.assertIn(expected_msg, FakeVariable.values.get(tops_watcher.CACHE_KEY, []))
             self.assertEqual(len(email_calls), 1)

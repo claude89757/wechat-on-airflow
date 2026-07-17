@@ -14,6 +14,9 @@ Each venue watcher persists its detection cache first and then calls the common 
 
 Email content is intentionally terse. The subject contains the first slot, and the plain-text body contains one line per slot in the form `court date weekday time-range`. It does not include notification counts, instructions, subscription text, or booking disclaimers.
 
-The active Tencent SES template ID is stored in `VENUE_EMAIL_TEMPLATE_ID`. This allows a newly reviewed template to be activated without redeploying the DAG code.
+The active Tencent SES template ID is stored in `VENUE_EMAIL_TEMPLATE_ID`.
+`VENUE_EMAIL_FROM_ADDRESS` and `VENUE_EMAIL_REPLY_TO` hold the sender identity.
+These values are runtime configuration and are not committed. This allows
+approved mail configuration to change without redeploying DAG code.
 
 The helper validates and deduplicates recipients without printing addresses. A missing or invalid recipient list, Tencent SES exception, or `success: false` response is recorded in the Airflow-managed `EMAIL_SEND_FALLBACK_OUTBOX` variable and does not fail the venue DAG. The outbox retains 200 entries by default; override that limit with `EMAIL_SEND_FALLBACK_MAX_ITEMS`.

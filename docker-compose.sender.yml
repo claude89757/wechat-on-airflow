@@ -1,0 +1,25 @@
+name: wechat-sender
+
+services:
+  wechat-sender:
+    image: ${WECHAT_SENDER_IMAGE_NAME:-wechat-sender:0.1.0}
+    build:
+      context: .
+      dockerfile: docker/sender/Dockerfile
+    restart: unless-stopped
+    environment:
+      WECHAT_ALLOWED_DEVICE_NAME: ${WECHAT_ALLOWED_DEVICE_NAME:?WECHAT_ALLOWED_DEVICE_NAME is required}
+      WECHAT_APPIUM_URL: ${WECHAT_APPIUM_URL:?WECHAT_APPIUM_URL is required}
+    ports:
+      - "7001:7001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+        compress: "true"

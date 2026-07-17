@@ -1,5 +1,7 @@
+import json
 import os
 from threading import Lock
+from urllib.request import urlopen
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -13,10 +15,8 @@ from wechat_sender import (
     send_text_messages,
 )
 
-
 APP_NAME = "wechat-sender-agent"
 DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
-DEFAULT_DEVICE_NAME = "971bd67c0107"
 
 app = FastAPI(title=APP_NAME)
 device_lock = Lock()
@@ -50,7 +50,7 @@ def _json_error(status_code: int, error: str, message: str) -> JSONResponse:
 
 
 def _allowed_device_name() -> str:
-    return os.getenv("WECHAT_ALLOWED_DEVICE_NAME", DEFAULT_DEVICE_NAME)
+    return os.getenv("WECHAT_ALLOWED_DEVICE_NAME", "").strip()
 
 
 def _appium_url() -> str:
@@ -64,12 +64,43 @@ def validation_exception_handler(_request, _exc):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "service": APP_NAME}
+    configured = bool(_allowed_device_name() and _appium_url())
+    return {"ok": configured, "service": APP_NAME, "configured": configured}
+
+
+@app.get("/readyz")
+def readyz():
+    if not _allowed_device_name() or not _appium_url():
+        return _json_error(503, "service_misconfigured", "sender is not configured")
+
+    try:
+        with urlopen(f"{_appium_url().rstrip('/')}/status", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            value = payload.get("value") if isinstance(payload, dict) else None
+            ready = (
+                response.status == 200 and isinstance(value, dict) and value.get("ready") is True
+            )
+    except Exception as exc:
+        return _json_error(
+            503,
+            "appium_unavailable",
+            f"Appium readiness check failed: {type(exc).__name__}",
+        )
+
+    if not ready:
+        return _json_error(503, "appium_not_ready", "Appium is not ready")
+    return {"ok": True, "service": APP_NAME, "appium_ready": True}
 
 
 @app.post("/v1/wechat/send")
 def send_wechat(request: SendRequest):
     allowed_device_name = _allowed_device_name()
+    if not allowed_device_name:
+        return _json_error(
+            503,
+            "service_misconfigured",
+            "allowed device is not configured",
+        )
     if request.device_name != allowed_device_name:
         return _json_error(403, "device_not_allowed", "requested device is not allowed")
 
