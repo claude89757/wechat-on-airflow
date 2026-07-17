@@ -1,5 +1,5 @@
 schema_version: 1
-observed_at: "2026-07-16T23:35:00+08:00"
+observed_at: "2026-07-17T11:00:00+08:00"
 production:
   repository_path: /root/wechat-on-airflow
   deployed_commit: 2e74766256c97ff0af00f70b0af6ebb2777abe3e
@@ -52,6 +52,7 @@ active_dags:
     tasks:
       - db_cleanup
     variables: []
+    connections: []
     direct_modules: []
     external_services:
       - airflow_metadata_database
@@ -69,7 +70,9 @@ active_dags:
       - check_proxies
     variables:
       - GIT_TOKEN
-    direct_modules: []
+    connections: []
+    direct_modules:
+      - wechat_airflow.proxy_tools.https_proxy_watcher
     external_services:
       - github_api
       - public_proxy_sources
@@ -88,7 +91,9 @@ active_dags:
       - check_proxies
     variables:
       - GIT_TOKEN
-    direct_modules: []
+    connections: []
+    direct_modules:
+      - wechat_airflow.proxy_tools.ydmap_https_proxy_watcher
     external_services:
       - github_api
       - public_proxy_sources
@@ -113,7 +118,9 @@ active_dags:
       - SZW_EMAIL_LIST
       - SZ_TENNIS_CHATROOMS
       - 深圳湾网球场
+    connections: []
     direct_modules:
+      - wechat_airflow.venues.szw_watcher
       - wechat_airflow.notifications.email
       - wechat_airflow.notifications.wechat
     external_services:
@@ -139,7 +146,9 @@ active_dags:
       - JDWX_PROXY_CACHE
       - SZ_TENNIS_CHATROOMS
       - 金地威新网球场
+    connections: []
     direct_modules:
+      - wechat_airflow.venues.jdwx_watcher
       - wechat_airflow.notifications.email
       - wechat_airflow.notifications.wechat
     external_services:
@@ -166,7 +175,9 @@ active_dags:
       - SYSH_PROXY_CACHE
       - SZ_TENNIS_CHATROOMS
       - 上越沙河网球场
+    connections: []
     direct_modules:
+      - wechat_airflow.venues.sysh_watcher
       - wechat_airflow.notifications.email
       - wechat_airflow.notifications.wechat
     external_services:
@@ -193,7 +204,9 @@ active_dags:
       - TOPS_PROXY_CACHE
       - SZ_TENNIS_CHATROOMS
       - TOPS科技园网球场
+    connections: []
     direct_modules:
+      - wechat_airflow.venues.tops_watcher
       - wechat_airflow.notifications.email
       - wechat_airflow.notifications.wechat
     external_services:
@@ -220,7 +233,9 @@ active_dags:
       - TYZX_SUCCESSFUL_PROXIES_CACHE
       - SZ_TYZX_TENNIS_CHATROOMS
       - 深圳市体育中心网球场
+    connections: []
     direct_modules:
+      - wechat_airflow.venues.tyzx_watcher
       - wechat_airflow.notifications.email
       - wechat_airflow.notifications.wechat
     external_services:
@@ -246,7 +261,9 @@ active_dags:
       - wait_until_phone_ready
     variables:
       - APPIUM_SERVER_LIST
+    connections: []
     direct_modules:
+      - wechat_airflow.maintenance.zacks_phone_reboot
       - wechat_airflow.clients.android_device
     external_services:
       - remote_android_host_ssh
@@ -257,7 +274,7 @@ active_dags:
       - dag_imports
       - device_config_contract
       - latest_run_succeeds
-    known_issue: Two most recent observed runs failed during device resolution.
+    known_issue: Two of the three most recent observed runs failed during device resolution.
 
 excluded_stale_components:
   - dag_id: appium_wx_msg_watcher_for_zacks

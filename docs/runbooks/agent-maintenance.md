@@ -18,3 +18,8 @@ For every task:
 
 Do not create platform-specific instruction files containing independent rules.
 They may only point to `AGENTS.md`.
+
+When changing a venue or proxy adapter, keep the DAG wrapper limited to schedule
+and task wiring. Do not broaden the mypy exclusion list. A module can be removed
+from that list after its external payloads and function boundaries are typed and
+its behavior tests pass.

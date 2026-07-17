@@ -79,7 +79,10 @@ def install_dependency_stubs():
 
 install_dependency_stubs()
 
-zacks_reboot = load_module("dags/tennis_dags/zacks_phone_reboot_dag.py", "zacks_phone_reboot_dag")
+zacks_reboot = load_module(
+    "src/wechat_airflow/maintenance/zacks_phone_reboot.py",
+    "zacks_phone_reboot",
+)
 
 
 class ZacksPhoneRebootTest(unittest.TestCase):

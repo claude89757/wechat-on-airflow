@@ -2,6 +2,20 @@
 
 Observed on 2026-07-16 before the Airflow 3 migration.
 
+## Latest Read-only Refresh
+
+The health check at 2026-07-17 11:00 Asia/Shanghai still found Airflow 2.10.5
+at commit `2e74766256c97ff0af00f70b0af6ebb2777abe3e`. The metadata database had
+grown to 42,475,056,275 bytes, with 16,659,836,928 bytes free on reliable root
+storage. All venue, proxy, and cleanup DAGs had three recent successful runs;
+the phone reboot DAG showed `success`, `failed`, `failed`.
+
+The remaining gates were unchanged: two stale Appium import errors, missing
+`VENUE_EMAIL_FROM_ADDRESS` and `VENUE_EMAIL_REPLY_TO`, an invalid or absent
+pinned Zacks host-key fingerprint, an unreachable managed WeChat sender, and
+fallback outbox counts of 36 email and 200 WeChat incident records. These
+records must not be replayed automatically.
+
 ## Runtime
 
 | Component | Observed state |

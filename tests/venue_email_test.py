@@ -1,10 +1,7 @@
-import sys
 import unittest
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from wechat_airflow.notifications import email as venue_email
 
@@ -212,7 +209,7 @@ class VenueEmailTest(unittest.TestCase):
 
     def test_all_active_venue_watchers_use_independent_recipient_variables(self):
         root_dir = Path(__file__).resolve().parents[1]
-        watcher_dir = root_dir / "dags" / "tennis_dags" / "sz_tennis"
+        watcher_dir = root_dir / "src" / "wechat_airflow" / "venues"
         watcher_variables = {
             "szw_watcher.py": "SZW_EMAIL_LIST",
             "jdwx_watcher.py": "JDWX_EMAIL_LIST",

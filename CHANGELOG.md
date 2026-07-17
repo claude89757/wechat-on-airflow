@@ -12,6 +12,10 @@ and operational changes.
   operators, Task SDK authoring API, CeleryExecutor, and FAB Auth Manager.
 - Move notification and Android-host clients from the DAG scan path into the
   installable `wechat_airflow` package.
+- Move venue, proxy refresh, and device maintenance implementations into the
+  installable package, leaving production DAG files as schedule-and-wiring wrappers.
+- Verify active DAG source files and task IDs against the machine-readable
+  manifest, and include the Airflow 3 DagBag check in `make verify`.
 - Keep venue recipient lists independent and make email and WeChat failure
   outboxes explicit.
 - Add Agent-Native manifests, deterministic verification commands, production

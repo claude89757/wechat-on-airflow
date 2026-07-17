@@ -3,12 +3,6 @@ import importlib
 import sys
 import types
 import unittest
-from pathlib import Path
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-DAGS_DIR = ROOT_DIR / "dags"
-if str(DAGS_DIR) not in sys.path:
-    sys.path.insert(0, str(DAGS_DIR))
 
 
 class FakeDAG:
@@ -67,7 +61,73 @@ def install_import_stubs():
 
 
 install_import_stubs()
-tops_watcher = importlib.import_module("tennis_dags.sz_tennis.tops_watcher")
+jdwx_watcher = importlib.import_module("wechat_airflow.venues.jdwx_watcher")
+sysh_watcher = importlib.import_module("wechat_airflow.venues.sysh_watcher")
+szw_watcher = importlib.import_module("wechat_airflow.venues.szw_watcher")
+tops_watcher = importlib.import_module("wechat_airflow.venues.tops_watcher")
+tyzx_watcher = importlib.import_module("wechat_airflow.venues.tyzx_watcher")
+
+
+class VenueDomainTest(unittest.TestCase):
+    def test_jdwx_merges_touching_and_overlapping_slots(self):
+        self.assertEqual(
+            jdwx_watcher.merge_time_ranges(
+                [["08:00", "09:00"], ["08:30", "10:00"], ["10:00", "11:00"]]
+            ),
+            [["08:00", "11:00"]],
+        )
+
+    def test_sysh_normalizes_and_merges_slots(self):
+        self.assertEqual(sysh_watcher.normalize_time("6:05"), "06:05")
+        self.assertEqual(
+            sysh_watcher.merge_time_ranges([["23:00", "24:00"], ["22:00", "23:00"]]),
+            [["22:00", "24:00"]],
+        )
+
+    def test_szw_finds_gaps_within_notification_window(self):
+        self.assertEqual(
+            szw_watcher.find_available_slots(
+                [["08:00", "09:00"], ["10:00", "11:00"]],
+                {"start_time": "07:00", "end_time": "12:00"},
+            ),
+            [["07:00", "08:00"], ["09:00", "10:00"], ["11:00", "12:00"]],
+        )
+        self.assertEqual(
+            szw_watcher.extract_time_hhmm("2026-07-17 08:30:00"),
+            "08:30",
+        )
+
+    def test_tyzx_only_merges_available_unlocked_slots(self):
+        result = tyzx_watcher.parse_tyzx_court_data(
+            {
+                "body": [
+                    {
+                        "placeName": "1号场",
+                        "startTime": "07:00:00",
+                        "endTime": "08:00:00",
+                        "appointFlag": 1,
+                        "priceInfoList": [{"price": 100, "remainnum": 1}],
+                    },
+                    {
+                        "placeName": "1号场",
+                        "startTime": "08:00:00",
+                        "endTime": "09:00:00",
+                        "appointFlag": 1,
+                        "priceInfoList": [{"price": 100, "remainnum": 1}],
+                    },
+                    {
+                        "placeName": "1号场",
+                        "startTime": "09:00:00",
+                        "endTime": "10:00:00",
+                        "appointFlag": 1,
+                        "lockRemark": "maintenance",
+                        "priceInfoList": [{"price": 100, "remainnum": 1}],
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(result, {"1号场": [["07:00", "09:00"]]})
 
 
 class TopsWatcherTest(unittest.TestCase):

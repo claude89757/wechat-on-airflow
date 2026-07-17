@@ -36,11 +36,16 @@ Python 3.12 and Docker Compose v2 are required.
 ```bash
 make setup
 make verify
-make test-dags
 ```
 
-`make test-dags` builds the pinned Airflow image and checks DAG imports inside
-Airflow 3. Tests and smoke checks do not send real email or WeChat messages.
+`make verify` includes static checks, unit tests, configuration validation, the
+pinned Airflow image build, and a DagBag contract check inside Airflow 3. The
+DagBag check verifies DAG IDs, source files, task IDs, and import errors against
+the active component manifest; the static manifest check also verifies each DAG
+schedule. Tests and smoke checks do not send real email or WeChat messages.
+
+Production DAG files are intentionally thin. Venue, proxy, and device
+maintenance implementations are installed from `src/wechat_airflow/`.
 
 ## Configuration
 
@@ -71,6 +76,8 @@ history is not an operational dependency.
 
 See `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md`. CI runs the same
 static, unit, manifest, Compose, image-build, and DAG-import gates used locally.
+Versioning, the support matrix, release gates, and rollback expectations are in
+`docs/release-strategy.md`.
 
 ## License
 

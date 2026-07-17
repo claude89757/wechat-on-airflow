@@ -41,12 +41,23 @@ CeleryExecutor, PostgreSQL, Redis, and FAB Auth Manager.
 
 ## Ownership Boundaries
 
-- DAG files define schedules and task wiring.
-- Domain parsing and filtering belongs in `src/`.
+- DAG files define schedules and task wiring only. The component manifest
+  enforces a 120-line limit and rejects direct network-client imports.
+- Venue querying, parsing, filtering, and notification orchestration live in
+  `src/wechat_airflow/venues/`.
+- Proxy refresh implementations live in `src/wechat_airflow/proxy_tools/`.
+- Device maintenance implementations live in
+  `src/wechat_airflow/maintenance/`.
 - Notification clients and fallback logic belong in `src/`.
 - Airflow Variables provide runtime configuration, not business logic.
 - Production maintenance is executed through scripts and one-off deployment
   manager commands, not through Airflow internal Python APIs.
 
 The authoritative active component and configuration contract is
-`config/active-components.yaml`.
+`config/active-components.yaml`. Static verification checks each declared
+schedule, and Airflow 3 DagBag verification checks the DAG ID, source file, and
+task IDs against that manifest.
+
+The venue and proxy adapters were moved without rewriting their dynamic API
+payload handling. Their exact modules are a bounded typing backlog in
+`pyproject.toml`; all other source modules remain under strict mypy checking.

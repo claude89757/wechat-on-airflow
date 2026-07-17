@@ -7,8 +7,9 @@ Use Python 3.12 and Docker Compose v2.
 ```bash
 make setup
 make verify
-make test-dags
 ```
+
+`make verify` includes the Airflow 3 image and DagBag contract check.
 
 Tests must not call production venue APIs when a deterministic fake is
 available and must never send real email or WeChat messages.

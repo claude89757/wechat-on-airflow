@@ -128,7 +128,7 @@ outside the repository.
 After the rehearsal report and runtime checks were finalized, both images were
 rebuilt from the current worktree and verified locally:
 
-- Airflow: `sha256:ce268d91fa9cd0ec27169a5050d01e215040eacf63e91d33efc3a9ebbd9d6d6f`
+- Airflow: `sha256:7bd456ca1d78ef5883dbd7bfac547d370e8171a174119eca72b6f9ab05a5a461`
 - WeChat sender:
   `sha256:6e78ffd5acd32b192fcf24a92ba7ed9f8c2e11d7ffd312ba120db3f90af6f4fd`
 
@@ -138,8 +138,8 @@ verify their IDs again on the production host.
 
 ## Production Gates
 
-Production currently has a `42,469,788,819` byte metadata database and only
-`16,957,681,664` bytes free on reliable storage. The secondary filesystem has
+Production currently has a `42,475,056,275` byte metadata database and only
+`16,659,836,928` bytes free on reliable storage. The secondary filesystem has
 ext4 I/O errors and cannot be used. The rehearsal's database and volume growth,
 scaled to the larger live database, means the current host cannot support both
 migration work and restore headroom.

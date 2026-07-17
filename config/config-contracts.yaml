@@ -1,5 +1,6 @@
 schema_version: 1
 values_are_documented: false
+connections: {}
 variables:
   APPIUM_SERVER_LIST:
     type: json_list

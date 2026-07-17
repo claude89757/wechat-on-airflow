@@ -40,7 +40,7 @@ sender-config:
 smoke:
 	PYTHONPATH=src $(BIN)/python scripts/check_active_components.py
 
-verify: lint typecheck test compose-config smoke
+verify: lint typecheck test compose-config smoke test-dags
 
 deploy-check:
 	PYTHONPATH=src $(BIN)/python scripts/deploy_check.py --dry-run

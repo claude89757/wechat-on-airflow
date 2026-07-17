@@ -10,6 +10,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config" / "active-components.yaml"
 CONTRACTS = ROOT / "config" / "config-contracts.yaml"
+DAG_MAX_LINES = 120
+FORBIDDEN_DAG_IMPORT_ROOTS = {"httpx", "paramiko", "requests", "socket", "urllib3"}
 
 
 def fail(message: str) -> None:
@@ -26,6 +28,57 @@ def string_literals(path: Path) -> set[str]:
     }
 
 
+def imported_modules(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+    return modules
+
+
+def dag_schedule_contract(path: Path) -> str:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    schedule_nodes = [
+        keyword.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "DAG"
+        for keyword in node.keywords
+        if keyword.arg == "schedule"
+    ]
+    if len(schedule_nodes) != 1:
+        fail(f"{path.relative_to(ROOT)} must define exactly one DAG schedule")
+
+    schedule_node = schedule_nodes[0]
+    if isinstance(schedule_node, ast.Constant) and isinstance(schedule_node.value, str):
+        return schedule_node.value
+
+    if (
+        isinstance(schedule_node, ast.Call)
+        and isinstance(schedule_node.func, ast.Name)
+        and schedule_node.func.id == "timedelta"
+    ):
+        units = {"days": 86_400, "hours": 3_600, "minutes": 60, "seconds": 1}
+        total_seconds = 0
+        for keyword in schedule_node.keywords:
+            if keyword.arg not in units or not isinstance(keyword.value, ast.Constant):
+                fail(f"{path.relative_to(ROOT)} has an unsupported timedelta schedule")
+            if not isinstance(keyword.value.value, int):
+                fail(f"{path.relative_to(ROOT)} timedelta schedule values must be integers")
+            total_seconds += keyword.value.value * units[keyword.arg]
+        if total_seconds <= 0:
+            fail(f"{path.relative_to(ROOT)} timedelta schedule must be positive")
+        if total_seconds % 3_600 == 0:
+            return f"every_{total_seconds // 3_600}_hours"
+        if total_seconds % 60 == 0:
+            return f"every_{total_seconds // 60}_minutes"
+        return f"every_{total_seconds}_seconds"
+
+    fail(f"{path.relative_to(ROOT)} has an unsupported schedule expression")
+
+
 def module_path(module_name: str) -> Path:
     return ROOT / "src" / Path(*module_name.split(".")).with_suffix(".py")
 
@@ -37,10 +90,19 @@ def main() -> None:
     if not isinstance(active_dags, list) or not active_dags:
         fail("active_dags must be a non-empty list")
 
-    contract_names = set((contracts.get("variables") or {}).keys())
+    variable_contracts = contracts.get("variables") or {}
+    connection_contracts = contracts.get("connections") or {}
+    if not isinstance(variable_contracts, dict):
+        fail("config-contracts variables must be a mapping")
+    if not isinstance(connection_contracts, dict):
+        fail("config-contracts connections must be a mapping")
+
+    contract_names = set(variable_contracts)
+    connection_contract_names = set(connection_contracts)
     dag_ids: set[str] = set()
     files: set[str] = set()
     undeclared_variables: set[str] = set()
+    undeclared_connections: set[str] = set()
     declared_modules: set[str] = set()
 
     for component in active_dags:
@@ -62,11 +124,43 @@ def main() -> None:
             fail(f"DAG file is outside dags/: {relative_file}")
         if dag_id not in string_literals(path):
             fail(f"{relative_file} does not contain its declared dag_id {dag_id!r}")
+        declared_schedule = component.get("schedule")
+        actual_schedule = dag_schedule_contract(path)
+        if actual_schedule != declared_schedule:
+            fail(
+                f"{relative_file} schedule mismatch: "
+                f"manifest={declared_schedule!r}, source={actual_schedule!r}"
+            )
+        if len(path.read_text(encoding="utf-8").splitlines()) > DAG_MAX_LINES:
+            fail(f"{relative_file} exceeds the {DAG_MAX_LINES}-line DAG wiring limit")
+        forbidden_imports = sorted(
+            module
+            for module in imported_modules(path)
+            if module.split(".", maxsplit=1)[0] in FORBIDDEN_DAG_IMPORT_ROOTS
+        )
+        if forbidden_imports:
+            fail(
+                f"{relative_file} imports network/runtime clients directly: "
+                + ", ".join(forbidden_imports)
+            )
 
         variables = component.get("variables") or []
         if not isinstance(variables, list):
             fail(f"{dag_id} variables must be a list")
         undeclared_variables.update(set(variables) - contract_names)
+
+        if "connections" not in component:
+            fail(f"{dag_id} must declare connections, using [] when none are required")
+        connections = component.get("connections") or []
+        if not isinstance(connections, list):
+            fail(f"{dag_id} connections must be a list")
+        undeclared_connections.update(set(connections) - connection_contract_names)
+
+        tasks = component.get("tasks") or []
+        if not isinstance(tasks, list) or not tasks:
+            fail(f"{dag_id} tasks must be a non-empty list")
+        if len(tasks) != len(set(tasks)):
+            fail(f"{dag_id} contains duplicate task IDs")
 
         verification = component.get("verification") or []
         if not verification:
@@ -109,11 +203,35 @@ def main() -> None:
             "variables missing from config/config-contracts.yaml: "
             + ", ".join(sorted(undeclared_variables))
         )
+    if undeclared_connections:
+        fail(
+            "connections missing from config/config-contracts.yaml: "
+            + ", ".join(sorted(undeclared_connections))
+        )
+
+    known_contract_owners = dag_ids | set((manifest.get("shared_contracts") or {}).keys())
+    for contract_kind, contract_map in (
+        ("variable", variable_contracts),
+        ("connection", connection_contracts),
+    ):
+        for name, contract in contract_map.items():
+            if not isinstance(contract, dict):
+                fail(f"{contract_kind} contract {name} must be a mapping")
+            required_by = contract.get("required_by") or []
+            if not isinstance(required_by, list) or not required_by:
+                fail(f"{contract_kind} contract {name} requires a non-empty required_by list")
+            unknown_owners = sorted(set(required_by) - known_contract_owners)
+            if unknown_owners:
+                fail(
+                    f"{contract_kind} contract {name} has unknown owners: "
+                    + ", ".join(unknown_owners)
+                )
 
     print(
         "active-components: ok "
         f"dags={len(dag_ids)} services={len(active_services)} "
-        f"declared_variables={len(contract_names)}"
+        f"declared_variables={len(contract_names)} "
+        f"declared_connections={len(connection_contract_names)}"
     )
 
 

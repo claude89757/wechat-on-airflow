@@ -26,7 +26,10 @@ from the last verified state; chat history is not authoritative.
 ## Repository Boundaries
 
 - `dags/`: production DAG definitions only.
-- `src/`: reusable business logic and external-service clients.
+- `src/wechat_airflow/venues/`: venue API, parsing, filtering, and delivery orchestration.
+- `src/wechat_airflow/proxy_tools/`: proxy refresh implementations.
+- `src/wechat_airflow/maintenance/`: device maintenance implementations.
+- Other `src/` packages: reusable notification and external-service clients.
 - `tests/`: unit, contract, DAG import, and smoke tests.
 - `config/`: non-secret machine-readable contracts.
 - `scripts/`: idempotent development and operations commands.
@@ -34,6 +37,10 @@ from the last verified state; chat history is not authoritative.
 - `docs/`: architecture, runbooks, configuration, and decisions.
 
 Do not add test DAGs, demos, generated files, or archived source under `dags/`.
+DAG files must stay below the manifest checker's wiring-only limit and must not
+import network clients directly. The exact mypy exclusions in `pyproject.toml`
+are a bounded legacy backlog; do not broaden them, and remove an exclusion when
+the corresponding adapter is made fully typed.
 
 ## Business Invariants
 
@@ -69,7 +76,8 @@ make rollback-check
 make sender-image
 ```
 
-`make verify` is the required local gate before committing.
+`make verify` is the required local gate before committing. It includes the
+Airflow 3 image build and DagBag contract check.
 
 ## Production Access
 
