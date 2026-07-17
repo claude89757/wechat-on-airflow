@@ -128,7 +128,7 @@ outside the repository.
 After the rehearsal report and runtime checks were finalized, both images were
 rebuilt from the current worktree and verified locally:
 
-- Airflow: `sha256:83625bddb2801c507ddbc3f98454928dd3a0d3f53df8a18dd8280dcfb948c021`
+- Airflow: `sha256:ce268d91fa9cd0ec27169a5050d01e215040eacf63e91d33efc3a9ebbd9d6d6f`
 - WeChat sender:
   `sha256:6e78ffd5acd32b192fcf24a92ba7ed9f8c2e11d7ffd312ba120db3f90af6f4fd`
 
@@ -155,7 +155,8 @@ met:
    `VENUE_EMAIL_REPLY_TO` without printing their values.
 4. Restore the external Appium/device path and make the managed sender
    `/readyz` check pass. The changed SSH host fingerprint must be verified by a
-   human before accepting it.
+   human before storing it as `login_info.host_key_sha256` in
+   `APPIUM_SERVER_LIST`.
 5. Record the exact approved Git commit and final Airflow and sender image IDs.
 6. Obtain explicit human approval for the production metadata migration.
 

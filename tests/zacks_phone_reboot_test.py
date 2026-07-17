@@ -3,11 +3,20 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from wechat_airflow.clients import android_device as ssh_control
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+TEST_HOST_KEY_SHA256 = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+
+class FakeHostKey:
+    def __init__(self, value: bytes) -> None:
+        self.value = value
+
+    def asbytes(self) -> bytes:
+        return self.value
 
 
 def load_module(relative_path: str, module_name: str):
@@ -103,6 +112,7 @@ class ZacksPhoneRebootTest(unittest.TestCase):
                 port=22,
                 username="user",
                 password="pass",
+                host_key_sha256=TEST_HOST_KEY_SHA256,
             )
 
         self.assertEqual(result, ["device-ok"])
@@ -112,6 +122,50 @@ class ZacksPhoneRebootTest(unittest.TestCase):
         self.assertTrue(ssh_control.is_boot_completed_output(" 1 \r\n"))
         self.assertFalse(ssh_control.is_boot_completed_output("0\n"))
         self.assertFalse(ssh_control.is_boot_completed_output(""))
+
+    def test_pinned_host_key_policy_accepts_only_exact_sha256_fingerprint(self):
+        host_key = FakeHostKey(b"expected-host-key")
+        fingerprint = ssh_control.sha256_host_key_fingerprint(host_key)
+        policy = ssh_control.PinnedSHA256HostKeyPolicy(fingerprint)
+
+        policy.missing_host_key(None, "device-host", host_key)
+
+        with self.assertRaises(ssh_control.paramiko.SSHException):
+            policy.missing_host_key(None, "device-host", FakeHostKey(b"unexpected-host-key"))
+
+    def test_normalize_sha256_host_key_rejects_malformed_values(self):
+        with self.assertRaises(ValueError):
+            ssh_control.normalize_sha256_host_key("MD5:invalid")
+        with self.assertRaises(ValueError):
+            ssh_control.normalize_sha256_host_key("SHA256:not-a-valid-digest")
+
+    def test_ssh_connection_pins_host_key_and_disables_sha1(self):
+        ssh_client = MagicMock()
+        ssh_client.connect.side_effect = RuntimeError("stop after connection options")
+
+        with (
+            patch.object(ssh_control.paramiko, "SSHClient", return_value=ssh_client),
+            patch.object(ssh_control.LOGGER, "exception"),
+        ):
+            result = ssh_control.exec_cmd_by_ssh_with_status(
+                host="device-host",
+                port=22,
+                username="user",
+                password="pass",
+                host_key_sha256=TEST_HOST_KEY_SHA256,
+                cmd="true",
+            )
+
+        self.assertEqual(result, (None, "stop after connection options", None))
+        policy = ssh_client.set_missing_host_key_policy.call_args.args[0]
+        self.assertIsInstance(policy, ssh_control.PinnedSHA256HostKeyPolicy)
+        connect_options = ssh_client.connect.call_args.kwargs
+        self.assertFalse(connect_options["allow_agent"])
+        self.assertFalse(connect_options["look_for_keys"])
+        self.assertEqual(
+            connect_options["disabled_algorithms"],
+            {"keys": ["ssh-rsa"], "pubkeys": ["ssh-rsa"]},
+        )
 
     def test_find_zacks_appium_server_prefers_explicit_identifier(self):
         configs = [
@@ -141,6 +195,7 @@ class ZacksPhoneRebootTest(unittest.TestCase):
                 username="user",
                 password="pass",
                 device_serial="device-1",
+                host_key_sha256=TEST_HOST_KEY_SHA256,
                 port=22,
             )
 
@@ -157,6 +212,7 @@ class ZacksPhoneRebootTest(unittest.TestCase):
                 username="user",
                 password="pass",
                 device_serial="device-1",
+                host_key_sha256=TEST_HOST_KEY_SHA256,
                 port=22,
             )
 

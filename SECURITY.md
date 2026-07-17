@@ -20,3 +20,7 @@ Production Variables, Connections, passwords, API keys, email addresses, device
 credentials, database backups, and Fernet/JWT keys must not be committed or
 printed by operational tooling. Real notification tests require explicit human
 approval.
+
+SSH access to Android device hosts must pin a human-verified SHA-256 host-key
+fingerprint. Unknown or changed keys must fail closed and must never be accepted
+automatically.

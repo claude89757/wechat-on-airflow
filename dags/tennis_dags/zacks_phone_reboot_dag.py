@@ -57,7 +57,9 @@ def load_zacks_device_config() -> dict:
 
     login_info = appium_server_info.get("login_info") or {}
     missing_login_keys = [
-        key for key in ("device_ip", "username", "password") if not login_info.get(key)
+        key
+        for key in ("device_ip", "username", "password", "host_key_sha256")
+        if not login_info.get(key)
     ]
     if login_info.get("port") is None:
         missing_login_keys.append("port")
@@ -107,6 +109,7 @@ def resolve_adb_serial(appium_server_info: dict) -> str:
         port=login_info["port"],
         username=login_info["username"],
         password=login_info["password"],
+        host_key_sha256=login_info["host_key_sha256"],
     )
     adb_serial = choose_adb_serial(appium_server_info, online_devices)
     print(
@@ -162,6 +165,7 @@ def reboot_zacks_phone(**context):
         username=login_info["username"],
         password=login_info["password"],
         device_serial=adb_serial,
+        host_key_sha256=login_info["host_key_sha256"],
         port=login_info["port"],
     ):
         raise RuntimeError(f"设备 {adb_serial} 执行 reboot 失败")
@@ -181,6 +185,7 @@ def wait_until_phone_ready(**context):
         username=login_info["username"],
         password=login_info["password"],
         device_serial=adb_serial,
+        host_key_sha256=login_info["host_key_sha256"],
         port=login_info["port"],
         timeout=600,
         interval=10,

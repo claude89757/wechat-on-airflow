@@ -5,6 +5,12 @@ variables:
     type: json_list
     required_by: [zacks_phone_daily_reboot]
     sensitive: true
+    login_info_required_fields:
+      - device_ip
+      - username
+      - password
+      - port
+      - host_key_sha256
   EMAIL_SEND_FALLBACK_MAX_ITEMS:
     type: positive_integer
     required_by: [venue_email]

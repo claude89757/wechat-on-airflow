@@ -22,3 +22,12 @@ Fallback outboxes are incident records, not retry queues. After fixing a
 channel, verify that new records stop accumulating. Archiving or clearing old
 records requires an explicit, no-replay maintenance step; never resend them in
 bulk.
+
+## Android Host Key
+
+Each `APPIUM_SERVER_LIST` item's `login_info` must include an OpenSSH SHA-256
+host-key fingerprint in `host_key_sha256`, using the `SHA256:<base64>` format.
+Verify a changed fingerprint through a trusted channel before updating the
+Variable. The runtime rejects missing or mismatched fingerprints and disables
+the legacy `ssh-rsa` SHA-1 algorithm; never replace this with automatic host-key
+acceptance.

@@ -15,6 +15,7 @@ MARKERS = (
     "import_errors",
     "dags",
     "variables",
+    "variable_contracts",
     "recent_runs",
     "outboxes",
     "database",
@@ -166,6 +167,60 @@ with create_session() as session:
     names = sorted(key for (key,) in session.query(Variable.key).all())
 print(json.dumps(names, ensure_ascii=False))
 PY
+printf '__VARIABLE_CONTRACTS__\n'
+airflow_python - <<'PY'
+import base64
+import hashlib
+import json
+try:
+    from airflow.sdk import Variable
+except ImportError:
+    from airflow.models import Variable
+
+
+def matches_zacks(item):
+    exact_fields = ("wx_user_id", "wx_id", "wx_name", "name")
+    exact_values = {
+        str(item.get(field, "")).strip().lower()
+        for field in exact_fields
+        if str(item.get(field, "")).strip()
+    }
+    return "zacks" in exact_values or "zacks" in str(item.get("dag_id", "")).lower()
+
+
+def valid_sha256_fingerprint(value):
+    if not isinstance(value, str) or not value.startswith("SHA256:"):
+        return False
+    encoded = value.removeprefix("SHA256:").rstrip("=")
+    try:
+        digest = base64.b64decode(encoded + ("=" * (-len(encoded) % 4)), validate=True)
+    except Exception:
+        return False
+    return len(digest) == hashlib.sha256().digest_size
+
+
+try:
+    appium_servers = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)
+except Exception:
+    appium_servers = None
+items = [item for item in appium_servers if isinstance(item, dict)] if isinstance(appium_servers, list) else []
+targets = [item for item in items if matches_zacks(item)]
+login_info = targets[0].get("login_info", {}) if len(targets) == 1 else {}
+print(
+    json.dumps(
+        {
+            "APPIUM_SERVER_LIST": {
+                "is_list": isinstance(appium_servers, list),
+                "zacks_target_count": len(targets),
+                "host_key_sha256_valid": valid_sha256_fingerprint(
+                    login_info.get("host_key_sha256")
+                ),
+            }
+        },
+        sort_keys=True,
+    )
+)
+PY
 printf '__RECENT_RUNS__\n'
 airflow_python - <<'PY'
 import json
@@ -304,6 +359,7 @@ PY
     import_errors = parse_json_output(sections["import_errors"], [])
     dags = parse_json_output(sections["dags"], [])
     variable_names = parse_json_output(sections["variables"], [])
+    variable_contracts = parse_json_output(sections["variable_contracts"], {})
     recent_runs = parse_json_output(sections["recent_runs"], {})
     outboxes = parse_json_output(sections["outboxes"], {})
     database = parse_json_output(sections["database"], {})
@@ -413,6 +469,22 @@ PY
             f"missing Variable names: {', '.join(missing_variables)}",
             "create the missing Variables without printing or committing their values",
         )
+    appium_contract = (
+        variable_contracts.get("APPIUM_SERVER_LIST")
+        if isinstance(variable_contracts, dict)
+        else None
+    )
+    if (
+        not isinstance(appium_contract, dict)
+        or appium_contract.get("is_list") is not True
+        or appium_contract.get("zacks_target_count") != 1
+        or appium_contract.get("host_key_sha256_valid") is not True
+    ):
+        add_issue(
+            "android_host_key",
+            "APPIUM_SERVER_LIST does not contain one Zacks target with a valid pinned host key",
+            "verify the SSH key out of band, then configure login_info.host_key_sha256",
+        )
     if recent_run_failures:
         add_issue(
             "recent_dag_runs",
@@ -445,7 +517,7 @@ PY
         add_issue(
             "wechat_sender",
             "managed WeChat sender health check failed",
-            "start docker-compose.sender.yml and verify its /healthz endpoint",
+            "start docker-compose.sender.yml and verify its /readyz endpoint",
         )
 
     payload = {
@@ -460,6 +532,7 @@ PY
         "missing_active_dags": missing_dags,
         "paused_active_dags": paused_dags,
         "missing_required_variable_names": missing_variables,
+        "variable_contracts": variable_contracts,
         "recent_runs": recent_run_summary,
         "recent_run_failures": recent_run_failures,
         "fallback_outbox_counts": outboxes,

@@ -20,6 +20,8 @@ and operational changes.
   Compose service with automatic restart and health checks.
 - Add metadata relation sizes, disk headroom, and managed-service status to the
   read-only production health gate.
+- Pin Android-host SSH keys by SHA-256 fingerprint and disable legacy
+  `ssh-rsa` SHA-1 negotiation.
 
 ### Removed
 
