@@ -28,12 +28,12 @@ def send_template_email(**kwargs: Any) -> JsonDict:
 
 def _get_variable(
     key: str,
-    default_var: Any = None,
+    default: Any = None,
     deserialize_json: bool = False,
 ) -> Any:
     from airflow.sdk import Variable
 
-    return Variable.get(key, default_var=default_var, deserialize_json=deserialize_json)
+    return Variable.get(key, default=default, deserialize_json=deserialize_json)
 
 
 def _set_variable(key: str, value: Any, serialize_json: bool = False) -> None:
@@ -51,7 +51,7 @@ def _today() -> date:
 
 
 def _get_int_variable(key: str, default: int) -> int:
-    value = _get_variable(key, default_var=str(default))
+    value = _get_variable(key, default=str(default))
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -66,7 +66,7 @@ def _get_email_template_id() -> int:
 
 
 def _get_required_string_variable(key: str) -> str:
-    value = str(_get_variable(key, default_var="")).strip()
+    value = str(_get_variable(key, default="")).strip()
     if not value:
         raise ValueError(f"Airflow Variable {key} is required")
     return value
@@ -157,7 +157,7 @@ def _record_failed_batch(
     ).hexdigest()
     outbox = _get_variable(
         EMAIL_SEND_FALLBACK_OUTBOX_VAR,
-        default_var=[],
+        default=[],
         deserialize_json=True,
     )
     if not isinstance(outbox, list):
@@ -238,7 +238,7 @@ def send_venue_email_batch(
         recipients = _normalize_recipients(
             _get_variable(
                 normalized_recipients_var,
-                default_var=[],
+                default=[],
                 deserialize_json=True,
             ),
             normalized_recipients_var,

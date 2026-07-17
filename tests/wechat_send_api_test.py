@@ -18,7 +18,7 @@ class FakeResponse:
 
 
 class WeChatSendApiTest(unittest.TestCase):
-    def variable_getter(self, key, default_var=None, deserialize_json=False):
+    def variable_getter(self, key, default=None, deserialize_json=False):
         values = {
             "WECHAT_SEND_API_URL": "http://sender.example/v1/wechat/send",
             "WECHAT_SEND_DEVICE_NAME": "device-from-variable",
@@ -26,7 +26,7 @@ class WeChatSendApiTest(unittest.TestCase):
             "WECHAT_SEND_RETRY_COUNT": "1",
             "WECHAT_SEND_RETRY_DELAY_SECONDS": "0",
         }
-        return values.get(key, default_var)
+        return values.get(key, default)
 
     @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_uses_airflow_variable_endpoint(self, mock_post):
@@ -101,8 +101,8 @@ class WeChatSendApiTest(unittest.TestCase):
             "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
         }
 
-        def get_variable(key, default_var=None, deserialize_json=False):
-            return variables.get(key, default_var)
+        def get_variable(key, default=None, deserialize_json=False):
+            return variables.get(key, default)
 
         def set_variable(key, value, serialize_json=False):
             variables[key] = value
@@ -143,8 +143,8 @@ class WeChatSendApiTest(unittest.TestCase):
             "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
         }
 
-        def get_variable(key, default_var=None, deserialize_json=False):
-            return variables.get(key, default_var)
+        def get_variable(key, default=None, deserialize_json=False):
+            return variables.get(key, default)
 
         def set_variable(key, value, serialize_json=False):
             variables[key] = value

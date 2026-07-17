@@ -90,7 +90,7 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     Returns:
         dict: 场地信息，格式为{场地名: [[开始时间, 结束时间], ...]}
     """
-    szw_authorization = Variable.get("SZW_API_AUTHORIZATION", default_var="").strip()
+    szw_authorization = Variable.get("SZW_API_AUTHORIZATION", default="").strip()
     if not szw_authorization:
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 未配置")
     if "\n" in szw_authorization or "\r" in szw_authorization:
@@ -254,7 +254,7 @@ def check_and_notify_for_day(day_offset: int):
     up_for_send_sms_list = []
     if up_for_send_data_list:
         cache_key = "深圳湾网球场"
-        sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
         up_for_send_msg_list = []
         for data in up_for_send_data_list:
             date = data["date"]
@@ -302,7 +302,7 @@ def check_and_notify_for_day(day_offset: int):
             )
 
             # 发送微信消息
-            chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+            chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default="")
             chat_names_list = str(chat_names).splitlines()
             print(f"chat_names_list: {chat_names_list}")
             send_wechat_text_to_chatrooms_best_effort(

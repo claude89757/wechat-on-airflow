@@ -38,7 +38,6 @@ def generate_proxies():
     """
     urls = [
         "https://github.com/roosterkid/openproxylist/raw/main/HTTPS_RAW.txt",
-        "https://raw.githubusercontent.com/yoannchb-pro/https-proxies/main/proxies.txt",
         "https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/https.txt",
         "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",
     ]
@@ -193,7 +192,7 @@ def task_check_proxies():
 
     # 更新到airflow的变量中
     isz_successful_proxies = Variable.get(
-        "ISZ_SUCCESSFUL_PROXIES", deserialize_json=True, default_var=[]
+        "ISZ_SUCCESSFUL_PROXIES", deserialize_json=True, default=[]
     )
     for proxy in available_proxies:
         if proxy not in isz_successful_proxies:

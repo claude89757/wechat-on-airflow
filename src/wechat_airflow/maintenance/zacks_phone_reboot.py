@@ -51,7 +51,7 @@ def load_zacks_device_config() -> JsonObject:
     """从 Airflow Variable 中解析并校验 zacks 手机配置。"""
     appium_server_list = cast(
         list[JsonObject],
-        Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True),
+        Variable.get("APPIUM_SERVER_LIST", default=[], deserialize_json=True),
     )
     appium_server_info = find_zacks_appium_server(appium_server_list)
 

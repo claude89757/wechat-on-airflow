@@ -24,8 +24,8 @@ class VenueEmailTest(unittest.TestCase):
             venue_email.EMAIL_SEND_FALLBACK_MAX_ITEMS_VAR: "200",
         }
 
-    def get_variable(self, key, default_var=None, deserialize_json=False):
-        return self.variables.get(key, default_var)
+    def get_variable(self, key, default=None, deserialize_json=False):
+        return self.variables.get(key, default)
 
     def set_variable(self, key, value, serialize_json=False):
         self.variables[key] = value

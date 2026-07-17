@@ -29,7 +29,6 @@ def generate_proxies():
     """获取待检查的代理列表"""
     urls = [
         "https://github.com/roosterkid/openproxylist/raw/main/HTTPS_RAW.txt",
-        "https://raw.githubusercontent.com/yoannchb-pro/https-proxies/main/proxies.txt",
         "https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/https.txt",
         "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",
     ]
@@ -38,15 +37,20 @@ def generate_proxies():
 
     for url in urls:
         print(f"getting proxy list for {url}")
-        response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        text = response.text.strip()
-        lines = text.split("\n")
-        lines = [line.strip() for line in lines if is_valid_proxy(line)]
-        candidate_proxies.extend(lines)
-        print(f"Loaded {len(lines)} proxies from {url}")
-        for line in lines:
-            proxy_url_infos[line] = url
+        try:
+            response = requests.get(url, timeout=SOURCE_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            lines = [
+                line.strip()
+                for line in response.text.strip().splitlines()
+                if is_valid_proxy(line.strip())
+            ]
+            candidate_proxies.extend(lines)
+            print(f"Loaded {len(lines)} proxies from {url}")
+            for line in lines:
+                proxy_url_infos[line] = url
+        except requests.RequestException as exc:
+            print(f"Failed to load proxies from {url}: {exc}")
 
     print(f"Total {len(candidate_proxies)} proxies loaded")
     random.shuffle(candidate_proxies)

@@ -251,7 +251,7 @@ def build_new_notifications(
 def update_proxy_cache(proxy: str, success: bool):
     """更新 TOPS 独立代理缓存"""
     try:
-        cached_proxies = Variable.get(PROXY_CACHE_KEY, deserialize_json=True, default_var=[])
+        cached_proxies = Variable.get(PROXY_CACHE_KEY, deserialize_json=True, default=[])
     except Exception:
         cached_proxies = []
 
@@ -288,7 +288,7 @@ def get_tennis_court_availability(date: str, proxy_list: list) -> dict[str, list
 
     # 获取缓存的代理
     try:
-        cached_proxies = Variable.get(PROXY_CACHE_KEY, deserialize_json=True, default_var=[])
+        cached_proxies = Variable.get(PROXY_CACHE_KEY, deserialize_json=True, default=[])
     except Exception:
         cached_proxies = []
 
@@ -395,7 +395,7 @@ def print_court_data(input_date: str, court_data: dict[str, list[list[str]]]):
 
 def enqueue_wechat_message(all_in_one_msg: str):
     """通过 best-effort 旁路发送微信消息。"""
-    chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+    chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default="")
     chat_names_list = str(chat_names).splitlines()
     print(f"chat_names_list: {chat_names_list}")
     return send_wechat_text_to_chatrooms_best_effort(
@@ -446,7 +446,7 @@ def run_check_tennis_courts():
 
     # 处理通知逻辑
     if up_for_send_data_list:
-        sended_msg_list = Variable.get(CACHE_KEY, deserialize_json=True, default_var=[])
+        sended_msg_list = Variable.get(CACHE_KEY, deserialize_json=True, default=[])
         up_for_send_msg_list, up_for_send_sms_list = build_new_notifications(
             up_for_send_data_list,
             sended_msg_list,

@@ -30,8 +30,8 @@ class FakeVariable:
     values = {}
 
     @classmethod
-    def get(cls, key, default_var=None, deserialize_json=False):
-        return cls.values.get(key, default_var)
+    def get(cls, key, default=None, deserialize_json=False):
+        return cls.values.get(key, default)
 
     @classmethod
     def set(cls, key, value, description=None, serialize_json=False):
@@ -61,6 +61,7 @@ def install_import_stubs():
 
 
 install_import_stubs()
+https_proxy_watcher = importlib.import_module("wechat_airflow.proxy_tools.https_proxy_watcher")
 jdwx_watcher = importlib.import_module("wechat_airflow.venues.jdwx_watcher")
 sysh_watcher = importlib.import_module("wechat_airflow.venues.sysh_watcher")
 szw_watcher = importlib.import_module("wechat_airflow.venues.szw_watcher")
@@ -69,6 +70,39 @@ tyzx_watcher = importlib.import_module("wechat_airflow.venues.tyzx_watcher")
 
 
 class VenueDomainTest(unittest.TestCase):
+    def test_proxy_sources_are_isolated(self):
+        original_get = https_proxy_watcher.requests.get
+
+        class FakeResponse:
+            def __init__(self, text):
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+        responses = iter(
+            [
+                https_proxy_watcher.requests.ConnectionError("source unavailable"),
+                FakeResponse("1.2.3.4:80\ninvalid"),
+                FakeResponse("5.6.7.8:443"),
+            ]
+        )
+
+        def fake_get(*args, **kwargs):
+            response = next(responses)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+        https_proxy_watcher.requests.get = fake_get
+        try:
+            proxies, source_map = https_proxy_watcher.generate_proxies()
+        finally:
+            https_proxy_watcher.requests.get = original_get
+
+        self.assertCountEqual(proxies, ["1.2.3.4:80", "5.6.7.8:443"])
+        self.assertEqual(set(source_map), set(proxies))
+
     def test_jdwx_merges_touching_and_overlapping_slots(self):
         self.assertEqual(
             jdwx_watcher.merge_time_ranges(

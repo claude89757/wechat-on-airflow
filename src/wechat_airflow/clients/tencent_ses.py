@@ -21,7 +21,7 @@ def _runtime_secret(variable_name: str, explicit_value: str | None) -> str:
     try:
         from airflow.sdk import Variable
 
-        value = Variable.get(variable_name, default_var="")
+        value = Variable.get(variable_name, default="")
     except Exception:
         value = os.environ.get(variable_name, "")
 

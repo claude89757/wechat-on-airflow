@@ -59,7 +59,7 @@ def update_proxy_cache(proxy: str, success: bool):
     """更新代理缓存"""
     cache_key = "JDWX_PROXY_CACHE"
     try:
-        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default=[])
     except Exception:
         cached_proxies = []
 
@@ -88,7 +88,7 @@ def get_free_tennis_court_infos_for_hjd(date: str, proxy_list: list) -> dict:
     # 获取缓存的代理
     cache_key = "JDWX_PROXY_CACHE"
     try:
-        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default=[])
     except Exception:
         cached_proxies = []
 
@@ -272,7 +272,7 @@ def run_check_tennis_courts():
     # 处理通知逻辑
     if up_for_send_data_list:
         cache_key = "金地威新网球场"
-        sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
         up_for_send_msg_list = []
         up_for_send_sms_list = []
         for data in up_for_send_data_list:
@@ -302,7 +302,7 @@ def run_check_tennis_courts():
                     )
 
         # # 获取微信发送配置
-        # wcf_ip = Variable.get("WCF_IP", default_var="")
+        # wcf_ip = Variable.get("WCF_IP", default="")
         # for chat_room_id in ["57497883531@chatroom", "38763452635@chatroom", "51998713028@chatroom"]:
         #     print(f"sending to {chat_room_id}")
         #     for msg in up_for_send_msg_list:
@@ -335,7 +335,7 @@ def run_check_tennis_courts():
             )
 
             # 发送微信消息
-            chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default_var="")
+            chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default="")
             chat_names_list = str(chat_names).splitlines()
             print(f"chat_names_list: {chat_names_list}")
             send_wechat_text_to_chatrooms_best_effort(

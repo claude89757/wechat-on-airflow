@@ -25,12 +25,12 @@ class WeChatSendApiError(Exception):
 
 def _get_variable(
     key: str,
-    default_var: Any = None,
+    default: Any = None,
     deserialize_json: bool = False,
 ) -> Any:
     from airflow.sdk import Variable
 
-    return Variable.get(key, default_var=default_var, deserialize_json=deserialize_json)
+    return Variable.get(key, default=default, deserialize_json=deserialize_json)
 
 
 def _set_variable(key: str, value: Any, serialize_json: bool = False) -> None:
@@ -69,7 +69,7 @@ def _normalize_chatrooms(chatrooms: object) -> list[str]:
 
 
 def _get_int_variable(key: str, default: int) -> int:
-    value = _get_variable(key, default_var=str(default))
+    value = _get_variable(key, default=str(default))
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -77,7 +77,7 @@ def _get_int_variable(key: str, default: int) -> int:
 
 
 def _get_float_variable(key: str, default: float) -> float:
-    value = _get_variable(key, default_var=str(default))
+    value = _get_variable(key, default=str(default))
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -116,12 +116,12 @@ def _request_once(api_url: str, payload: JsonDict, timeout_seconds: int) -> Json
 def send_wechat_text(
     receiver: str, messages: Iterable[str], device_name: str | None = None
 ) -> JsonDict:
-    api_url = str(_get_variable(WECHAT_SEND_API_URL_VAR, default_var="")).strip()
+    api_url = str(_get_variable(WECHAT_SEND_API_URL_VAR, default="")).strip()
     if not api_url:
         raise WeChatSendApiError(f"Airflow Variable {WECHAT_SEND_API_URL_VAR} is required")
 
     resolved_device_name = str(
-        device_name or _get_variable(WECHAT_SEND_DEVICE_NAME_VAR, default_var="")
+        device_name or _get_variable(WECHAT_SEND_DEVICE_NAME_VAR, default="")
     ).strip()
     if not resolved_device_name:
         raise WeChatSendApiError(
@@ -190,7 +190,7 @@ def _record_failed_send(
     failure_id = hashlib.sha256(f"{source}\0{receiver}\0{message}".encode()).hexdigest()
     outbox = _get_variable(
         WECHAT_SEND_FALLBACK_OUTBOX_VAR,
-        default_var=[],
+        default=[],
         deserialize_json=True,
     )
     if not isinstance(outbox, list):
@@ -263,5 +263,5 @@ def send_wechat_text_to_chatrooms_var(
     message: str,
     device_name: str | None = None,
 ) -> list[JsonDict]:
-    chatrooms = _get_variable(chatrooms_var, default_var="")
+    chatrooms = _get_variable(chatrooms_var, default="")
     return send_wechat_text_to_chatrooms(chatrooms, message, device_name=device_name)

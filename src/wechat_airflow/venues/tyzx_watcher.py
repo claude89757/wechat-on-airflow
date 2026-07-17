@@ -458,7 +458,7 @@ def get_cached_successful_proxies():
     """获取缓存的成功代理列表"""
     cache_key = "TYZX_SUCCESSFUL_PROXIES_CACHE"
     try:
-        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default=[])
         print(f"📋 从缓存中获取到 {len(cached_proxies)} 个成功代理")
         if cached_proxies:
             print(f"   示例代理: {cached_proxies[:3]}")
@@ -472,7 +472,7 @@ def update_successful_proxy_cache(successful_proxy):
     """将成功的代理添加到缓存中"""
     cache_key = "TYZX_SUCCESSFUL_PROXIES_CACHE"
     try:
-        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default=[])
 
         # 如果代理已存在，先移除（为了更新顺序）
         if successful_proxy in cached_proxies:
@@ -495,7 +495,7 @@ def remove_failed_proxy_from_cache(failed_proxy):
     """从缓存中移除失败的代理"""
     cache_key = "TYZX_SUCCESSFUL_PROXIES_CACHE"
     try:
-        cached_proxies = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        cached_proxies = Variable.get(cache_key, deserialize_json=True, default=[])
 
         if failed_proxy in cached_proxies:
             cached_proxies.remove(failed_proxy)
@@ -786,7 +786,7 @@ def run_check_tennis_courts():
         print("-" * 40)
 
         cache_key = "深圳市体育中心网球场"
-        sended_msg_list = Variable.get(cache_key, deserialize_json=True, default_var=[])
+        sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
         up_for_send_msg_list = []
         up_for_send_sms_list = []
 
@@ -856,7 +856,7 @@ def run_check_tennis_courts():
 
             # 发送微信消息
             print("\n💬 准备发送微信消息...")
-            chat_names = Variable.get("SZ_TYZX_TENNIS_CHATROOMS", default_var="")
+            chat_names = Variable.get("SZ_TYZX_TENNIS_CHATROOMS", default="")
             if chat_names.strip():
                 chat_list = [name.strip() for name in str(chat_names).splitlines() if name.strip()]
                 print(f"📋 目标微信群: {len(chat_list)} 个")
