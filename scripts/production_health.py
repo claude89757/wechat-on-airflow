@@ -83,6 +83,22 @@ def normalized_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes"}
 
 
+def required_successful_run_counts(
+    active_dags: list[dict[str, Any]],
+    production_cycles: int,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for component in active_dags:
+        verification = set(component.get("verification") or [])
+        if "recent_runs_succeed" in verification:
+            counts[str(component["dag_id"])] = production_cycles
+        elif "latest_run_succeeds" in verification:
+            counts[str(component["dag_id"])] = 1
+        else:
+            counts[str(component["dag_id"])] = 0
+    return counts
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only production Airflow health check.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
@@ -99,7 +115,8 @@ def main() -> None:
     runtime_target = yaml.safe_load(
         (REPO_ROOT / "config" / "runtime-target.yaml").read_text(encoding="utf-8")
     )
-    dag_ids = [component["dag_id"] for component in manifest["active_dags"]]
+    active_dags = manifest["active_dags"]
+    dag_ids = [component["dag_id"] for component in active_dags]
     dag_source_paths = [
         str(component["file"]).removeprefix("dags/") for component in manifest["active_dags"]
     ]
@@ -114,6 +131,8 @@ def main() -> None:
     deployment_strategy = str(database_target["deployment_strategy"])
     minimum_free_bytes = int(database_target["minimum_free_bytes"])
     recent_run_count = int(runtime_target["verification"]["production_cycles"])
+    required_run_counts = required_successful_run_counts(active_dags, recent_run_count)
+    queried_run_count = max(required_run_counts.values(), default=0)
     sender_health_url = str(
         runtime_target["managed_services"]["wechat_sender"]["production_health_url"]
     )
@@ -383,7 +402,7 @@ PY
             "__DAG_SOURCE_PATHS_JSON__",
             repr(json.dumps(dag_source_paths, ensure_ascii=True)),
         )
-        .replace("__RUN_COUNT__", str(recent_run_count))
+        .replace("__RUN_COUNT__", str(queried_run_count))
     )
     remote_script = remote_script.replace("__SENDER_HEALTH_URL__", repr(sender_health_url))
     ssh_env = dict(values)
@@ -468,14 +487,18 @@ PY
     recent_run_failures: dict[str, dict[str, Any]] = {}
     recent_run_summary: dict[str, list[dict[str, Any]]] = {}
     for dag_id in dag_ids:
+        required_count = required_run_counts[dag_id]
         runs = recent_runs.get(dag_id, []) if isinstance(recent_runs, dict) else []
         valid_runs = [run for run in runs if isinstance(run, dict)]
         recent_run_summary[dag_id] = valid_runs
-        states = [str(run.get("state", "")).lower() for run in valid_runs]
-        if len(valid_runs) < recent_run_count or any(state != "success" for state in states):
+        relevant_runs = valid_runs[:required_count]
+        states = [str(run.get("state", "")).lower() for run in relevant_runs]
+        if required_count and (
+            len(relevant_runs) < required_count or any(state != "success" for state in states)
+        ):
             recent_run_failures[dag_id] = {
-                "observed_count": len(valid_runs),
-                "required_count": recent_run_count,
+                "observed_count": len(relevant_runs),
+                "required_count": required_count,
                 "states": states,
             }
 

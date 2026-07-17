@@ -39,6 +39,12 @@ and operational changes.
   task-context APIs cannot cause false missing-configuration reports.
 - Make the private Execution API URL explicit and probe its route so a public
   API path prefix cannot make every Celery task fail with a pre-execution 404.
+- Use the Airflow 3 Task SDK `Variable.get(default=...)` contract throughout
+  venue, notification, proxy, and device tasks.
+- Isolate failures from individual public proxy sources so one removed list
+  cannot abort an entire proxy refresh.
+- Evaluate production run history using each DAG's declared latest-run or
+  multi-cycle verification contract.
 
 ### Removed
 

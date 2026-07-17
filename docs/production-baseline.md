@@ -1,6 +1,44 @@
 # Production Baseline
 
-Observed on 2026-07-16 before the Airflow 3 migration.
+## Airflow 3 Production Cutover
+
+The fresh Airflow 3 cutover completed on 2026-07-17. Production runs Airflow
+3.3.0 from application commit
+`85c50ae8ccd6845ec9f6c7c628c2b4711259fa7b`; its CI, local verification,
+image-bundled DagBag check, and deployment preflight passed.
+
+Historical Airflow 2 metadata was not migrated. The complete Airflow 2
+database, logs, environment file, commit, image, and encrypted backup remain
+intact for rollback. Airflow 3 uses three independent named volumes for
+PostgreSQL, Redis, and logs.
+
+The final protected configuration export contained 33 Variables, zero
+Connections, and the default Pool. All 33 Variable values were imported and
+verified exactly without printing them. Venue deduplication and proxy
+continuity caches were preserved. Email and WeChat fallback outboxes started
+empty and were not replayed.
+
+The first activation exposed two Airflow 3 application compatibility defects:
+host DAG files were unreadable by the container UID, and the private Execution
+API URL omitted the public `/airflow` path prefix. The deployed image now owns
+readable DAG sources, and the Execution API route probe returns the expected
+unauthenticated response. A subsequent task-level defect used the Airflow 2
+`Variable.get(default_var=...)` keyword through the Airflow 3 Task SDK; all
+task-runtime calls now use `default=`, with a regression check.
+
+Post-deploy natural scheduling produced three consecutive successful runs for
+all five venue DAGs. Both proxy DAGs completed successfully, and a failed public
+proxy source can no longer abort an entire refresh. Email delivery remained
+independent while the external WeChat sender was unavailable: the email
+fallback outbox remained empty, and five new WeChat failures were isolated in
+the WeChat incident outbox without replay.
+
+Eight DAGs are active. `zacks_phone_daily_reboot` remains paused because its
+SSH host-key fingerprint has not been confirmed through a trusted channel. The
+external WeChat sender readiness check also remains unavailable. The only
+cleanup run in the fresh database failed before application code during the
+initial Execution API incident; it must be verified by its next natural daily
+run rather than manually triggering a destructive maintenance command.
 
 ## Approved Cutover Scope
 
@@ -15,7 +53,7 @@ The isolated empty-database and configuration-import procedure passed on
 2026-07-17. See
 [`fresh-start-rehearsal-2026-07-17.md`](fresh-start-rehearsal-2026-07-17.md).
 
-## Latest Read-only Refresh
+## Pre-cutover Read-only Refresh
 
 The health check at 2026-07-17 11:00 Asia/Shanghai still found Airflow 2.10.5
 at commit `2e74766256c97ff0af00f70b0af6ebb2777abe3e`. The metadata database had
@@ -29,7 +67,7 @@ pinned Zacks host-key fingerprint, an unreachable managed WeChat sender, and
 fallback outbox counts of 36 email and 200 WeChat incident records. These
 records must not be replayed automatically.
 
-## Runtime
+## Pre-cutover Runtime
 
 | Component | Observed state |
 | --- | --- |

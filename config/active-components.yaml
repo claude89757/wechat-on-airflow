@@ -1,9 +1,9 @@
 schema_version: 1
-observed_at: "2026-07-17T11:00:00+08:00"
+observed_at: "2026-07-17T23:46:00+08:00"
 production:
   repository_path: /root/wechat-on-airflow
-  deployed_commit: 2e74766256c97ff0af00f70b0af6ebb2777abe3e
-  current_airflow: "2.10.5"
+  deployed_commit: 85c50ae8ccd6845ec9f6c7c628c2b4711259fa7b
+  current_airflow: "3.3.0"
   target_airflow: "3.3.0"
   python: "3.12"
   executor: CeleryExecutor

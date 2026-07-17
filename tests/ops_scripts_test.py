@@ -128,6 +128,27 @@ class ProductionHealthParsingTest(unittest.TestCase):
         self.assertTrue(production_health.normalized_bool("True"))
         self.assertFalse(production_health.normalized_bool("False"))
 
+    def test_run_history_requirements_follow_each_dag_contract(self):
+        counts = production_health.required_successful_run_counts(
+            [
+                {
+                    "dag_id": "venue",
+                    "verification": ["dag_imports", "recent_runs_succeed"],
+                },
+                {
+                    "dag_id": "proxy",
+                    "verification": ["dag_imports", "latest_run_succeeds"],
+                },
+                {
+                    "dag_id": "import_only",
+                    "verification": ["dag_imports"],
+                },
+            ],
+            production_cycles=3,
+        )
+
+        self.assertEqual(counts, {"venue": 3, "proxy": 1, "import_only": 0})
+
 
 class FreshStartConfigurationTest(unittest.TestCase):
     def test_preserves_static_and_continuity_values_but_resets_outbox(self):
