@@ -3,6 +3,8 @@ target:
   airflow: "3.3.0"
   python: "3.12"
   executor: CeleryExecutor
+  dag_distribution: image
+  execution_api_server_url_env: AIRFLOW_EXECUTION_API_SERVER_URL
   auth_manager: FabAuthManager
   base_image: apache/airflow:3.3.0-python3.12@sha256:b572e9241d7b09b295c9ea97adeb7b3dfc932e2fbcdebec59256dad69061bb29
   providers:

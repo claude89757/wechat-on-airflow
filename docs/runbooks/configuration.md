@@ -7,6 +7,11 @@ Before deployment, compare the required names with production using read-only
 commands. Do not print values. Every venue must have its own email list;
 configuration must not fall back to another venue.
 
+`AIRFLOW_EXECUTION_API_SERVER_URL` is a non-secret runtime setting. It must use
+the internal API Server host and include the path component of
+`AIRFLOW_BASE_URL` before `/execution/`. The production health check validates
+the route without credentials and without starting a task.
+
 When adding a Variable:
 
 1. Add its type, sensitivity, ownership, and consumers to the contract.

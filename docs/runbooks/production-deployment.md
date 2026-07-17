@@ -21,10 +21,12 @@ must be pushed, CI must pass, and rollback inputs must be available.
 1. Record pre-deploy health, current commit, image ID, and configuration names.
 2. Pull the exact pushed commit on the server.
 3. Load or build the image identified by that commit.
-4. Validate Compose with the untracked production environment.
+4. Validate Compose with the untracked production environment. DAGs must come
+   from the pinned image, not a host source mount.
 5. Apply only the services in the approved change.
 6. Run `make production-health`.
-7. Compare DAG registration, import errors, outbox counts, and service health.
+7. Compare the Execution API route probe, DAG source readability,
+   registration, import errors, outbox counts, and service health.
 8. Observe the cycle count in `config/runtime-target.yaml`.
 9. Record the deployed commit and evidence in the production baseline.
 

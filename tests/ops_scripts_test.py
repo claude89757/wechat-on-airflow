@@ -53,6 +53,10 @@ class ProductionHealthParsingTest(unittest.TestCase):
                 "abc123",
                 "__AIRFLOW_VERSION__",
                 "3.3.0",
+                "__EXECUTION_API__",
+                '{"ok": true, "status_code": 401}',
+                "__DAG_SOURCES__",
+                '{"expected_count": 9, "missing": [], "unreadable": []}',
                 "__OUTBOXES__",
                 '{"EMAIL_SEND_FALLBACK_OUTBOX": 0}',
                 "__DATABASE__",
@@ -68,6 +72,14 @@ class ProductionHealthParsingTest(unittest.TestCase):
 
         self.assertEqual(sections["commit"], "abc123")
         self.assertEqual(sections["airflow_version"], "3.3.0")
+        self.assertEqual(
+            production_health.parse_json_output(sections["execution_api"], {}),
+            {"ok": True, "status_code": 401},
+        )
+        self.assertEqual(
+            production_health.parse_json_output(sections["dag_sources"], {}),
+            {"expected_count": 9, "missing": [], "unreadable": []},
+        )
         self.assertEqual(
             production_health.parse_json_output(sections["outboxes"], {}),
             {"EMAIL_SEND_FALLBACK_OUTBOX": 0},

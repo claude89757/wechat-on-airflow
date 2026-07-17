@@ -54,13 +54,17 @@ transcript, Git, or a runbook.
 4. Stop and remove the old Compose containers without deleting bind-mounted
    data.
 5. Deploy the exact Airflow 3 commit and image.
+   The image must contain the active DAG files; do not add a host DAG bind
+   mount as a cutover workaround.
 6. Configure new, explicit volume names through
    `AIRFLOW_POSTGRESQL_VOLUME`, `AIRFLOW_REDIS_VOLUME`, and
    `AIRFLOW_LOGS_VOLUME`.
 7. Set `AIRFLOW_DAGS_ARE_PAUSED_AT_CREATION=true`.
 8. Generate Airflow 3 API, JWT, and Fernet secrets outside Git. Retain the old
    database credential so the Airflow 2 rollback remains immediately usable.
-9. Validate the resolved Compose configuration and confirm that none of its
+9. Set `AIRFLOW_EXECUTION_API_SERVER_URL` to the internal API Server URL,
+   including the public `AIRFLOW_BASE_URL` path prefix before `/execution/`.
+10. Validate the resolved Compose configuration and confirm that none of its
     mounts resolve to the preserved Airflow 2 database, Redis, or log paths.
 
 Prepare the Variable import inside the pinned image:
@@ -93,7 +97,8 @@ docker compose run --rm \
 
 6. Confirm both fallback outboxes are empty and continuity caches exist.
 7. Start API Server, DAG Processor, Scheduler, Worker, Triggerer, and log cleaner.
-8. Require zero import errors and the exact active DAG set.
+8. Require a successful internal Execution API route probe, zero import
+   errors, readable image-bundled DAG sources, and the exact active DAG set.
 
 ## Activate
 

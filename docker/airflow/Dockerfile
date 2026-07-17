@@ -10,7 +10,9 @@ RUN pip install --no-cache-dir \
     --requirement /tmp/requirements-airflow.txt
 
 COPY --chown=airflow:root pyproject.toml README.md LICENSE /opt/airflow/project/
+COPY --chown=airflow:root dags /opt/airflow/dags
 COPY --chown=airflow:root src /opt/airflow/project/src
 COPY --chown=airflow:root config /opt/airflow/project/config
 COPY --chown=airflow:root scripts /opt/airflow/project/scripts
+RUN chmod -R u=rwX,go=rX /opt/airflow/dags
 RUN pip install --no-cache-dir --no-deps /opt/airflow/project

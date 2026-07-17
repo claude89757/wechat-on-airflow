@@ -21,7 +21,7 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__PARALLELISM: "32"
   AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "16"
   AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "8"
-  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${AIRFLOW_EXECUTION_API_SERVER_URL:?AIRFLOW_EXECUTION_API_SERVER_URL is required}
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DATABASE_USERNAME:-airflow}:${AIRFLOW_DATABASE_PASSWORD:?AIRFLOW_DATABASE_PASSWORD is required}@postgresql:5432/${AIRFLOW_DATABASE_NAME:-airflow}
   AIRFLOW__DATABASE__LOAD_DEFAULT_CONNECTIONS: "false"
   AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${AIRFLOW_DATABASE_USERNAME:-airflow}:${AIRFLOW_DATABASE_PASSWORD:?AIRFLOW_DATABASE_PASSWORD is required}@postgresql:5432/${AIRFLOW_DATABASE_NAME:-airflow}
@@ -52,7 +52,6 @@ x-airflow-common: &airflow-common
   environment: *airflow-env
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
-    - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags:ro
     - airflow-logs:/opt/airflow/logs
   depends_on:
     postgresql:

@@ -2,6 +2,8 @@
 
 !docker/
 !docker/**
+!dags/
+!dags/**
 !src/
 !src/**
 !config/

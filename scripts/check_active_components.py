@@ -10,6 +10,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config" / "active-components.yaml"
 CONTRACTS = ROOT / "config" / "config-contracts.yaml"
+RUNTIME_TARGET = ROOT / "config" / "runtime-target.yaml"
+AIRFLOW_DOCKERFILE = ROOT / "docker" / "airflow" / "Dockerfile"
+COMPOSE_FILE = ROOT / "docker-compose.yml"
 DAG_MAX_LINES = 120
 FORBIDDEN_DAG_IMPORT_ROOTS = {"httpx", "paramiko", "requests", "socket", "urllib3"}
 
@@ -86,6 +89,7 @@ def module_path(module_name: str) -> Path:
 def main() -> None:
     manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
     contracts = yaml.safe_load(CONTRACTS.read_text(encoding="utf-8"))
+    runtime_target = yaml.safe_load(RUNTIME_TARGET.read_text(encoding="utf-8"))
     active_dags = manifest.get("active_dags")
     if not isinstance(active_dags, list) or not active_dags:
         fail("active_dags must be a non-empty list")
@@ -177,6 +181,23 @@ def main() -> None:
             "dags/ must contain exactly the active DAG files; "
             f"undeclared={sorted(dag_files - files)}, missing={sorted(files - dag_files)}"
         )
+
+    if runtime_target.get("target", {}).get("dag_distribution") != "image":
+        fail("Airflow DAG distribution must be declared as image")
+    dockerfile = AIRFLOW_DOCKERFILE.read_text(encoding="utf-8")
+    if "dags /opt/airflow/dags" not in dockerfile:
+        fail("Airflow image must copy dags/ into /opt/airflow/dags")
+    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+    airflow_volumes = compose.get("x-airflow-common", {}).get("volumes", [])
+    if any("/opt/airflow/dags" in str(volume) for volume in airflow_volumes):
+        fail("Airflow services must use image-bundled DAGs, not a host DAG mount")
+    execution_api_env = runtime_target.get("target", {}).get("execution_api_server_url_env")
+    airflow_environment = compose.get("x-airflow-env", {})
+    execution_api_value = airflow_environment.get("AIRFLOW__CORE__EXECUTION_API_SERVER_URL")
+    if execution_api_env != "AIRFLOW_EXECUTION_API_SERVER_URL" or execution_api_env not in str(
+        execution_api_value
+    ):
+        fail("Airflow Execution API URL must use the declared explicit environment setting")
 
     for contract in (manifest.get("shared_contracts") or {}).values():
         declared_modules.update(contract.get("modules") or [])

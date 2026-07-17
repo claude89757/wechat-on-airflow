@@ -12,8 +12,10 @@ MARKERS = (
     "commit",
     "compose",
     "airflow_version",
+    "execution_api",
     "import_errors",
     "dags",
+    "dag_sources",
     "variables",
     "variable_contracts",
     "recent_runs",
@@ -98,6 +100,9 @@ def main() -> None:
         (REPO_ROOT / "config" / "runtime-target.yaml").read_text(encoding="utf-8")
     )
     dag_ids = [component["dag_id"] for component in manifest["active_dags"]]
+    dag_source_paths = [
+        str(component["file"]).removeprefix("dags/") for component in manifest["active_dags"]
+    ]
     required_variable_names = sorted(
         name
         for name, contract in contracts["variables"].items()
@@ -142,6 +147,29 @@ printf '__COMPOSE__\n'
 compose ps --format json
 printf '__AIRFLOW_VERSION__\n'
 compose exec -T "$service" airflow version </dev/null
+printf '__EXECUTION_API__\n'
+airflow_python - <<'PY'
+import json
+import urllib.error
+import urllib.request
+from airflow.configuration import conf
+
+base_url = conf.get("core", "execution_api_server_url").rstrip("/")
+request = urllib.request.Request(
+    f"{base_url}/task-instances/00000000-0000-0000-0000-000000000000/run",
+    data=b"{}",
+    headers={"Content-Type": "application/json"},
+    method="PATCH",
+)
+try:
+    response = urllib.request.urlopen(request, timeout=5)
+    status_code = response.getcode()
+except urllib.error.HTTPError as exc:
+    status_code = exc.code
+except Exception:
+    status_code = None
+print(json.dumps({"ok": status_code == 401, "status_code": status_code}, sort_keys=True))
+PY
 printf '__IMPORT_ERRORS__\n'
 compose exec -T "$service" airflow dags list-import-errors --output json </dev/null || true
 printf '__DAGS__\n'
@@ -155,6 +183,34 @@ with create_session() as session:
 print(
     json.dumps(
         [{"dag_id": dag_id, "is_paused": bool(is_paused)} for dag_id, is_paused in rows],
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+)
+PY
+printf '__DAG_SOURCES__\n'
+airflow_python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+root = Path("/opt/airflow/dags")
+expected = json.loads(__DAG_SOURCE_PATHS_JSON__)
+missing = []
+unreadable = []
+for relative_path in expected:
+    path = root / relative_path
+    if not path.is_file():
+        missing.append(relative_path)
+    elif not os.access(path, os.R_OK):
+        unreadable.append(relative_path)
+print(
+    json.dumps(
+        {
+            "expected_count": len(expected),
+            "missing": missing,
+            "unreadable": unreadable,
+        },
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -175,10 +231,7 @@ airflow_python - <<'PY'
 import base64
 import hashlib
 import json
-try:
-    from airflow.sdk import Variable
-except ImportError:
-    from airflow.models import Variable
+from airflow.models.variable import Variable
 
 
 def matches_zacks(item):
@@ -262,10 +315,7 @@ PY
 printf '__OUTBOXES__\n'
 airflow_python - <<'PY'
 import json
-try:
-    from airflow.sdk import Variable
-except ImportError:
-    from airflow.models import Variable
+from airflow.models.variable import Variable
 result = {}
 for key in ("EMAIL_SEND_FALLBACK_OUTBOX", "WECHAT_SEND_FALLBACK_OUTBOX"):
     try:
@@ -327,9 +377,14 @@ except Exception as exc:
 print(json.dumps(result, sort_keys=True))
 PY
 """
-    remote_script = remote_script.replace(
-        "__DAG_IDS_JSON__", repr(json.dumps(dag_ids, ensure_ascii=True))
-    ).replace("__RUN_COUNT__", str(recent_run_count))
+    remote_script = (
+        remote_script.replace("__DAG_IDS_JSON__", repr(json.dumps(dag_ids, ensure_ascii=True)))
+        .replace(
+            "__DAG_SOURCE_PATHS_JSON__",
+            repr(json.dumps(dag_source_paths, ensure_ascii=True)),
+        )
+        .replace("__RUN_COUNT__", str(recent_run_count))
+    )
     remote_script = remote_script.replace("__SENDER_HEALTH_URL__", repr(sender_health_url))
     ssh_env = dict(values)
     ssh_env["SSHPASS"] = remote["PASSWORD"]
@@ -359,8 +414,10 @@ PY
 
     sections = parse_sections(result.stdout)
     compose_rows = parse_compose_rows(sections["compose"])
+    execution_api = parse_json_output(sections["execution_api"], {})
     import_errors = parse_json_output(sections["import_errors"], [])
     dags = parse_json_output(sections["dags"], [])
+    dag_sources = parse_json_output(sections["dag_sources"], {})
     variable_names = parse_json_output(sections["variables"], [])
     variable_contracts = parse_json_output(sections["variable_contracts"], {})
     recent_runs = parse_json_output(sections["recent_runs"], {})
@@ -372,6 +429,16 @@ PY
         item.get("dag_id") for item in dags if isinstance(item, dict) and item.get("dag_id")
     }
     missing_dags = sorted(set(dag_ids) - parsed_ids)
+    missing_dag_sources = (
+        sorted(str(path) for path in dag_sources.get("missing", []))
+        if isinstance(dag_sources, dict) and isinstance(dag_sources.get("missing"), list)
+        else dag_source_paths
+    )
+    unreadable_dag_sources = (
+        sorted(str(path) for path in dag_sources.get("unreadable", []))
+        if isinstance(dag_sources, dict) and isinstance(dag_sources.get("unreadable"), list)
+        else dag_source_paths
+    )
     paused_dags = sorted(
         item["dag_id"]
         for item in dags
@@ -447,6 +514,19 @@ PY
             "compose_topology",
             f"missing target services: {', '.join(missing_services)}",
             "deploy the Airflow 3 compose topology from the pushed commit",
+        )
+    if not isinstance(execution_api, dict) or execution_api.get("ok") is not True:
+        add_issue(
+            "execution_api",
+            f"internal unauthenticated route probe failed: {execution_api}",
+            "include the public API path prefix in AIRFLOW_EXECUTION_API_SERVER_URL",
+        )
+    if missing_dag_sources or unreadable_dag_sources:
+        add_issue(
+            "dag_sources",
+            "missing or unreadable image DAG files: "
+            f"missing={missing_dag_sources}, unreadable={unreadable_dag_sources}",
+            "rebuild the pinned Airflow image and verify its DAG source permissions",
         )
     if import_error_count:
         add_issue(
@@ -528,7 +608,10 @@ PY
         "service_count": len(compose_rows),
         "unhealthy_services": unhealthy_services,
         "missing_target_services": missing_services,
+        "execution_api": execution_api,
         "import_error_count": import_error_count,
+        "missing_dag_sources": missing_dag_sources,
+        "unreadable_dag_sources": unreadable_dag_sources,
         "missing_active_dags": missing_dags,
         "paused_active_dags": paused_dags,
         "missing_required_variable_names": missing_variables,

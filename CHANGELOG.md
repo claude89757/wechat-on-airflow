@@ -33,6 +33,12 @@ and operational changes.
   imported Variable values without logging them.
 - Pin PostgreSQL and Redis by pullable registry manifest digests instead of
   host-local image configuration IDs.
+- Bundle production DAGs into the pinned Airflow image and verify their
+  readability in production health checks.
+- Read Variable health state directly from the metadata database so Airflow 3
+  task-context APIs cannot cause false missing-configuration reports.
+- Make the private Execution API URL explicit and probe its route so a public
+  API path prefix cannot make every Celery task fail with a pre-execution 404.
 
 ### Removed
 

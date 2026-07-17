@@ -37,7 +37,13 @@ flowchart TB
 ```
 
 The target runtime uses the official Airflow 3 image, a pinned custom build,
-CeleryExecutor, PostgreSQL, Redis, and FAB Auth Manager.
+CeleryExecutor, PostgreSQL, Redis, and FAB Auth Manager. Production DAG source
+is copied into that immutable image with normalized read permissions; services
+do not depend on a mutable host DAG mount.
+
+Workers reach the private Execution API through the explicit
+`AIRFLOW_EXECUTION_API_SERVER_URL` setting. Its path must include the public
+`AIRFLOW_BASE_URL` path prefix before `/execution/`.
 
 Airflow 3 uses fresh, explicitly named PostgreSQL, Redis, and log volumes. The Airflow 2
 metadata database is not upgraded or reused; it remains intact for rollback.
