@@ -26,6 +26,13 @@ and operational changes.
   read-only production health gate.
 - Pin Android-host SSH keys by SHA-256 fingerprint and disable legacy
   `ssh-rsa` SHA-1 negotiation.
+- Start Airflow 3 with a fresh metadata database, preserve the Airflow 2 data
+  for rollback, and migrate only contract-declared configuration and continuity
+  caches.
+- Reset fallback outboxes without replay during the fresh start and verify
+  imported Variable values without logging them.
+- Pin PostgreSQL and Redis by pullable registry manifest digests instead of
+  host-local image configuration IDs.
 
 ### Removed
 

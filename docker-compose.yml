@@ -15,7 +15,7 @@ x-airflow-env: &airflow-env
   AIRFLOW__CORE__EXECUTOR: CeleryExecutor
   AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
   AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?AIRFLOW_FERNET_KEY is required}
-  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+  AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: ${AIRFLOW_DAGS_ARE_PAUSED_AT_CREATION:-true}
   AIRFLOW__CORE__LOAD_EXAMPLES: "false"
   AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Shanghai
   AIRFLOW__CORE__PARALLELISM: "32"
@@ -53,7 +53,7 @@ x-airflow-common: &airflow-common
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags:ro
-    - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
+    - airflow-logs:/opt/airflow/logs
   depends_on:
     postgresql:
       condition: service_healthy
@@ -63,13 +63,13 @@ x-airflow-common: &airflow-common
 services:
   postgresql:
     <<: *common
-    image: bitnami/postgresql@sha256:db9bc963e434771f650d4506b5a631c6126525c8be0c9b7c0ec61228a632c33f
+    image: bitnami/postgresql@sha256:42a8200d35971f931b869ef5252d996e137c6beb4b8f1b6d2181dc7d1b6f62e0
     environment:
       POSTGRESQL_DATABASE: ${AIRFLOW_DATABASE_NAME:-airflow}
       POSTGRESQL_USERNAME: ${AIRFLOW_DATABASE_USERNAME:-airflow}
       POSTGRESQL_PASSWORD: ${AIRFLOW_DATABASE_PASSWORD:?AIRFLOW_DATABASE_PASSWORD is required}
     volumes:
-      - ./database/postgresql:/bitnami/postgresql
+      - airflow-postgresql:/bitnami/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${AIRFLOW_DATABASE_USERNAME:-airflow} -d ${AIRFLOW_DATABASE_NAME:-airflow}"]
       interval: 10s
@@ -78,11 +78,11 @@ services:
 
   redis:
     <<: *common
-    image: bitnami/redis@sha256:660edb35a17e1c954be0845fed4ecca3183a7e6e0bf322ad20f997e45d750d5f
+    image: bitnami/redis@sha256:1c41e7028ac48d7a9d79d855a432eef368aa440f37c8073ae1651879b02c72f4
     environment:
       ALLOW_EMPTY_PASSWORD: "yes"
     volumes:
-      - ./database/redis:/bitnami
+      - airflow-redis:/bitnami
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -193,7 +193,7 @@ services:
     <<: *common
     image: alpine:3.22.1
     volumes:
-      - ./logs:/logs
+      - airflow-logs:/logs
     command:
       - sh
       - -c
@@ -207,3 +207,11 @@ services:
 networks:
   airflow-network:
     driver: bridge
+
+volumes:
+  airflow-postgresql:
+    name: ${AIRFLOW_POSTGRESQL_VOLUME:-wechat-on-airflow3-postgresql}
+  airflow-redis:
+    name: ${AIRFLOW_REDIS_VOLUME:-wechat-on-airflow3-redis}
+  airflow-logs:
+    name: ${AIRFLOW_LOGS_VOLUME:-wechat-on-airflow3-logs}

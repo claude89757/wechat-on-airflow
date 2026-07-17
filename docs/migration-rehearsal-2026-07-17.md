@@ -2,10 +2,11 @@
 
 ## Result
 
-The isolated Airflow 2.10.5 to Airflow 3.3.0 migration, target-service startup,
-and restore-based rollback rehearsal passed. Production migration is **not yet
-approved** because the production host fails the reliable-storage gate and the
-external WeChat device path is not ready.
+The isolated Airflow 2.10.5 to Airflow 3.3.0 historical migration,
+target-service startup, and restore-based rollback rehearsal passed. This
+report remains engineering evidence, but ADR 0004 supersedes its production
+path: Airflow 3 starts with a fresh metadata database and imports configuration
+and continuity caches only.
 
 No production database was modified. No notification task was executed. The
 temporary plaintext archive, rehearsal containers, networks, and volumes were
@@ -136,7 +137,10 @@ These are candidate artifacts, not production approval. The production change
 record must bind rebuilt or transferred images to the exact pushed commit and
 verify their IDs again on the production host.
 
-## Production Gates
+## Superseded Historical-migration Gates
+
+These gates apply only if a future operator chooses to migrate the historical
+Airflow 2 metadata. They do not apply to the approved fresh-start cutover.
 
 Production currently has a `42,475,056,275` byte metadata database and only
 `16,659,836,928` bytes free on reliable storage. The secondary filesystem has
@@ -144,8 +148,8 @@ ext4 I/O errors and cannot be used. The rehearsal's database and volume growth,
 scaled to the larger live database, means the current host cannot support both
 migration work and restore headroom.
 
-Do not request production migration approval until all of these conditions are
-met:
+Do not request a historical metadata migration until all of these conditions
+are met:
 
 1. Provide at least 80 GiB free on reliable production storage after the final
    backup, then rerun the read-only storage gate.
@@ -160,6 +164,5 @@ met:
 5. Record the exact approved Git commit and final Airflow and sender image IDs.
 6. Obtain explicit human approval for the production metadata migration.
 
-After approval, use the procedure in
-[`runbooks/airflow-upgrade.md`](runbooks/airflow-upgrade.md), abort on any failed
-gate, and observe at least three complete scheduling cycles after resuming.
+The approved production path is documented in
+[`runbooks/airflow-upgrade.md`](runbooks/airflow-upgrade.md).

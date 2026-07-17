@@ -18,6 +18,12 @@ When adding a Variable:
 Managed outbox and dedupe Variables are application state. Do not replace or
 clear them during a normal deployment.
 
+For the one-time Airflow 3 fresh start, managed state has an explicit
+`fresh_start_policy`. Venue deduplication and proxy caches are preserved.
+Fallback outboxes are reset in the new database and remain available in the
+preserved Airflow 2 database and encrypted backup. The preparation and
+verification scripts report names and counts only.
+
 Fallback outboxes are incident records, not retry queues. After fixing a
 channel, verify that new records stop accumulating. Archiving or clearing old
 records requires an explicit, no-replay maintenance step; never resend them in

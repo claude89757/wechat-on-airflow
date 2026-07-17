@@ -10,7 +10,9 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import _ops  # noqa: E402
+import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
+import verify_fresh_start_config  # noqa: E402
 
 
 class DockerComposeCommandTest(unittest.TestCase):
@@ -113,6 +115,94 @@ class ProductionHealthParsingTest(unittest.TestCase):
         self.assertTrue(production_health.normalized_bool(True))
         self.assertTrue(production_health.normalized_bool("True"))
         self.assertFalse(production_health.normalized_bool("False"))
+
+
+class FreshStartConfigurationTest(unittest.TestCase):
+    def test_preserves_static_and_continuity_values_but_resets_outbox(self):
+        exported = {
+            "STATIC": "secret-value",
+            "CACHE": '["seen"]',
+            "OUTBOX": '[{"error":"old"}]',
+            "OBSOLETE": "ignored",
+        }
+        contracts = {
+            "variables": {
+                "STATIC": {
+                    "type": "string",
+                    "required_by": ["owner"],
+                    "sensitive": True,
+                },
+                "CACHE": {
+                    "type": "json_list",
+                    "required_by": ["owner"],
+                    "sensitive": False,
+                    "managed_by_application": True,
+                    "fresh_start_policy": "preserve",
+                },
+                "OUTBOX": {
+                    "type": "json_list",
+                    "required_by": ["owner"],
+                    "sensitive": True,
+                    "managed_by_application": True,
+                    "fresh_start_policy": "reset",
+                },
+                "RETRY_COUNT": {
+                    "type": "positive_integer",
+                    "required_by": ["owner"],
+                    "sensitive": False,
+                    "default": 3,
+                },
+            }
+        }
+
+        prepared, report = prepare_fresh_start_config.prepare_variables(exported, contracts)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(
+            prepared,
+            {
+                "CACHE": '["seen"]',
+                "OUTBOX": "[]",
+                "RETRY_COUNT": "3",
+                "STATIC": "secret-value",
+            },
+        )
+        self.assertEqual(report["ignored_count"], 1)
+        self.assertNotIn("secret-value", str(report))
+
+    def test_missing_required_preserved_value_fails_closed(self):
+        prepared, report = prepare_fresh_start_config.prepare_variables(
+            {},
+            {
+                "variables": {
+                    "REQUIRED": {
+                        "type": "string",
+                        "required_by": ["owner"],
+                        "sensitive": True,
+                    }
+                }
+            },
+        )
+
+        self.assertEqual(prepared, {})
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["missing_names"], ["REQUIRED"])
+
+    def test_verification_reports_names_without_values(self):
+        expected = {"A": "secret-a", "B": "secret-b", "C": "secret-c"}
+        actual = {"A": "secret-a", "B": "wrong"}
+
+        def getter(name):
+            if name not in actual:
+                raise KeyError(name)
+            return actual[name]
+
+        report = verify_fresh_start_config.compare_variables(expected, getter)
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["missing_names"], ["C"])
+        self.assertEqual(report["mismatched_names"], ["B"])
+        self.assertNotIn("secret", str(report))
 
 
 if __name__ == "__main__":

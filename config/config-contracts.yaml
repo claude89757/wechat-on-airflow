@@ -22,6 +22,7 @@ variables:
     required_by: [venue_email]
     sensitive: true
     managed_by_application: true
+    fresh_start_policy: reset
   GIT_TOKEN:
     type: string
     required_by: [HTTPS可用代理巡检, HTTPS可用代理巡检_ydmap]
@@ -35,6 +36,7 @@ variables:
     required_by: [深圳金地网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   SZW_API_AUTHORIZATION:
     type: string
     required_by: [深圳湾网球场巡检]
@@ -52,6 +54,7 @@ variables:
     required_by: [上越沙河网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   TOPS_EMAIL_LIST:
     type: json_email_list
     required_by: [TOPS科技园网球场巡检]
@@ -61,6 +64,7 @@ variables:
     required_by: [TOPS科技园网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   TYZX_EMAIL_LIST:
     type: json_email_list
     required_by: [深圳市体育中心网球场巡检]
@@ -70,6 +74,7 @@ variables:
     required_by: [深圳市体育中心网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   SZ_TENNIS_CHATROOMS:
     type: newline_separated_string
     required_by:
@@ -120,6 +125,7 @@ variables:
     required_by: [wechat_delivery]
     sensitive: true
     managed_by_application: true
+    fresh_start_policy: reset
   WECHAT_SEND_RETRY_COUNT:
     type: positive_integer
     required_by: [wechat_delivery]
@@ -140,23 +146,28 @@ variables:
     required_by: [TOPS科技园网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   上越沙河网球场:
     type: json_list
     required_by: [上越沙河网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   深圳市体育中心网球场:
     type: json_list
     required_by: [深圳市体育中心网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   深圳湾网球场:
     type: json_list
     required_by: [深圳湾网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve
   金地威新网球场:
     type: json_list
     required_by: [深圳金地网球场巡检]
     sensitive: false
     managed_by_application: true
+    fresh_start_policy: preserve

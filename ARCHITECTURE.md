@@ -39,6 +39,12 @@ flowchart TB
 The target runtime uses the official Airflow 3 image, a pinned custom build,
 CeleryExecutor, PostgreSQL, Redis, and FAB Auth Manager.
 
+Airflow 3 uses fresh, explicitly named PostgreSQL, Redis, and log volumes. The Airflow 2
+metadata database is not upgraded or reused; it remains intact for rollback.
+Only contract-declared configuration and continuity state are imported.
+Historical runs, task instances, XCom rows, and fallback outboxes do not cross
+the cutover boundary.
+
 ## Ownership Boundaries
 
 - DAG files define schedules and task wiring only. The component manifest
@@ -50,6 +56,9 @@ CeleryExecutor, PostgreSQL, Redis, and FAB Auth Manager.
   `src/wechat_airflow/maintenance/`.
 - Notification clients and fallback logic belong in `src/`.
 - Airflow Variables provide runtime configuration, not business logic.
+- Fresh-start Variable behavior is declared in
+  `config/config-contracts.yaml`; venue deduplication state is preserved and
+  fallback outboxes are reset without replay.
 - Production maintenance is executed through scripts and one-off deployment
   manager commands, not through Airflow internal Python APIs.
 

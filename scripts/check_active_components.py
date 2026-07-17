@@ -226,6 +226,18 @@ def main() -> None:
                     f"{contract_kind} contract {name} has unknown owners: "
                     + ", ".join(unknown_owners)
                 )
+            if contract_kind == "variable":
+                managed = contract.get("managed_by_application") is True
+                policy = contract.get("fresh_start_policy")
+                if managed and policy not in {"preserve", "reset"}:
+                    fail(
+                        f"managed variable contract {name} requires "
+                        "fresh_start_policy preserve or reset"
+                    )
+                if not managed and policy is not None:
+                    fail(f"static variable contract {name} must not define fresh_start_policy")
+                if policy == "reset" and contract.get("type") != "json_list":
+                    fail(f"reset variable contract {name} must have type json_list")
 
     print(
         "active-components: ok "

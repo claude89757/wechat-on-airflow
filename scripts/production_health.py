@@ -105,6 +105,9 @@ def main() -> None:
     )
     target_airflow = str(runtime_target["target"]["airflow"])
     expected_services = set(runtime_target["target"]["services"])
+    database_target = runtime_target["target"]["database"]
+    deployment_strategy = str(database_target["deployment_strategy"])
+    minimum_free_bytes = int(database_target["minimum_free_bytes"])
     recent_run_count = int(runtime_target["verification"]["production_cycles"])
     sender_health_url = str(
         runtime_target["managed_services"]["wechat_sender"]["production_health_url"]
@@ -431,7 +434,7 @@ PY
         add_issue(
             "airflow_version",
             f"deployed {airflow_version}, target {target_airflow}",
-            "deploy the pinned target image and run the documented database migration",
+            "deploy the pinned target image with the documented fresh metadata database",
         )
     if unhealthy_services:
         add_issue(
@@ -497,18 +500,15 @@ PY
             f"fallback outbox backlog: {json.dumps(outbox_failures, sort_keys=True)}",
             "resolve delivery, then archive or clear records through an approved no-replay procedure",
         )
-    database_bytes = database.get("database_bytes") if isinstance(database, dict) else None
     storage_free_bytes = storage.get("free_bytes") if isinstance(storage, dict) else None
-    migration_disk_headroom = (
-        isinstance(database_bytes, int)
-        and isinstance(storage_free_bytes, int)
-        and storage_free_bytes > database_bytes
+    deployment_storage_ready = (
+        isinstance(storage_free_bytes, int) and storage_free_bytes >= minimum_free_bytes
     )
-    if airflow_version != target_airflow and migration_disk_headroom is False:
+    if airflow_version != target_airflow and deployment_storage_ready is False:
         add_issue(
-            "migration_storage",
-            "free root-disk space is not greater than the metadata database size",
-            "add reliable disk capacity or use an approved restore-based compact migration",
+            "deployment_storage",
+            f"free root-disk space is below the {minimum_free_bytes}-byte fresh-start floor",
+            "add reliable disk capacity without deleting the preserved Airflow 2 database",
         )
     sender_health = (
         managed_services.get("wechat_sender") if isinstance(managed_services, dict) else None
@@ -538,7 +538,8 @@ PY
         "fallback_outbox_counts": outboxes,
         "database": database,
         "storage": storage,
-        "migration_disk_headroom": migration_disk_headroom,
+        "deployment_strategy": deployment_strategy,
+        "deployment_storage_ready": deployment_storage_ready,
         "managed_services": managed_services,
         "issues": issues,
     }

@@ -49,15 +49,13 @@ lower-surprise migration path.
 ## Consequences
 
 - `airflow api-server` replaces `airflow webserver`.
-- FAB provider migrations are part of the database rehearsal and production
-  migration.
+- FAB provider migrations are part of image and fresh-database verification.
 - PythonOperator imports move to `airflow.providers.standard`.
 - DAG author interfaces move to `airflow.sdk`.
 - task code must not open Airflow metadata database sessions.
 - database maintenance moves to an explicit deployment-manager command.
-- the migration service uses a rehearsed batch size above the current
-  `task_instance` row count to avoid repeated full-table scans during the
-  Airflow 3 UUID migration.
+- Airflow 3 initializes a fresh metadata database; ADR 0004 defines
+  configuration continuity and Airflow 2 rollback ownership.
 - the image becomes larger than a minimal LocalExecutor image, but the migration
   changes fewer production dimensions.
 

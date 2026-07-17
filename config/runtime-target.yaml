@@ -21,13 +21,19 @@ target:
   database:
     engine: PostgreSQL
     major_version: 17
-    production_major_migration_requires_approval: true
+    deployment_strategy: fresh_database
+    preserve_airflow2_database: true
+    minimum_free_bytes: 8000000000
+    volumes:
+      postgresql_env: AIRFLOW_POSTGRESQL_VOLUME
+      redis_env: AIRFLOW_REDIS_VOLUME
+      logs_env: AIRFLOW_LOGS_VOLUME
   broker:
     engine: Redis
     visibility_timeout_seconds: 86400
 images:
-  postgresql: bitnami/postgresql@sha256:db9bc963e434771f650d4506b5a631c6126525c8be0c9b7c0ec61228a632c33f
-  redis: bitnami/redis@sha256:660edb35a17e1c954be0845fed4ecca3183a7e6e0bf322ad20f997e45d750d5f
+  postgresql: bitnami/postgresql@sha256:42a8200d35971f931b869ef5252d996e137c6beb4b8f1b6d2181dc7d1b6f62e0
+  redis: bitnami/redis@sha256:1c41e7028ac48d7a9d79d855a432eef368aa440f37c8073ae1651879b02c72f4
   wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
 managed_services:
   wechat_sender:

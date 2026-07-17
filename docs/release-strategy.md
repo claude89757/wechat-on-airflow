@@ -32,10 +32,11 @@ metadata schema changes require explicit human approval before production apply.
 2. Run `make verify`, `make deploy-check`, and `make rollback-check`.
 3. Push the exact commit and require CI to pass.
 4. Build and record the immutable image identifier.
-5. Deploy only after the production health and storage gates pass.
+5. Deploy only after the production health and strategy-specific storage floor
+   in `config/runtime-target.yaml` pass.
 6. Run post-deploy health checks across multiple complete schedule cycles.
 7. Tag the verified commit after the production observation window succeeds.
 
 Rollback restores the previous application commit when the metadata schema is
-unchanged. A major Airflow metadata migration rollback restores the matching
-database backup and previous application image together.
+unchanged. The Airflow 3 fresh-start rollback switches back to the preserved
+Airflow 2 commit, environment, and data paths without changing either database.

@@ -2,6 +2,19 @@
 
 Observed on 2026-07-16 before the Airflow 3 migration.
 
+## Approved Cutover Scope
+
+On 2026-07-17 the migration scope changed to a fresh Airflow 3 metadata
+database. Historical Airflow 2 metadata is not required. The old database and
+its encrypted backup remain intact for rollback, while contract-declared
+configuration, venue deduplication caches, and proxy caches move to the new
+system. Fallback outboxes remain incident evidence and are reset without
+replay.
+
+The isolated empty-database and configuration-import procedure passed on
+2026-07-17. See
+[`fresh-start-rehearsal-2026-07-17.md`](fresh-start-rehearsal-2026-07-17.md).
+
 ## Latest Read-only Refresh
 
 The health check at 2026-07-17 11:00 Asia/Shanghai still found Airflow 2.10.5
@@ -53,10 +66,9 @@ from the production container to the operator workstation:
 
 The exported Airflow Variables, Connections, and Pools configuration is also
 encrypted and stored outside the repository. Backup filenames and keys are not
-committed. The full migration and restore-based rollback rehearsal completed on
-2026-07-17; see [`migration-rehearsal-2026-07-17.md`](migration-rehearsal-2026-07-17.md).
-Production migration approval remains blocked by the report's storage and
-external-service gates.
+committed. The full historical migration rehearsal completed on 2026-07-17 and
+remains evidence, but it is no longer the production deployment path. See
+[`migration-rehearsal-2026-07-17.md`](migration-rehearsal-2026-07-17.md).
 
 ## Metadata Database
 
@@ -76,11 +88,11 @@ Core relation sizes from the read-only health check:
 | `dag_run` | 2,464,915,456 bytes |
 | `xcom` | 1,636,204,544 bytes |
 
-Only 16,957,681,664 bytes were free on the root filesystem. This is less than
-the metadata database and also less than the `task_instance` relation that the
-Airflow 3 UUID migration rewrites. An in-place production migration is
-therefore blocked until reliable disk capacity is added or a separately
-approved restore-based compact migration is rehearsed.
+Only 16,957,681,664 bytes were free on the root filesystem. This prevents the
+historical in-place migration, but the approved fresh-start path does not
+rewrite or copy the 42 GB database. The old database remains in place and the
+new runtime must retain the minimum free-space floor in
+`config/runtime-target.yaml`.
 
 The high row count is caused by sub-minute venue schedules combined with a
 180-day retention window. It materially increases backup and major-version
@@ -147,16 +159,15 @@ frequency or quota limits. Payloads, recipients, endpoints, and credentials
 were not inspected or recorded. These outboxes are incident records and must
 not be replayed blindly.
 
-## Migration Gates
+## Fresh-start Gates
 
-Before production migration:
+Before production cutover:
 
-1. Produce and verify an encrypted PostgreSQL backup outside the failed
-   secondary filesystem.
-2. Restore it into an isolated PostgreSQL instance.
-3. Run Airflow 3 and FAB migrations against the copy.
+1. Preserve the Airflow 2 database, runtime environment, commit, and images.
+2. Produce a final protected configuration export.
+3. Prepare the contract-filtered import with no missing required names.
 4. Prove all active DAGs import with zero errors.
 5. Run no-delivery contract and smoke tests.
-6. Record migration duration and disk growth.
-7. Prepare and verify database restore commands.
-8. Obtain approval before the production major-version database migration.
+6. Verify the new paths and free-space floor.
+7. Prepare and verify path-switch rollback commands.
+8. Start DAGs paused, import and verify configuration, then activate them.

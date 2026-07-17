@@ -65,8 +65,10 @@ design; the sender Compose project exposes only its HTTP service.
 ## Operations
 
 Read `AGENTS.md` first. Production procedures are maintained under
-`docs/runbooks/`. Production database migration, restore, destructive cleanup,
-secret rotation, and real notification tests require explicit human approval.
+`docs/runbooks/`. The Airflow 3 cutover uses a fresh metadata database and
+migrates configuration and continuity caches only. The Airflow 2 database
+remains intact for rollback. Database restore, destructive cleanup, secret
+rotation, and real notification tests require explicit human approval.
 
 The repository is designed for coding-agent maintenance. Machine-readable
 component, configuration, and runtime contracts are under `config/`; chat
