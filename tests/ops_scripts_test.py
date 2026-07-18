@@ -38,6 +38,7 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         self.assertIn('[[ "$APPLY" != true ]]', installer)
         self.assertIn("^[0-9a-f]{40}$", installer)
         self.assertIn('checkout --detach "$TARGET_COMMIT"', installer)
+        self.assertIn("Git fetch failed after 3 attempts", installer)
         self.assertIn("systemctl enable", installer)
         self.assertIn("http://127.0.0.1:7001/readyz", installer)
 

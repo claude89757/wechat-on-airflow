@@ -62,7 +62,8 @@ systemctl is-active wechat-sender.service
 
 Use root-owned `/etc/wechat-sender.env` with mode `600` for the device and the
 loopback Appium endpoint. Apply mode deploys an exact commit, runs one
-unprivileged worker, enables automatic startup, and waits for `GET /readyz`.
-Also verify `GET /healthz`; do not call the send endpoint as a smoke test.
-Historical fallback records are not replayed automatically. Docker Compose is
-retained only as a development or alternate-host runtime.
+unprivileged worker, retries transient Git fetch failures, enables automatic
+startup, and waits for `GET /readyz`. Also verify `GET /healthz`; do not call
+the send endpoint as a smoke test. Historical fallback records are not replayed
+automatically. Docker Compose is retained only as a development or
+alternate-host runtime.

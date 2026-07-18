@@ -27,6 +27,19 @@ fail() {
   exit 1
 }
 
+fetch_origin() {
+  local attempt
+  for attempt in 1 2 3; do
+    if git -C "$INSTALL_DIR" fetch --force origin '+refs/heads/*:refs/remotes/origin/*'; then
+      return 0
+    fi
+    if [[ "$attempt" != 3 ]]; then
+      sleep "$((attempt * 5))"
+    fi
+  done
+  fail "Git fetch failed after 3 attempts"
+}
+
 while (($#)); do
   case "$1" in
     --apply)
@@ -81,7 +94,7 @@ else
   git -C "$INSTALL_DIR" remote set-url origin "$REPOSITORY_URL"
 fi
 
-git -C "$INSTALL_DIR" fetch --force origin '+refs/heads/*:refs/remotes/origin/*'
+fetch_origin
 git -C "$INSTALL_DIR" cat-file -e "${TARGET_COMMIT}^{commit}" ||
   fail "target commit is not available from the repository"
 git -C "$INSTALL_DIR" checkout --detach "$TARGET_COMMIT"
