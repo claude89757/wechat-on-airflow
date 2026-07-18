@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ ROOT = SCRIPTS_DIR.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import _ops  # noqa: E402
+import airflow_db_cleanup  # noqa: E402
 import deploy_airflow  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
@@ -107,6 +109,48 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("--treat-dag-id-as-regex --yes", script)
         self.assertIn("restore_dags", script)
         self.assertIn("active task instances did not drain", script)
+        self.assertIn("target_dag_ids_b64", script)
+        self.assertIn("retired_dags_left_paused", script)
+        self.assertIn('restore_dags "$restore_regex"', script)
+
+
+class AirflowDatabaseCleanupTest(unittest.TestCase):
+    def test_default_command_is_read_only(self):
+        cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+
+        command = airflow_db_cleanup.cleanup_command(cutoff, apply=False)
+
+        self.assertIn("--dry-run", command)
+        self.assertNotIn("--yes", command)
+        self.assertNotIn("--skip-archive", command)
+
+    def test_apply_command_requires_explicit_destructive_flags(self):
+        cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+
+        command = airflow_db_cleanup.cleanup_command(cutoff, apply=True)
+
+        self.assertIn("--yes", command)
+        self.assertIn("--skip-archive", command)
+        self.assertIn("--error-on-cleanup-failure", command)
+
+    def test_confirmed_cutoff_is_utc_midnight(self):
+        self.assertEqual(
+            airflow_db_cleanup.confirmed_cutoff("2026-01-02"),
+            datetime(2026, 1, 2, tzinfo=UTC),
+        )
+
+    def test_remote_result_parser_uses_structured_tail(self):
+        self.assertEqual(
+            airflow_db_cleanup.parse_remote_result(
+                'command output\n{"ok": true, "mode": "dry-run"}\n'
+            ),
+            {"ok": True, "mode": "dry-run"},
+        )
+
+    def test_remote_cleanup_commands_cannot_consume_the_control_script(self):
+        script = airflow_db_cleanup.remote_script()
+
+        self.assertEqual(script.count("</dev/null >/dev/null"), 2)
 
 
 class ProductionHealthParsingTest(unittest.TestCase):
@@ -219,6 +263,35 @@ class ProductionHealthParsingTest(unittest.TestCase):
         self.assertTrue(production_health.deployment_commit_matches(commit, commit))
         self.assertFalse(production_health.deployment_commit_matches(commit, "b" * 40))
         self.assertFalse(production_health.deployment_commit_matches("main", "main"))
+
+    def test_fallback_outboxes_distinguish_recent_and_historical_failures(self):
+        now = datetime(2026, 7, 19, 1, 0, tzinfo=UTC)
+        outboxes = {
+            "RECENT": {"count": 2, "latest_failed_at": "2026-07-19T00:50:00+00:00"},
+            "HISTORICAL": {"count": 4, "latest_failed_at": "2026-07-18T12:00:00+00:00"},
+            "EMPTY": {"count": 0, "latest_failed_at": None},
+        }
+
+        recent, historical, malformed = production_health.classify_fallback_outboxes(
+            outboxes,
+            now=now,
+            grace_minutes=30,
+        )
+
+        self.assertEqual(set(recent), {"RECENT"})
+        self.assertEqual(set(historical), {"HISTORICAL"})
+        self.assertEqual(malformed, {})
+
+    def test_fallback_outboxes_reject_malformed_nonempty_records(self):
+        recent, historical, malformed = production_health.classify_fallback_outboxes(
+            {"BROKEN": {"count": 1, "latest_failed_at": None}},
+            now=datetime(2026, 7, 19, 1, 0, tzinfo=UTC),
+            grace_minutes=30,
+        )
+
+        self.assertEqual(recent, {})
+        self.assertEqual(historical, {})
+        self.assertEqual(set(malformed), {"BROKEN"})
 
 
 class FreshStartConfigurationTest(unittest.TestCase):

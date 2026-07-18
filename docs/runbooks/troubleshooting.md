@@ -36,3 +36,10 @@ unrelated device when multiple devices are online.
 
 Every resolved incident should add a regression test or update this runbook,
 the component manifest, or an ADR.
+
+## Metadata Cleanup
+
+Do not run `airflow db clean` inside a DAG task. Airflow 3 task subprocesses are
+isolated from direct metadata database access. Use `make db-cleanup-check` for
+the read-only deployment-manager probe. Apply mode requires explicit approval
+for a concrete cutoff and must not be used to make health checks green.

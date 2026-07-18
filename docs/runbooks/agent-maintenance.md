@@ -16,6 +16,10 @@ For every task:
 9. Compare pre- and post-deploy health output.
 10. Observe the required schedule cycles and record residual risk.
 
+Use `make db-cleanup-check` for the read-only metadata-maintenance check.
+Database cleanup apply mode is irreversible and always requires human approval
+for a concrete cutoff.
+
 Do not create platform-specific instruction files containing independent rules.
 They may only point to `AGENTS.md`.
 

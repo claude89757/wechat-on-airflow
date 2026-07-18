@@ -48,6 +48,14 @@ managed_services:
     readiness_path: /readyz
     deployment_owner: android_device_host
     workers_per_device: 1
+maintenance:
+  airflow_metadata_cleanup:
+    command: scripts/airflow_db_cleanup.py
+    execution_owner: deployment_manager
+    mode: manual
+    retention_days: 180
+    apply_requires_human_approval: true
+    scheduled: false
 verification:
   required_commands:
     - make verify
@@ -55,4 +63,6 @@ verification:
     - make test-dags
     - make deploy-check
     - make rollback-check
+    - make db-cleanup-check
   production_cycles: 3
+  notification_failure_grace_minutes: 30

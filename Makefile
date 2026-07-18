@@ -5,7 +5,8 @@ COMPOSE_BIN ?= $(shell if docker compose version >/dev/null 2>&1; then echo "doc
 COMPOSE := $(COMPOSE_BIN) --env-file .env.example
 
 .PHONY: setup format lint typecheck test test-dags compose-config sender-config \
-	smoke verify deploy deploy-check production-health rollback-check image sender-image
+	smoke verify deploy deploy-check production-health rollback-check db-cleanup-check \
+	image sender-image
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -53,6 +54,9 @@ production-health:
 
 rollback-check:
 	PYTHONPATH=src $(BIN)/python scripts/rollback_check.py --dry-run
+
+db-cleanup-check:
+	PYTHONPATH=src $(BIN)/python scripts/airflow_db_cleanup.py --format json
 
 image:
 	$(COMPOSE) build airflow-cli

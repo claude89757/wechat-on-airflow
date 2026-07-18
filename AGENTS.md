@@ -74,6 +74,7 @@ make deploy
 make deploy-check
 make production-health
 make rollback-check
+make db-cleanup-check
 make sender-image
 ```
 
@@ -89,6 +90,11 @@ The production WeChat sender uses `wechat-sender.service` on the Android host.
 Deploy it with `scripts/install_wechat_sender.sh --target-commit <full-sha>`;
 add `--apply` only after preflight. Docker Compose is an alternate development
 runtime, not the production process manager.
+
+Airflow metadata cleanup is a deployment-manager command, not a DAG. Run
+`make db-cleanup-check` for a read-only production dry run. Apply mode requires
+explicit human approval and an exact `--confirm-delete-before YYYY-MM-DD`;
+never schedule or invoke deletion autonomously.
 
 ## Production Access
 

@@ -35,9 +35,9 @@ independent while the external WeChat sender was unavailable: the email
 fallback outbox remained empty, and five new WeChat failures were isolated in
 the WeChat incident outbox without replay.
 
-All nine DAGs are unpaused. The sender and Android-host recovery is recorded
-below. The daily metadata cleanup remains a known issue and must not be
-manually retried until its execution boundary is replaced.
+Eight retained DAGs are unpaused. The sender and Android-host recovery is
+recorded below. The failed daily metadata cleanup DAG has been retired and
+replaced by a default-read-only deployment-manager command.
 
 ## Post-cutover Observation
 
@@ -91,14 +91,14 @@ plus two proxy DAGs retained their required successful run history. The email
 and WeChat fallback outboxes remained at 4 and 166 during the immediate
 post-repair observation window; no record was replayed or deleted.
 
-The daily metadata cleanup DAG remains a separate known issue. Its second
-natural Airflow 3 run failed before cleanup because the Task SDK task subprocess
-does not receive a usable metadata database URL, even though the worker service
-itself is correctly configured. No rows were deleted. Airflow 3 restricts
-direct metadata database access from task code, so the cleanup command should
-move to a deployment-manager schedule outside the task boundary. Enabling that
-schedule requires explicit approval because database record deletion is
-irreversible.
+The daily metadata cleanup DAG's second natural Airflow 3 run failed before
+cleanup because the Task SDK task subprocess did not receive a usable metadata
+database URL, even though the worker service itself was correctly configured.
+No rows were deleted. The DAG has been removed from the production bundle and
+replaced by `scripts/airflow_db_cleanup.py`, which executes the supported CLI
+from the deployment boundary. It defaults to a dry run and is not scheduled.
+Applying a cutoff still requires explicit approval because database record
+deletion is irreversible.
 
 ## Approved Cutover Scope
 

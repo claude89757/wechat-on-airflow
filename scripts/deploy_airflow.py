@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import re
 from pathlib import Path
@@ -101,6 +102,7 @@ repo_path="$1"
 target_commit="$2"
 target_image="$3"
 mode="$4"
+target_dag_ids_b64="$5"
 cd "$repo_path"
 
 compose() {{
@@ -176,41 +178,81 @@ dag_state_file=".deploy-dag-state-${{timestamp}}"
 cp -p .env "$env_backup"
 chmod 600 "$env_backup"
 
-compose exec -T "$api_service" python - >"$dag_state_file" <<'PY'
+compose exec -T -e TARGET_DAG_IDS_B64="$target_dag_ids_b64" \
+    "$api_service" python - >"$dag_state_file" <<'PY'
+import base64
+import json
+import os
+
 import yaml
 from sqlalchemy import select
 from airflow.models.dag import DagModel
 from airflow.utils.session import create_session
 
 with open("/opt/airflow/project/config/active-components.yaml", encoding="utf-8") as handle:
-    dag_ids = [item["dag_id"] for item in yaml.safe_load(handle)["active_dags"]]
+    current_dag_ids = [item["dag_id"] for item in yaml.safe_load(handle)["active_dags"]]
+target_dag_ids = json.loads(base64.b64decode(os.environ["TARGET_DAG_IDS_B64"]))
+all_dag_ids = sorted(set(current_dag_ids) | set(target_dag_ids))
 with create_session() as session:
     states = dict(
         session.execute(
-            select(DagModel.dag_id, DagModel.is_paused).where(DagModel.dag_id.in_(dag_ids))
+            select(DagModel.dag_id, DagModel.is_paused).where(DagModel.dag_id.in_(all_dag_ids))
         ).all()
     )
-for dag_id in dag_ids:
-    print(f"{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
+for dag_id in current_dag_ids:
+    print(f"current\\t{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
+for dag_id in target_dag_ids:
+    print(f"target\\t{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
 PY
 
-dag_regex="$(python3 - "$dag_state_file" <<'PY'
+pause_regex="$(python3 - "$dag_state_file" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 dag_ids = []
 for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
-    was_paused, dag_id = line.split("\\t", 1)
-    if was_paused == "0":
+    scope, was_paused, dag_id = line.split("\\t", 2)
+    if scope == "current" and was_paused == "0":
         dag_ids.append(re.escape(dag_id))
-if not dag_ids:
-    raise SystemExit("no active DAGs were found to deploy")
-print("^(?:" + "|".join(dag_ids) + ")$")
+if dag_ids:
+    print("^(?:" + "|".join(dag_ids) + ")$")
+PY
+)"
+
+restore_regex="$(python3 - "$dag_state_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+dag_ids = []
+for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    scope, was_paused, dag_id = line.split("\\t", 2)
+    if scope == "target" and was_paused == "0":
+        dag_ids.append(re.escape(dag_id))
+if dag_ids:
+    print("^(?:" + "|".join(dag_ids) + ")$")
+PY
+)"
+
+retired_dag_count="$(python3 - "$dag_state_file" <<'PY'
+import sys
+from pathlib import Path
+
+current = set()
+target = set()
+for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    scope, _was_paused, dag_id = line.split("\\t", 2)
+    (current if scope == "current" else target).add(dag_id)
+print(len(current - target))
 PY
 )"
 
 restore_dags() {{
+    regex="$1"
+    if [ -z "$regex" ]; then
+        return 0
+    fi
     restore_deadline="$(( $(date +%s) + 180 ))"
     while :; do
         restore_ok=true
@@ -218,7 +260,7 @@ restore_dags() {{
         if [ -z "$restore_service" ]; then
             restore_ok=false
         elif ! compose exec -T "$restore_service" airflow dags unpause \
-            --treat-dag-id-as-regex --yes "$dag_regex" </dev/null >/dev/null 2>&1; then
+            --treat-dag-id-as-regex --yes "$regex" </dev/null >/dev/null 2>&1; then
             restore_ok=false
         fi
         if [ "$restore_ok" = "true" ]; then
@@ -238,7 +280,7 @@ rollback() {{
         git checkout --quiet --detach "$current_commit" || true
         cp -p "$env_backup" .env || true
         compose up -d --no-deps {services} >/dev/null 2>&1 || true
-        restore_dags || true
+        restore_dags "$pause_regex" || true
     fi
     rm -f "$dag_state_file"
     exit "$rc"
@@ -248,8 +290,10 @@ trap 'rollback 129' HUP
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
-compose exec -T "$api_service" airflow dags pause \
-    --treat-dag-id-as-regex --yes "$dag_regex" </dev/null >/dev/null
+if [ -n "$pause_regex" ]; then
+    compose exec -T "$api_service" airflow dags pause \
+        --treat-dag-id-as-regex --yes "$pause_regex" </dev/null >/dev/null
+fi
 
 drain_deadline="$(( $(date +%s) + 600 ))"
 initial_active_tasks="$(active_task_count)"
@@ -320,10 +364,10 @@ done
 
 api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
 test -n "$api_service"
-restore_dags
+restore_dags "$restore_regex"
 rm -f "$dag_state_file"
 trap - EXIT HUP INT TERM
-python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$env_backup" "$initial_active_tasks" <<'PY'
+python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$env_backup" "$initial_active_tasks" "$retired_dag_count" <<'PY'
 import json
 import sys
 
@@ -336,6 +380,7 @@ print(json.dumps({{
     "healthy_application_containers": int(sys.argv[4]),
     "rollback_env_file": sys.argv[5],
     "drained_task_instances": int(sys.argv[6]),
+    "retired_dags_left_paused": int(sys.argv[7]),
     "dag_pause_state_restored": True,
 }}, sort_keys=True))
 PY
@@ -359,6 +404,13 @@ def main() -> None:
     args = parser.parse_args()
 
     target_commit = resolve_target_commit(args.target_commit)
+    target_manifest = yaml.safe_load(
+        run(["git", "show", f"{target_commit}:config/active-components.yaml"]).stdout
+    )
+    target_dag_ids = [str(item["dag_id"]) for item in target_manifest["active_dags"]]
+    target_dag_ids_b64 = base64.b64encode(
+        json.dumps(target_dag_ids, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
     runtime_target = yaml.safe_load(
         (REPO_ROOT / "config" / "runtime-target.yaml").read_text(encoding="utf-8")
     )
@@ -403,6 +455,7 @@ def main() -> None:
         target_commit,
         target_image,
         "apply" if args.apply else "dry-run",
+        target_dag_ids_b64,
     ]
     result = run(command, env=ssh_env, check=False, input_text=remote_script())
     if result.returncode:

@@ -58,9 +58,9 @@ names and their schemas are documented in:
 Neither file contains production values. Every venue has an independent email
 recipient Variable; there is no global recipient fallback.
 
-The synchronous WeChat sender has a separate Compose project; see
-`docs/wechat-sender-service.md`. Its public send endpoint has no token by
-design; the sender Compose project exposes only its HTTP service.
+The synchronous WeChat sender runs as a dedicated systemd service on the
+Android host; see `docs/wechat-sender-service.md`. Its public send endpoint has
+no token by design. Docker Compose remains an alternate development runtime.
 
 ## Operations
 
@@ -69,6 +69,11 @@ Read `AGENTS.md` first. Production procedures are maintained under
 migrates configuration and continuity caches only. The Airflow 2 database
 remains intact for rollback. Database restore, destructive cleanup, secret
 rotation, and real notification tests require explicit human approval.
+
+Metadata cleanup is not an Airflow DAG because Airflow 3 task subprocesses do
+not receive direct metadata database access. `make db-cleanup-check` performs a
+read-only production dry run; deletion requires a separately approved,
+date-confirmed apply command.
 
 The repository is designed for coding-agent maintenance. Machine-readable
 component, configuration, and runtime contracts are under `config/`; chat

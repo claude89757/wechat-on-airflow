@@ -67,3 +67,24 @@ startup, and waits for `GET /readyz`. Also verify `GET /healthz`; do not call
 the send endpoint as a smoke test. Historical fallback records are not replayed
 automatically. Docker Compose is retained only as a development or
 alternate-host runtime.
+
+## Metadata Cleanup
+
+Metadata cleanup is deployment maintenance, not an Airflow DAG. Its normal
+agent check is read-only:
+
+```bash
+make db-cleanup-check
+```
+
+Do not schedule apply mode. After explicit human approval for a specific
+cutoff, use:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/airflow_db_cleanup.py \
+  --apply --confirm-delete-before YYYY-MM-DD --format json
+```
+
+Apply mode requires a clean pushed commit, an exact production commit match,
+and a verified encrypted database backup. It deletes records and cannot be
+used as a smoke test.

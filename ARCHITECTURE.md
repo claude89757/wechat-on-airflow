@@ -18,8 +18,8 @@ independent best-effort channels so a WeChat device outage does not delay email.
 Fallback outboxes are deduplicated incident records, not automatic retry queues;
 blind replay could send stale or duplicate availability.
 
-The WeChat sender runs on the Android device host as an independent Compose
-project with one process per device. It is not an Airflow component, but it is
+The WeChat sender runs on the Android device host as an independent systemd
+service with one process per device. It is not an Airflow component, but it is
 repository-managed and included in production health checks. The health check
 derives `/readyz` from the configured Airflow endpoint without printing the
 endpoint value.
@@ -69,6 +69,9 @@ the cutover boundary.
   fallback outboxes are reset without replay.
 - Production maintenance is executed through scripts and one-off deployment
   manager commands, not through Airflow internal Python APIs.
+- Metadata cleanup is deliberately outside the DagBag and Task SDK boundary.
+  Its command is read-only by default and requires human-approved date
+  confirmation before deleting records.
 
 The authoritative active component and configuration contract is
 `config/active-components.yaml`. Static verification checks each declared

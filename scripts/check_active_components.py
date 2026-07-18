@@ -232,6 +232,34 @@ def main() -> None:
         )
     if "--target-commit" not in sender_install or "checkout --detach" not in sender_install:
         fail("WeChat sender installer must deploy an exact Git commit")
+    cleanup_target = runtime_target.get("maintenance", {}).get("airflow_metadata_cleanup", {})
+    if (
+        cleanup_target.get("command") != "scripts/airflow_db_cleanup.py"
+        or cleanup_target.get("execution_owner") != "deployment_manager"
+        or cleanup_target.get("mode") != "manual"
+        or cleanup_target.get("scheduled") is not False
+        or cleanup_target.get("apply_requires_human_approval") is not True
+    ):
+        fail("Airflow metadata cleanup must remain manual and approval-gated")
+    if not (ROOT / "scripts" / "airflow_db_cleanup.py").is_file():
+        fail("Airflow metadata cleanup command is missing")
+    if cleanup_target.get("retention_days") != 180:
+        fail("Airflow metadata cleanup retention must match the documented 180-day policy")
+    retired_cleanup = [
+        component
+        for component in (manifest.get("excluded_stale_components") or [])
+        if component.get("dag_id") == "airflow_db_cleanup"
+    ]
+    if (
+        len(retired_cleanup) != 1
+        or retired_cleanup[0].get("action")
+        != "replaced_by_default_read_only_scripts_airflow_db_cleanup_py"
+        or (ROOT / str(retired_cleanup[0].get("file"))).exists()
+    ):
+        fail("retired airflow_db_cleanup DAG must be absent and point to its safe replacement")
+    grace_minutes = runtime_target.get("verification", {}).get("notification_failure_grace_minutes")
+    if not isinstance(grace_minutes, int) or grace_minutes <= 0:
+        fail("notification fallback grace window must be a positive integer")
 
     for contract in (manifest.get("shared_contracts") or {}).values():
         declared_modules.update(contract.get("modules") or [])

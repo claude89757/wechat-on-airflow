@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import yaml
@@ -103,6 +104,40 @@ def deployment_commit_matches(expected_commit: str, deployed_commit: str) -> boo
     return len(expected_commit) == 40 and expected_commit == deployed_commit
 
 
+def classify_fallback_outboxes(
+    outboxes: dict[str, Any],
+    *,
+    now: datetime,
+    grace_minutes: int,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    recent: dict[str, Any] = {}
+    historical: dict[str, Any] = {}
+    malformed: dict[str, Any] = {}
+    cutoff = now.astimezone(UTC) - timedelta(minutes=grace_minutes)
+    for name, details in outboxes.items():
+        if not isinstance(details, dict):
+            malformed[name] = details
+            continue
+        count = details.get("count")
+        latest_value = details.get("latest_failed_at")
+        if not isinstance(count, int) or count < 0:
+            malformed[name] = details
+            continue
+        if count == 0:
+            continue
+        if not isinstance(latest_value, str):
+            malformed[name] = details
+            continue
+        try:
+            latest = datetime.fromisoformat(latest_value).astimezone(UTC)
+        except ValueError:
+            malformed[name] = details
+            continue
+        target = recent if latest >= cutoff else historical
+        target[name] = {"count": count, "latest_failed_at": latest.isoformat()}
+    return recent, historical, malformed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only production Airflow health check.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
@@ -136,6 +171,9 @@ def main() -> None:
     deployment_strategy = str(database_target["deployment_strategy"])
     minimum_free_bytes = int(database_target["minimum_free_bytes"])
     recent_run_count = int(runtime_target["verification"]["production_cycles"])
+    fallback_grace_minutes = int(
+        runtime_target["verification"]["notification_failure_grace_minutes"]
+    )
     required_run_counts = required_successful_run_counts(active_dags, recent_run_count)
     queried_run_count = max(required_run_counts.values(), default=0)
     sender_target = runtime_target["managed_services"]["wechat_sender"]
@@ -203,10 +241,17 @@ from airflow.models.dag import DagModel
 from airflow.utils.session import create_session
 
 with create_session() as session:
-    rows = session.query(DagModel.dag_id, DagModel.is_paused).all()
+    rows = session.query(DagModel.dag_id, DagModel.is_paused, DagModel.is_active).all()
 print(
     json.dumps(
-        [{"dag_id": dag_id, "is_paused": bool(is_paused)} for dag_id, is_paused in rows],
+        [
+            {
+                "dag_id": dag_id,
+                "is_paused": bool(is_paused),
+                "is_active": bool(is_active),
+            }
+            for dag_id, is_paused, is_active in rows
+        ],
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -344,9 +389,20 @@ result = {}
 for key in ("EMAIL_SEND_FALLBACK_OUTBOX", "WECHAT_SEND_FALLBACK_OUTBOX"):
     try:
         value = Variable.get(key, default_var=[], deserialize_json=True)
-        result[key] = len(value) if isinstance(value, list) else None
+        if not isinstance(value, list):
+            result[key] = {"count": None, "latest_failed_at": None}
+            continue
+        timestamps = [
+            item.get("last_failed_at")
+            for item in value
+            if isinstance(item, dict) and isinstance(item.get("last_failed_at"), str)
+        ]
+        result[key] = {
+            "count": len(value),
+            "latest_failed_at": max(timestamps) if timestamps else None,
+        }
     except Exception:
-        result[key] = None
+        result[key] = {"count": None, "latest_failed_at": None}
 print(json.dumps(result, sort_keys=True))
 PY
 printf '__DATABASE__\n'
@@ -442,7 +498,7 @@ PY
         "-o",
         "PubkeyAuthentication=no",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        "StrictHostKeyChecking=yes",
         "-o",
         "ConnectTimeout=15",
         "-p",
@@ -470,10 +526,13 @@ PY
     database = parse_json_output(sections["database"], {})
     storage = parse_json_output(sections["storage"], {})
     managed_services = parse_json_output(sections["managed_services"], {})
-    parsed_ids = {
-        item.get("dag_id") for item in dags if isinstance(item, dict) and item.get("dag_id")
+    active_parsed_ids = {
+        item.get("dag_id")
+        for item in dags
+        if isinstance(item, dict) and item.get("dag_id") and normalized_bool(item.get("is_active"))
     }
-    missing_dags = sorted(set(dag_ids) - parsed_ids)
+    missing_dags = sorted(set(dag_ids) - active_parsed_ids)
+    unexpected_active_dags = sorted(active_parsed_ids - set(dag_ids))
     missing_dag_sources = (
         sorted(str(path) for path in dag_sources.get("missing", []))
         if isinstance(dag_sources, dict) and isinstance(dag_sources.get("missing"), list)
@@ -528,16 +587,34 @@ PY
                 "states": states,
             }
 
-    outbox_failures = (
-        {name: count for name, count in outboxes.items() if not isinstance(count, int) or count > 0}
+    recent_outbox_failures, historical_outboxes, malformed_outboxes = classify_fallback_outboxes(
+        outboxes if isinstance(outboxes, dict) else {"outboxes": outboxes},
+        now=datetime.now(UTC),
+        grace_minutes=fallback_grace_minutes,
+    )
+    outbox_counts = (
+        {
+            name: details.get("count") if isinstance(details, dict) else None
+            for name, details in outboxes.items()
+        }
         if isinstance(outboxes, dict)
-        else {"outboxes": None}
+        else {}
     )
 
     issues: list[dict[str, str]] = []
+    warnings: list[dict[str, str]] = []
 
     def add_issue(component: str, detail: str, remediation: str) -> None:
         issues.append(
+            {
+                "component": component,
+                "detail": detail,
+                "remediation": remediation,
+            }
+        )
+
+    def add_warning(component: str, detail: str, remediation: str) -> None:
+        warnings.append(
             {
                 "component": component,
                 "detail": detail,
@@ -596,6 +673,12 @@ PY
             f"missing DAGs: {', '.join(missing_dags)}",
             "compare config/active-components.yaml with the deployed DAG bundle",
         )
+    if unexpected_active_dags:
+        add_issue(
+            "active_dags",
+            f"unexpected active DAGs: {', '.join(unexpected_active_dags)}",
+            "pause retired DAGs and wait for the deployed DagBag to mark them inactive",
+        )
     if paused_dags:
         add_issue(
             "active_dags",
@@ -630,11 +713,23 @@ PY
             f"{len(recent_run_failures)} DAGs lack the required successful run history",
             "inspect failed task logs and verify three completed successful cycles",
         )
-    if outbox_failures:
+    if malformed_outboxes:
         add_issue(
             "notification_fallback",
-            f"fallback outbox backlog: {json.dumps(outbox_failures, sort_keys=True)}",
-            "resolve delivery, then archive or clear records through an approved no-replay procedure",
+            f"malformed fallback outbox state: {json.dumps(malformed_outboxes, sort_keys=True)}",
+            "repair the outbox contract without replaying or dropping incident records",
+        )
+    if recent_outbox_failures:
+        add_issue(
+            "notification_fallback",
+            f"recent fallback failures: {json.dumps(recent_outbox_failures, sort_keys=True)}",
+            "repair the affected channel and verify new failures stop accumulating",
+        )
+    if historical_outboxes:
+        add_warning(
+            "notification_fallback_history",
+            f"historical fallback records retained: {json.dumps(historical_outboxes, sort_keys=True)}",
+            "retain as incident evidence; archive only through an approved no-replay procedure",
         )
     storage_free_bytes = storage.get("free_bytes") if isinstance(storage, dict) else None
     deployment_storage_ready = (
@@ -653,7 +748,7 @@ PY
         add_issue(
             "wechat_sender",
             "managed WeChat sender health check failed",
-            "repair docker-compose.sender.yml on the Android device host and verify /readyz",
+            "repair wechat-sender.service on the Android device host and verify /readyz",
         )
 
     payload = {
@@ -670,17 +765,20 @@ PY
         "missing_dag_sources": missing_dag_sources,
         "unreadable_dag_sources": unreadable_dag_sources,
         "missing_active_dags": missing_dags,
+        "unexpected_active_dags": unexpected_active_dags,
         "paused_active_dags": paused_dags,
         "missing_required_variable_names": missing_variables,
         "variable_contracts": variable_contracts,
         "recent_runs": recent_run_summary,
         "recent_run_failures": recent_run_failures,
-        "fallback_outbox_counts": outboxes,
+        "fallback_outbox_counts": outbox_counts,
+        "fallback_outboxes": outboxes,
         "database": database,
         "storage": storage,
         "deployment_strategy": deployment_strategy,
         "deployment_storage_ready": deployment_storage_ready,
         "managed_services": managed_services,
+        "warnings": warnings,
         "issues": issues,
     }
     emit(payload, args.format)

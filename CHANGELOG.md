@@ -57,6 +57,9 @@ and operational changes.
   deployment so worker replacement cannot interrupt venue or proxy tasks.
 - Batch deployment pause-state changes through the Airflow CLI and restore
   scheduling on SSH hangup instead of issuing one long-lived command per DAG.
+- Move metadata cleanup out of the Airflow 3 Task SDK execution boundary into
+  a default-read-only deployment-manager command with explicit deletion
+  confirmation and backup checks.
 
 ### Removed
 

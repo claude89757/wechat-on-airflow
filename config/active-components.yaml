@@ -46,24 +46,6 @@ shared_contracts:
       - no_real_delivery_in_tests
 
 active_dags:
-  - dag_id: airflow_db_cleanup
-    file: dags/tool_dags/db_cleanup.py
-    schedule: every_24_hours
-    tasks:
-      - db_cleanup
-    variables: []
-    connections: []
-    direct_modules: []
-    external_services:
-      - airflow_metadata_database
-    notifications: []
-    purpose: Delete supported Airflow metadata older than the configured retention.
-    verification:
-      - dag_imports
-      - latest_run_succeeds
-    known_issue: The Airflow 3 Task SDK masks metadata database credentials in task subprocesses, so the administrative CLI cannot initialize.
-    migration_note: Move database cleanup to a deployment-manager schedule after explicit approval for production record deletion.
-
   - dag_id: HTTPS可用代理巡检
     file: dags/tennis_dags/proxy_tools/https_proxy_watcher.py
     schedule: "*/5 * * * *"
@@ -275,9 +257,16 @@ active_dags:
       - dag_imports
       - device_config_contract
       - latest_run_succeeds
-    known_issue: Host-key pinning is configured and the DAG is unpaused; await its first natural post-repair run.
 
 excluded_stale_components:
+  - dag_id: airflow_db_cleanup
+    file: dags/tool_dags/db_cleanup.py
+    evidence:
+      - airflow3_task_subprocess_masks_metadata_database_credentials
+      - two_natural_runs_failed_before_any_database_deletion
+      - metadata_maintenance_is_a_deployment_manager_responsibility
+    action: replaced_by_default_read_only_scripts_airflow_db_cleanup_py
+
   - dag_id: appium_wx_msg_watcher_for_zacks
     file: dags/tennis_dags/wx_msg_watcher_for_zacks.py
     evidence:
