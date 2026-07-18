@@ -39,6 +39,28 @@ Eight retained DAGs are unpaused. The sender and Android-host recovery is
 recorded below. The failed daily metadata cleanup DAG has been retired and
 replaced by a default-read-only deployment-manager command.
 
+## Final 0.1.0 Verification
+
+On 2026-07-19 the final Agent-Native release candidate passed local
+`make verify`, GitHub CI, deployment and rollback preflight, exact-commit
+production deployment, and post-deploy health checks. Airflow 3.3.0 loaded
+exactly eight active DAGs with zero import errors, all nine Compose containers
+were healthy, and no required configuration name was missing.
+
+Both five-minute proxy DAGs completed three consecutive post-deploy runs at
+17:20, 17:25, and 17:30 UTC. All five venue DAGs continued to complete across
+their faster schedules, and the phone maintenance DAG's latest natural run was
+successful. The sender host was deployed to the same pushed release candidate;
+its systemd service was enabled and active, with a valid main process and
+successful `/healthz` and `/readyz` checks.
+
+The email and WeChat fallback outboxes remained unchanged at 4 and 166. Their
+latest failure timestamps predated the sender recovery, so they are retained as
+historical incident records rather than current health failures. No record was
+replayed or deleted, and no real message was sent during verification. The
+metadata cleanup command also completed its default dry run against the exact
+production commit; it did not delete records.
+
 ## Post-cutover Observation
 
 The read-only check on 2026-07-18 found all five venue DAGs and both proxy DAGs
@@ -71,7 +93,7 @@ On 2026-07-19 the Android host was authenticated using the device credentials
 stored in `APPIUM_SERVER_LIST`, without logging their values. Its current
 Ed25519 fingerprint was verified during the authenticated session and stored
 as `login_info.host_key_sha256`. The phone maintenance DAG was then unpaused;
-it has not been manually triggered and awaits its next natural run.
+its next natural run completed successfully without a manual trigger.
 
 The sender outage was caused by a manually started process with no process
 manager. Appium on the device host remained healthy, but no process listened on

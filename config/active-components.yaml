@@ -1,5 +1,5 @@
 schema_version: 1
-observed_at: "2026-07-19T00:46:00+08:00"
+observed_at: "2026-07-19T01:33:00+08:00"
 production:
   repository_path: /root/wechat-on-airflow
   deployment_policy: exact_local_head

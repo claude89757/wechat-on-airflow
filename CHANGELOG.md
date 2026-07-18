@@ -5,6 +5,8 @@ and operational changes.
 
 ## Unreleased
 
+## [0.1.0] - 2026-07-19
+
 ### Changed
 
 - Migrate the target runtime from Airflow 2.10.5 to Airflow 3.3.0.
