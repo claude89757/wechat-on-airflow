@@ -33,9 +33,10 @@ exposure is an operational decision; do not expose the Appium port itself.
 
 ## Runtime
 
-The service has its own Compose project and does not depend on the Airflow
-containers. Configure `WECHAT_ALLOWED_DEVICE_NAME` and `WECHAT_APPIUM_URL` in
-an untracked environment file, then run:
+The service has its own Compose project on the Android device host and does not
+run on the Airflow host or depend on the Airflow containers. Configure
+`WECHAT_ALLOWED_DEVICE_NAME` and `WECHAT_APPIUM_URL` in an untracked environment
+file on that host, then run:
 
 ```bash
 docker compose -f docker-compose.sender.yml config --quiet
@@ -50,7 +51,8 @@ multi-host deployment requires an external distributed lock.
 
 `/healthz` is the container liveness probe. `/readyz` performs a read-only
 Appium `/status` request and is the production readiness gate; it never opens
-WeChat or sends a message.
+WeChat or sends a message. Production health derives this readiness URL from
+the configured `WECHAT_SEND_API_URL`; it never prints the endpoint value.
 
 ## Airflow Configuration
 

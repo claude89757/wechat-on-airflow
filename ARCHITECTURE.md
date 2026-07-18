@@ -18,9 +18,11 @@ independent best-effort channels so a WeChat device outage does not delay email.
 Fallback outboxes are deduplicated incident records, not automatic retry queues;
 blind replay could send stale or duplicate availability.
 
-The WeChat sender runs as an independent Compose project with one process per
-device. It is not an Airflow component, but it is repository-managed and
-included in production health checks.
+The WeChat sender runs on the Android device host as an independent Compose
+project with one process per device. It is not an Airflow component, but it is
+repository-managed and included in production health checks. The health check
+derives `/readyz` from the configured Airflow endpoint without printing the
+endpoint value.
 
 ## Airflow 3 Runtime
 

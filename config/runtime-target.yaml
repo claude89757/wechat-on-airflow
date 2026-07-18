@@ -41,7 +41,9 @@ managed_services:
   wechat_sender:
     compose_file: docker-compose.sender.yml
     health_endpoint: /healthz
-    production_health_url: http://127.0.0.1:7001/readyz
+    endpoint_variable: WECHAT_SEND_API_URL
+    readiness_path: /readyz
+    deployment_owner: android_device_host
     workers_per_device: 1
 verification:
   required_commands:

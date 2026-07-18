@@ -40,6 +40,28 @@ cleanup run in the fresh database failed before application code during the
 initial Execution API incident; it must be verified by its next natural daily
 run rather than manually triggering a destructive maintenance command.
 
+## Post-cutover Observation
+
+The read-only check on 2026-07-18 found all five venue DAGs and both proxy DAGs
+successful for their three most recent completed runs. All nine Airflow
+services were healthy, the Execution API probe passed, all DAG sources were
+readable, required configuration names were present, and import errors remained
+at zero.
+
+Tencent SES accepted later messages after three isolated
+`FailedOperation.FrequencyLimit` responses, confirming that email delivery was
+operational and independent from the WeChat outage. The three email records
+remain diagnostic evidence and are not replayed. The WeChat incident outbox
+contained 89 deduplicated send failures across all five venues because the
+configured external sender returned an empty HTTP response. No outbox record
+was automatically replayed or deleted.
+
+The sender runs on the Android device host, not the Airflow host. Its current
+SSH host keys do not match the operator workstation's older known-host entries.
+Deployment remains fail-closed until the current Ed25519 fingerprint is
+confirmed through a trusted channel; the fingerprint itself is intentionally
+not committed here.
+
 ## Approved Cutover Scope
 
 On 2026-07-17 the migration scope changed to a fresh Airflow 3 metadata

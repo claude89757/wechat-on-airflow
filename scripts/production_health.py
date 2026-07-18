@@ -133,9 +133,9 @@ def main() -> None:
     recent_run_count = int(runtime_target["verification"]["production_cycles"])
     required_run_counts = required_successful_run_counts(active_dags, recent_run_count)
     queried_run_count = max(required_run_counts.values(), default=0)
-    sender_health_url = str(
-        runtime_target["managed_services"]["wechat_sender"]["production_health_url"]
-    )
+    sender_target = runtime_target["managed_services"]["wechat_sender"]
+    sender_endpoint_variable = str(sender_target["endpoint_variable"])
+    sender_readiness_path = str(sender_target["readiness_path"])
 
     remote_script = r"""
 set -eu
@@ -379,17 +379,36 @@ PY
 printf '__STORAGE__\n'
 df -PB1 / | awk 'NR == 2 {printf "{\"total_bytes\":%s,\"used_bytes\":%s,\"free_bytes\":%s}\n", $2, $3, $4}'
 printf '__MANAGED_SERVICES__\n'
-python3 - <<'PY'
+airflow_python - <<'PY'
 import json
+import urllib.error
+import urllib.parse
 import urllib.request
+from airflow.models.variable import Variable
 
-result = {"wechat_sender": {"ok": False}}
+result = {"wechat_sender": {"ok": False, "configured": False}}
 try:
-    response = urllib.request.urlopen(__SENDER_HEALTH_URL__, timeout=5)
+    endpoint = str(Variable.get(__SENDER_ENDPOINT_VARIABLE__, default_var="")).strip()
+    parsed = urllib.parse.urlsplit(endpoint)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("sender endpoint is missing or invalid")
+    readiness_url = urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, __SENDER_READINESS_PATH__, "", "")
+    )
+    result["wechat_sender"]["configured"] = True
+    response = urllib.request.urlopen(readiness_url, timeout=5)
     payload = json.loads(response.read().decode("utf-8"))
     result["wechat_sender"] = {
         "ok": response.getcode() == 200 and payload.get("ok") is True,
+        "configured": True,
         "status_code": response.getcode(),
+    }
+except urllib.error.HTTPError as exc:
+    result["wechat_sender"] = {
+        "ok": False,
+        "configured": True,
+        "status_code": exc.code,
+        "error_type": type(exc).__name__,
     }
 except Exception as exc:
     result["wechat_sender"]["error_type"] = type(exc).__name__
@@ -404,7 +423,9 @@ PY
         )
         .replace("__RUN_COUNT__", str(queried_run_count))
     )
-    remote_script = remote_script.replace("__SENDER_HEALTH_URL__", repr(sender_health_url))
+    remote_script = remote_script.replace(
+        "__SENDER_ENDPOINT_VARIABLE__", repr(sender_endpoint_variable)
+    ).replace("__SENDER_READINESS_PATH__", repr(sender_readiness_path))
     ssh_env = dict(values)
     ssh_env["SSHPASS"] = remote["PASSWORD"]
     command = [
@@ -567,7 +588,7 @@ PY
         add_issue(
             "active_dags",
             f"paused DAGs: {', '.join(paused_dags)}",
-            "confirm migration checks are complete, then unpause the active DAGs",
+            "satisfy each DAG's external prerequisites before unpausing it",
         )
     if missing_variables:
         add_issue(
@@ -620,7 +641,7 @@ PY
         add_issue(
             "wechat_sender",
             "managed WeChat sender health check failed",
-            "start docker-compose.sender.yml and verify its /readyz endpoint",
+            "repair docker-compose.sender.yml on the Android device host and verify /readyz",
         )
 
     payload = {

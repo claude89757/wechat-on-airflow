@@ -1,5 +1,5 @@
 schema_version: 1
-observed_at: "2026-07-17T23:46:00+08:00"
+observed_at: "2026-07-18T16:44:00+08:00"
 production:
   repository_path: /root/wechat-on-airflow
   deployed_commit: 85c50ae8ccd6845ec9f6c7c628c2b4711259fa7b
@@ -293,7 +293,7 @@ active_services:
       - docker/sender/Dockerfile
       - docker-compose.sender.yml
     endpoint_config: WECHAT_SEND_API_URL
-    runtime_owner: production_airflow_host
+    runtime_owner: android_device_host
     external_services:
       - appium
       - android_device

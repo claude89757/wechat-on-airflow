@@ -198,6 +198,13 @@ def main() -> None:
         execution_api_value
     ):
         fail("Airflow Execution API URL must use the declared explicit environment setting")
+    sender_target = runtime_target.get("managed_services", {}).get("wechat_sender", {})
+    if (
+        sender_target.get("endpoint_variable") != "WECHAT_SEND_API_URL"
+        or sender_target.get("readiness_path") != "/readyz"
+        or sender_target.get("deployment_owner") != "android_device_host"
+    ):
+        fail("WeChat sender health must follow the external device-host runtime contract")
 
     for contract in (manifest.get("shared_contracts") or {}).values():
         declared_modules.update(contract.get("modules") or [])
@@ -218,6 +225,8 @@ def main() -> None:
                 fail(f"active service {service_id} is missing file: {relative_file}")
         if not service.get("verification"):
             fail(f"active service {service_id} has no verification contract")
+        if service_id == "wechat_sender" and service.get("runtime_owner") != "android_device_host":
+            fail("wechat_sender runtime owner must be the Android device host")
 
     if undeclared_variables:
         fail(

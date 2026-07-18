@@ -3,10 +3,10 @@
 Production Apache Airflow workflows that monitor Shenzhen tennis venue
 availability and send concise email and best-effort WeChat notifications.
 
-The repository is migrating from Airflow 2.10.5 to Airflow 3.3.0. Until the
-production migration is complete, `config/active-components.yaml` and
-`docs/production-baseline.md` distinguish the observed runtime from the target
-runtime.
+Production completed a fresh-start migration from Airflow 2.10.5 to Airflow
+3.3.0. Historical metadata was intentionally not migrated; configuration and
+notification continuity caches were verified in the new runtime, while the
+Airflow 2 database remains preserved for rollback.
 
 ## Runtime
 
@@ -16,7 +16,7 @@ runtime.
 - Redis broker
 - FAB Auth Manager
 - API Server, Scheduler, DAG Processor, Worker, and Triggerer
-- independent, repository-managed WeChat sender service
+- independent, repository-managed WeChat sender on the Android device host
 
 Supported development and production target:
 

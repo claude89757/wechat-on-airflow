@@ -45,9 +45,13 @@ and operational changes.
   cannot abort an entire proxy refresh.
 - Evaluate production run history using each DAG's declared latest-run or
   multi-cycle verification contract.
+- Derive WeChat readiness from the configured sender endpoint and record the
+  Android device host as the service runtime owner.
 
 ### Removed
 
 - Retired DAGs, archived experiments, duplicate utilities, legacy direct Appium
   notification code, Cloudflare sender gateway code, and unrelated SCF, Dify,
   Nginx, and database scripts that were not part of the production DagBag.
+- The unused duplicate sender requirements file; the reproducible sender image
+  uses `docker/sender/requirements.lock`.
