@@ -12,7 +12,7 @@ WorkingDirectory=/opt/wechat-on-airflow
 EnvironmentFile=/etc/wechat-sender.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/wechat-sender-venv/bin/uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1
+ExecStart=/opt/wechat-sender-venv/bin/python -m uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1
 Restart=always
 RestartSec=5
 TimeoutStopSec=20

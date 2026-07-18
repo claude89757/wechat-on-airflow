@@ -224,6 +224,8 @@ def main() -> None:
     missing_service_settings = sorted(required_service_lines - set(sender_service.splitlines()))
     if "--port 7001 --workers 1" not in sender_service:
         missing_service_settings.append("single Uvicorn worker on port 7001")
+    if "ExecStart=/opt/wechat-sender-venv/bin/python -m uvicorn " not in sender_service:
+        missing_service_settings.append("relocation-safe virtual-environment entrypoint")
     if missing_service_settings:
         fail(
             "WeChat sender systemd unit is missing settings: " + ", ".join(missing_service_settings)

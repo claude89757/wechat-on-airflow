@@ -23,6 +23,10 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
 
         self.assertIn("User=wechat-sender", unit)
         self.assertIn("EnvironmentFile=/etc/wechat-sender.env", unit)
+        self.assertIn(
+            "ExecStart=/opt/wechat-sender-venv/bin/python -m uvicorn ",
+            unit,
+        )
         self.assertIn("--port 7001 --workers 1", unit)
         self.assertIn("Restart=always", unit)
         self.assertIn("Requires=appium-6002.service", unit)
