@@ -54,6 +54,8 @@ and operational changes.
   instead of storing a self-invalidating commit hash in the component manifest.
 - Drain active task instances and preserve DAG pause state during application
   deployment so worker replacement cannot interrupt venue or proxy tasks.
+- Batch deployment pause-state changes through the Airflow CLI and restore
+  scheduling on SSH hangup instead of issuing one long-lived command per DAG.
 
 ### Removed
 

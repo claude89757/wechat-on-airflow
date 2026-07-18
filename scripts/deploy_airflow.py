@@ -194,6 +194,22 @@ for dag_id in dag_ids:
     print(f"{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
 PY
 
+dag_regex="$(python3 - "$dag_state_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+dag_ids = []
+for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    was_paused, dag_id = line.split("\\t", 1)
+    if was_paused == "0":
+        dag_ids.append(re.escape(dag_id))
+if not dag_ids:
+    raise SystemExit("no active DAGs were found to deploy")
+print("^(?:" + "|".join(dag_ids) + ")$")
+PY
+)"
+
 restore_dags() {{
     restore_deadline="$(( $(date +%s) + 180 ))"
     while :; do
@@ -201,12 +217,9 @@ restore_dags() {{
         restore_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
         if [ -z "$restore_service" ]; then
             restore_ok=false
-        else
-            while IFS=$'\\t' read -r was_paused dag_id; do
-                if [ "$was_paused" = "0" ] && ! compose exec -T "$restore_service" airflow dags unpause "$dag_id" >/dev/null 2>&1; then
-                    restore_ok=false
-                fi
-            done <"$dag_state_file"
+        elif ! compose exec -T "$restore_service" airflow dags unpause \
+            --treat-dag-id-as-regex --yes "$dag_regex" </dev/null >/dev/null 2>&1; then
+            restore_ok=false
         fi
         if [ "$restore_ok" = "true" ]; then
             return 0
@@ -219,8 +232,8 @@ restore_dags() {{
 }}
 
 rollback() {{
-    rc="$?"
-    trap - EXIT INT TERM
+    rc="${{1:-$?}}"
+    trap - EXIT HUP INT TERM
     if [ "$rc" -ne 0 ]; then
         git checkout --quiet --detach "$current_commit" || true
         cp -p "$env_backup" .env || true
@@ -230,13 +243,13 @@ rollback() {{
     rm -f "$dag_state_file"
     exit "$rc"
 }}
-trap rollback EXIT INT TERM
+trap rollback EXIT
+trap 'rollback 129' HUP
+trap 'rollback 130' INT
+trap 'rollback 143' TERM
 
-while IFS=$'\\t' read -r was_paused dag_id; do
-    if [ "$was_paused" = "0" ]; then
-        compose exec -T "$api_service" airflow dags pause "$dag_id" >/dev/null
-    fi
-done <"$dag_state_file"
+compose exec -T "$api_service" airflow dags pause \
+    --treat-dag-id-as-regex --yes "$dag_regex" </dev/null >/dev/null
 
 drain_deadline="$(( $(date +%s) + 600 ))"
 initial_active_tasks="$(active_task_count)"
@@ -309,7 +322,7 @@ api_service="$(compose ps --services --status running | awk '/^airflow-api-serve
 test -n "$api_service"
 restore_dags
 rm -f "$dag_state_file"
-trap - EXIT INT TERM
+trap - EXIT HUP INT TERM
 python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$env_backup" "$initial_active_tasks" <<'PY'
 import json
 import sys

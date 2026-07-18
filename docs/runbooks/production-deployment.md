@@ -36,7 +36,8 @@ must be pushed, CI must pass, and rollback inputs must be available.
    services, preserves each DAG's pause state, drains active tasks before
    replacing workers, and waits for service health checks. If startup fails it
    restores the previous commit, image configuration, and DAG pause state. It
-   does not recreate PostgreSQL, Redis, or log volumes.
+   batches pause-state changes through the supported Airflow CLI and does not
+   recreate PostgreSQL, Redis, or log volumes.
 4. Run `make production-health`.
 5. Compare the Execution API route probe, DAG source readability,
    registration, import errors, exact local/production commit match, outbox

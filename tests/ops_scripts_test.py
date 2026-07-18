@@ -77,6 +77,7 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("active_task_count", script)
         self.assertIn("airflow dags pause", script)
         self.assertIn("airflow dags unpause", script)
+        self.assertIn("--treat-dag-id-as-regex --yes", script)
         self.assertIn("restore_dags", script)
         self.assertIn("active task instances did not drain", script)
 
