@@ -154,6 +154,12 @@ class AirflowDatabaseCleanupTest(unittest.TestCase):
 
 
 class ProductionHealthParsingTest(unittest.TestCase):
+    def test_airflow3_active_dag_probe_uses_is_stale_column(self):
+        source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")
+
+        self.assertIn("DagModel.is_stale", source)
+        self.assertNotIn("DagModel.is_active", source)
+
     def test_parse_sections_separates_remote_command_output(self):
         output = "\n".join(
             [

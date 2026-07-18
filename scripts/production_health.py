@@ -241,16 +241,16 @@ from airflow.models.dag import DagModel
 from airflow.utils.session import create_session
 
 with create_session() as session:
-    rows = session.query(DagModel.dag_id, DagModel.is_paused, DagModel.is_active).all()
+    rows = session.query(DagModel.dag_id, DagModel.is_paused, DagModel.is_stale).all()
 print(
     json.dumps(
         [
             {
                 "dag_id": dag_id,
                 "is_paused": bool(is_paused),
-                "is_active": bool(is_active),
+                "is_active": not bool(is_stale),
             }
-            for dag_id, is_paused, is_active in rows
+            for dag_id, is_paused, is_stale in rows
         ],
         ensure_ascii=False,
         sort_keys=True,
