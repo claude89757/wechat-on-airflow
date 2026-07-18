@@ -1,5 +1,5 @@
 schema_version: 1
-observed_at: "2026-07-18T16:44:00+08:00"
+observed_at: "2026-07-19T00:46:00+08:00"
 production:
   repository_path: /root/wechat-on-airflow
   deployment_policy: exact_local_head
@@ -61,7 +61,8 @@ active_dags:
     verification:
       - dag_imports
       - latest_run_succeeds
-    migration_note: Replace internal Python API use with an Airflow 3 supported maintenance command.
+    known_issue: The Airflow 3 Task SDK masks metadata database credentials in task subprocesses, so the administrative CLI cannot initialize.
+    migration_note: Move database cleanup to a deployment-manager schedule after explicit approval for production record deletion.
 
   - dag_id: HTTPS可用代理巡检
     file: dags/tennis_dags/proxy_tools/https_proxy_watcher.py
@@ -274,7 +275,7 @@ active_dags:
       - dag_imports
       - device_config_contract
       - latest_run_succeeds
-    known_issue: Two of the three most recent observed runs failed during device resolution.
+    known_issue: Host-key pinning is configured and the DAG is unpaused; await its first natural post-repair run.
 
 excluded_stale_components:
   - dag_id: appium_wx_msg_watcher_for_zacks

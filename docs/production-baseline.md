@@ -35,12 +35,9 @@ independent while the external WeChat sender was unavailable: the email
 fallback outbox remained empty, and five new WeChat failures were isolated in
 the WeChat incident outbox without replay.
 
-Eight DAGs are active. `zacks_phone_daily_reboot` remains paused because its
-SSH host-key fingerprint has not been confirmed through a trusted channel. The
-external WeChat sender readiness check also remains unavailable. The only
-cleanup run in the fresh database failed before application code during the
-initial Execution API incident; it must be verified by its next natural daily
-run rather than manually triggering a destructive maintenance command.
+All nine DAGs are unpaused. The sender and Android-host recovery is recorded
+below. The daily metadata cleanup remains a known issue and must not be
+manually retried until its execution boundary is replaced.
 
 ## Post-cutover Observation
 
@@ -59,15 +56,49 @@ configured external sender returned an empty HTTP response. No outbox record
 was automatically replayed or deleted.
 
 The sender runs on the Android device host, not the Airflow host. Its current
-SSH host keys do not match the operator workstation's older known-host entries.
-Deployment remains fail-closed until the current Ed25519 fingerprint is
-confirmed through a trusted channel; the fingerprint itself is intentionally
-not committed here.
+Ed25519 fingerprint has been verified during an authenticated session and is
+pinned in the protected Airflow Variable; the fingerprint itself is
+intentionally not committed here.
 
 On 2026-07-18 the new default-read-only deployment command applied the latest
 pushed commit to all six Airflow application containers. It retained the
 existing PostgreSQL, Redis, and log volumes, and the post-deploy check confirmed
 that the production commit matched local Git HEAD.
+
+## WeChat Sender Recovery
+
+On 2026-07-19 the Android host was authenticated using the device credentials
+stored in `APPIUM_SERVER_LIST`, without logging their values. Its current
+Ed25519 fingerprint was verified during the authenticated session and stored
+as `login_info.host_key_sha256`. The phone maintenance DAG was then unpaused;
+it has not been manually triggered and awaits its next natural run.
+
+The sender outage was caused by a manually started process with no process
+manager. Appium on the device host remained healthy, but no process listened on
+port 7001. Production now runs the sender as an enabled systemd service under a
+dedicated unprivileged account, from the exact pushed repository commit, with
+one Uvicorn worker and automatic restart. Local and public `/healthz` and
+`/readyz` returned HTTP 200. A controlled process termination demonstrated
+automatic restart and restored readiness without sending a real message.
+
+The first systemd start exposed a relocated-virtual-environment entrypoint
+defect, and a later Git fetch encountered a transient TLS termination. The
+service now starts Uvicorn through the virtual environment's Python module
+entrypoint, and the installer retries Git fetches with bounded backoff. Both
+incidents have regression checks. The Airflow and sender hosts were deployed to
+the same pushed commit, all nine Airflow services were healthy, and five venue
+plus two proxy DAGs retained their required successful run history. The email
+and WeChat fallback outboxes remained at 4 and 166 during the immediate
+post-repair observation window; no record was replayed or deleted.
+
+The daily metadata cleanup DAG remains a separate known issue. Its second
+natural Airflow 3 run failed before cleanup because the Task SDK task subprocess
+does not receive a usable metadata database URL, even though the worker service
+itself is correctly configured. No rows were deleted. Airflow 3 restricts
+direct metadata database access from task code, so the cleanup command should
+move to a deployment-manager schedule outside the task boundary. Enabling that
+schedule requires explicit approval because database record deletion is
+irreversible.
 
 ## Approved Cutover Scope
 
