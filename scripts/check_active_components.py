@@ -90,6 +90,9 @@ def main() -> None:
     manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
     contracts = yaml.safe_load(CONTRACTS.read_text(encoding="utf-8"))
     runtime_target = yaml.safe_load(RUNTIME_TARGET.read_text(encoding="utf-8"))
+    production = manifest.get("production", {})
+    if production.get("deployment_policy") != "exact_local_head" or "deployed_commit" in production:
+        fail("production deployment identity must be verified dynamically against local HEAD")
     active_dags = manifest.get("active_dags")
     if not isinstance(active_dags, list) or not active_dags:
         fail("active_dags must be a non-empty list")

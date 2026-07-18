@@ -3,9 +3,11 @@
 ## Airflow 3 Production Cutover
 
 The fresh Airflow 3 cutover completed on 2026-07-17. Production runs Airflow
-3.3.0 from application commit
+3.3.0. The initial stabilized cutover used application commit
 `85c50ae8ccd6845ec9f6c7c628c2b4711259fa7b`; its CI, local verification,
-image-bundled DagBag check, and deployment preflight passed.
+image-bundled DagBag check, and deployment preflight passed. Current deployment
+identity is verified dynamically by `make production-health` against the local
+Git HEAD rather than duplicated as mutable state in the component manifest.
 
 Historical Airflow 2 metadata was not migrated. The complete Airflow 2
 database, logs, environment file, commit, image, and encrypted backup remain
@@ -61,6 +63,11 @@ SSH host keys do not match the operator workstation's older known-host entries.
 Deployment remains fail-closed until the current Ed25519 fingerprint is
 confirmed through a trusted channel; the fingerprint itself is intentionally
 not committed here.
+
+On 2026-07-18 the new default-read-only deployment command applied the latest
+pushed commit to all six Airflow application containers. It retained the
+existing PostgreSQL, Redis, and log volumes, and the post-deploy check confirmed
+that the production commit matched local Git HEAD.
 
 ## Approved Cutover Scope
 

@@ -38,7 +38,8 @@ must be pushed, CI must pass, and rollback inputs must be available.
    Redis, or log volumes.
 4. Run `make production-health`.
 5. Compare the Execution API route probe, DAG source readability,
-   registration, import errors, outbox counts, and service health.
+   registration, import errors, exact local/production commit match, outbox
+   counts, and service health.
 6. Observe the cycle count in `config/runtime-target.yaml`.
 7. Record the deployed commit and evidence in the production baseline.
 

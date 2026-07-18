@@ -50,6 +50,8 @@ and operational changes.
 - Add a fail-closed, default-read-only Airflow application deployment command
   with exact-commit images, automatic application rollback, and stateful-service
   isolation.
+- Verify production deployment identity dynamically against local Git HEAD
+  instead of storing a self-invalidating commit hash in the component manifest.
 
 ### Removed
 

@@ -2,7 +2,7 @@ schema_version: 1
 observed_at: "2026-07-18T16:44:00+08:00"
 production:
   repository_path: /root/wechat-on-airflow
-  deployed_commit: 85c50ae8ccd6845ec9f6c7c628c2b4711259fa7b
+  deployment_policy: exact_local_head
   current_airflow: "3.3.0"
   target_airflow: "3.3.0"
   python: "3.12"

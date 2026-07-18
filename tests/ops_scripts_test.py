@@ -176,6 +176,13 @@ class ProductionHealthParsingTest(unittest.TestCase):
 
         self.assertEqual(counts, {"venue": 3, "proxy": 1, "import_only": 0})
 
+    def test_deployment_commit_must_match_exact_local_head(self):
+        commit = "a" * 40
+
+        self.assertTrue(production_health.deployment_commit_matches(commit, commit))
+        self.assertFalse(production_health.deployment_commit_matches(commit, "b" * 40))
+        self.assertFalse(production_health.deployment_commit_matches("main", "main"))
+
 
 class FreshStartConfigurationTest(unittest.TestCase):
     def test_preserves_static_and_continuity_values_but_resets_outbox(self):

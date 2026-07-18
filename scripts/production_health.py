@@ -99,6 +99,10 @@ def required_successful_run_counts(
     return counts
 
 
+def deployment_commit_matches(expected_commit: str, deployed_commit: str) -> bool:
+    return len(expected_commit) == 40 and expected_commit == deployed_commit
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only production Airflow health check.")
     parser.add_argument("--format", choices=("text", "json"), default="text")
@@ -115,6 +119,7 @@ def main() -> None:
     runtime_target = yaml.safe_load(
         (REPO_ROOT / "config" / "runtime-target.yaml").read_text(encoding="utf-8")
     )
+    expected_commit = run(["git", "rev-parse", "HEAD"]).stdout.strip()
     active_dags = manifest["active_dags"]
     dag_ids = [component["dag_id"] for component in active_dags]
     dag_source_paths = [
@@ -540,7 +545,14 @@ PY
             }
         )
 
+    deployed_commit = sections["commit"].strip()
     airflow_version = sections["airflow_version"].splitlines()[-1].strip()
+    if not deployment_commit_matches(expected_commit, deployed_commit):
+        add_issue(
+            "deployed_commit",
+            f"deployed {deployed_commit}, expected local HEAD {expected_commit}",
+            "deploy the exact pushed local HEAD with make deploy",
+        )
     if airflow_version != target_airflow:
         add_issue(
             "airflow_version",
@@ -646,7 +658,8 @@ PY
 
     payload = {
         "ok": not issues,
-        "deployed_commit": sections["commit"].strip(),
+        "expected_commit": expected_commit,
+        "deployed_commit": deployed_commit,
         "airflow_version": airflow_version,
         "target_airflow_version": target_airflow,
         "service_count": len(compose_rows),

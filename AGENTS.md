@@ -96,6 +96,9 @@ Before and after a production change:
 make production-health
 ```
 
+The health check fails when the production commit differs from local Git HEAD.
+Run it from the exact pushed commit intended to own production.
+
 Never print Variable values, Connection credentials, email addresses, API
 tokens, database passwords, device login details, or the Fernet key.
 
