@@ -290,6 +290,8 @@ active_services:
     files:
       - sender_agent/app.py
       - wechat_sender/appium_text_sender.py
+      - deploy/systemd/wechat-sender.service
+      - scripts/install_wechat_sender.sh
       - docker/sender/Dockerfile
       - docker-compose.sender.yml
     endpoint_config: WECHAT_SEND_API_URL
@@ -307,4 +309,5 @@ active_services:
     verification:
       - unit_tests
       - health_endpoint
+      - systemd_active_and_enabled
       - real_send_requires_human_approval

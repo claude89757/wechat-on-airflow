@@ -13,6 +13,8 @@ CONTRACTS = ROOT / "config" / "config-contracts.yaml"
 RUNTIME_TARGET = ROOT / "config" / "runtime-target.yaml"
 AIRFLOW_DOCKERFILE = ROOT / "docker" / "airflow" / "Dockerfile"
 COMPOSE_FILE = ROOT / "docker-compose.yml"
+SENDER_SERVICE_FILE = ROOT / "deploy" / "systemd" / "wechat-sender.service"
+SENDER_INSTALL_SCRIPT = ROOT / "scripts" / "install_wechat_sender.sh"
 DAG_MAX_LINES = 120
 FORBIDDEN_DAG_IMPORT_ROOTS = {"httpx", "paramiko", "requests", "socket", "urllib3"}
 
@@ -203,11 +205,31 @@ def main() -> None:
         fail("Airflow Execution API URL must use the declared explicit environment setting")
     sender_target = runtime_target.get("managed_services", {}).get("wechat_sender", {})
     if (
-        sender_target.get("endpoint_variable") != "WECHAT_SEND_API_URL"
+        sender_target.get("runtime") != "systemd"
+        or sender_target.get("service_unit") != "deploy/systemd/wechat-sender.service"
+        or sender_target.get("install_script") != "scripts/install_wechat_sender.sh"
+        or sender_target.get("endpoint_variable") != "WECHAT_SEND_API_URL"
         or sender_target.get("readiness_path") != "/readyz"
         or sender_target.get("deployment_owner") != "android_device_host"
     ):
         fail("WeChat sender health must follow the external device-host runtime contract")
+    sender_service = SENDER_SERVICE_FILE.read_text(encoding="utf-8")
+    sender_install = SENDER_INSTALL_SCRIPT.read_text(encoding="utf-8")
+    required_service_lines = {
+        "User=wechat-sender",
+        "EnvironmentFile=/etc/wechat-sender.env",
+        "Restart=always",
+        "Requires=appium-6002.service",
+    }
+    missing_service_settings = sorted(required_service_lines - set(sender_service.splitlines()))
+    if "--port 7001 --workers 1" not in sender_service:
+        missing_service_settings.append("single Uvicorn worker on port 7001")
+    if missing_service_settings:
+        fail(
+            "WeChat sender systemd unit is missing settings: " + ", ".join(missing_service_settings)
+        )
+    if "--target-commit" not in sender_install or "checkout --detach" not in sender_install:
+        fail("WeChat sender installer must deploy an exact Git commit")
 
     for contract in (manifest.get("shared_contracts") or {}).values():
         declared_modules.update(contract.get("modules") or [])

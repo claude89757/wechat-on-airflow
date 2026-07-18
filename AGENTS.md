@@ -85,6 +85,11 @@ Airflow 3 image build and DagBag contract check.
 documented gates pass. Apply mode pauses active DAGs, drains task instances,
 replaces only application containers, and restores the original DAG pause state.
 
+The production WeChat sender uses `wechat-sender.service` on the Android host.
+Deploy it with `scripts/install_wechat_sender.sh --target-commit <full-sha>`;
+add `--apply` only after preflight. Docker Compose is an alternate development
+runtime, not the production process manager.
+
 ## Production Access
 
 Server connection details are read from the untracked `.env`. Production

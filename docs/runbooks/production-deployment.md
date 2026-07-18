@@ -54,11 +54,15 @@ The sender is deployed independently, so it can be repaired without restarting
 Airflow:
 
 ```bash
-docker compose -f docker-compose.sender.yml config --quiet
-docker compose -f docker-compose.sender.yml up -d --build
-docker compose -f docker-compose.sender.yml ps
+sudo scripts/install_wechat_sender.sh --target-commit <full-sha>
+sudo scripts/install_wechat_sender.sh --apply --target-commit <full-sha>
+systemctl is-enabled wechat-sender.service
+systemctl is-active wechat-sender.service
 ```
 
-Use an untracked environment file for the device and Appium endpoint. Verify
-`GET /healthz` and `GET /readyz`; do not call the send endpoint as a smoke test.
-Historical fallback records are not replayed automatically.
+Use root-owned `/etc/wechat-sender.env` with mode `600` for the device and the
+loopback Appium endpoint. Apply mode deploys an exact commit, runs one
+unprivileged worker, enables automatic startup, and waits for `GET /readyz`.
+Also verify `GET /healthz`; do not call the send endpoint as a smoke test.
+Historical fallback records are not replayed automatically. Docker Compose is
+retained only as a development or alternate-host runtime.

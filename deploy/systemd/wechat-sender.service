@@ -1,0 +1,39 @@
+[Unit]
+Description=WeChat sender HTTP service
+Requires=appium-6002.service
+After=network-online.target appium-6002.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wechat-sender
+Group=wechat-sender
+WorkingDirectory=/opt/wechat-on-airflow
+EnvironmentFile=/etc/wechat-sender.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/wechat-sender-venv/bin/uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

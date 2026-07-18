@@ -39,6 +39,9 @@ images:
   wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
 managed_services:
   wechat_sender:
+    runtime: systemd
+    service_unit: deploy/systemd/wechat-sender.service
+    install_script: scripts/install_wechat_sender.sh
     compose_file: docker-compose.sender.yml
     health_endpoint: /healthz
     endpoint_variable: WECHAT_SEND_API_URL

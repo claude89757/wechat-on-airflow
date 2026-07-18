@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+ROOT = SCRIPTS_DIR.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import _ops  # noqa: E402
@@ -14,6 +15,27 @@ import deploy_airflow  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
+
+
+class WeChatSenderServiceContractTest(unittest.TestCase):
+    def test_systemd_service_runs_one_unprivileged_restartable_worker(self):
+        unit = (ROOT / "deploy/systemd/wechat-sender.service").read_text(encoding="utf-8")
+
+        self.assertIn("User=wechat-sender", unit)
+        self.assertIn("EnvironmentFile=/etc/wechat-sender.env", unit)
+        self.assertIn("--port 7001 --workers 1", unit)
+        self.assertIn("Restart=always", unit)
+        self.assertIn("Requires=appium-6002.service", unit)
+
+    def test_installer_is_read_only_by_default_and_requires_exact_commit(self):
+        installer = (ROOT / "scripts/install_wechat_sender.sh").read_text(encoding="utf-8")
+
+        self.assertIn("APPLY=false", installer)
+        self.assertIn('[[ "$APPLY" != true ]]', installer)
+        self.assertIn("^[0-9a-f]{40}$", installer)
+        self.assertIn('checkout --detach "$TARGET_COMMIT"', installer)
+        self.assertIn("systemctl enable", installer)
+        self.assertIn("http://127.0.0.1:7001/readyz", installer)
 
 
 class DockerComposeCommandTest(unittest.TestCase):

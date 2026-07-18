@@ -20,8 +20,9 @@ and operational changes.
   outboxes explicit.
 - Add Agent-Native manifests, deterministic verification commands, production
   health checks, migration runbooks, and CI.
-- Run the synchronous WeChat sender as an independent, pinned, non-root
-  Compose service with automatic restart and health checks.
+- Run the synchronous WeChat sender as an independent, exact-commit, non-root
+  systemd service with automatic startup, restart, and readiness checks; retain
+  Compose as an alternate development runtime.
 - Add metadata relation sizes, disk headroom, and managed-service status to the
   read-only production health gate.
 - Pin Android-host SSH keys by SHA-256 fingerprint and disable legacy

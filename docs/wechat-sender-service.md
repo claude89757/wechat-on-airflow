@@ -33,23 +33,34 @@ exposure is an operational decision; do not expose the Appium port itself.
 
 ## Runtime
 
-The service has its own Compose project on the Android device host and does not
-run on the Airflow host or depend on the Airflow containers. Configure
-`WECHAT_ALLOWED_DEVICE_NAME` and `WECHAT_APPIUM_URL` in an untracked environment
-file on that host, then run:
+Production runs the service directly on the Android device host under systemd.
+It does not run on the Airflow host or depend on the Airflow containers. Store
+the two runtime settings in `/etc/wechat-sender.env`, owned by root with mode
+`600`:
 
 ```bash
-docker compose -f docker-compose.sender.yml config --quiet
-docker compose -f docker-compose.sender.yml up -d --build
-docker compose -f docker-compose.sender.yml ps
+WECHAT_ALLOWED_DEVICE_NAME=<device>
+WECHAT_APPIUM_URL=http://127.0.0.1:6002
 ```
 
-The image starts exactly one Uvicorn worker, runs as an unprivileged user, has a
-read-only filesystem, restarts automatically, and exposes `/healthz`. The
-in-process device lock is only valid with one process. A multi-process or
-multi-host deployment requires an external distributed lock.
+Deploy an exact pushed commit. The command is read-only unless `--apply` is
+present:
 
-`/healthz` is the container liveness probe. `/readyz` performs a read-only
+```bash
+sudo scripts/install_wechat_sender.sh --target-commit <full-sha>
+sudo scripts/install_wechat_sender.sh --apply --target-commit <full-sha>
+```
+
+The installer creates an unprivileged `wechat-sender` account, installs locked
+dependencies, enables `wechat-sender.service`, and waits for readiness. The unit
+starts exactly one Uvicorn worker and restarts it automatically. The in-process
+device lock is only valid with one process. A multi-process or multi-host
+deployment requires an external distributed lock.
+
+`docker-compose.sender.yml` remains a supported development and alternate-host
+runtime, but it is not the production process manager.
+
+`/healthz` is the service liveness probe. `/readyz` performs a read-only
 Appium `/status` request and is the production readiness gate; it never opens
 WeChat or sends a message. Production health derives this readiness URL from
 the configured `WECHAT_SEND_API_URL`; it never prints the endpoint value.

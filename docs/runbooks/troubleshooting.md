@@ -17,6 +17,11 @@ Check sender `/healthz`, `device_busy` responses, Appium availability, device
 state, and `WECHAT_SEND_FALLBACK_OUTBOX`. Email must continue independently.
 Do not send a live test without approval.
 
+On the Android host, confirm `wechat-sender.service` is both enabled and active.
+If Appium is ready but port `7001` has no listener, deploy the exact pushed
+commit with `scripts/install_wechat_sender.sh`; a restart alone is not a durable
+repair. Preserve the incident outbox and verify new failures stop accumulating.
+
 ## Duplicate Notification
 
 Stop manual retries. Verify that the venue dedupe cache was written before
