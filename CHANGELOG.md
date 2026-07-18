@@ -52,6 +52,8 @@ and operational changes.
   isolation.
 - Verify production deployment identity dynamically against local Git HEAD
   instead of storing a self-invalidating commit hash in the component manifest.
+- Drain active task instances and preserve DAG pause state during application
+  deployment so worker replacement cannot interrupt venue or proxy tasks.
 
 ### Removed
 

@@ -25,6 +25,14 @@ APPLICATION_SERVICES = (
     "airflow-worker",
     "airflow-triggerer",
 )
+ACTIVE_TASK_STATES = (
+    "running",
+    "queued",
+    "scheduled",
+    "restarting",
+    "up_for_retry",
+    "up_for_reschedule",
+)
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -86,6 +94,7 @@ def parse_remote_result(output: str) -> dict[str, Any]:
 
 def remote_script() -> str:
     services = " ".join(APPLICATION_SERVICES)
+    active_task_states = ", ".join(repr(state) for state in ACTIVE_TASK_STATES)
     return f"""\
 set -eu
 repo_path="$1"
@@ -108,13 +117,38 @@ compose() {{
 current_commit="$(git rev-parse HEAD)"
 test -z "$(git status --porcelain --untracked-files=no)"
 compose config --quiet
+api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
+test -n "$api_service"
+
+active_task_count() {{
+    compose exec -T "$api_service" python - <<'PY'
+import yaml
+from sqlalchemy import func, select
+from airflow.models.taskinstance import TaskInstance
+from airflow.utils.session import create_session
+
+with open("/opt/airflow/project/config/active-components.yaml", encoding="utf-8") as handle:
+    dag_ids = [item["dag_id"] for item in yaml.safe_load(handle)["active_dags"]]
+with create_session() as session:
+    count = session.scalar(
+        select(func.count())
+        .select_from(TaskInstance)
+        .where(
+            TaskInstance.dag_id.in_(dag_ids),
+            TaskInstance.state.in_([{active_task_states}]),
+        )
+    )
+print(int(count or 0))
+PY
+}}
 
 if [ "$mode" = "dry-run" ]; then
     target_available=false
     if git cat-file -e "$target_commit^{{commit}}" 2>/dev/null; then
         target_available=true
     fi
-    python3 - "$current_commit" "$target_commit" "$target_image" "$target_available" <<'PY'
+    active_tasks="$(active_task_count)"
+    python3 - "$current_commit" "$target_commit" "$target_image" "$target_available" "$active_tasks" <<'PY'
 import json
 import sys
 
@@ -125,6 +159,7 @@ print(json.dumps({{
     "target_commit": sys.argv[2],
     "target_image": sys.argv[3],
     "target_already_available": sys.argv[4] == "true",
+    "active_task_instances": int(sys.argv[5]),
 }}, sort_keys=True))
 PY
     exit 0
@@ -137,8 +172,51 @@ git merge-base --is-ancestor "$target_commit" origin/main
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 env_backup=".env.deploy-backup-${{timestamp}}-${{current_commit}}"
+dag_state_file=".deploy-dag-state-${{timestamp}}"
 cp -p .env "$env_backup"
 chmod 600 "$env_backup"
+
+compose exec -T "$api_service" python - >"$dag_state_file" <<'PY'
+import yaml
+from sqlalchemy import select
+from airflow.models.dag import DagModel
+from airflow.utils.session import create_session
+
+with open("/opt/airflow/project/config/active-components.yaml", encoding="utf-8") as handle:
+    dag_ids = [item["dag_id"] for item in yaml.safe_load(handle)["active_dags"]]
+with create_session() as session:
+    states = dict(
+        session.execute(
+            select(DagModel.dag_id, DagModel.is_paused).where(DagModel.dag_id.in_(dag_ids))
+        ).all()
+    )
+for dag_id in dag_ids:
+    print(f"{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
+PY
+
+restore_dags() {{
+    restore_deadline="$(( $(date +%s) + 180 ))"
+    while :; do
+        restore_ok=true
+        restore_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
+        if [ -z "$restore_service" ]; then
+            restore_ok=false
+        else
+            while IFS=$'\\t' read -r was_paused dag_id; do
+                if [ "$was_paused" = "0" ] && ! compose exec -T "$restore_service" airflow dags unpause "$dag_id" >/dev/null 2>&1; then
+                    restore_ok=false
+                fi
+            done <"$dag_state_file"
+        fi
+        if [ "$restore_ok" = "true" ]; then
+            return 0
+        fi
+        if [ "$(date +%s)" -ge "$restore_deadline" ]; then
+            return 1
+        fi
+        sleep 5
+    done
+}}
 
 rollback() {{
     rc="$?"
@@ -147,10 +225,28 @@ rollback() {{
         git checkout --quiet --detach "$current_commit" || true
         cp -p "$env_backup" .env || true
         compose up -d --no-deps {services} >/dev/null 2>&1 || true
+        restore_dags || true
     fi
+    rm -f "$dag_state_file"
     exit "$rc"
 }}
 trap rollback EXIT INT TERM
+
+while IFS=$'\\t' read -r was_paused dag_id; do
+    if [ "$was_paused" = "0" ]; then
+        compose exec -T "$api_service" airflow dags pause "$dag_id" >/dev/null
+    fi
+done <"$dag_state_file"
+
+drain_deadline="$(( $(date +%s) + 600 ))"
+initial_active_tasks="$(active_task_count)"
+while [ "$(active_task_count)" -ne 0 ]; do
+    if [ "$(date +%s)" -ge "$drain_deadline" ]; then
+        printf 'active task instances did not drain before timeout\\n' >&2
+        exit 1
+    fi
+    sleep 5
+done
 
 git checkout --quiet --detach "$target_commit"
 python3 - .env "$target_image" <<'PY'
@@ -209,8 +305,12 @@ while :; do
     sleep 5
 done
 
+api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
+test -n "$api_service"
+restore_dags
+rm -f "$dag_state_file"
 trap - EXIT INT TERM
-python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$env_backup" <<'PY'
+python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$env_backup" "$initial_active_tasks" <<'PY'
 import json
 import sys
 
@@ -222,6 +322,8 @@ print(json.dumps({{
     "target_image": sys.argv[3],
     "healthy_application_containers": int(sys.argv[4]),
     "rollback_env_file": sys.argv[5],
+    "drained_task_instances": int(sys.argv[6]),
+    "dag_pause_state_restored": True,
 }}, sort_keys=True))
 PY
 """

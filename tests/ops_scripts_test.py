@@ -71,6 +71,15 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertNotIn("postgresql", deploy_airflow.APPLICATION_SERVICES)
         self.assertNotIn("redis", deploy_airflow.APPLICATION_SERVICES)
 
+    def test_application_deploy_drains_tasks_and_restores_dag_state(self):
+        script = deploy_airflow.remote_script()
+
+        self.assertIn("active_task_count", script)
+        self.assertIn("airflow dags pause", script)
+        self.assertIn("airflow dags unpause", script)
+        self.assertIn("restore_dags", script)
+        self.assertIn("active task instances did not drain", script)
+
 
 class ProductionHealthParsingTest(unittest.TestCase):
     def test_parse_sections_separates_remote_command_output(self):

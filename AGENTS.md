@@ -82,7 +82,8 @@ Airflow 3 image build and DagBag contract check.
 
 `make deploy` is read-only by default. Use
 `make deploy DEPLOY_ARGS="--apply --target-commit <full-sha>"` only after the
-documented gates pass.
+documented gates pass. Apply mode pauses active DAGs, drains task instances,
+replaces only application containers, and restores the original DAG pause state.
 
 ## Production Access
 

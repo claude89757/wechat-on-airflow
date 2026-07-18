@@ -33,9 +33,10 @@ must be pushed, CI must pass, and rollback inputs must be available.
    ```
 
    The command builds a commit-tagged image, changes only Airflow application
-   services, waits for their health checks, and restores the previous commit
-   and image configuration if startup fails. It does not recreate PostgreSQL,
-   Redis, or log volumes.
+   services, preserves each DAG's pause state, drains active tasks before
+   replacing workers, and waits for service health checks. If startup fails it
+   restores the previous commit, image configuration, and DAG pause state. It
+   does not recreate PostgreSQL, Redis, or log volumes.
 4. Run `make production-health`.
 5. Compare the Execution API route probe, DAG source readability,
    registration, import errors, exact local/production commit match, outbox
