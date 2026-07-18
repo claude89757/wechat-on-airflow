@@ -70,6 +70,7 @@ make test-dags
 make compose-config
 make smoke
 make verify
+make deploy
 make deploy-check
 make production-health
 make rollback-check
@@ -78,6 +79,10 @@ make sender-image
 
 `make verify` is the required local gate before committing. It includes the
 Airflow 3 image build and DagBag contract check.
+
+`make deploy` is read-only by default. Use
+`make deploy DEPLOY_ARGS="--apply --target-commit <full-sha>"` only after the
+documented gates pass.
 
 ## Production Access
 

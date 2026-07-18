@@ -47,6 +47,9 @@ and operational changes.
   multi-cycle verification contract.
 - Derive WeChat readiness from the configured sender endpoint and record the
   Android device host as the service runtime owner.
+- Add a fail-closed, default-read-only Airflow application deployment command
+  with exact-commit images, automatic application rollback, and stateful-service
+  isolation.
 
 ### Removed
 

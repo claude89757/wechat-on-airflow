@@ -7,6 +7,7 @@ fresh start. The one-time Airflow 2 cutover is in `airflow-upgrade.md`.
 
 ```bash
 make verify
+make deploy
 make deploy-check
 make rollback-check
 make production-health
@@ -19,16 +20,27 @@ must be pushed, CI must pass, and rollback inputs must be available.
 ## Deploy
 
 1. Record pre-deploy health, current commit, image ID, and configuration names.
-2. Pull the exact pushed commit on the server.
-3. Load or build the image identified by that commit.
-4. Validate Compose with the untracked production environment. DAGs must come
-   from the pinned image, not a host source mount.
-5. Apply only the services in the approved change.
-6. Run `make production-health`.
-7. Compare the Execution API route probe, DAG source readability,
+2. Run the default read-only deployment preflight:
+
+   ```bash
+   make deploy DEPLOY_ARGS="--target-commit <full-sha>"
+   ```
+
+3. Apply the exact pushed commit:
+
+   ```bash
+   make deploy DEPLOY_ARGS="--apply --target-commit <full-sha>"
+   ```
+
+   The command builds a commit-tagged image, changes only Airflow application
+   services, waits for their health checks, and restores the previous commit
+   and image configuration if startup fails. It does not recreate PostgreSQL,
+   Redis, or log volumes.
+4. Run `make production-health`.
+5. Compare the Execution API route probe, DAG source readability,
    registration, import errors, outbox counts, and service health.
-8. Observe the cycle count in `config/runtime-target.yaml`.
-9. Record the deployed commit and evidence in the production baseline.
+6. Observe the cycle count in `config/runtime-target.yaml`.
+7. Record the deployed commit and evidence in the production baseline.
 
 Application deployments must retain the configured Airflow 3 database, Redis,
 and log volume names. They must never mount the preserved Airflow 2 paths.

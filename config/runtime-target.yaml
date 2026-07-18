@@ -48,6 +48,7 @@ managed_services:
 verification:
   required_commands:
     - make verify
+    - make deploy
     - make test-dags
     - make deploy-check
     - make rollback-check

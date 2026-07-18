@@ -10,6 +10,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import _ops  # noqa: E402
+import deploy_airflow  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
@@ -43,6 +44,32 @@ class DockerComposeCommandTest(unittest.TestCase):
             _ops.docker_compose_command(),
             ["/usr/local/bin/docker-compose"],
         )
+
+
+class AirflowDeploymentTest(unittest.TestCase):
+    def test_image_name_is_derived_from_exact_commit(self):
+        commit = "a" * 40
+
+        self.assertEqual(
+            deploy_airflow.airflow_image_name("3.3.0", commit),
+            "wechat-on-airflow:3.3.0-aaaaaaa",
+        )
+
+    def test_image_name_rejects_non_exact_commit(self):
+        with self.assertRaises(_ops.OpsError):
+            deploy_airflow.airflow_image_name("3.3.0", "main")
+
+    def test_remote_result_parser_ignores_non_structured_output(self):
+        output = 'build output\n{"ok": true, "applied": false}\n'
+
+        self.assertEqual(
+            deploy_airflow.parse_remote_result(output),
+            {"ok": True, "applied": False},
+        )
+
+    def test_application_deploy_never_targets_stateful_services(self):
+        self.assertNotIn("postgresql", deploy_airflow.APPLICATION_SERVICES)
+        self.assertNotIn("redis", deploy_airflow.APPLICATION_SERVICES)
 
 
 class ProductionHealthParsingTest(unittest.TestCase):
