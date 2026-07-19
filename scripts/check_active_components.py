@@ -211,17 +211,17 @@ def main() -> None:
         fail("Airflow API server must expose port 8080 on loopback only")
     env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
     required_example_lines = {
-        "AIRFLOW_BASE_URL=http://localhost:8080/airflow",
-        ("AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/airflow/execution/"),
+        "AIRFLOW_BASE_URL=http://localhost:8080",
+        "AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/execution/",
     }
     if not required_example_lines.issubset(set(env_example.splitlines())):
-        fail("example Airflow URLs must preserve the /airflow path prefix")
+        fail("example Airflow URLs must use matching root paths")
     tunnel_target = runtime_target.get("managed_services", {}).get("cloudflare_tunnel", {})
     if (
         tunnel_target.get("runtime") != "systemd"
         or tunnel_target.get("service_unit") != "cloudflared.service"
         or tunnel_target.get("public_hostname") != "airflow.claude89757.cc"
-        or tunnel_target.get("public_base_url") != "https://airflow.claude89757.cc/airflow"
+        or tunnel_target.get("public_base_url") != "https://airflow.claude89757.cc"
         or tunnel_target.get("origin_base_url") != "http://127.0.0.1:8080"
         or tunnel_target.get("health_path") != "/api/v2/monitor/health"
         or tunnel_target.get("deployment_owner") != "airflow_host"

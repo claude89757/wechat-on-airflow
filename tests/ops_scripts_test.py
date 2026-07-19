@@ -55,12 +55,12 @@ class DockerComposeCommandTest(unittest.TestCase):
         self.assertIn("--proxy-headers", api_server["command"])
         self.assertEqual(api_server["ports"], ["127.0.0.1:8080:8080"])
 
-    def test_example_urls_preserve_airflow_path_prefix(self):
+    def test_example_urls_use_matching_root_paths(self):
         env_lines = set((ROOT / ".env.example").read_text(encoding="utf-8").splitlines())
 
-        self.assertIn("AIRFLOW_BASE_URL=http://localhost:8080/airflow", env_lines)
+        self.assertIn("AIRFLOW_BASE_URL=http://localhost:8080", env_lines)
         self.assertIn(
-            "AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/airflow/execution/",
+            "AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/execution/",
             env_lines,
         )
 

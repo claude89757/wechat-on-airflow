@@ -51,7 +51,7 @@ Workers reach the private Execution API through the explicit
 `AIRFLOW_BASE_URL` path prefix before `/execution/`.
 
 Public access uses Cloudflare Tunnel at
-`https://airflow.claude89757.cc/airflow`. `cloudflared.service` initiates the
+`https://airflow.claude89757.cc`. `cloudflared.service` initiates the
 outbound tunnel from the Airflow host to the Cloudflare edge and forwards to
 `http://127.0.0.1:8080`. The API server accepts proxy headers, while the host
 port is bound to loopback so the origin is not also exposed directly.

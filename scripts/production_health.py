@@ -726,7 +726,7 @@ PY
         add_issue(
             "execution_api",
             f"internal unauthenticated route probe failed: {execution_api}",
-            "include the public API path prefix in AIRFLOW_EXECUTION_API_SERVER_URL",
+            "align AIRFLOW_EXECUTION_API_SERVER_URL with the public Airflow base path",
         )
     if missing_dag_sources or unreadable_dag_sources:
         add_issue(

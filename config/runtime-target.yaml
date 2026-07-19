@@ -42,7 +42,7 @@ managed_services:
     runtime: systemd
     service_unit: cloudflared.service
     public_hostname: airflow.claude89757.cc
-    public_base_url: https://airflow.claude89757.cc/airflow
+    public_base_url: https://airflow.claude89757.cc
     origin_base_url: http://127.0.0.1:8080
     health_path: /api/v2/monitor/health
     deployment_owner: airflow_host

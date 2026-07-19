@@ -13,9 +13,10 @@ DAGs then failed during task startup because the private Execution API route no
 longer matched the API server mount path. The change was rolled back without
 changing metadata, clearing task history, or replaying notification outboxes;
 scheduling resumed under the previous configuration. The repository now
-enforces the prefix in both public and private URLs, enables proxy-header
-support, binds the origin port to loopback, and checks the tunnel alongside the
-private Execution API and DAG run history.
+serves Airflow from the hostname root, enforces the matching private
+`/execution/` route, enables proxy-header support, binds the origin port to
+loopback, and checks the tunnel alongside the private Execution API and DAG run
+history.
 
 ## Airflow 3 Production Cutover
 
