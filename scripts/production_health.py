@@ -493,15 +493,20 @@ def service_state(action):
     result = subprocess.run(
         ["systemctl", action, __TUNNEL_SERVICE_UNIT__],
         check=False,
-        capture_output=True,
-        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
     )
     return result.stdout.strip()
 
 
 def status_code(url):
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "wechat-on-airflow-production-health/1.0"},
+    )
     try:
-        return urllib.request.urlopen(url, timeout=10).getcode()
+        return urllib.request.urlopen(request, timeout=10).getcode()
     except urllib.error.HTTPError as exc:
         return exc.code
     except Exception:

@@ -178,6 +178,13 @@ class ProductionHealthParsingTest(unittest.TestCase):
         self.assertIn("DagModel.is_stale", source)
         self.assertNotIn("DagModel.is_active", source)
 
+    def test_remote_ingress_probe_supports_host_python_36(self):
+        source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")
+
+        self.assertIn("universal_newlines=True", source)
+        self.assertIn("wechat-on-airflow-production-health/1.0", source)
+        self.assertNotIn("capture_output=True", source)
+
     def test_parse_sections_separates_remote_command_output(self):
         output = "\n".join(
             [
