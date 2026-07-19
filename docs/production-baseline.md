@@ -1,5 +1,22 @@
 # Production Baseline
 
+## Cloudflare Tunnel Ingress
+
+On 2026-07-19 a locally managed Cloudflare Tunnel was installed as an enabled
+systemd service on the Airflow host. DNS for `airflow.claude89757.cc` routes to
+the tunnel, which forwards to the Airflow API server on loopback. The public
+health endpoint and UI route were reachable through Cloudflare before the
+application ingress hardening deployment.
+
+The first base URL update omitted the existing `/airflow` prefix. Four venue
+DAGs then failed during task startup because the private Execution API route no
+longer matched the API server mount path. The change was rolled back without
+changing metadata, clearing task history, or replaying notification outboxes;
+scheduling resumed under the previous configuration. The repository now
+enforces the prefix in both public and private URLs, enables proxy-header
+support, binds the origin port to loopback, and checks the tunnel alongside the
+private Execution API and DAG run history.
+
 ## Airflow 3 Production Cutover
 
 The fresh Airflow 3 cutover completed on 2026-07-17. Production runs Airflow

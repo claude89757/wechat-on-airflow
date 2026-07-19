@@ -48,6 +48,35 @@ must be pushed, CI must pass, and rollback inputs must be available.
 Application deployments must retain the configured Airflow 3 database, Redis,
 and log volume names. They must never mount the preserved Airflow 2 paths.
 
+## Cloudflare Tunnel
+
+Production uses `airflow.claude89757.cc` through the host-managed
+`cloudflared.service`. Container configuration must use:
+
+```text
+AIRFLOW_BASE_URL=https://airflow.claude89757.cc/airflow
+AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/airflow/execution/
+```
+
+Do not remove the `/airflow` prefix from either URL. The API server must run
+with proxy headers enabled and publish `127.0.0.1:8080:8080`; the tunnel origin
+is `http://127.0.0.1:8080`. Tunnel credentials and the Cloudflare account
+certificate stay outside the repository with root-only permissions.
+
+After any ingress or Airflow base URL change, verify:
+
+```bash
+systemctl is-enabled cloudflared.service
+systemctl is-active cloudflared.service
+curl --fail https://airflow.claude89757.cc/api/v2/monitor/health
+curl --fail https://airflow.claude89757.cc/airflow/
+make production-health
+```
+
+The production health check also requires the private Execution API probe to
+return its expected unauthenticated response and the active DAGs to complete
+their declared successful run history.
+
 ## WeChat Sender
 
 The sender is deployed independently, so it can be repaired without restarting

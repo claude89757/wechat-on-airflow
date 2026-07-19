@@ -24,6 +24,7 @@ MARKERS = (
     "database",
     "storage",
     "managed_services",
+    "ingress",
 )
 
 
@@ -179,6 +180,11 @@ def main() -> None:
     sender_target = runtime_target["managed_services"]["wechat_sender"]
     sender_endpoint_variable = str(sender_target["endpoint_variable"])
     sender_readiness_path = str(sender_target["readiness_path"])
+    tunnel_target = runtime_target["managed_services"]["cloudflare_tunnel"]
+    tunnel_service_unit = str(tunnel_target["service_unit"])
+    tunnel_public_base_url = str(tunnel_target["public_base_url"]).rstrip("/")
+    tunnel_origin_base_url = str(tunnel_target["origin_base_url"]).rstrip("/")
+    tunnel_health_path = str(tunnel_target["health_path"])
 
     remote_script = r"""
 set -eu
@@ -475,6 +481,54 @@ except Exception as exc:
     result["wechat_sender"]["error_type"] = type(exc).__name__
 print(json.dumps(result, sort_keys=True))
 PY
+printf '__INGRESS__\n'
+python3 - <<'PY'
+import json
+import subprocess
+import urllib.error
+import urllib.request
+
+
+def service_state(action):
+    result = subprocess.run(
+        ["systemctl", action, __TUNNEL_SERVICE_UNIT__],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def status_code(url):
+    try:
+        return urllib.request.urlopen(url, timeout=10).getcode()
+    except urllib.error.HTTPError as exc:
+        return exc.code
+    except Exception:
+        return None
+
+
+active = service_state("is-active")
+enabled = service_state("is-enabled")
+checks = {
+    "origin_health_status": status_code(__TUNNEL_ORIGIN_HEALTH_URL__),
+    "public_health_status": status_code(__TUNNEL_PUBLIC_HEALTH_URL__),
+    "public_ui_status": status_code(__TUNNEL_PUBLIC_UI_URL__),
+}
+print(
+    json.dumps(
+        {
+            "ok": active == "active"
+            and enabled == "enabled"
+            and all(value == 200 for value in checks.values()),
+            "service_active": active == "active",
+            "service_enabled": enabled == "enabled",
+            **checks,
+        },
+        sort_keys=True,
+    )
+)
+PY
 """
     remote_script = (
         remote_script.replace("__DAG_IDS_JSON__", repr(json.dumps(dag_ids, ensure_ascii=True)))
@@ -487,6 +541,18 @@ PY
     remote_script = remote_script.replace(
         "__SENDER_ENDPOINT_VARIABLE__", repr(sender_endpoint_variable)
     ).replace("__SENDER_READINESS_PATH__", repr(sender_readiness_path))
+    remote_script = (
+        remote_script.replace("__TUNNEL_SERVICE_UNIT__", repr(tunnel_service_unit))
+        .replace(
+            "__TUNNEL_ORIGIN_HEALTH_URL__",
+            repr(f"{tunnel_origin_base_url}{tunnel_health_path}"),
+        )
+        .replace(
+            "__TUNNEL_PUBLIC_HEALTH_URL__",
+            repr(f"{tunnel_public_base_url.removesuffix('/airflow')}{tunnel_health_path}"),
+        )
+        .replace("__TUNNEL_PUBLIC_UI_URL__", repr(f"{tunnel_public_base_url}/"))
+    )
     ssh_env = dict(values)
     ssh_env["SSHPASS"] = remote["PASSWORD"]
     command = [
@@ -526,6 +592,9 @@ PY
     database = parse_json_output(sections["database"], {})
     storage = parse_json_output(sections["storage"], {})
     managed_services = parse_json_output(sections["managed_services"], {})
+    ingress = parse_json_output(sections["ingress"], {})
+    if isinstance(managed_services, dict):
+        managed_services["cloudflare_tunnel"] = ingress
     active_parsed_ids = {
         item.get("dag_id")
         for item in dags
@@ -749,6 +818,15 @@ PY
             "wechat_sender",
             "managed WeChat sender health check failed",
             "repair wechat-sender.service on the Android device host and verify /readyz",
+        )
+    tunnel_health = (
+        managed_services.get("cloudflare_tunnel") if isinstance(managed_services, dict) else None
+    )
+    if not isinstance(tunnel_health, dict) or tunnel_health.get("ok") is not True:
+        add_issue(
+            "cloudflare_tunnel",
+            f"managed Airflow ingress health check failed: {tunnel_health}",
+            "repair cloudflared.service and verify the loopback origin and public URLs",
         )
 
     payload = {

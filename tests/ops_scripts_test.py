@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 ROOT = SCRIPTS_DIR.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -46,6 +48,22 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
 
 
 class DockerComposeCommandTest(unittest.TestCase):
+    def test_airflow_api_server_is_proxy_aware_and_loopback_only(self):
+        compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+        api_server = compose["services"]["airflow-api-server"]
+
+        self.assertIn("--proxy-headers", api_server["command"])
+        self.assertEqual(api_server["ports"], ["127.0.0.1:8080:8080"])
+
+    def test_example_urls_preserve_airflow_path_prefix(self):
+        env_lines = set((ROOT / ".env.example").read_text(encoding="utf-8").splitlines())
+
+        self.assertIn("AIRFLOW_BASE_URL=http://localhost:8080/airflow", env_lines)
+        self.assertIn(
+            "AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/airflow/execution/",
+            env_lines,
+        )
+
     @patch("_ops.subprocess.run")
     @patch("_ops.shutil.which")
     def test_prefers_docker_compose_plugin(self, mock_which, mock_run):
@@ -179,6 +197,8 @@ class ProductionHealthParsingTest(unittest.TestCase):
                 '{"free_bytes": 2048}',
                 "__MANAGED_SERVICES__",
                 '{"wechat_sender": {"ok": true}}',
+                "__INGRESS__",
+                '{"ok": true, "service_active": true}',
             ]
         )
 
@@ -209,6 +229,10 @@ class ProductionHealthParsingTest(unittest.TestCase):
         self.assertEqual(
             production_health.parse_json_output(sections["managed_services"], {}),
             {"wechat_sender": {"ok": True}},
+        )
+        self.assertEqual(
+            production_health.parse_json_output(sections["ingress"], {}),
+            {"ok": True, "service_active": True},
         )
 
     def test_parse_compose_rows_supports_line_delimited_json(self):

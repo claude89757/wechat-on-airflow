@@ -16,6 +16,7 @@ Airflow 2 database remains preserved for rollback.
 - Redis broker
 - FAB Auth Manager
 - API Server, Scheduler, DAG Processor, Worker, and Triggerer
+- Cloudflare Tunnel ingress at `https://airflow.claude89757.cc/airflow`
 - independent, repository-managed WeChat sender on the Android device host
 
 Supported development and production target:
@@ -57,6 +58,11 @@ names and their schemas are documented in:
 
 Neither file contains production values. Every venue has an independent email
 recipient Variable; there is no global recipient fallback.
+
+Production Airflow is exposed through an outbound-only Cloudflare Tunnel. The
+API server trusts proxy headers and binds host port 8080 to loopback only. The
+public base URL retains the `/airflow` prefix; the private Execution API URL
+must retain the same prefix before `/execution/`.
 
 The synchronous WeChat sender runs as a dedicated systemd service on the
 Android host; see `docs/wechat-sender-service.md`. Its public send endpoint has

@@ -28,6 +28,9 @@ endpoint value.
 
 ```mermaid
 flowchart TB
+    User["Browser or Airflow API client"] --> Edge["Cloudflare edge"]
+    Edge --> Tunnel["cloudflared systemd service"]
+    Tunnel --> API
     API["Airflow API Server"] --> DB[("PostgreSQL")]
     Scheduler["Scheduler"] --> DB
     DagProcessor["DAG Processor"] --> DB
@@ -46,6 +49,12 @@ do not depend on a mutable host DAG mount.
 Workers reach the private Execution API through the explicit
 `AIRFLOW_EXECUTION_API_SERVER_URL` setting. Its path must include the public
 `AIRFLOW_BASE_URL` path prefix before `/execution/`.
+
+Public access uses Cloudflare Tunnel at
+`https://airflow.claude89757.cc/airflow`. `cloudflared.service` initiates the
+outbound tunnel from the Airflow host to the Cloudflare edge and forwards to
+`http://127.0.0.1:8080`. The API server accepts proxy headers, while the host
+port is bound to loopback so the origin is not also exposed directly.
 
 Airflow 3 uses fresh, explicitly named PostgreSQL, Redis, and log volumes. The Airflow 2
 metadata database is not upgraded or reused; it remains intact for rollback.

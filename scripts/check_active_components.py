@@ -13,6 +13,7 @@ CONTRACTS = ROOT / "config" / "config-contracts.yaml"
 RUNTIME_TARGET = ROOT / "config" / "runtime-target.yaml"
 AIRFLOW_DOCKERFILE = ROOT / "docker" / "airflow" / "Dockerfile"
 COMPOSE_FILE = ROOT / "docker-compose.yml"
+ENV_EXAMPLE = ROOT / ".env.example"
 SENDER_SERVICE_FILE = ROOT / "deploy" / "systemd" / "wechat-sender.service"
 SENDER_INSTALL_SCRIPT = ROOT / "scripts" / "install_wechat_sender.sh"
 DAG_MAX_LINES = 120
@@ -203,6 +204,29 @@ def main() -> None:
         execution_api_value
     ):
         fail("Airflow Execution API URL must use the declared explicit environment setting")
+    api_server = compose.get("services", {}).get("airflow-api-server", {})
+    if "--proxy-headers" not in str(api_server.get("command", "")):
+        fail("Airflow API server must trust Cloudflare Tunnel proxy headers")
+    if api_server.get("ports") != ["127.0.0.1:8080:8080"]:
+        fail("Airflow API server must expose port 8080 on loopback only")
+    env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
+    required_example_lines = {
+        "AIRFLOW_BASE_URL=http://localhost:8080/airflow",
+        ("AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/airflow/execution/"),
+    }
+    if not required_example_lines.issubset(set(env_example.splitlines())):
+        fail("example Airflow URLs must preserve the /airflow path prefix")
+    tunnel_target = runtime_target.get("managed_services", {}).get("cloudflare_tunnel", {})
+    if (
+        tunnel_target.get("runtime") != "systemd"
+        or tunnel_target.get("service_unit") != "cloudflared.service"
+        or tunnel_target.get("public_hostname") != "airflow.claude89757.cc"
+        or tunnel_target.get("public_base_url") != "https://airflow.claude89757.cc/airflow"
+        or tunnel_target.get("origin_base_url") != "http://127.0.0.1:8080"
+        or tunnel_target.get("health_path") != "/api/v2/monitor/health"
+        or tunnel_target.get("deployment_owner") != "airflow_host"
+    ):
+        fail("Cloudflare Tunnel must follow the production Airflow ingress contract")
     sender_target = runtime_target.get("managed_services", {}).get("wechat_sender", {})
     if (
         sender_target.get("runtime") != "systemd"

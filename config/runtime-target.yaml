@@ -38,6 +38,14 @@ images:
   redis: bitnami/redis@sha256:1c41e7028ac48d7a9d79d855a432eef368aa440f37c8073ae1651879b02c72f4
   wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
 managed_services:
+  cloudflare_tunnel:
+    runtime: systemd
+    service_unit: cloudflared.service
+    public_hostname: airflow.claude89757.cc
+    public_base_url: https://airflow.claude89757.cc/airflow
+    origin_base_url: http://127.0.0.1:8080
+    health_path: /api/v2/monitor/health
+    deployment_owner: airflow_host
   wechat_sender:
     runtime: systemd
     service_unit: deploy/systemd/wechat-sender.service

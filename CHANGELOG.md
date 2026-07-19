@@ -5,6 +5,15 @@ and operational changes.
 
 ## Unreleased
 
+### Changed
+
+- Expose the Airflow 3 UI and API through a managed Cloudflare Tunnel at
+  `airflow.claude89757.cc`, trust reverse-proxy headers, and bind the origin
+  port to loopback only.
+- Enforce the `/airflow` public path prefix in example configuration, runtime
+  contracts, and production health checks so the private Execution API remains
+  routable.
+
 ## [0.1.0] - 2026-07-19
 
 ### Changed
