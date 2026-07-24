@@ -11,10 +11,10 @@ requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "claude89757" }]
 dependencies = [
-  "paramiko==3.5.1",
+  "paramiko==5.0.0",
   "PyYAML==6.0.3",
   "requests==2.34.2",
-  "tencentcloud-sdk-python==3.1.134",
+  "tencentcloud-sdk-python==3.1.140",
 ]
 
 [project.optional-dependencies]
@@ -28,13 +28,13 @@ sender = [
 dev = [
   "fastapi==0.139.2",
   "httpx==0.28.1",
-  "mypy==1.17.1",
-  "pre-commit==4.3.0",
-  "pytest==9.0.3",
-  "pytest-cov==6.2.1",
-  "ruff==0.12.11",
-  "types-paramiko==3.5.0.20240928",
-  "types-requests==2.32.4.20250809",
+  "mypy==2.3.0",
+  "pre-commit==4.6.1",
+  "pytest==9.1.1",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.0",
+  "types-paramiko==5.0.0.20260724",
+  "types-requests==2.33.0.20260712",
 ]
 
 [tool.hatch.build.targets.wheel]
