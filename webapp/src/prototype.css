@@ -220,9 +220,11 @@
 
 .lulu-stage {
   position: relative;
-  width: 82px;
-  height: 100px;
+  width: 88px;
+  height: 104px;
   overflow: hidden;
+  contain: strict;
+  isolation: isolate;
 }
 
 .lulu-stage::after {
@@ -240,26 +242,77 @@
 .lulu-sprite {
   position: absolute;
   z-index: 1;
-  top: -3px;
-  left: -8px;
+  top: 0;
+  left: 0;
   display: block;
-  width: 96px;
-  height: 104px;
-  background-image: url("/assets/lulu-sprite.webp");
-  background-position: 0 -104px;
-  background-repeat: no-repeat;
-  background-size: 768px 936px;
-  animation: lulu-walk 1.05s steps(8) infinite;
+  width: 768px;
+  max-width: none;
+  height: 936px;
+  animation: lulu-frames var(--lulu-duration) steps(var(--lulu-frames), jump-none) infinite;
+  backface-visibility: hidden;
+  pointer-events: none;
+  transform: translate3d(-4px, var(--lulu-y), 0);
+  transform-origin: top left;
+  will-change: transform;
 }
 
-@keyframes lulu-walk {
-  from { background-position-x: 0; }
-  to { background-position-x: -768px; }
+.lulu-stage[data-lulu-state="welcoming"] {
+  --lulu-y: -312px;
+  --lulu-last-x: -288px;
+  --lulu-frames: 4;
+  --lulu-duration: 2.4s;
+}
+
+.lulu-stage[data-lulu-state="idle"] {
+  --lulu-y: 0px;
+  --lulu-last-x: -480px;
+  --lulu-frames: 6;
+  --lulu-duration: 3.6s;
+}
+
+.lulu-stage[data-lulu-state="watching"] {
+  --lulu-y: -104px;
+  --lulu-last-x: -672px;
+  --lulu-frames: 8;
+  --lulu-duration: 1.45s;
+}
+
+.lulu-stage[data-lulu-state="happy"] {
+  --lulu-y: -312px;
+  --lulu-last-x: -288px;
+  --lulu-frames: 4;
+  --lulu-duration: 1.8s;
+}
+
+.lulu-stage[data-lulu-state="celebrating"] {
+  --lulu-y: -416px;
+  --lulu-last-x: -384px;
+  --lulu-frames: 5;
+  --lulu-duration: 1.2s;
+}
+
+.lulu-stage[data-lulu-state="concerned"] {
+  --lulu-y: -520px;
+  --lulu-last-x: -672px;
+  --lulu-frames: 8;
+  --lulu-duration: 3.2s;
+}
+
+@keyframes lulu-frames {
+  from {
+    transform: translate3d(-4px, var(--lulu-y), 0);
+  }
+
+  to {
+    transform: translate3d(calc(-4px + var(--lulu-last-x)), var(--lulu-y), 0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .lulu-sprite {
     animation: none;
+    transform: translate3d(-4px, var(--lulu-y), 0);
+    will-change: auto;
   }
 }
 

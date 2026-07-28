@@ -13,6 +13,8 @@
   `qa/implementation-frameless-mobile-393x852.png`
 - Frameless desktop presentation:
   `qa/implementation-frameless-desktop-1280x900.png`
+- Lulu welcome-state presentation:
+  `qa/lulu-welcoming-393x852.png`
 - Full-view combined comparison:
   `qa/comparison-home.png`
 - Focused create-card comparison:
@@ -69,6 +71,10 @@ of exposing Airflow as a user-facing concept.
 - Image quality and assets: the animated Lulu raster sprite is sharp at its
   rendered size. Phosphor icons replace generic repeated symbols with
   venue-specific, semantically recognizable icons.
+- Motion behavior: Lulu uses the source sprite's real action rows with their
+  actual frame counts. Transform-based sprite movement keeps animation work on
+  the compositor and avoids the previous blank eighth frame and background
+  repaint loop.
 - Copy and content: the implementation keeps copy shorter than the mock,
   removes backend terminology from the primary card, and never displays
   available time slots.
@@ -85,6 +91,10 @@ of exposing Airflow as a user-facing concept.
 - Verified the frameless page and subscription sheet at `393 x 852`, including
   native text entry without the prototype keyboard.
 - Verified the centered desktop layout at `1280 x 900`.
+- Sampled the four-frame welcome animation over 16 intervals and confirmed all
+  four valid frame offsets were reached without an empty frame.
+- Covered welcome, idle, watching, happy, celebration, and concerned state
+  selection with deterministic tests.
 - Checked browser warning and error logs: none.
 
 ## Comparison History

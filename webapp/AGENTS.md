@@ -80,6 +80,12 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   and centered with a restrained maximum width on larger screens.
 - The app configures future tennis-court alert conditions. It never presents current
   bookable courts or live availability slots.
+- Lulu is a stateful status companion, not a decorative looping animation.
+  Unverified users receive a welcome, verified users without subscriptions see
+  an idle state, active subscribers see a watching state, delivered reminders
+  produce happy or short celebration states, and service degradation produces
+  a concerned state. Keep sprite timing compositor-friendly and do not restart
+  unchanged animations on polling refreshes.
 - Creating a subscription is a standalone card and flow. Users choose venues, a
   desired daily time range, and an active duration from 7 to 14 days.
 - There is no account login. A successful email verification produces a revocable

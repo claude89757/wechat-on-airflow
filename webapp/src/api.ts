@@ -34,6 +34,7 @@ export type Dashboard = {
   identity: {
     verified: boolean;
     maskedEmail: string | null;
+    remindersToday: number;
   };
   subscriptions: Subscription[];
 };
@@ -97,7 +98,7 @@ export const FALLBACK_DASHBOARD: Dashboard = {
       lastNotificationAt: null,
     },
   ],
-  identity: { verified: false, maskedEmail: null },
+  identity: { verified: false, maskedEmail: null, remindersToday: 0 },
   subscriptions: [],
 };
 
@@ -116,7 +117,7 @@ export const EMPTY_DASHBOARD: Dashboard = {
     lastInspectionAt: null,
     lastNotificationAt: null,
   })),
-  identity: { verified: false, maskedEmail: null },
+  identity: { verified: false, maskedEmail: null, remindersToday: 0 },
   subscriptions: [],
 };
 

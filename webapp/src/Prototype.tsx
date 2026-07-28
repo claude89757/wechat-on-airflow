@@ -17,7 +17,7 @@ import {
   UsersThreeIcon,
   WavesIcon,
 } from "@phosphor-icons/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelSubscription,
   createSubscription,
@@ -33,6 +33,7 @@ import {
   type VerificationReceipt,
   verifyEmail,
 } from "./api";
+import { LULU_LABELS, resolveLuluState } from "./lulu";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
 
 type Panel = "create" | "help" | "subscriptions" | null;
@@ -139,7 +140,11 @@ export default function Prototype() {
   const [dashboard, setDashboard] = useState<Dashboard>(() => ({
     ...initialDashboard,
     identity: receipt
-      ? { verified: true, maskedEmail: receipt.maskedEmail }
+      ? {
+          verified: true,
+          maskedEmail: receipt.maskedEmail,
+          remindersToday: initialDashboard.identity.remindersToday,
+        }
       : initialDashboard.identity,
   }));
   const [panel, setPanel] = useState<Panel>(null);
@@ -148,6 +153,8 @@ export default function Prototype() {
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
+  const [notificationBurst, setNotificationBurst] = useState(false);
+  const previousReminderCount = useRef<number | null>(null);
   const [email, setEmail] = useState(receipt?.email ?? "");
   const [challengeId, setChallengeId] = useState("");
   const [code, setCode] = useState("");
@@ -172,7 +179,11 @@ export default function Prototype() {
         ...unavailable,
         generatedAt: new Date().toISOString(),
         identity: receipt
-          ? { verified: true, maskedEmail: receipt.maskedEmail }
+          ? {
+              verified: true,
+              maskedEmail: receipt.maskedEmail,
+              remindersToday: unavailable.identity.remindersToday,
+            }
           : unavailable.identity,
       });
       setServiceOnline(import.meta.env.DEV);
@@ -193,9 +204,34 @@ export default function Prototype() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    previousReminderCount.current = null;
+    setNotificationBurst(false);
+  }, [receipt?.token]);
+
+  useEffect(() => {
+    const current = dashboard.identity.remindersToday;
+    const previous = previousReminderCount.current;
+    previousReminderCount.current = current;
+    if (previous === null || current <= previous) return;
+
+    setNotificationBurst(true);
+    const timer = window.setTimeout(() => setNotificationBurst(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [dashboard.identity.remindersToday]);
+
   const activeIdentity = dashboard.identity.verified
     ? dashboard.identity.maskedEmail
     : receipt?.maskedEmail;
+  const luluState = resolveLuluState({
+    serviceOnline,
+    healthyVenues: dashboard.metrics.healthyVenues,
+    totalVenues: dashboard.metrics.totalVenues,
+    identityVerified: dashboard.identity.verified,
+    subscriptionCount: dashboard.subscriptions.length,
+    remindersToday: dashboard.identity.remindersToday,
+    notificationBurst,
+  });
 
   const openPanel = (nextPanel: Exclude<Panel, null>) => {
     keyboard.hide();
@@ -378,8 +414,22 @@ export default function Prototype() {
 
           <section className="create-card" aria-labelledby="create-card-title">
             <div className="create-card-main">
-              <div className="lulu-stage" aria-label="噜噜正在帮你盯场">
-                <span className="lulu-sprite" aria-hidden="true" />
+              <div
+                className="lulu-stage"
+                data-lulu-state={luluState}
+                aria-label={LULU_LABELS[luluState]}
+                title={LULU_LABELS[luluState]}
+              >
+                <img
+                  key={luluState}
+                  className="lulu-sprite"
+                  data-testid="lulu-sprite"
+                  src="/assets/lulu-sprite.webp"
+                  alt=""
+                  aria-hidden="true"
+                  decoding="async"
+                  draggable={false}
+                />
               </div>
               <div className="create-copy">
                 <h2 id="create-card-title">新建订阅</h2>

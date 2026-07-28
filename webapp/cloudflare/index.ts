@@ -187,6 +187,13 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
           WHERE email = ? AND active = 1 AND active_until > ?
           ORDER BY created_at DESC`,
       ).bind(identity.email, nowIso),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS count
+           FROM notification_outbox
+          WHERE email = ?
+            AND status = 'sent'
+            AND sent_at >= ?`,
+      ).bind(identity.email, dayStart),
     );
   }
 
@@ -212,6 +219,11 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
   const subscriptionRows = identity
     ? (results[3].results as unknown as SubscriptionRow[])
     : [];
+  const identityRemindersToday = identity
+    ? Number(
+      (results[4].results[0] as { count?: number } | undefined)?.count || 0,
+    )
+    : 0;
 
   return json({
     generatedAt: nowIso,
@@ -225,6 +237,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
     identity: {
       verified: Boolean(identity),
       maskedEmail: identity?.maskedEmail ?? null,
+      remindersToday: identityRemindersToday,
     },
     subscriptions: subscriptionRows.map((subscription) => ({
       id: subscription.id,
