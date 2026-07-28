@@ -88,6 +88,10 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   unchanged animations on polling refreshes.
 - Creating a subscription is a standalone card and flow. Users choose venues, a
   desired daily time range, and an active duration from 7 to 14 days.
+- Opening the subscription verification sheet must not summon the native
+  keyboard until the user taps an input. While the native keyboard is open,
+  every sheet follows `visualViewport`, keeps the focused email or verification
+  input visible, and leaves the current form action reachable.
 - There is no account login. A successful email verification produces a revocable
   browser receipt; the browser may retain a small history of verified email
   receipts so repeat subscriptions do not require another code.

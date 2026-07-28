@@ -35,6 +35,7 @@ import {
 } from "./api";
 import { LULU_LABELS, resolveLuluState } from "./lulu";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
+import { isTextEntry, useNativeKeyboardViewport } from "./nativeKeyboard";
 
 type Panel = "create" | "help" | "subscriptions" | null;
 
@@ -134,6 +135,9 @@ function Metric({
 
 export default function Prototype() {
   const keyboard = useKeyboard();
+  const keyboardRef = useRef(keyboard);
+  keyboardRef.current = keyboard;
+  useNativeKeyboardViewport();
   const [receipts, setReceipts] = useState<VerificationReceipt[]>(() => loadReceipts());
   const [receipt, setReceipt] = useState<VerificationReceipt | null>(() => loadReceipts()[0] ?? null);
   const initialDashboard = import.meta.env.DEV ? FALLBACK_DASHBOARD : EMPTY_DASHBOARD;
@@ -158,6 +162,7 @@ export default function Prototype() {
   const [email, setEmail] = useState(receipt?.email ?? "");
   const [challengeId, setChallengeId] = useState("");
   const [code, setCode] = useState("");
+  const codeInputRef = useRef<HTMLInputElement>(null);
   const [venueIds, setVenueIds] = useState<VenueId[]>(["szw", "tops"]);
   const [startTime, setStartTime] = useState("18:00");
   const [endTime, setEndTime] = useState("22:00");
@@ -219,6 +224,27 @@ export default function Prototype() {
     const timer = window.setTimeout(() => setNotificationBurst(false), 5000);
     return () => window.clearTimeout(timer);
   }, [dashboard.identity.remindersToday]);
+
+  useEffect(() => {
+    if (panel !== "create" || receipt) return;
+
+    const timer = window.setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (isTextEntry(activeElement) && activeElement.closest(".bottom-sheet")) {
+        activeElement.blur();
+        keyboardRef.current.hide();
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [panel, receipt?.token]);
+
+  useEffect(() => {
+    if (!challengeId || panel !== "create") return;
+
+    const timer = window.setTimeout(() => codeInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [challengeId, panel]);
 
   const activeIdentity = dashboard.identity.verified
     ? dashboard.identity.maskedEmail
@@ -689,6 +715,7 @@ export default function Prototype() {
                 <label className="field">
                   <span>6 位验证码</span>
                   <KeyboardInput
+                    ref={codeInputRef}
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     maxLength={6}

@@ -15,6 +15,8 @@
   `qa/implementation-frameless-desktop-1280x900.png`
 - Lulu welcome-state presentation:
   `qa/lulu-welcoming-393x852.png`
+- Keyboard-safe verification sheet at a reduced mobile viewport:
+  `qa/keyboard-safe-verification-393x360.png`
 - Full-view combined comparison:
   `qa/comparison-home.png`
 - Focused create-card comparison:
@@ -95,6 +97,11 @@ of exposing Airflow as a user-facing concept.
   four valid frame offsets were reached without an empty frame.
 - Covered welcome, idle, watching, happy, celebration, and concerned state
   selection with deterministic tests.
+- Verified that opening the subscription sheet does not retain automatic input
+  focus, then focused the email field at `393 x 360` and confirmed the field,
+  explanatory copy, and primary action remain visible in the reduced viewport.
+- Covered overlay-keyboard, resized-viewport, and browser-chrome geometry with
+  deterministic viewport tests.
 - Checked browser warning and error logs: none.
 
 ## Comparison History

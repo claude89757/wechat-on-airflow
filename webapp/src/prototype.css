@@ -14,6 +14,8 @@
   --coral: #ed6755;
   --surface: #f5f8f9;
   --surface-teal: #edf9f8;
+  --app-visual-viewport-height: 100dvh;
+  --app-keyboard-inset: 0px;
 }
 
 .app-screen {
@@ -914,8 +916,21 @@
 }
 
 .bottom-sheet {
-  bottom: 0 !important;
-  max-height: min(720px, calc(100dvh - 16px)) !important;
+  bottom: var(--app-keyboard-inset) !important;
+  min-height: min(260px, calc(var(--app-visual-viewport-height) - 16px));
+  max-height: min(720px, calc(var(--app-visual-viewport-height) - 16px)) !important;
+}
+
+.sheet-content {
+  overscroll-behavior-y: contain;
+  scroll-padding-block: 12px max(96px, env(safe-area-inset-bottom, 0px));
+}
+
+:root[data-native-keyboard-open="true"] .verification-form .sheet-primary {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
+  box-shadow: 0 -10px 16px #ffffff;
 }
 
 @media (min-width: 521px) {
