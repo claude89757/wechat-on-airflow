@@ -117,6 +117,9 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 - UiAutomator selectors remain the primary path. If WeChat exposes an empty
   accessibility hierarchy, the sender uses local screenshots and Tesseract to
   identify the visible chat, search result, and send button.
+- The visual send path clears any existing draft with batched ADB key events,
+  locates the green send control by color before falling back to OCR, and
+  verifies that the send control disappears after the tap.
 - Visual recognition runs entirely on the Android host; screenshots and
   recognized message content are not logged or retained.
 - It cleans stale Appium sessions for the configured device before a send.

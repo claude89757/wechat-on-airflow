@@ -1,12 +1,15 @@
 import unittest
+from unittest.mock import patch
 
 from wechat_sender.appium_text_sender import (
+    VISUAL_INPUT_CLEAR_KEYSTROKES,
     DeviceNotReadyError,
     InvalidSendRequestError,
     OcrLine,
     SendFailedError,
     SendResult,
     TextWeChatOperator,
+    _green_button_bounds,
     _normalize_visual_text,
     _parse_tesseract_tsv,
     _recent_chat_xpaths,
@@ -374,6 +377,47 @@ class WeChatSenderTest(unittest.TestCase):
                 )
             ],
         )
+
+    def test_finds_large_green_visual_send_button(self):
+        width = 100
+        pixels = [(245, 245, 245)] * (width * 50)
+        for y in range(10, 40):
+            for x in range(20, 80):
+                pixels[y * width + x] = (7, 193, 96)
+
+        button = _green_button_bounds(
+            pixels,
+            width=width,
+            origin_x=800,
+            origin_y=1000,
+        )
+
+        self.assertEqual(
+            button,
+            OcrLine(
+                text="visual-send-button",
+                left=820,
+                top=1010,
+                right=880,
+                bottom=1040,
+            ),
+        )
+
+    @patch("wechat_sender.appium_text_sender.subprocess.run")
+    def test_visual_input_clear_uses_batched_adb_key_events(self, mock_run):
+        mock_run.return_value.returncode = 0
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.device_name = "test-device"
+        operator._find_visual_green_button = lambda **_kwargs: None
+
+        operator._clear_visual_input()
+
+        self.assertEqual(mock_run.call_count, 2)
+        delete_command = mock_run.call_args_list[1].args[0]
+        self.assertEqual(
+            delete_command[:7], ["adb", "-s", "test-device", "shell", "input", "keyevent", "67"]
+        )
+        self.assertEqual(delete_command.count("67"), VISUAL_INPUT_CLEAR_KEYSTROKES)
 
     def test_visual_only_device_opens_visible_chat_without_scrolling(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)

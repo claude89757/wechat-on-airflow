@@ -53,6 +53,9 @@ class OcrLine:
     bottom: int
 
 
+VISUAL_INPUT_CLEAR_KEYSTROKES = 1024
+
+
 def _appium_url(appium_server_url: str, path: str) -> str:
     return f"{appium_server_url.rstrip('/')}{path}"
 
@@ -169,6 +172,37 @@ def _parse_tesseract_tsv(
             )
         )
     return lines
+
+
+def _green_button_bounds(
+    pixels: Iterable[tuple[int, int, int]],
+    *,
+    width: int,
+    origin_x: int,
+    origin_y: int,
+    min_pixels: int = 500,
+) -> OcrLine | None:
+    points = [
+        (index % width, index // width)
+        for index, (red, green, blue) in enumerate(pixels)
+        if green >= 130 and green >= red + 50 and green >= blue + 30
+    ]
+    if len(points) < min_pixels:
+        return None
+
+    left = min(x for x, _y in points)
+    top = min(y for _x, y in points)
+    right = max(x for x, _y in points) + 1
+    bottom = max(y for _x, y in points) + 1
+    if right - left < 48 or bottom - top < 24:
+        return None
+    return OcrLine(
+        text="visual-send-button",
+        left=origin_x + left,
+        top=origin_y + top,
+        right=origin_x + right,
+        bottom=origin_y + bottom,
+    )
 
 
 def cleanup_appium_device(
@@ -443,21 +477,27 @@ class TextWeChatOperator:
         time.sleep(1)
         for index, message in enumerate(messages):
             try:
+                self._clear_visual_input()
                 self.driver.set_clipboard_text(message)
                 self.driver.press_keycode(279)
                 time.sleep(0.5)
-                send_line = self._find_visual_line(
-                    "发送",
-                    region=(0.78, 0.45, 1.0, 0.70),
-                    scale=0.8,
-                    page_segmentation_mode=11,
-                )
+                send_region = (0.78, 0.45, 1.0, 0.70)
+                send_line = self._find_visual_green_button(region=send_region)
+                if send_line is None:
+                    send_line = self._find_visual_line(
+                        "发送",
+                        region=send_region,
+                        scale=0.8,
+                        page_segmentation_mode=11,
+                    )
                 if send_line is None:
                     raise AppiumTimeoutError("visual send button was not found")
                 self._tap_ocr_line(send_line)
                 time.sleep(0.8)
                 if self.driver.current_package != "com.tencent.mm":
                     raise SendFailedError("WeChat left the chat page during send")
+                if self._find_visual_green_button(region=send_region) is not None:
+                    raise SendFailedError("visual send button remained active after tap")
                 if index < len(messages) - 1:
                     time.sleep(random.uniform(0.3, 3))
             except WeChatSenderError:
@@ -465,6 +505,57 @@ class TextWeChatOperator:
             except Exception as exc:
                 raise SendFailedError(str(exc)) from exc
         self.driver.set_clipboard_text("")
+
+    def _clear_visual_input(self) -> None:
+        commands = (
+            ["shell", "input", "keyevent", "123"],
+            [
+                "shell",
+                "input",
+                "keyevent",
+                *(["67"] * VISUAL_INPUT_CLEAR_KEYSTROKES),
+            ],
+        )
+        for arguments in commands:
+            try:
+                result = subprocess.run(
+                    ["adb", "-s", self.device_name, *arguments],
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise DeviceNotReadyError("unable to clear visual message input") from exc
+            if result.returncode != 0:
+                raise DeviceNotReadyError("unable to clear visual message input")
+
+        if self._find_visual_green_button(region=(0.78, 0.45, 1.0, 0.70)) is not None:
+            raise SendFailedError("visual message input still contains a draft")
+
+    def _find_visual_green_button(
+        self,
+        *,
+        region: tuple[float, float, float, float],
+    ) -> OcrLine | None:
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise DeviceNotReadyError("Pillow is required for visual WeChat automation") from exc
+
+        image = Image.open(io.BytesIO(self.driver.get_screenshot_as_png())).convert("RGB")
+        width, height = image.size
+        left = round(width * region[0])
+        top = round(height * region[1])
+        right = round(width * region[2])
+        bottom = round(height * region[3])
+        cropped = image.crop((left, top, right, bottom))
+        return _green_button_bounds(
+            cropped.getdata(),
+            width=cropped.width,
+            origin_x=left,
+            origin_y=top,
+        )
 
     def _ocr_lines(
         self,
