@@ -247,6 +247,7 @@ def cleanup_appium_device(
         ["shell", "input", "keyevent", "WAKEUP"],
         ["shell", "wm", "dismiss-keyguard"],
         ["shell", "cmd", "statusbar", "collapse"],
+        ["shell", "input", "keyevent", "BACK"],
     ):
         try:
             command_runner(["adb", "-s", device_name, *adb_command], 10)

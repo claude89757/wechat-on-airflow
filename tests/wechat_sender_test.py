@@ -218,6 +218,21 @@ class WeChatSenderTest(unittest.TestCase):
                     "-s",
                     "test-device",
                     "shell",
+                    "input",
+                    "keyevent",
+                    "BACK",
+                ],
+                10,
+            ),
+            command_calls,
+        )
+        self.assertIn(
+            (
+                [
+                    "adb",
+                    "-s",
+                    "test-device",
+                    "shell",
                     "am",
                     "force-stop",
                     "io.appium.uiautomator2.server.test",

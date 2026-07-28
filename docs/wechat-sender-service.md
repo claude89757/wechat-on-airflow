@@ -121,7 +121,8 @@ create stale or duplicate notifications. Resolve the sender fault, verify
   recognized message content are not logged or retained.
 - It cleans stale Appium sessions for the configured device before a send.
 - Each send wakes the display, dismisses a non-secure keyguard, and collapses
-  the notification shade before opening WeChat.
+  the notification shade before opening WeChat. It also sends one Android back
+  action before launch to close Huawei USB-mode and similar system dialogs.
 - `409 device_busy` means another request owns the device lock.
 - `403 device_not_allowed` means the requested device does not match runtime
   configuration.
