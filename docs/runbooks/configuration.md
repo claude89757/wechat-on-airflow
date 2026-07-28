@@ -20,6 +20,19 @@ When adding a Variable:
 4. Configure production without logging the value.
 5. Run `make production-health` and verify only name-level completeness.
 
+## Web Subscription Publisher
+
+All five venue DAGs require:
+
+- `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
+- `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in
+  Airflow and Cloudflare;
+- `WEBAPP_OBSERVATION_TIMEOUT_SECONDS`: bounded request timeout, normally `5`.
+
+The publisher runs after legacy email and WeChat handling and never raises to
+the DAG. Do not reuse a public API credential, Cloudflare API token, or Airflow
+login credential as the observation token.
+
 Managed outbox and dedupe Variables are application state. Do not replace or
 clear them during a normal deployment.
 

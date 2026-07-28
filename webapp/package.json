@@ -1,0 +1,45 @@
+{
+  "name": "webapp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "check:runtime": "node scripts/check-mobile-runtime.mjs",
+    "check:worker": "npm run cf:types && tsc -p tsconfig.worker.json",
+    "update:runtime-lock": "node scripts/update-mobile-runtime-lock.mjs",
+    "test": "vitest run cloudflare/*.test.ts",
+    "test:runtime": "playwright test",
+    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "predev": "npm run check:runtime",
+    "dev": "vite",
+    "prebuild": "npm run check:runtime",
+    "build": "tsc && vite build && node scripts/prepare-sites-build.mjs",
+    "cf:dev": "npm run build && wrangler dev",
+    "cf:types": "wrangler types worker-configuration.d.ts",
+    "cf:migrate:local": "wrangler d1 migrations apply zacks-tennis-alerts --local",
+    "cf:migrate:remote": "wrangler d1 migrations apply zacks-tennis-alerts --remote",
+    "cf:deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@fontsource/roboto": "5.2.10",
+    "@phosphor-icons/react": "^2.1.10",
+    "@radix-ui/react-dialog": "1.1.19",
+    "@radix-ui/react-dropdown-menu": "2.1.20",
+    "@radix-ui/react-icons": "1.3.2",
+    "@use-gesture/react": "10.3.1",
+    "motion": "12.42.2",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260728.1",
+    "@playwright/test": "1.61.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "typescript": "7.0.2",
+    "vite": "8.1.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.114.0"
+  }
+}

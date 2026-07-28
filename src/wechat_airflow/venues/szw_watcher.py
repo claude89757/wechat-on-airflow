@@ -14,6 +14,10 @@ import requests
 from airflow.sdk import Variable
 
 from wechat_airflow.notifications.email import send_venue_email_batch
+from wechat_airflow.notifications.webapp import (
+    flatten_court_slots,
+    publish_venue_observation,
+)
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
 
 SZW_MATRIX_API_URL = "https://wlhmobile.crland.com.cn/business/client/field/area/matrix"
@@ -208,6 +212,7 @@ def check_and_notify_for_day(day_offset: int):
     """
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print(f"Day {day_offset}: 每天0点-8点不巡检")
+        publish_venue_observation("szw", "深圳湾", [], healthy=True)
         return
 
     run_start_time = time.time()
@@ -219,10 +224,13 @@ def check_and_notify_for_day(day_offset: int):
 
     # 使用可用代理查询空闲的球场信息
     up_for_send_data_list = []
+    webapp_slots = []
+    webapp_error = None
     try:
         time_range = {"start_time": "08:30", "end_time": "22:30"}
         court_data = get_free_tennis_court_infos_for_szw(input_date, ["不使用代理"], time_range)
         print(f"{input_date} court_data: {court_data}")
+        webapp_slots.extend(flatten_court_slots(input_date, court_data))
 
         for court_name, free_slots in court_data.items():
             if free_slots:
@@ -249,6 +257,7 @@ def check_and_notify_for_day(day_offset: int):
                     )
     except Exception as e:
         print(f"Error checking date {input_date}: {str(e)}")
+        webapp_error = str(e)
 
     # 处理通知逻辑
     up_for_send_sms_list = []
@@ -310,6 +319,14 @@ def check_and_notify_for_day(day_offset: int):
                 all_in_one_msg,
                 source="深圳湾网球场巡检",
             )
+
+    publish_venue_observation(
+        "szw",
+        "深圳湾",
+        webapp_slots,
+        healthy=webapp_error is None,
+        error=webapp_error,
+    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

@@ -16,6 +16,10 @@ import urllib3
 from airflow.sdk import Variable
 
 from wechat_airflow.notifications.email import send_venue_email_batch
+from wechat_airflow.notifications.webapp import (
+    flatten_court_slots,
+    publish_venue_observation,
+)
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
 
 # 禁用 SSL 警告
@@ -419,6 +423,7 @@ def run_check_tennis_courts():
     # 0-8点不巡检
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print("每天0点-8点不巡检")
+        publish_venue_observation("tops", "TOPS 科技园", [], healthy=True)
         return
 
     run_start_time = time.time()
@@ -429,17 +434,21 @@ def run_check_tennis_courts():
 
     # 查询空闲的球场信息 - 未来3天
     up_for_send_data_list = []
+    webapp_slots = []
+    webapp_errors = []
     for index in range(0, 3):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%Y-%m-%d")
         print(f"checking {input_date}...")
         try:
             court_data = get_tennis_court_availability(input_date, proxy_list)
+            webapp_slots.extend(flatten_court_slots(input_date, court_data))
             print_court_data(input_date, court_data)
             time.sleep(1)
 
             up_for_send_data_list.extend(filter_court_data_for_notification(input_date, court_data))
         except Exception as e:
             print(f"Error checking date {input_date}: {str(e)}")
+            webapp_errors.append(str(e))
             continue
 
     print(f"up_for_send_data_list: {up_for_send_data_list}")
@@ -470,6 +479,14 @@ def run_check_tennis_courts():
             all_in_one_msg = "\n".join(up_for_send_msg_list)
             send_email_notifications(up_for_send_sms_list)
             enqueue_wechat_message(all_in_one_msg)
+
+    publish_venue_observation(
+        "tops",
+        "TOPS 科技园",
+        webapp_slots,
+        healthy=not webapp_errors,
+        error="; ".join(webapp_errors) or None,
+    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

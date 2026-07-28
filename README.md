@@ -1,7 +1,9 @@
 # wechat-on-airflow
 
 Production Apache Airflow workflows that monitor Shenzhen tennis venue
-availability and send concise email and best-effort WeChat notifications.
+availability and send concise email and best-effort WeChat notifications. The
+repository also contains a mobile-first Cloudflare Worker application for
+verified-email, time-window subscriptions.
 
 Production completed a fresh-start migration from Airflow 2.10.5 to Airflow
 3.3.0. Historical metadata was intentionally not migrated; configuration and
@@ -17,6 +19,7 @@ Airflow 2 database remains preserved for rollback.
 - FAB Auth Manager
 - API Server, Scheduler, DAG Processor, Worker, and Triggerer
 - Cloudflare Tunnel ingress at `https://airflow.claude89757.cc`
+- Cloudflare Worker web application at `https://zacks.claude89757.cc`
 - independent, repository-managed WeChat sender on the Android device host
 
 Supported development and production target:
@@ -40,13 +43,19 @@ make verify
 ```
 
 `make verify` includes static checks, unit tests, configuration validation, the
-pinned Airflow image build, and a DagBag contract check inside Airflow 3. The
+pinned Airflow image build, the web application build, and a DagBag contract
+check inside Airflow 3. The
 DagBag check verifies DAG IDs, source files, task IDs, and import errors against
 the active component manifest; the static manifest check also verifies each DAG
 schedule. Tests and smoke checks do not send real email or WeChat messages.
 
 Production DAG files are intentionally thin. Venue, proxy, and device
 maintenance implementations are installed from `src/wechat_airflow/`.
+
+The web application is under `webapp/`. It uses React, Cloudflare Workers, D1,
+and Tencent SES. It does not list available courts or book a court. Users
+verify an email once per browser, then create alert rules for selected venues,
+daily time ranges, and a 7–14 day validity period.
 
 ## Configuration
 
@@ -58,6 +67,10 @@ names and their schemas are documented in:
 
 Neither file contains production values. Every venue has an independent email
 recipient Variable; there is no global recipient fallback.
+
+Airflow publishes raw venue observations to the Worker only after the legacy
+email and WeChat paths have completed. This publisher is best effort and cannot
+fail a venue DAG. Its endpoint and token are protected Airflow Variables.
 
 Production Airflow is exposed through an outbound-only Cloudflare Tunnel. The
 API server trusts proxy headers and binds host port 8080 to loopback only.
@@ -84,6 +97,9 @@ date-confirmed apply command.
 The repository is designed for coding-agent maintenance. Machine-readable
 component, configuration, and runtime contracts are under `config/`; chat
 history is not an operational dependency.
+
+Cloudflare deployment and operational checks are documented in
+`docs/runbooks/webapp-deployment.md`.
 
 ## Contributing
 

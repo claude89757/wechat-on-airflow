@@ -18,6 +18,10 @@ import requests
 from airflow.sdk import Variable
 
 from wechat_airflow.notifications.email import send_venue_email_batch
+from wechat_airflow.notifications.webapp import (
+    flatten_court_slots,
+    publish_venue_observation,
+)
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
 
 # ============================
@@ -679,6 +683,7 @@ def run_check_tennis_courts():
     """主要检查逻辑"""
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print("每天0点-8点不巡检")
+        publish_venue_observation("tyzx", "深圳市体育中心", [], healthy=True)
         return
 
     run_start_time = time.time()
@@ -688,6 +693,8 @@ def run_check_tennis_courts():
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
+    webapp_slots = []
+    webapp_errors = []
 
     print("\n🗓️ 开始查询未来4天的场地信息...")
     print("=" * 60)
@@ -705,6 +712,7 @@ def run_check_tennis_courts():
 
         try:
             court_data = get_free_tennis_court_infos_for_tyzx(input_date, proxy_list)
+            webapp_slots.extend(flatten_court_slots(input_date, court_data))
             print(f"court_data: {court_data}")
             time.sleep(1)
 
@@ -775,6 +783,7 @@ def run_check_tennis_courts():
 
         except Exception as e:
             print(f"❌ 检查日期 {input_date} 时出错: {str(e)}")
+            webapp_errors.append(str(e))
             continue
 
     print("\n" + "=" * 60)
@@ -873,6 +882,14 @@ def run_check_tennis_courts():
                 print("⚠️ 未配置微信群聊 (SZ_TYZX_TENNIS_CHATROOMS为空)")
     else:
         print("\n📭 本次巡检结果: 未发现符合条件的空闲场地")
+
+    publish_venue_observation(
+        "tyzx",
+        "深圳市体育中心",
+        webapp_slots,
+        healthy=not webapp_errors,
+        error="; ".join(webapp_errors) or None,
+    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

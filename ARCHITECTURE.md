@@ -9,6 +9,10 @@ flowchart LR
     DAG --> Cache["Airflow Variable dedupe cache"]
     Cache --> Email["Tencent SES"]
     Cache --> WeChat["Managed WeChat sender API"]
+    DAG -->|"best effort, after legacy delivery"| Worker["Cloudflare Worker"]
+    Web["Mobile web app"] --> Worker
+    Worker --> D1[("Cloudflare D1")]
+    Worker --> SubscriberEmail["Tencent SES subscriber email"]
     Email -. failure .-> EmailOutbox["Email fallback outbox"]
     WeChat -. failure .-> WeChatOutbox["WeChat fallback outbox"]
 ```
@@ -17,6 +21,19 @@ The deduplication cache is written before delivery. Email and WeChat are
 independent best-effort channels so a WeChat device outage does not delay email.
 Fallback outboxes are deduplicated incident records, not automatic retry queues;
 blind replay could send stale or duplicate availability.
+
+The web subscription path is independent from the legacy venue recipient
+lists. Venue adapters publish raw available slots after legacy delivery, so
+user-selected time windows are not constrained by legacy weekday/weekend
+filters. Publishing is best effort and cannot fail a DAG. The Worker stores
+verified-email receipts, subscriptions, observed slot event keys, and a
+retrying email outbox in D1. A `(subscription_id, event_key)` uniqueness
+contract prevents duplicate subscriber notifications.
+
+The public web app never displays current availability and cannot book courts.
+It displays only aggregate subscription counts, notification counts, and
+inspection health. Email addresses are returned only as masked values after a
+valid 180-day browser receipt is presented.
 
 The WeChat sender runs on the Android device host as an independent systemd
 service with one process per device. It is not an Airflow component, but it is
@@ -72,6 +89,8 @@ the cutover boundary.
 - Device maintenance implementations live in
   `src/wechat_airflow/maintenance/`.
 - Notification clients and fallback logic belong in `src/`.
+- Web UI, subscription matching, email verification, and subscriber delivery
+  belong in `webapp/`; Airflow owns only venue observation publication.
 - Airflow Variables provide runtime configuration, not business logic.
 - Fresh-start Variable behavior is declared in
   `config/config-contracts.yaml`; venue deduplication state is preserved and

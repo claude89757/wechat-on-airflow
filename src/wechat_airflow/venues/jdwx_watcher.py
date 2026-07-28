@@ -14,6 +14,10 @@ import requests
 from airflow.sdk import Variable
 
 from wechat_airflow.notifications.email import send_venue_email_batch
+from wechat_airflow.notifications.webapp import (
+    flatten_court_slots,
+    publish_venue_observation,
+)
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
 
 
@@ -176,6 +180,7 @@ def run_check_tennis_courts():
     """主要检查逻辑"""
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print("每天0点-8点不巡检")
+        publish_venue_observation("jdwx", "金地威新", [], healthy=True)
         return
 
     run_start_time = time.time()
@@ -192,12 +197,15 @@ def run_check_tennis_courts():
 
     # 查询空闲的球场信息
     up_for_send_data_list = []
+    webapp_slots = []
+    webapp_errors = []
     for index in range(0, 3):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%Y-%m-%d")
         inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%m-%d")
         print(f"checking {input_date}...")
         try:
             court_data = get_free_tennis_court_infos_for_hjd(input_date, proxy_list)
+            webapp_slots.extend(flatten_court_slots(input_date, court_data))
 
             # 打印网球场可预订场地详细信息
             print_with_timestamp(f"=== {input_date} 可预订场地详细信息 ===")
@@ -266,6 +274,7 @@ def run_check_tennis_courts():
                         )
         except Exception as e:
             print(f"Error checking date {input_date}: {str(e)}")
+            webapp_errors.append(str(e))
             continue
 
     print(f"up_for_send_data_list: {up_for_send_data_list}")
@@ -345,6 +354,14 @@ def run_check_tennis_courts():
             )
     else:
         pass
+
+    publish_venue_observation(
+        "jdwx",
+        "金地威新",
+        webapp_slots,
+        healthy=not webapp_errors,
+        error="; ".join(webapp_errors) or None,
+    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

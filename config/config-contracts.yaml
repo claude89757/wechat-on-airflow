@@ -141,6 +141,19 @@ variables:
     required_by: [wechat_delivery]
     sensitive: false
     default: 120
+  WEBAPP_OBSERVATION_API_URL:
+    type: url
+    required_by: [webapp_observation]
+    sensitive: false
+  WEBAPP_OBSERVATION_API_TOKEN:
+    type: string
+    required_by: [webapp_observation]
+    sensitive: true
+  WEBAPP_OBSERVATION_TIMEOUT_SECONDS:
+    type: positive_number
+    required_by: [webapp_observation]
+    sensitive: false
+    default: 5
   TOPS科技园网球场:
     type: json_list
     required_by: [TOPS科技园网球场巡检]

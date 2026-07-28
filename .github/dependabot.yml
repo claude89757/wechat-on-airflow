@@ -12,6 +12,14 @@ updates:
     directory: /
     schedule:
       interval: monthly
+  - package-ecosystem: npm
+    directory: /webapp
+    schedule:
+      interval: weekly
+    groups:
+      webapp-runtime:
+        patterns:
+          - "*"
   - package-ecosystem: docker
     directory: /docker/airflow
     schedule:
