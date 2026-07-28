@@ -786,3 +786,87 @@
   text-align: center;
   pointer-events: none;
 }
+
+/* Present the mobile runtime as a real responsive web app, not a device mock. */
+.phone-stage {
+  display: block;
+  height: 100dvh;
+  min-height: 100%;
+  padding: 0;
+  background: #eef3f4;
+}
+
+.phone-scale-box {
+  width: min(100%, 520px) !important;
+  max-width: 520px;
+  height: 100dvh !important;
+  margin: 0 auto;
+}
+
+.phone-device {
+  position: relative;
+  width: 100% !important;
+  height: 100% !important;
+  transform: none !important;
+}
+
+.device-screen {
+  position: relative;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none;
+  cursor: auto !important;
+  user-select: auto;
+}
+
+.device-screen,
+.device-screen *,
+.device-screen:active,
+.device-screen:active * {
+  cursor: auto !important;
+}
+
+.device-screen button,
+.device-screen a,
+.device-screen [role="button"] {
+  cursor: pointer !important;
+}
+
+.device-menu-bar,
+.phone-bezel,
+.device-camera,
+.status-bar,
+.home-indicator-svg,
+.android-navigation-bar,
+.mobile-cursor,
+.keyboard-dock {
+  display: none !important;
+}
+
+.mobile-app-viewport,
+.mobile-app-viewport[data-platform="android"][data-keyboard-visible="false"] {
+  inset: 0 !important;
+}
+
+.mobile-page {
+  --keyboard-height: 0px !important;
+  --mobile-safe-area-height: env(safe-area-inset-bottom, 0px) !important;
+}
+
+.dashboard-screen {
+  padding-top: max(18px, calc(env(safe-area-inset-top, 0px) + 10px));
+  padding-bottom: max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px));
+}
+
+.bottom-sheet {
+  bottom: 0 !important;
+  max-height: min(720px, calc(100dvh - 16px)) !important;
+}
+
+@media (min-width: 521px) {
+  .device-screen {
+    box-shadow: 0 0 0 1px rgba(20, 25, 35, 0.06);
+  }
+}

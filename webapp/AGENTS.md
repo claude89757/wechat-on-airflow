@@ -72,6 +72,12 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
 
 ## Product Decisions
 
+- The deployed product is a browser-native responsive web application. Do not
+  expose the prototype device picker, handset bezel, simulated status bar,
+  home indicator, camera cutout, cursor, or keyboard in the user-facing UI.
+  Preserve the underlying mobile providers for gesture and sheet behavior, but
+  present the app as a frameless full-height page that is full width on phones
+  and centered with a restrained maximum width on larger screens.
 - The app configures future tennis-court alert conditions. It never presents current
   bookable courts or live availability slots.
 - Creating a subscription is a standalone card and flow. Users choose venues, a

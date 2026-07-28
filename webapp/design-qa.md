@@ -9,6 +9,10 @@
   `qa/source-option-2-393x852.png`
 - Browser-rendered implementation:
   `qa/implementation-home-393x852.png`
+- Frameless production presentation:
+  `qa/implementation-frameless-mobile-393x852.png`
+- Frameless desktop presentation:
+  `qa/implementation-frameless-desktop-1280x900.png`
 - Full-view combined comparison:
   `qa/comparison-home.png`
 - Focused create-card comparison:
@@ -21,8 +25,10 @@
 - Runtime integrity: `npm run check:runtime` passed
 
 The source was normalized to the app screen dimensions before comparison. The
-implementation screenshot is a content-screen crop from a browser-rendered
-`[data-testid="device-screen"]` measured at exactly `393 x 852` CSS px.
+original implementation screenshot is a content-screen crop measured at
+exactly `393 x 852` CSS px. The production presentation was subsequently
+verified as a browser-native frameless page at both `393 x 852` and
+`1280 x 900`.
 
 ## Full-View Comparison
 
@@ -36,7 +42,9 @@ initial fold; it remains reachable by the screen's native vertical scroll.
 The source depicts a previously verified email while the implementation
 capture depicts the required first-visit state. This is an intentional state
 difference, not missing functionality. Both states use the same identity row
-and card geometry.
+and card geometry. The deployed web application does not expose the prototype
+device bezel, device picker, status bar, camera cutout, home indicator,
+simulated cursor, or simulated keyboard.
 
 ## Focused Comparison
 
@@ -53,6 +61,8 @@ of exposing Airflow as a user-facing concept.
   heights, wrapping, and zero letter spacing preserve the hierarchy.
 - Spacing and layout rhythm: 8px-or-less radii, metric separators, card
   padding, and 54px venue rows reproduce the source density without overlap.
+  Phones use the full browser viewport; larger screens use a centered 520px
+  content column without a handset frame.
 - Colors and tokens: teal actions, blue mail status, green health status,
   lime brand mark, white canvas, and pale-cyan surfaces match the reference
   balance. No decorative gradients were introduced.
@@ -72,6 +82,9 @@ of exposing Airflow as a user-facing concept.
 - Opened and dismissed the help sheet.
 - Verified the home screen is vertically scrollable and the compact venue rows
   remain aligned.
+- Verified the frameless page and subscription sheet at `393 x 852`, including
+  native text entry without the prototype keyboard.
+- Verified the centered desktop layout at `1280 x 900`.
 - Checked browser warning and error logs: none.
 
 ## Comparison History
@@ -89,8 +102,8 @@ of exposing Airflow as a user-facing concept.
 
 ### Final Pass
 
-No actionable P0, P1, or P2 differences remain. The protected mobile runtime's
-device chrome and the first-visit identity state are expected deviations.
+No actionable P0, P1, or P2 differences remain. The first-visit identity state
+is the only expected content deviation from the selected source.
 
 ## Follow-Up Polish
 
