@@ -54,6 +54,9 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         self.assertIn("systemctl enable", installer)
         self.assertIn("http://127.0.0.1:7001/readyz", installer)
         self.assertIn("tesseract --list-langs", installer)
+        self.assertIn("python3-pil with Image.Resampling support is required", installer)
+        self.assertIn("python3 -m venv --system-site-packages", installer)
+        self.assertIn("grep -v '^Pillow=='", installer)
         self.assertIn('adb -s "$DEVICE_NAME" get-state', installer)
         self.assertIn("appium-6002.override.conf", installer)
 

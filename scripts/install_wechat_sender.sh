@@ -79,6 +79,8 @@ for command in adb appium tesseract; do
 done
 tesseract --list-langs 2>/dev/null | grep -Fxq chi_sim ||
   fail "tesseract chi_sim language data is required"
+python3 -c 'from PIL import Image; assert hasattr(Image, "Resampling")' 2>/dev/null ||
+  fail "python3-pil with Image.Resampling support is required"
 [[ "$(adb -s "$DEVICE_NAME" get-state 2>/dev/null)" == "device" ]] ||
   fail "configured Android device is not online in adb"
 adb -s "$DEVICE_NAME" shell pm path com.tencent.mm 2>/dev/null | grep -q '^package:' ||
@@ -121,9 +123,13 @@ git -C "$INSTALL_DIR" checkout --detach "$TARGET_COMMIT"
 next_venv="${VENV_DIR}.new"
 previous_venv="${VENV_DIR}.previous"
 rm -rf "$next_venv"
-python3 -m venv "$next_venv"
+python3 -m venv --system-site-packages "$next_venv"
+grep -v '^Pillow==' \
+  "$INSTALL_DIR/docker/sender/requirements.lock" \
+  >"$next_venv/requirements.lock"
 "$next_venv/bin/python" -m pip install --disable-pip-version-check \
-  --requirement "$INSTALL_DIR/docker/sender/requirements.lock"
+  --requirement "$next_venv/requirements.lock"
+rm "$next_venv/requirements.lock"
 rm -rf "$previous_venv"
 if [[ -d "$VENV_DIR" ]]; then
   mv "$VENV_DIR" "$previous_venv"

@@ -50,10 +50,15 @@ the marketing model name. The same value must be used by
 The Android host must provide Appium, ADB, and Chinese OCR data:
 
 ```bash
-sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim
+sudo apt-get install python3-pil tesseract-ocr tesseract-ocr-chi-sim
 adb devices -l
 appium driver doctor uiautomator2
 ```
+
+The systemd installer creates its virtual environment with system site packages
+so ARM hosts can use the distribution-built Pillow package. The Docker image
+continues to install the pinned Pillow wheel from
+`docker/sender/requirements.lock`.
 
 Deploy an exact pushed commit. The command is read-only unless `--apply` is
 present:
