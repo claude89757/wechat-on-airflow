@@ -34,6 +34,14 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         self.assertIn("--port 7001 --workers 1", unit)
         self.assertIn("Restart=always", unit)
         self.assertIn("Requires=appium-6002.service", unit)
+        self.assertNotIn("PrivateDevices=true", unit)
+
+        override = (ROOT / "deploy/systemd/appium-6002.override.conf").read_text(encoding="utf-8")
+        self.assertIn("--address 127.0.0.1", override)
+        self.assertIn("--session-override", override)
+        self.assertIn("--log-level warn", override)
+        self.assertIn("ExecStartPre=/usr/bin/adb start-server", override)
+        self.assertIn("Restart=always", override)
 
     def test_installer_is_read_only_by_default_and_requires_exact_commit(self):
         installer = (ROOT / "scripts/install_wechat_sender.sh").read_text(encoding="utf-8")
@@ -45,6 +53,9 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         self.assertIn("Git fetch failed after 3 attempts", installer)
         self.assertIn("systemctl enable", installer)
         self.assertIn("http://127.0.0.1:7001/readyz", installer)
+        self.assertIn("tesseract --list-langs", installer)
+        self.assertIn('adb -s "$DEVICE_NAME" get-state', installer)
+        self.assertIn("appium-6002.override.conf", installer)
 
 
 class DockerComposeCommandTest(unittest.TestCase):

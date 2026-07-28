@@ -8,6 +8,9 @@ INSTALL_DIR="${WECHAT_SENDER_INSTALL_DIR:-/opt/wechat-on-airflow}"
 VENV_DIR="${WECHAT_SENDER_VENV_DIR:-/opt/wechat-sender-venv}"
 CONFIG_FILE="${WECHAT_SENDER_CONFIG_FILE:-/etc/wechat-sender.env}"
 SERVICE_NAME="wechat-sender.service"
+APPIUM_SERVICE_NAME="appium-6002.service"
+APPIUM_OVERRIDE_DIR="/etc/systemd/system/${APPIUM_SERVICE_NAME}.d"
+APPIUM_OVERRIDE_FILE="${APPIUM_OVERRIDE_DIR}/wechat-sender.conf"
 
 usage() {
   cat <<'EOF'
@@ -68,6 +71,20 @@ grep -Eq '^WECHAT_ALLOWED_DEVICE_NAME=.+$' "$CONFIG_FILE" ||
   fail "$CONFIG_FILE is missing WECHAT_ALLOWED_DEVICE_NAME"
 grep -Eq '^WECHAT_APPIUM_URL=http://(127\.0\.0\.1|localhost):6002/?$' "$CONFIG_FILE" ||
   fail "WECHAT_APPIUM_URL must use the local Appium service on port 6002"
+DEVICE_NAME="$(sed -n 's/^WECHAT_ALLOWED_DEVICE_NAME=//p' "$CONFIG_FILE" | tail -n 1)"
+[[ "$DEVICE_NAME" =~ ^[A-Za-z0-9._:-]+$ ]] ||
+  fail "WECHAT_ALLOWED_DEVICE_NAME must be an adb-safe device serial"
+for command in adb appium tesseract; do
+  command -v "$command" >/dev/null || fail "required sender command is unavailable: $command"
+done
+tesseract --list-langs 2>/dev/null | grep -Fxq chi_sim ||
+  fail "tesseract chi_sim language data is required"
+[[ "$(adb -s "$DEVICE_NAME" get-state 2>/dev/null)" == "device" ]] ||
+  fail "configured Android device is not online in adb"
+adb -s "$DEVICE_NAME" shell pm path com.tencent.mm 2>/dev/null | grep -q '^package:' ||
+  fail "WeChat is not installed on the configured Android device"
+systemctl cat "$APPIUM_SERVICE_NAME" >/dev/null 2>&1 ||
+  fail "$APPIUM_SERVICE_NAME is not installed"
 
 printf 'wechat-sender deploy: target=%s apply=%s\n' "$TARGET_COMMIT" "$APPLY"
 printf 'wechat-sender deploy: install_dir=%s service=%s\n' "$INSTALL_DIR" "$SERVICE_NAME"
@@ -116,7 +133,20 @@ mv "$next_venv" "$VENV_DIR"
 install -o root -g root -m 0644 \
   "$INSTALL_DIR/deploy/systemd/wechat-sender.service" \
   "/etc/systemd/system/$SERVICE_NAME"
+install -d -o root -g root -m 0755 "$APPIUM_OVERRIDE_DIR"
+install -o root -g root -m 0644 \
+  "$INSTALL_DIR/deploy/systemd/appium-6002.override.conf" \
+  "$APPIUM_OVERRIDE_FILE"
+
+adb -s "$DEVICE_NAME" shell svc power stayon usb
+adb -s "$DEVICE_NAME" shell settings put global window_animation_scale 0
+adb -s "$DEVICE_NAME" shell settings put global transition_animation_scale 0
+adb -s "$DEVICE_NAME" shell settings put global animator_duration_scale 0
+adb -s "$DEVICE_NAME" shell dumpsys deviceidle whitelist +com.tencent.mm >/dev/null || true
+
 systemctl daemon-reload
+systemctl enable "$APPIUM_SERVICE_NAME"
+systemctl restart "$APPIUM_SERVICE_NAME"
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 
@@ -125,6 +155,8 @@ for _ in {1..30}; do
     http://127.0.0.1:7001/readyz >/dev/null; then
     systemctl is-enabled --quiet "$SERVICE_NAME"
     systemctl is-active --quiet "$SERVICE_NAME"
+    systemctl is-enabled --quiet "$APPIUM_SERVICE_NAME"
+    systemctl is-active --quiet "$APPIUM_SERVICE_NAME"
     printf 'wechat-sender deploy: apply and readiness verification succeeded\n'
     exit 0
   fi

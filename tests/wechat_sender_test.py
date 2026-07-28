@@ -3,8 +3,12 @@ import unittest
 from wechat_sender.appium_text_sender import (
     DeviceNotReadyError,
     InvalidSendRequestError,
+    OcrLine,
     SendFailedError,
     SendResult,
+    TextWeChatOperator,
+    _normalize_visual_text,
+    _parse_tesseract_tsv,
     _recent_chat_xpaths,
     _run_stale_retry,
     _xpath_literal,
@@ -55,6 +59,28 @@ class RecoveringRestartOperator(FakeOperator):
     def return_to_chats(self):
         self.return_to_chats_calls += 1
         self.at_main_page = True
+
+
+class VisualOnlyDriver:
+    current_package = "com.tencent.mm"
+    current_activity = ".ui.LauncherUI"
+
+    def __init__(self):
+        self.scripts = []
+        self.swipes = []
+
+    def find_elements(self, **_kwargs):
+        return []
+
+    def get_window_size(self):
+        return {"width": 1080, "height": 2340}
+
+    def execute_script(self, name, arguments):
+        self.scripts.append((name, arguments))
+        self.current_activity = ".ui.chatting.ChattingUI"
+
+    def swipe(self, *arguments):
+        self.swipes.append(arguments)
 
 
 class WeChatSenderTest(unittest.TestCase):
@@ -299,6 +325,65 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_xpath_literal_handles_single_quotes(self):
         self.assertEqual(_xpath_literal("Bob's Group"), '"Bob\'s Group"')
+
+    def test_visual_text_normalization_ignores_ocr_punctuation(self):
+        self.assertEqual(
+            _normalize_visual_text("_Zacks-大沙河限定免费"),
+            _normalize_visual_text("Zacks_大沙河限定免费"),
+        )
+
+    def test_parses_tesseract_lines_back_to_screen_coordinates(self):
+        tsv = (
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop"
+            "\twidth\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t10\t20\t50\t10\t90\tZacks\n"
+            "5\t1\t1\t1\t1\t2\t60\t20\t100\t10\t90\t大沙河限定免费\n"
+        )
+
+        lines = _parse_tesseract_tsv(
+            tsv,
+            origin_x=100,
+            origin_y=200,
+            scale=0.5,
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                OcrLine(
+                    text="Zacks大沙河限定免费",
+                    left=120,
+                    top=240,
+                    right=420,
+                    bottom=260,
+                )
+            ],
+        )
+
+    def test_visual_only_device_opens_visible_chat_without_scrolling(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.current_receiver = None
+        operator.is_at_main_page = lambda: True
+        operator._click_accessible_text = lambda _value: False
+        operator._has_accessible_wechat_controls = lambda: False
+        operator._wait_for_chat = lambda _receiver, timeout: bool(timeout)
+        operator._find_visual_line = lambda *_args, **_kwargs: OcrLine(
+            text="Zacks_大沙河限定免费",
+            left=200,
+            top=600,
+            right=700,
+            bottom=680,
+        )
+
+        opened = operator.is_contact_in_recent_chats("Zacks_大沙河限定免费")
+
+        self.assertTrue(opened)
+        self.assertEqual(operator.driver.swipes, [])
+        self.assertEqual(
+            operator.driver.scripts,
+            [("mobile: clickGesture", {"x": 450, "y": 640})],
+        )
 
     def test_restarts_wechat_when_initial_session_is_not_at_main_page(self):
         result = send_text_messages(

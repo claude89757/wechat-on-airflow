@@ -3,7 +3,13 @@ FROM python:3.12-slim@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194e
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN groupadd --gid 10001 app \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        adb \
+        tesseract-ocr \
+        tesseract-ocr-chi-sim \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --create-home app
 
 WORKDIR /app

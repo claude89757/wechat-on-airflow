@@ -1,9 +1,13 @@
+import csv
+import io
 import json
 import random
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -38,6 +42,15 @@ class SendResult:
     device_name: str
     receiver: str
     sent_count: int
+
+
+@dataclass(frozen=True)
+class OcrLine:
+    text: str
+    left: int
+    top: int
+    right: int
+    bottom: int
 
 
 def _appium_url(appium_server_url: str, path: str) -> str:
@@ -118,6 +131,46 @@ def _recent_chat_xpaths(receiver: str) -> list[str]:
     ]
 
 
+def _normalize_visual_text(value: str) -> str:
+    return "".join(character.lower() for character in value if character.isalnum())
+
+
+def _parse_tesseract_tsv(
+    value: str,
+    *,
+    origin_x: int,
+    origin_y: int,
+    scale: float,
+) -> list[OcrLine]:
+    grouped_rows: dict[tuple[str, str, str, str], list[dict[str, str]]] = {}
+    for row in csv.DictReader(io.StringIO(value), delimiter="\t"):
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        key = tuple(row.get(name, "") for name in ("page_num", "block_num", "par_num", "line_num"))
+        grouped_rows.setdefault(key, []).append(row)
+
+    lines = []
+    for rows in grouped_rows.values():
+        try:
+            left = min(int(row["left"]) for row in rows)
+            top = min(int(row["top"]) for row in rows)
+            right = max(int(row["left"]) + int(row["width"]) for row in rows)
+            bottom = max(int(row["top"]) + int(row["height"]) for row in rows)
+        except (KeyError, TypeError, ValueError):
+            continue
+        lines.append(
+            OcrLine(
+                text="".join(row["text"].strip() for row in rows),
+                left=round(origin_x + left / scale),
+                top=round(origin_y + top / scale),
+                right=round(origin_x + right / scale),
+                bottom=round(origin_y + bottom / scale),
+            )
+        )
+    return lines
+
+
 def cleanup_appium_device(
     appium_server_url: str,
     device_name: str,
@@ -190,6 +243,16 @@ def cleanup_appium_device(
     except Exception:
         pass
 
+    for adb_command in (
+        ["shell", "input", "keyevent", "WAKEUP"],
+        ["shell", "wm", "dismiss-keyguard"],
+        ["shell", "cmd", "statusbar", "collapse"],
+    ):
+        try:
+            command_runner(["adb", "-s", device_name, *adb_command], 10)
+        except Exception:
+            pass
+
     sleeper(poll_seconds)
 
 
@@ -213,53 +276,138 @@ class TextWeChatOperator:
             "fullReset": False,
             "forceAppLaunch": force_app_launch,
             "autoGrantPermissions": True,
-            "newCommandTimeout": 60,
-            "resetKeyboard": True,
-            "adbExecTimeout": 60000,
+            "newCommandTimeout": 120,
+            "adbExecTimeout": 120000,
+            "uiautomator2ServerInstallTimeout": 120000,
+            "uiautomator2ServerLaunchTimeout": 120000,
         }
         self.device_name = device_name
+        self.current_receiver: str | None = None
         self.driver = AppiumWebDriver(
             command_executor=appium_server_url,
             options=UiAutomator2Options().load_capabilities(capabilities),
         )
 
     def send_message(self, receiver: str, messages: list[str]) -> None:
-        from appium.webdriver.common.appiumby import AppiumBy
-        from selenium.common.exceptions import TimeoutException
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.support.ui import WebDriverWait
-
         if not messages:
             raise InvalidSendRequestError("messages must contain at least one item")
 
         if not self.is_contact_in_recent_chats(receiver):
-            try:
+            self._search_and_open_chat(receiver)
 
-                def click_search_button() -> None:
-                    search_btn = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((AppiumBy.ACCESSIBILITY_ID, "搜索"))
-                    )
-                    search_btn.click()
+        if self._has_accessible_wechat_controls():
+            self._send_accessible_messages(messages)
+        else:
+            self._send_visual_messages(messages)
 
-                _run_stale_retry(click_search_button)
-                search_input = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located(
-                        (AppiumBy.XPATH, "//android.widget.EditText[@text='搜索']")
-                    )
+        self.return_to_chats()
+
+    def is_contact_in_recent_chats(self, receiver: str) -> bool:
+        if not self.is_at_main_page():
+            self.return_to_chats()
+            time.sleep(1)
+
+        if self._click_accessible_text(receiver):
+            time.sleep(1)
+            return True
+
+        if not self._has_accessible_wechat_controls():
+            line = self._find_visual_line(
+                receiver,
+                region=(0.15, 0.10, 0.93, 0.90),
+                scale=0.5,
+                page_segmentation_mode=11,
+            )
+            if line is None:
+                return False
+            self._tap_ocr_line(line)
+            if not self._wait_for_chat(receiver, timeout=6):
+                raise ContactNotFoundError(f"visible receiver did not open: {receiver}")
+            self.current_receiver = receiver
+            return True
+
+        for _ in range(4):
+            self.scroll_down()
+            time.sleep(0.5)
+            if self._click_accessible_text(receiver):
+                time.sleep(1)
+                return True
+        return False
+
+    def _click_accessible_text(self, value: str) -> bool:
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        def click_matching_element() -> bool:
+            for xpath in _recent_chat_xpaths(value):
+                for element in self.driver.find_elements(by=AppiumBy.XPATH, value=xpath):
+                    try:
+                        element.click()
+                        return True
+                    except Exception:
+                        continue
+            return False
+
+        return bool(_run_stale_retry(click_matching_element))
+
+    def _has_accessible_wechat_controls(self) -> bool:
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        try:
+            return bool(
+                self.driver.find_elements(
+                    by=AppiumBy.XPATH,
+                    value="//*[@package='com.tencent.mm' and @clickable='true']",
                 )
-                search_input.send_keys(receiver)
+            )
+        except Exception:
+            return False
 
-                def click_search_result() -> None:
-                    contact = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located(
-                            (AppiumBy.XPATH, f"//android.widget.TextView[@text='{receiver}']")
-                        )
-                    )
-                    contact.click()
+    def _search_and_open_chat(self, receiver: str) -> None:
+        from appium.webdriver.common.appiumby import AppiumBy
 
-                _run_stale_retry(click_search_result)
-            except TimeoutException as exc:
-                raise ContactNotFoundError(f"receiver not found: {receiver}") from exc
+        search_buttons = self.driver.find_elements(
+            by=AppiumBy.ACCESSIBILITY_ID,
+            value="搜索",
+        )
+        if search_buttons:
+            _run_stale_retry(search_buttons[0].click)
+        else:
+            self._tap_ratio(0.83, 0.07)
+
+        if not self._wait_for_activity("FTSMainUI", timeout=5):
+            raise AppiumTimeoutError("WeChat search page did not open")
+
+        search_inputs = self.driver.find_elements(
+            by=AppiumBy.XPATH,
+            value="//android.widget.EditText[@text='搜索']",
+        )
+        if search_inputs:
+            search_inputs[0].send_keys(receiver)
+        else:
+            self.driver.set_clipboard_text(receiver)
+            self.driver.press_keycode(279)
+        time.sleep(1)
+
+        if not self._click_accessible_text(receiver):
+            line = self._find_visual_line(
+                receiver,
+                region=(0.08, 0.12, 0.94, 0.42),
+                scale=0.65,
+                page_segmentation_mode=11,
+            )
+            if line is None:
+                raise ContactNotFoundError(f"receiver not found: {receiver}")
+            self._tap_ocr_line(line)
+
+        if not self._wait_for_chat(receiver, timeout=6):
+            raise ContactNotFoundError(f"receiver did not open: {receiver}")
+        self.current_receiver = receiver
+
+    def _send_accessible_messages(self, messages: list[str]) -> None:
+        from appium.webdriver.common.appiumby import AppiumBy
+        from selenium.common.exceptions import TimeoutException
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.support.ui import WebDriverWait
 
         for index, message in enumerate(messages):
             try:
@@ -286,38 +434,188 @@ class TextWeChatOperator:
             except Exception as exc:
                 raise SendFailedError(str(exc)) from exc
 
-        self.return_to_chats()
+    def _send_visual_messages(self, messages: list[str]) -> None:
+        if not self.current_receiver or not self._is_visual_chat_page(self.current_receiver):
+            raise DeviceNotReadyError("WeChat chat page is not active")
 
-    def is_contact_in_recent_chats(self, receiver: str) -> bool:
-        from appium.webdriver.common.appiumby import AppiumBy
-
-        if not self.is_at_main_page():
-            self.return_to_chats()
-            time.sleep(1)
-
-        for attempt in range(5):
-
-            def click_recent_chat_if_visible() -> bool:
-                for xpath in _recent_chat_xpaths(receiver):
-                    contact_elements = self.driver.find_elements(
-                        by=AppiumBy.XPATH,
-                        value=xpath,
-                    )
-                    for contact_element in contact_elements:
-                        try:
-                            contact_element.click()
-                            return True
-                        except Exception:
-                            continue
-                return False
-
-            if _run_stale_retry(click_recent_chat_if_visible):
-                time.sleep(1)
-                return True
-            if attempt < 4:
-                self.scroll_down()
+        self._tap_ratio(0.25, 0.955)
+        time.sleep(1)
+        for index, message in enumerate(messages):
+            try:
+                self.driver.set_clipboard_text(message)
+                self.driver.press_keycode(279)
                 time.sleep(0.5)
-        return False
+                send_line = self._find_visual_line(
+                    "发送",
+                    region=(0.78, 0.45, 1.0, 0.70),
+                    scale=0.8,
+                    page_segmentation_mode=11,
+                )
+                if send_line is None:
+                    raise AppiumTimeoutError("visual send button was not found")
+                self._tap_ocr_line(send_line)
+                time.sleep(0.8)
+                if self.driver.current_package != "com.tencent.mm":
+                    raise SendFailedError("WeChat left the chat page during send")
+                if index < len(messages) - 1:
+                    time.sleep(random.uniform(0.3, 3))
+            except WeChatSenderError:
+                raise
+            except Exception as exc:
+                raise SendFailedError(str(exc)) from exc
+        self.driver.set_clipboard_text("")
+
+    def _ocr_lines(
+        self,
+        *,
+        region: tuple[float, float, float, float],
+        scale: float,
+        page_segmentation_mode: int,
+    ) -> list[OcrLine]:
+        try:
+            from PIL import Image, ImageOps
+        except ImportError as exc:
+            raise DeviceNotReadyError("Pillow is required for visual WeChat automation") from exc
+
+        image = Image.open(io.BytesIO(self.driver.get_screenshot_as_png()))
+        width, height = image.size
+        left = round(width * region[0])
+        top = round(height * region[1])
+        right = round(width * region[2])
+        bottom = round(height * region[3])
+        cropped = ImageOps.grayscale(image.crop((left, top, right, bottom)))
+        cropped = cropped.resize(
+            (round(cropped.width * scale), round(cropped.height * scale)),
+            Image.Resampling.LANCZOS,
+        )
+
+        temporary_path: Path | None = None
+        result: subprocess.CompletedProcess[str] | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temporary_file:
+                temporary_path = Path(temporary_file.name)
+            cropped.save(temporary_path)
+            result = subprocess.run(
+                [
+                    "tesseract",
+                    str(temporary_path),
+                    "stdout",
+                    "-l",
+                    "chi_sim+eng",
+                    "--psm",
+                    str(page_segmentation_mode),
+                    "tsv",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=35,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise DeviceNotReadyError("tesseract is required for visual WeChat automation") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise AppiumTimeoutError("visual text recognition timed out") from exc
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+        if result is None or result.returncode != 0:
+            raise DeviceNotReadyError("visual text recognition failed")
+        return _parse_tesseract_tsv(
+            result.stdout,
+            origin_x=left,
+            origin_y=top,
+            scale=scale,
+        )
+
+    def _find_visual_line(
+        self,
+        value: str,
+        *,
+        region: tuple[float, float, float, float],
+        scale: float,
+        page_segmentation_mode: int,
+    ) -> OcrLine | None:
+        normalized_value = _normalize_visual_text(value)
+        return next(
+            (
+                line
+                for line in self._ocr_lines(
+                    region=region,
+                    scale=scale,
+                    page_segmentation_mode=page_segmentation_mode,
+                )
+                if _normalize_visual_text(line.text) == normalized_value
+            ),
+            None,
+        )
+
+    def _tap_ocr_line(self, line: OcrLine) -> None:
+        self.driver.execute_script(
+            "mobile: clickGesture",
+            {
+                "x": round((line.left + line.right) / 2),
+                "y": round((line.top + line.bottom) / 2),
+            },
+        )
+
+    def _tap_ratio(self, x_ratio: float, y_ratio: float) -> None:
+        screen_size = self.driver.get_window_size()
+        self.driver.execute_script(
+            "mobile: clickGesture",
+            {
+                "x": round(screen_size["width"] * x_ratio),
+                "y": round(screen_size["height"] * y_ratio),
+            },
+        )
+
+    def _activity_ends_with(self, suffix: str) -> bool:
+        try:
+            return self.driver.current_package == "com.tencent.mm" and str(
+                self.driver.current_activity
+            ).endswith(suffix)
+        except Exception:
+            return False
+
+    def _wait_for_activity(self, suffix: str, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._activity_ends_with(suffix):
+                return True
+            time.sleep(0.25)
+        return self._activity_ends_with(suffix)
+
+    def _is_visual_chat_page(self, receiver: str) -> bool:
+        del receiver
+        if self.driver.current_package != "com.tencent.mm":
+            return False
+        return not self._is_visual_main_page() and not self._activity_ends_with("FTSMainUI")
+
+    def _wait_for_chat(self, receiver: str, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._is_visual_chat_page(receiver):
+                return True
+            time.sleep(0.25)
+        return self._is_visual_chat_page(receiver)
+
+    def _is_visual_main_page(self) -> bool:
+        if self.driver.current_package != "com.tencent.mm":
+            return False
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise DeviceNotReadyError("Pillow is required for visual WeChat automation") from exc
+
+        image = Image.open(io.BytesIO(self.driver.get_screenshot_as_png())).convert("RGB")
+        width, height = image.size
+        navigation = image.crop((0, round(height * 0.88), round(width * 0.27), height))
+        green_pixels = sum(
+            1
+            for red, green, blue in navigation.getdata()
+            if green >= 110 and green >= red + 40 and green >= blue + 30
+        )
+        return green_pixels >= 150
 
     def scroll_down(self, start: float = 0.8, end: float = 0.2) -> None:
         screen_size = self.driver.get_window_size()
@@ -330,21 +628,18 @@ class TextWeChatOperator:
     def return_to_chats(self) -> None:
         from appium.webdriver.common.appiumby import AppiumBy
 
-        for _ in range(5):
+        for _ in range(6):
+            if self.is_at_main_page():
+                return
             try:
                 back_btn = self.driver.find_element(
                     by=AppiumBy.ID,
                     value="com.tencent.mm:id/g",
                 )
                 back_btn.click()
-                time.sleep(0.5)
-                if self.is_at_main_page():
-                    return
             except Exception:
-                break
-
-        self.driver.press_keycode(4)
-        time.sleep(0.5)
+                self.driver.press_keycode(4)
+            time.sleep(0.5)
         if not self.is_at_main_page():
             raise DeviceNotReadyError("unable to return to WeChat main page")
 
@@ -362,10 +657,14 @@ class TextWeChatOperator:
                 self.driver.find_element(AppiumBy.XPATH, xpath)
             return True
         except Exception:
-            return False
+            return self._is_visual_main_page()
 
     def close(self) -> None:
         if self.driver:
+            try:
+                self.driver.set_clipboard_text("")
+            except Exception:
+                pass
             self.driver.quit()
 
 

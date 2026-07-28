@@ -18,7 +18,6 @@ RestartSec=5
 TimeoutStopSec=20
 UMask=0077
 NoNewPrivileges=true
-PrivateDevices=true
 PrivateTmp=true
 ProtectClock=true
 ProtectControlGroups=true

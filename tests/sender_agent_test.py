@@ -74,8 +74,9 @@ class SenderAgentTest(unittest.TestCase):
             },
         )
 
+    @patch("sender_agent.app._device_readiness", return_value=(True, None))
     @patch("sender_agent.app.urlopen")
-    def test_readiness_checks_appium_without_using_the_device(self, mock_urlopen):
+    def test_readiness_checks_appium_and_device(self, mock_urlopen, mock_device_readiness):
         response = MagicMock()
         response.status = 200
         response.read.return_value = b'{"value":{"ready":true}}'
@@ -85,7 +86,30 @@ class SenderAgentTest(unittest.TestCase):
 
         self.assertEqual(result.status_code, 200)
         self.assertEqual(result.json()["appium_ready"], True)
+        self.assertEqual(result.json()["device_ready"], True)
         mock_urlopen.assert_called_once_with("http://127.0.0.1:6002/status", timeout=5)
+        mock_device_readiness.assert_called_once_with("test-device")
+
+    @patch(
+        "sender_agent.app._device_readiness",
+        return_value=(False, "adb_device_offline"),
+    )
+    @patch("sender_agent.app.urlopen")
+    def test_readiness_reports_offline_configured_device(
+        self,
+        mock_urlopen,
+        _mock_device_readiness,
+    ):
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = b'{"value":{"ready":true}}'
+        mock_urlopen.return_value.__enter__.return_value = response
+
+        result = self.client.get("/readyz")
+
+        self.assertEqual(result.status_code, 503)
+        self.assertEqual(result.json()["error"], "device_not_ready")
+        self.assertIn("adb_device_offline", result.json()["message"])
 
     @patch("sender_agent.app.urlopen", side_effect=TimeoutError)
     def test_readiness_reports_appium_failure_without_endpoint_details(self, _mock_urlopen):

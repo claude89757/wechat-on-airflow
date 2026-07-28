@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from threading import Lock
 from urllib.request import urlopen
 
@@ -57,6 +58,38 @@ def _appium_url() -> str:
     return os.getenv("WECHAT_APPIUM_URL", DEFAULT_APPIUM_URL)
 
 
+def _run_adb(
+    device_name: str,
+    *arguments: str,
+    timeout: int = 8,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["adb", "-s", device_name, *arguments],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _device_readiness(device_name: str) -> tuple[bool, str | None]:
+    try:
+        state = _run_adb(device_name, "get-state")
+        if state.returncode != 0 or state.stdout.strip() != "device":
+            return False, "adb_device_offline"
+
+        boot = _run_adb(device_name, "shell", "getprop", "sys.boot_completed")
+        if boot.returncode != 0 or boot.stdout.strip() != "1":
+            return False, "android_not_booted"
+
+        wechat = _run_adb(device_name, "shell", "pm", "path", "com.tencent.mm")
+        if wechat.returncode != 0 or not wechat.stdout.strip().startswith("package:"):
+            return False, "wechat_not_installed"
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "adb_unavailable"
+    return True, None
+
+
 @app.exception_handler(RequestValidationError)
 def validation_exception_handler(_request, _exc):
     return _json_error(400, "invalid_request", "request payload is invalid")
@@ -89,7 +122,20 @@ def readyz():
 
     if not ready:
         return _json_error(503, "appium_not_ready", "Appium is not ready")
-    return {"ok": True, "service": APP_NAME, "appium_ready": True}
+
+    device_ready, reason = _device_readiness(_allowed_device_name())
+    if not device_ready:
+        return _json_error(
+            503,
+            "device_not_ready",
+            f"Android device readiness check failed: {reason}",
+        )
+    return {
+        "ok": True,
+        "service": APP_NAME,
+        "appium_ready": True,
+        "device_ready": True,
+    }
 
 
 @app.post("/v1/wechat/send")

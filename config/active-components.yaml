@@ -280,9 +280,11 @@ active_services:
     files:
       - sender_agent/app.py
       - wechat_sender/appium_text_sender.py
+      - deploy/systemd/appium-6002.override.conf
       - deploy/systemd/wechat-sender.service
       - scripts/install_wechat_sender.sh
       - docker/sender/Dockerfile
+      - docker/sender/requirements.lock
       - docker-compose.sender.yml
     endpoint_config: WECHAT_SEND_API_URL
     runtime_owner: android_device_host
@@ -294,8 +296,11 @@ active_services:
       - public_http_contract_has_no_token
       - one_process_per_device_lock
       - automatic_restart_and_healthcheck
+      - readiness_requires_appium_adb_boot_and_wechat
+      - appium_listens_on_loopback_only
       - tests_never_send_real_messages
       - recent_chat_is_checked_before_search
+      - visual_fallback_for_inaccessible_wechat_hierarchy
     verification:
       - unit_tests
       - health_endpoint
