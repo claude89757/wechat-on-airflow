@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tennis Alert Operations"
+  short_description: "Diagnose, release, and operate the tennis alert platform"
+  default_prompt: "Use $operate-tennis-alerts to diagnose this issue and carry it through a safe, verified production release."
