@@ -101,10 +101,10 @@ Configure the endpoint and device in Airflow Variables:
 - `WECHAT_SEND_FALLBACK_MAX_ITEMS`
 
 Variable values are sensitive runtime data and are never included in source
-control. Venue DAGs persist their detection cache first, deliver email
-independently, and then attempt WeChat. Failed chat sends are deduplicated in
-`WECHAT_SEND_FALLBACK_OUTBOX`; they do not fail the DAG and are not retried
-automatically by the outbox.
+control. Venue DAGs publish raw observations to the Web subscription service,
+persist their WeChat detection cache, and then attempt WeChat. Failed chat
+sends are deduplicated in `WECHAT_SEND_FALLBACK_OUTBOX`; they do not fail the
+DAG and are not retried automatically by the outbox.
 
 The outbox is an incident record, not a retry queue. Never automatically replay
 it: venue detection state is persisted before delivery, so blind replay can

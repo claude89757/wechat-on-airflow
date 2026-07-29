@@ -58,7 +58,7 @@ def publish_venue_observation(
     error: str | None = None,
     checked_at: datetime | None = None,
 ) -> dict[str, Any]:
-    """Publish venue state after legacy delivery without failing the calling DAG."""
+    """Publish venue state without failing the calling DAG."""
     api_url = str(_get_variable(WEBAPP_OBSERVATION_API_URL_VAR, default="")).strip()
     api_token = str(_get_variable(WEBAPP_OBSERVATION_API_TOKEN_VAR, default="")).strip()
     if not api_url or not api_token:

@@ -451,7 +451,7 @@ def run_check_tennis_courts():
         )
 
         if up_for_send_msg_list:
-            # 先落库再发送：发送失败也不重复推同一时段，避免邮件/微信刷屏
+            # 先落库再发送，微信失败时不重复推送同一时段。
             sended_msg_list.extend(up_for_send_msg_list)
             description = (
                 f"TOPS科技园网球场场地通知 - 最后更新: "
