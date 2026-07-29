@@ -1,5 +1,19 @@
 # Production Baseline
 
+## Web-Only Subscriber Email
+
+On 2026-07-30 subscriber email ownership moved exclusively to the Cloudflare
+Web application. The five Airflow fixed-recipient lists and the Airflow Tencent
+SES sender configuration were retired. Venue watchers publish raw observations
+before attempting WeChat delivery, so Android device failures cannot delay Web
+subscription matching or email.
+
+The retired `EMAIL_SEND_FALLBACK_OUTBOX` remains in Airflow as historical
+incident evidence and is excluded from active health evaluation. It is not
+replayed or deleted. Production configuration cleanup preserves an encrypted
+Variable-row backup outside Git before removing unused fixed-recipient and
+sender Variables.
+
 ## Cloudflare Tunnel Ingress
 
 On 2026-07-19 a locally managed Cloudflare Tunnel was installed as an enabled

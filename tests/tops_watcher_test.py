@@ -267,7 +267,7 @@ class TopsWatcherTest(unittest.TestCase):
         ]
         sent_messages = ["【TOPS科技园风雨棚1号场】星期一(06-08)空场: 18:00-19:00"]
 
-        messages, email_payloads = tops_watcher.build_new_notifications(
+        messages = tops_watcher.build_new_notifications(
             data_list,
             sent_messages,
             current_year=2026,
@@ -276,17 +276,6 @@ class TopsWatcherTest(unittest.TestCase):
         self.assertEqual(
             messages,
             ["【TOPS科技园风雨棚1号场】星期一(06-08)空场: 19:00-20:00"],
-        )
-        self.assertEqual(
-            email_payloads,
-            [
-                {
-                    "date": "06-08",
-                    "court_name": "TOPS科技园风雨棚1号场",
-                    "start_time": "19:00",
-                    "end_time": "20:00",
-                }
-            ],
         )
 
     def test_proxy_cache_is_independent_and_empty_proxy_list_does_not_call_api_directly(self):
@@ -313,13 +302,13 @@ class TopsWatcherTest(unittest.TestCase):
         finally:
             tops_watcher.requests.post = original_post
 
-    def test_check_tennis_courts_keeps_email_and_cache_when_wechat_falls_back(self):
+    def test_check_tennis_courts_publishes_webapp_before_wechat_fallback(self):
         FakeVariable.values = {}
         expected_msg = "【TOPS科技园室外6号场】星期六(07-11)空场: 07:00-17:00"
 
         original_load_proxy = tops_watcher.load_proxy_list
         original_get_availability = tops_watcher.get_tennis_court_availability
-        original_send_email = tops_watcher.send_email_notifications
+        original_publish = tops_watcher.publish_venue_observation
         original_enqueue = tops_watcher.enqueue_wechat_message
         original_datetime = tops_watcher.datetime
 
@@ -338,19 +327,23 @@ class TopsWatcherTest(unittest.TestCase):
                 return {"室外6号场": [["07:00", "17:00"]]}
             return {}
 
-        email_calls = []
+        events = []
+        observations = []
         wechat_calls = []
 
-        def fake_send_email(payloads):
-            email_calls.append(payloads)
+        def fake_publish(*args, **kwargs):
+            events.append("webapp")
+            observations.append((args, kwargs))
+            return {"success": True}
 
         def fallback_wechat(msg):
+            events.append("wechat")
             wechat_calls.append(msg)
             return [{"success": False, "error": "device_busy"}]
 
         tops_watcher.load_proxy_list = lambda: []
         tops_watcher.get_tennis_court_availability = fake_get_availability
-        tops_watcher.send_email_notifications = fake_send_email
+        tops_watcher.publish_venue_observation = fake_publish
         tops_watcher.enqueue_wechat_message = fallback_wechat
         tops_watcher.datetime = FixedDatetimeModule
 
@@ -358,12 +351,13 @@ class TopsWatcherTest(unittest.TestCase):
             tops_watcher.run_check_tennis_courts()
 
             self.assertIn(expected_msg, FakeVariable.values.get(tops_watcher.CACHE_KEY, []))
-            self.assertEqual(len(email_calls), 1)
+            self.assertEqual(events, ["webapp", "wechat"])
+            self.assertEqual(observations[0][0][0:2], ("tops", "TOPS 科技园"))
             self.assertEqual(wechat_calls, [expected_msg])
         finally:
             tops_watcher.load_proxy_list = original_load_proxy
             tops_watcher.get_tennis_court_availability = original_get_availability
-            tops_watcher.send_email_notifications = original_send_email
+            tops_watcher.publish_venue_observation = original_publish
             tops_watcher.enqueue_wechat_message = original_enqueue
             tops_watcher.datetime = original_datetime
 

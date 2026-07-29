@@ -199,6 +199,15 @@ class ProductionHealthParsingTest(unittest.TestCase):
         self.assertIn("wechat-on-airflow-production-health/1.0", source)
         self.assertNotIn("capture_output=True", source)
 
+    def test_notification_health_uses_contract_declared_outboxes(self):
+        source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")
+
+        self.assertIn("__FALLBACK_OUTBOX_NAMES_JSON__", source)
+        self.assertNotIn(
+            'for key in ("EMAIL_SEND_FALLBACK_OUTBOX", "WECHAT_SEND_FALLBACK_OUTBOX")',
+            source,
+        )
+
     def test_parse_sections_separates_remote_command_output(self):
         output = "\n".join(
             [
@@ -211,7 +220,7 @@ class ProductionHealthParsingTest(unittest.TestCase):
                 "__DAG_SOURCES__",
                 '{"expected_count": 9, "missing": [], "unreadable": []}',
                 "__OUTBOXES__",
-                '{"EMAIL_SEND_FALLBACK_OUTBOX": 0}',
+                '{"WECHAT_SEND_FALLBACK_OUTBOX": 0}',
                 "__DATABASE__",
                 '{"database_bytes": 1024}',
                 "__STORAGE__",
@@ -237,7 +246,7 @@ class ProductionHealthParsingTest(unittest.TestCase):
         )
         self.assertEqual(
             production_health.parse_json_output(sections["outboxes"], {}),
-            {"EMAIL_SEND_FALLBACK_OUTBOX": 0},
+            {"WECHAT_SEND_FALLBACK_OUTBOX": 0},
         )
         self.assertEqual(
             production_health.parse_json_output(sections["database"], {}),

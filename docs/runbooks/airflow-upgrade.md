@@ -15,13 +15,14 @@ Never print or commit the exported values.
 
 - static configuration is preserved;
 - venue deduplication and proxy caches use `fresh_start_policy: preserve`;
-- email and WeChat fallback outboxes use `fresh_start_policy: reset`;
+- the active WeChat fallback outbox uses `fresh_start_policy: reset`;
 - contract defaults are created when the old system has no explicit value;
 - undeclared legacy Variables are ignored;
 - a missing required preserved Variable aborts the migration.
 
 Resetting an outbox does not discard its evidence: the old database and
-encrypted configuration backup retain it. Outboxes are never replayed.
+encrypted configuration backup retain it. The retired Airflow email outbox is
+undeclared historical state. Airflow outboxes are never replayed.
 
 ## Preconditions
 
@@ -107,8 +108,8 @@ Keep a component paused when its declared external prerequisite is not ready;
 record the reason rather than weakening its contract.
 
 Observe at least three complete scheduling cycles. Confirm successful venue and
-proxy runs, independent email and WeChat behavior, stable outbox counts, no
-duplicate notifications, and healthy service endpoints. Do not send a manual
-real notification as a smoke test.
+proxy runs, Web observation before WeChat delivery, stable WeChat outbox
+counts, no duplicate notifications, and healthy service endpoints. Do not send
+a manual real notification as a smoke test.
 
 On a critical failure, stop scheduling and follow `rollback.md`.

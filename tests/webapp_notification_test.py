@@ -1,4 +1,6 @@
+import ast
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -6,6 +8,57 @@ from wechat_airflow.notifications import webapp
 
 
 class WebappNotificationTest(TestCase):
+    def test_venue_watchers_publish_webapp_before_wechat_without_fixed_email(self):
+        watchers = {
+            "szw_watcher.py": "check_and_notify_for_day",
+            "jdwx_watcher.py": "run_check_tennis_courts",
+            "sysh_watcher.py": "run_check_tennis_courts",
+            "tops_watcher.py": "run_check_tennis_courts",
+            "tyzx_watcher.py": "run_check_tennis_courts",
+        }
+        watcher_root = Path(__file__).parents[1] / "src" / "wechat_airflow" / "venues"
+
+        for filename, function_name in watchers.items():
+            with self.subTest(filename=filename):
+                source = (watcher_root / filename).read_text(encoding="utf-8")
+                self.assertNotIn("notifications.email", source)
+                self.assertNotIn("_EMAIL_LIST", source)
+                self.assertNotIn("send_venue_email_batch", source)
+
+                tree = ast.parse(source)
+                function = next(
+                    node
+                    for node in tree.body
+                    if isinstance(node, ast.FunctionDef) and node.name == function_name
+                )
+                calls = [
+                    (
+                        node.lineno,
+                        node.func.id
+                        if isinstance(node.func, ast.Name)
+                        else node.func.attr
+                        if isinstance(node.func, ast.Attribute)
+                        else "",
+                    )
+                    for node in ast.walk(function)
+                    if isinstance(node, ast.Call)
+                ]
+                publish_lines = [
+                    line for line, name in calls if name == "publish_venue_observation"
+                ]
+                wechat_lines = [
+                    line
+                    for line, name in calls
+                    if name
+                    in {
+                        "enqueue_wechat_message",
+                        "send_wechat_text_to_chatrooms_best_effort",
+                    }
+                ]
+                self.assertTrue(publish_lines)
+                self.assertTrue(wechat_lines)
+                self.assertLess(max(publish_lines), min(wechat_lines))
+
     def test_flattens_slots_and_normalizes_midnight(self):
         result = webapp.flatten_court_slots(
             "2026-07-30",

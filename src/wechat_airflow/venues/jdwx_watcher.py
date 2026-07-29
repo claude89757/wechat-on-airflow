@@ -13,7 +13,6 @@ import time
 import requests
 from airflow.sdk import Variable
 
-from wechat_airflow.notifications.email import send_venue_email_batch
 from wechat_airflow.notifications.webapp import (
     flatten_court_slots,
     publish_venue_observation,
@@ -278,12 +277,20 @@ def run_check_tennis_courts():
             continue
 
     print(f"up_for_send_data_list: {up_for_send_data_list}")
+
+    publish_venue_observation(
+        "jdwx",
+        "金地威新",
+        webapp_slots,
+        healthy=not webapp_errors,
+        error="; ".join(webapp_errors) or None,
+    )
+
     # 处理通知逻辑
     if up_for_send_data_list:
         cache_key = "金地威新网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
         up_for_send_msg_list = []
-        up_for_send_sms_list = []
         for data in up_for_send_data_list:
             date = data["date"]
             court_name = data["court_name"]
@@ -301,14 +308,6 @@ def run_check_tennis_courts():
                 )
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
-                    up_for_send_sms_list.append(
-                        {
-                            "date": date,
-                            "court_name": court_name,
-                            "start_time": free_slot[0],
-                            "end_time": free_slot[1],
-                        }
-                    )
 
         # # 获取微信发送配置
         # wcf_ip = Variable.get("WCF_IP", default="")
@@ -337,12 +336,6 @@ def run_check_tennis_courts():
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
-            send_venue_email_batch(
-                "深圳金地网球场",
-                up_for_send_sms_list,
-                recipients_var="JDWX_EMAIL_LIST",
-            )
-
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default="")
             chat_names_list = str(chat_names).splitlines()
@@ -352,16 +345,6 @@ def run_check_tennis_courts():
                 all_in_one_msg,
                 source="深圳金地网球场巡检",
             )
-    else:
-        pass
-
-    publish_venue_observation(
-        "jdwx",
-        "金地威新",
-        webapp_slots,
-        healthy=not webapp_errors,
-        error="; ".join(webapp_errors) or None,
-    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

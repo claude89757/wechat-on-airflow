@@ -13,7 +13,6 @@ import time
 import requests
 from airflow.sdk import Variable
 
-from wechat_airflow.notifications.email import send_venue_email_batch
 from wechat_airflow.notifications.webapp import (
     flatten_court_slots,
     publish_venue_observation,
@@ -259,8 +258,15 @@ def check_and_notify_for_day(day_offset: int):
         print(f"Error checking date {input_date}: {str(e)}")
         webapp_error = str(e)
 
+    publish_venue_observation(
+        "szw",
+        "深圳湾",
+        webapp_slots,
+        healthy=webapp_error is None,
+        error=webapp_error,
+    )
+
     # 处理通知逻辑
-    up_for_send_sms_list = []
     if up_for_send_data_list:
         cache_key = "深圳湾网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
@@ -282,14 +288,6 @@ def check_and_notify_for_day(day_offset: int):
                 )
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
-                    up_for_send_sms_list.append(
-                        {
-                            "date": date,
-                            "court_name": court_name,
-                            "start_time": free_slot[0],
-                            "end_time": free_slot[1],
-                        }
-                    )
 
         if up_for_send_msg_list:
             sended_msg_list.extend(up_for_send_msg_list)
@@ -304,12 +302,6 @@ def check_and_notify_for_day(day_offset: int):
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
-            send_venue_email_batch(
-                "深圳湾网球场",
-                up_for_send_sms_list,
-                recipients_var="SZW_EMAIL_LIST",
-            )
-
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default="")
             chat_names_list = str(chat_names).splitlines()
@@ -319,14 +311,6 @@ def check_and_notify_for_day(day_offset: int):
                 all_in_one_msg,
                 source="深圳湾网球场巡检",
             )
-
-    publish_venue_observation(
-        "szw",
-        "深圳湾",
-        webapp_slots,
-        healthy=webapp_error is None,
-        error=webapp_error,
-    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

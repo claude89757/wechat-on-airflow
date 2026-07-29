@@ -166,6 +166,11 @@ def main() -> None:
         for name, contract in contracts["variables"].items()
         if not contract.get("managed_by_application") and "default" not in contract
     )
+    fallback_outbox_names = sorted(
+        name
+        for name, contract in contracts["variables"].items()
+        if contract.get("managed_by_application") and name.endswith("_FALLBACK_OUTBOX")
+    )
     target_airflow = str(runtime_target["target"]["airflow"])
     expected_services = set(runtime_target["target"]["services"])
     database_target = runtime_target["target"]["database"]
@@ -392,7 +397,7 @@ airflow_python - <<'PY'
 import json
 from airflow.models.variable import Variable
 result = {}
-for key in ("EMAIL_SEND_FALLBACK_OUTBOX", "WECHAT_SEND_FALLBACK_OUTBOX"):
+for key in json.loads(__FALLBACK_OUTBOX_NAMES_JSON__):
     try:
         value = Variable.get(key, default_var=[], deserialize_json=True)
         if not isinstance(value, list):
@@ -557,6 +562,10 @@ PY
             repr(f"{tunnel_public_base_url.removesuffix('/airflow')}{tunnel_health_path}"),
         )
         .replace("__TUNNEL_PUBLIC_UI_URL__", repr(f"{tunnel_public_base_url}/"))
+    )
+    remote_script = remote_script.replace(
+        "__FALLBACK_OUTBOX_NAMES_JSON__",
+        repr(json.dumps(fallback_outbox_names)),
     )
     ssh_env = dict(values)
     ssh_env["SSHPASS"] = remote["PASSWORD"]

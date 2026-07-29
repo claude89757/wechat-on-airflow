@@ -1,6 +1,6 @@
 # ADR 0002: Notification Delivery Invariants
 
-- Status: Accepted
+- Status: Superseded by ADR 0008
 - Date: 2026-07-17
 
 ## Decision

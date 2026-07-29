@@ -19,7 +19,7 @@ encrypted backup remain available for rollback.
 The cutover migrates:
 
 - contract-declared static Variables;
-- venue-specific recipients and external-service credentials;
+- external-service credentials and Web observation configuration;
 - venue deduplication caches to prevent duplicate notifications;
 - proxy caches to reduce startup disruption;
 - Connections and Pools;

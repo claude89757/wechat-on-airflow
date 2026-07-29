@@ -1,9 +1,9 @@
 # wechat-on-airflow
 
 Production Apache Airflow workflows that monitor Shenzhen tennis venue
-availability and send concise email and best-effort WeChat notifications. The
-repository also contains a mobile-first Cloudflare Worker application for
-verified-email, time-window subscriptions.
+availability, publish observations for verified-email Web subscriptions, and
+send best-effort WeChat notifications. The repository also contains the
+mobile-first Cloudflare Worker application that owns subscriber email.
 
 Production completed a fresh-start migration from Airflow 2.10.5 to Airflow
 3.3.0. Historical metadata was intentionally not migrated; configuration and
@@ -65,12 +65,14 @@ names and their schemas are documented in:
 - `config/active-components.yaml`
 - `config/config-contracts.yaml`
 
-Neither file contains production values. Every venue has an independent email
-recipient Variable; there is no global recipient fallback.
+Neither file contains production values. Airflow has no fixed email recipient
+lists and does not send venue email directly.
 
-Airflow publishes raw venue observations to the Worker only after the legacy
-email and WeChat paths have completed. This publisher is best effort and cannot
-fail a venue DAG. Its endpoint and token are protected Airflow Variables.
+Airflow publishes raw venue observations to the Worker before attempting
+best-effort WeChat delivery. The publisher is bounded and cannot fail a venue
+DAG. Its endpoint and token are protected Airflow Variables. The Worker is the
+only email-delivery owner: it verifies addresses, matches active subscriptions,
+deduplicates events, and retries delivery through its D1 outbox.
 
 Production Airflow is exposed through an outbound-only Cloudflare Tunnel. The
 API server trusts proxy headers and binds host port 8080 to loopback only.

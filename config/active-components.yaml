@@ -13,22 +13,6 @@ production:
   connection_values_documented: false
 
 shared_contracts:
-  venue_email:
-    modules:
-      - wechat_airflow.notifications.email
-      - wechat_airflow.clients.tencent_ses
-    variables:
-      - EMAIL_SEND_FALLBACK_OUTBOX
-      - EMAIL_SEND_FALLBACK_MAX_ITEMS
-      - TENCENT_CLOUD_SECRET_ID
-      - TENCENT_CLOUD_SECRET_KEY
-      - VENUE_EMAIL_FROM_ADDRESS
-      - VENUE_EMAIL_REPLY_TO
-      - VENUE_EMAIL_TEMPLATE_ID
-    invariants:
-      - failures_do_not_fail_venue_dag
-      - recipient_lists_are_venue_specific
-      - no_real_delivery_in_tests
   wechat_delivery:
     modules:
       - wechat_airflow.notifications.wechat
@@ -42,7 +26,7 @@ shared_contracts:
       - WECHAT_SEND_FALLBACK_MAX_ITEMS
     invariants:
       - failures_are_isolated_per_chat
-      - email_delivery_is_independent
+      - webapp_observation_precedes_delivery
       - no_real_delivery_in_tests
   webapp_observation:
     modules:
@@ -52,9 +36,10 @@ shared_contracts:
       - WEBAPP_OBSERVATION_API_TOKEN
       - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
     invariants:
-      - publishing_runs_after_legacy_delivery
+      - publishing_precedes_wechat_delivery
       - failures_do_not_fail_venue_dag
       - raw_slots_are_not_filtered_by_legacy_notification_windows
+      - webapp_is_the_only_email_delivery_owner
       - no_secrets_or_email_addresses_are_logged
 
 active_dags:
@@ -110,7 +95,6 @@ active_dags:
       - check_and_notify_day_3
     variables:
       - SZW_API_AUTHORIZATION
-      - SZW_EMAIL_LIST
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
       - WEBAPP_OBSERVATION_API_URL
@@ -119,23 +103,21 @@ active_dags:
     connections: []
     direct_modules:
       - wechat_airflow.venues.szw_watcher
-      - wechat_airflow.notifications.email
       - wechat_airflow.notifications.webapp
       - wechat_airflow.notifications.wechat
     external_services:
       - szw_booking_api
-      - tencent_ses
       - zacks_tennis_webapp
       - wechat_sender_api
     notifications:
-      - email
       - webapp_observation
       - wechat
     purpose: Detect and notify Shenzhen Bay tennis availability.
     verification:
       - dag_imports
       - recent_runs_succeed
-      - dedupe_cache_written_before_delivery
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
 
   - dag_id: 深圳金地网球场巡检
     file: dags/tennis_dags/sz_tennis/jdwx_watcher.py
@@ -143,7 +125,6 @@ active_dags:
     tasks:
       - check_tennis_courts
     variables:
-      - JDWX_EMAIL_LIST
       - JDWX_PROXY_CACHE
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
@@ -153,24 +134,22 @@ active_dags:
     connections: []
     direct_modules:
       - wechat_airflow.venues.jdwx_watcher
-      - wechat_airflow.notifications.email
       - wechat_airflow.notifications.webapp
       - wechat_airflow.notifications.wechat
     external_services:
       - jdwx_booking_api
       - public_proxy_list
-      - tencent_ses
       - zacks_tennis_webapp
       - wechat_sender_api
     notifications:
-      - email
       - webapp_observation
       - wechat
     purpose: Detect and notify Jindi Weixin tennis availability.
     verification:
       - dag_imports
       - recent_runs_succeed
-      - dedupe_cache_written_before_delivery
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
 
   - dag_id: 上越沙河网球场巡检
     file: dags/tennis_dags/sz_tennis/sysh_watcher.py
@@ -178,7 +157,6 @@ active_dags:
     tasks:
       - check_tennis_courts
     variables:
-      - SYSH_EMAIL_LIST
       - SYSH_PROXY_CACHE
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
@@ -188,24 +166,22 @@ active_dags:
     connections: []
     direct_modules:
       - wechat_airflow.venues.sysh_watcher
-      - wechat_airflow.notifications.email
       - wechat_airflow.notifications.webapp
       - wechat_airflow.notifications.wechat
     external_services:
       - tennis168
       - public_proxy_list
-      - tencent_ses
       - zacks_tennis_webapp
       - wechat_sender_api
     notifications:
-      - email
       - webapp_observation
       - wechat
     purpose: Detect and notify Shangyue Shahe tennis availability.
     verification:
       - dag_imports
       - recent_runs_succeed
-      - dedupe_cache_written_before_delivery
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
 
   - dag_id: TOPS科技园网球场巡检
     file: dags/tennis_dags/sz_tennis/tops_watcher.py
@@ -213,7 +189,6 @@ active_dags:
     tasks:
       - check_tennis_courts
     variables:
-      - TOPS_EMAIL_LIST
       - TOPS_PROXY_CACHE
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
@@ -223,24 +198,22 @@ active_dags:
     connections: []
     direct_modules:
       - wechat_airflow.venues.tops_watcher
-      - wechat_airflow.notifications.email
       - wechat_airflow.notifications.webapp
       - wechat_airflow.notifications.wechat
     external_services:
       - tops_booking_api
       - public_proxy_list
-      - tencent_ses
       - zacks_tennis_webapp
       - wechat_sender_api
     notifications:
-      - email
       - webapp_observation
       - wechat
     purpose: Detect and notify TOPS Technology Park tennis availability.
     verification:
       - dag_imports
       - recent_runs_succeed
-      - dedupe_cache_written_before_delivery
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
 
   - dag_id: 深圳市体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/tyzx_watcher.py
@@ -248,7 +221,6 @@ active_dags:
     tasks:
       - check_tennis_courts
     variables:
-      - TYZX_EMAIL_LIST
       - TYZX_SUCCESSFUL_PROXIES_CACHE
       - SZ_TYZX_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
@@ -258,24 +230,22 @@ active_dags:
     connections: []
     direct_modules:
       - wechat_airflow.venues.tyzx_watcher
-      - wechat_airflow.notifications.email
       - wechat_airflow.notifications.webapp
       - wechat_airflow.notifications.wechat
     external_services:
       - sports_center_booking_api
       - public_proxy_list
-      - tencent_ses
       - zacks_tennis_webapp
       - wechat_sender_api
     notifications:
-      - email
       - webapp_observation
       - wechat
     purpose: Detect and notify Shenzhen Sports Center tennis availability.
     verification:
       - dag_imports
       - recent_runs_succeed
-      - dedupe_cache_written_before_delivery
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
 
   - dag_id: zacks_phone_daily_reboot
     file: dags/tennis_dags/zacks_phone_reboot_dag.py

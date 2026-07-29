@@ -6,29 +6,28 @@
 flowchart LR
     API["Venue booking APIs"] --> DAG["Venue polling DAGs"]
     Proxy["Proxy sources and cache"] --> DAG
-    DAG --> Cache["Airflow Variable dedupe cache"]
-    Cache --> Email["Tencent SES"]
+    DAG -->|"best effort, before WeChat"| Worker["Cloudflare Worker"]
+    DAG --> Cache["Airflow Variable WeChat dedupe cache"]
     Cache --> WeChat["Managed WeChat sender API"]
-    DAG -->|"best effort, after legacy delivery"| Worker["Cloudflare Worker"]
     Web["Mobile web app"] --> Worker
     Worker --> D1[("Cloudflare D1")]
     Worker --> SubscriberEmail["Tencent SES subscriber email"]
-    Email -. failure .-> EmailOutbox["Email fallback outbox"]
+    SubscriberEmail -. retry .-> D1
     WeChat -. failure .-> WeChatOutbox["WeChat fallback outbox"]
 ```
 
-The deduplication cache is written before delivery. Email and WeChat are
-independent best-effort channels so a WeChat device outage does not delay email.
-Fallback outboxes are deduplicated incident records, not automatic retry queues;
-blind replay could send stale or duplicate availability.
+Venue adapters publish raw available slots before attempting WeChat delivery,
+so a device outage cannot delay subscriber email. Publishing is best effort
+and cannot fail a DAG. Airflow has no fixed recipient lists and does not send
+venue email directly. The Worker stores verified-email receipts, subscriptions,
+observed slot event keys, and a retrying email outbox in D1. A
+`(subscription_id, event_key)` uniqueness contract prevents duplicate
+subscriber notifications. User-selected time windows are independent of the
+legacy weekday/weekend filters retained only for WeChat.
 
-The web subscription path is independent from the legacy venue recipient
-lists. Venue adapters publish raw available slots after legacy delivery, so
-user-selected time windows are not constrained by legacy weekday/weekend
-filters. Publishing is best effort and cannot fail a DAG. The Worker stores
-verified-email receipts, subscriptions, observed slot event keys, and a
-retrying email outbox in D1. A `(subscription_id, event_key)` uniqueness
-contract prevents duplicate subscriber notifications.
+The Airflow WeChat deduplication cache is written before WeChat delivery.
+Its fallback outbox is a deduplicated incident record, not an automatic retry
+queue; blind replay could send stale or duplicate messages.
 
 The public web app never displays current availability and cannot book courts.
 It displays only aggregate subscription counts, notification counts, and
@@ -55,7 +54,7 @@ flowchart TB
     Scheduler --> Redis[("Redis")]
     Redis --> Worker["Celery Worker"]
     Worker --> API
-    Worker --> External["Booking, email, WeChat, SSH/ADB services"]
+    Worker --> External["Booking, Web observation, WeChat, SSH/ADB services"]
 ```
 
 The target runtime uses the official Airflow 3 image, a pinned custom build,
@@ -88,13 +87,14 @@ the cutover boundary.
 - Proxy refresh implementations live in `src/wechat_airflow/proxy_tools/`.
 - Device maintenance implementations live in
   `src/wechat_airflow/maintenance/`.
-- Notification clients and fallback logic belong in `src/`.
+- Airflow observation, WeChat clients, and WeChat fallback logic belong in
+  `src/`.
 - Web UI, subscription matching, email verification, and subscriber delivery
   belong in `webapp/`; Airflow owns only venue observation publication.
 - Airflow Variables provide runtime configuration, not business logic.
 - Fresh-start Variable behavior is declared in
-  `config/config-contracts.yaml`; venue deduplication state is preserved and
-  fallback outboxes are reset without replay.
+  `config/config-contracts.yaml`; venue WeChat deduplication state is preserved
+  and the WeChat fallback outbox is reset without replay.
 - Production maintenance is executed through scripts and one-off deployment
   manager commands, not through Airflow internal Python APIs.
 - Metadata cleanup is deliberately outside the DagBag and Task SDK boundary.

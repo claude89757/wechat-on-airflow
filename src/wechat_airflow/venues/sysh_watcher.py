@@ -15,7 +15,6 @@ import requests
 import urllib3
 from airflow.sdk import Variable
 
-from wechat_airflow.notifications.email import send_venue_email_batch
 from wechat_airflow.notifications.webapp import (
     flatten_court_slots,
     publish_venue_observation,
@@ -364,11 +363,18 @@ def run_check_tennis_courts():
 
     print(f"up_for_send_data_list: {up_for_send_data_list}")
 
+    publish_venue_observation(
+        "sysh",
+        "上越沙河",
+        webapp_slots,
+        healthy=not webapp_errors,
+        error="; ".join(webapp_errors) or None,
+    )
+
     # 处理通知逻辑
     if up_for_send_data_list:
         sended_msg_list = Variable.get(CACHE_KEY, deserialize_json=True, default=[])
         up_for_send_msg_list = []
-        up_for_send_sms_list = []
 
         for data in up_for_send_data_list:
             date = data["date"]
@@ -387,14 +393,6 @@ def run_check_tennis_courts():
                 )
                 if notification not in sended_msg_list:
                     up_for_send_msg_list.append(notification)
-                    up_for_send_sms_list.append(
-                        {
-                            "date": date,
-                            "court_name": court_name,
-                            "start_time": free_slot[0],
-                            "end_time": free_slot[1],
-                        }
-                    )
 
         if up_for_send_msg_list:
             sended_msg_list.extend(up_for_send_msg_list)
@@ -409,12 +407,6 @@ def run_check_tennis_courts():
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
-            send_venue_email_batch(
-                "上越沙河网球场",
-                up_for_send_sms_list,
-                recipients_var="SYSH_EMAIL_LIST",
-            )
-
             # 发送微信消息
             chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default="")
             chat_names_list = str(chat_names).splitlines()
@@ -424,14 +416,6 @@ def run_check_tennis_courts():
                 all_in_one_msg,
                 source="上越沙河网球场巡检",
             )
-
-    publish_venue_observation(
-        "sysh",
-        "上越沙河",
-        webapp_slots,
-        healthy=not webapp_errors,
-        error="; ".join(webapp_errors) or None,
-    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

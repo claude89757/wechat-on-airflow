@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted, amended by ADR 0008.
 
 ## Context
 
@@ -20,10 +20,10 @@ receipts, subscriptions, observed slot keys, and notification outbox records in
 D1. Send verification and alert messages through the existing approved Tencent
 SES template.
 
-Airflow remains the booking-source integration layer. Each venue watcher
-publishes raw slots to the Worker after completing legacy notification
+Airflow remains the booking-source integration layer. As amended by ADR 0008,
+each venue watcher publishes raw slots to the Worker before attempting WeChat
 delivery. Publication is bearer-authenticated, bounded by a short timeout, and
-best effort. It never changes the legacy deduplication cache or DAG result.
+best effort. It never changes the WeChat deduplication cache or DAG result.
 
 The Worker matches slot overlap against active subscriptions and writes a
 unique `(subscription_id, event_key)` before sending. Email delivery uses a
@@ -36,11 +36,12 @@ responses contain aggregate counts and masked email addresses only.
 
 ## Consequences
 
-- A Cloudflare outage does not delay legacy Airflow email or WeChat delivery.
+- A Cloudflare outage does not fail venue DAGs or block best-effort WeChat
+  delivery, but subscriber email waits for a later successful observation.
 - Arbitrary user time ranges are independent of legacy venue filters.
 - Existing slots can notify a newly created subscription on its next scan, but
   the same subscription-slot event cannot be sent twice.
-- D1 is the authoritative subscription store; Airflow Variables hold only the
-  ingestion endpoint and shared token.
+- D1 is the authoritative subscription and email-delivery store; Airflow
+  Variables hold only the ingestion endpoint and shared token.
 - Cloudflare and Tencent SES credentials remain deployment secrets and are
   never committed.

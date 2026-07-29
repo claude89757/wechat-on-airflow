@@ -15,7 +15,6 @@ import requests
 import urllib3
 from airflow.sdk import Variable
 
-from wechat_airflow.notifications.email import send_venue_email_batch
 from wechat_airflow.notifications.webapp import (
     flatten_court_slots,
     publish_venue_observation,
@@ -217,13 +216,12 @@ def build_new_notifications(
     up_for_send_data_list: list[dict],
     sended_msg_list: list[str],
     current_year: int = None,
-) -> tuple[list[str], list[dict]]:
-    """根据已发送缓存构造本轮新增通知和邮件模板数据。"""
+) -> list[str]:
+    """根据已发送缓存构造本轮新增微信通知。"""
     if current_year is None:
         current_year = datetime.datetime.now().year
 
     up_for_send_msg_list = []
-    up_for_send_sms_list = []
 
     for data in up_for_send_data_list:
         date = data["date"]
@@ -240,16 +238,8 @@ def build_new_notifications(
             )
             if notification not in sended_msg_list:
                 up_for_send_msg_list.append(notification)
-                up_for_send_sms_list.append(
-                    {
-                        "date": date,
-                        "court_name": court_name,
-                        "start_time": free_slot[0],
-                        "end_time": free_slot[1],
-                    }
-                )
 
-    return up_for_send_msg_list, up_for_send_sms_list
+    return up_for_send_msg_list
 
 
 def update_proxy_cache(proxy: str, success: bool):
@@ -409,15 +399,6 @@ def enqueue_wechat_message(all_in_one_msg: str):
     )
 
 
-def send_email_notifications(up_for_send_sms_list: list[dict]):
-    """批量发送邮件通知。"""
-    return send_venue_email_batch(
-        "TOPS科技园网球场",
-        up_for_send_sms_list,
-        recipients_var="TOPS_EMAIL_LIST",
-    )
-
-
 def run_check_tennis_courts():
     """主要检查逻辑"""
     # 0-8点不巡检
@@ -453,10 +434,18 @@ def run_check_tennis_courts():
 
     print(f"up_for_send_data_list: {up_for_send_data_list}")
 
+    publish_venue_observation(
+        "tops",
+        "TOPS 科技园",
+        webapp_slots,
+        healthy=not webapp_errors,
+        error="; ".join(webapp_errors) or None,
+    )
+
     # 处理通知逻辑
     if up_for_send_data_list:
         sended_msg_list = Variable.get(CACHE_KEY, deserialize_json=True, default=[])
-        up_for_send_msg_list, up_for_send_sms_list = build_new_notifications(
+        up_for_send_msg_list = build_new_notifications(
             up_for_send_data_list,
             sended_msg_list,
         )
@@ -477,16 +466,7 @@ def run_check_tennis_courts():
             print(f"updated {CACHE_KEY} with {len(sended_msg_list)} records")
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
-            send_email_notifications(up_for_send_sms_list)
             enqueue_wechat_message(all_in_one_msg)
-
-    publish_venue_observation(
-        "tops",
-        "TOPS 科技园",
-        webapp_slots,
-        healthy=not webapp_errors,
-        error="; ".join(webapp_errors) or None,
-    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

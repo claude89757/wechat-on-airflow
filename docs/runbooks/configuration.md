@@ -4,8 +4,8 @@ Airflow Variable names and shapes are authoritative in
 `config/config-contracts.yaml`. Values are never stored in Git.
 
 Before deployment, compare the required names with production using read-only
-commands. Do not print values. Every venue must have its own email list;
-configuration must not fall back to another venue.
+commands. Do not print values. Airflow must not contain or consume fixed venue
+email recipient lists; subscriber email configuration belongs to Cloudflare.
 
 `AIRFLOW_EXECUTION_API_SERVER_URL` is a non-secret runtime setting. It must use
 the internal API Server host and include the path component of
@@ -29,18 +29,20 @@ All five venue DAGs require:
   Airflow and Cloudflare;
 - `WEBAPP_OBSERVATION_TIMEOUT_SECONDS`: bounded request timeout, normally `5`.
 
-The publisher runs after legacy email and WeChat handling and never raises to
-the DAG. Do not reuse a public API credential, Cloudflare API token, or Airflow
-login credential as the observation token.
+The publisher runs before WeChat handling and never raises to the DAG. This
+ordering keeps Web subscription email independent from Android device health.
+Do not reuse a public API credential, Cloudflare API token, or Airflow login
+credential as the observation token.
 
 Managed outbox and dedupe Variables are application state. Do not replace or
 clear them during a normal deployment.
 
 For the one-time Airflow 3 fresh start, managed state has an explicit
 `fresh_start_policy`. Venue deduplication and proxy caches are preserved.
-Fallback outboxes are reset in the new database and remain available in the
-preserved Airflow 2 database and encrypted backup. The preparation and
-verification scripts report names and counts only.
+The active WeChat fallback outbox is reset in the new database and remains
+available in the preserved Airflow 2 database and encrypted backup. The
+retired Airflow email outbox remains historical incident evidence only. The
+preparation and verification scripts report names and counts only.
 
 Fallback outboxes are incident records, not retry queues. After fixing a
 channel, verify that new records stop accumulating. Archiving or clearing old

@@ -17,7 +17,6 @@ from typing import Any
 import requests
 from airflow.sdk import Variable
 
-from wechat_airflow.notifications.email import send_venue_email_batch
 from wechat_airflow.notifications.webapp import (
     flatten_court_slots,
     publish_venue_observation,
@@ -789,6 +788,14 @@ def run_check_tennis_courts():
     print("\n" + "=" * 60)
     print(f"🎯 查询完成, 共找到 {len(up_for_send_data_list)} 个符合条件的场地时段")
 
+    publish_venue_observation(
+        "tyzx",
+        "深圳市体育中心",
+        webapp_slots,
+        healthy=not webapp_errors,
+        error="; ".join(webapp_errors) or None,
+    )
+
     # 处理通知逻辑
     if up_for_send_data_list:
         print("\n📢 开始处理通知逻辑...")
@@ -797,7 +804,6 @@ def run_check_tennis_courts():
         cache_key = "深圳市体育中心网球场"
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
         up_for_send_msg_list = []
-        up_for_send_sms_list = []
 
         print(f"📝 历史已发送通知数量: {len(sended_msg_list)}")
         if sended_msg_list:
@@ -829,14 +835,6 @@ def run_check_tennis_courts():
                 if notification not in sended_msg_list:
                     print(f"  ✅ 新通知: {notification}")
                     up_for_send_msg_list.append(notification)
-                    up_for_send_sms_list.append(
-                        {
-                            "date": date,
-                            "court_name": court_name,
-                            "start_time": free_slot[0],
-                            "end_time": free_slot[1],
-                        }
-                    )
                 else:
                     print(f"  ⏭️ 已发送过: {notification}")
 
@@ -854,12 +852,6 @@ def run_check_tennis_courts():
                 serialize_json=True,
             )
             print(f"💾 updated {cache_key} before delivery")
-
-            send_venue_email_batch(
-                "深圳市体育中心网球场",
-                up_for_send_sms_list,
-                recipients_var="TYZX_EMAIL_LIST",
-            )
 
             all_in_one_msg = "\n".join(up_for_send_msg_list)
 
@@ -882,14 +874,6 @@ def run_check_tennis_courts():
                 print("⚠️ 未配置微信群聊 (SZ_TYZX_TENNIS_CHATROOMS为空)")
     else:
         print("\n📭 本次巡检结果: 未发现符合条件的空闲场地")
-
-    publish_venue_observation(
-        "tyzx",
-        "深圳市体育中心",
-        webapp_slots,
-        healthy=not webapp_errors,
-        error="; ".join(webapp_errors) or None,
-    )
 
     run_end_time = time.time()
     execution_time = run_end_time - run_start_time

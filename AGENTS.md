@@ -7,8 +7,12 @@ chat history for operational knowledge.
 ## Mission
 
 Run the production Shenzhen tennis availability workflows on Apache Airflow 3,
-with independent email routing, best-effort WeChat delivery, deterministic
+with Web-owned subscription email, best-effort WeChat delivery, deterministic
 verification, and reversible production deployments.
+
+For repository-wide diagnosis, operations, incident response, release, or
+deployment work, load
+`.agents/skills/operate-tennis-alerts/SKILL.md` and follow its lifecycle.
 
 ## Read First
 
@@ -44,15 +48,18 @@ the corresponding adapter is made fully typed.
 
 ## Business Invariants
 
-- Persist the venue notification deduplication cache before attempting delivery.
-- A WeChat outage must not delay or fail email delivery.
-- Email failure must not fail a venue DAG; record it in the email fallback outbox.
+- Persist the Airflow venue notification cache before attempting WeChat
+  delivery; the Web application owns subscriber-email event deduplication.
+- Publish raw venue observations to the Web application before attempting WeChat
+  delivery so a device outage cannot delay subscriber email.
+- Airflow must not send venue email directly or read fixed recipient lists.
+- The Web application owns email verification, subscription matching,
+  deduplication, delivery retries, and its D1 notification outbox.
 - WeChat failures are isolated per chat and recorded in the WeChat fallback outbox.
-- Every venue uses its own recipient Variable. There is no global recipient fallback.
 - Tests and smoke checks must never send real email or WeChat messages.
 - The WeChat sender runs exactly one process per device; its in-process lock is
   not safe with multiple workers.
-- Fallback outboxes are incident records and must not be replayed automatically.
+- Airflow fallback outboxes are incident records and must not be replayed automatically.
 - Do not change active DAG IDs without a migration plan; DAG IDs own run history.
 - Production deploys use an exact Git commit and pinned container image.
 
