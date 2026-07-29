@@ -438,7 +438,7 @@ def main() -> None:
         "-e",
         "ssh",
         "-o",
-        "PreferredAuthentications=password",
+        "PreferredAuthentications=keyboard-interactive,password",
         "-o",
         "PubkeyAuthentication=no",
         "-o",

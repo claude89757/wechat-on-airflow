@@ -21,6 +21,21 @@ import production_health  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
 
 
+class RemoteSshAuthenticationContractTest(unittest.TestCase):
+    def test_remote_operations_accept_keyboard_interactive_password_auth(self):
+        for script_name in (
+            "airflow_db_cleanup.py",
+            "deploy_airflow.py",
+            "production_health.py",
+        ):
+            source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+            self.assertIn(
+                '"PreferredAuthentications=keyboard-interactive,password"',
+                source,
+                script_name,
+            )
+
+
 class WeChatSenderServiceContractTest(unittest.TestCase):
     def test_systemd_service_runs_one_unprivileged_restartable_worker(self):
         unit = (ROOT / "deploy/systemd/wechat-sender.service").read_text(encoding="utf-8")
