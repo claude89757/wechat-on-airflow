@@ -1,4 +1,4 @@
-FROM apache/airflow:3.3.0-python3.12@sha256:b572e9241d7b09b295c9ea97adeb7b3dfc932e2fbcdebec59256dad69061bb29
+FROM apache/airflow:3.3.0-python3.12@sha256:96e99f25815f533b298a4d53f283adf5c84c27334ea16ef232777cb800bddf10
 
 ARG AIRFLOW_VERSION=3.3.0
 ARG PYTHON_VERSION=3.12
