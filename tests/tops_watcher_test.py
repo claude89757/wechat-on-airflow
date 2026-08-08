@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
+import base64
 import importlib
+import json
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 
 class FakeDAG:
@@ -69,6 +72,14 @@ tops_watcher = importlib.import_module("wechat_airflow.venues.tops_watcher")
 tyzx_watcher = importlib.import_module("wechat_airflow.venues.tyzx_watcher")
 
 
+def make_szw_authorization(exp: int) -> str:
+    def encode(value: dict) -> str:
+        raw = json.dumps(value, separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    return f"Wechat {encode({'alg': 'HS256', 'typ': 'JWT'})}.{encode({'exp': exp})}.signature"
+
+
 class VenueDomainTest(unittest.TestCase):
     def test_proxy_sources_are_isolated(self):
         original_get = https_proxy_watcher.requests.get
@@ -130,6 +141,82 @@ class VenueDomainTest(unittest.TestCase):
             szw_watcher.extract_time_hhmm("2026-07-17 08:30:00"),
             "08:30",
         )
+
+    def test_szw_rejects_expired_airflow_authorization(self):
+        with self.assertRaisesRegex(ValueError, "已过期"):
+            szw_watcher.validate_szw_authorization(make_szw_authorization(1), now=2)
+
+    def test_szw_request_matches_current_mini_program_contract(self):
+        authorization = make_szw_authorization(4_102_444_800)
+        FakeVariable.values = {"SZW_API_AUTHORIZATION": authorization}
+        captured = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {
+                    "code": 200,
+                    "text": "success",
+                    "result": {
+                        "fieldList": [{"fieldUuid": "court-1", "fieldName": "1号场"}],
+                        "matrix": [{"fieldUuid": "court-1", "matrix": []}],
+                    },
+                }
+
+        def fake_post(url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return FakeResponse()
+
+        with (
+            patch.object(szw_watcher.requests, "post", side_effect=fake_post),
+            patch.object(szw_watcher.time, "sleep"),
+        ):
+            result = szw_watcher.get_free_tennis_court_infos_for_szw(
+                "2026-08-10",
+                ["不使用代理"],
+                {"start_time": "08:30", "end_time": "22:30"},
+            )
+
+        self.assertEqual(result, {"1号场": [["08:30", "22:30"]]})
+        self.assertEqual(captured["url"], szw_watcher.SZW_MATRIX_API_URL)
+        self.assertEqual(
+            captured["json"],
+            {
+                "fieldAreaUuid": "b7f8a0770a4d11f198f45a68b1262c30",
+                "reserveDate": "2026-08-10",
+                "enterpriseUuid": "",
+                "discountSpecUuid": "",
+                "projectUuid": "3a59e62a07f811f1bec0aeefcf2e061a",
+            },
+        )
+        headers = captured["headers"]
+        self.assertEqual(headers["appId"], "wx020209beec4251e0")
+        self.assertEqual(headers["Authorization"], authorization)
+        self.assertEqual(headers["projectUuid"], "3a59e62a07f811f1bec0aeefcf2e061a")
+        self.assertEqual(
+            headers["Referer"],
+            "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
+        )
+        self.assertIn("Chrome/144.0.0.0", headers["User-Agent"])
+        self.assertIn("XWEB/25300", headers["User-Agent"])
+
+    def test_szw_booking_failure_marks_observation_unhealthy_and_fails_task(self):
+        with (
+            patch.object(
+                szw_watcher,
+                "get_free_tennis_court_infos_for_szw",
+                side_effect=RuntimeError("booking authentication failed"),
+            ),
+            patch.object(szw_watcher, "publish_venue_observation") as publish,
+            self.assertRaisesRegex(RuntimeError, "booking authentication failed"),
+        ):
+            szw_watcher.check_and_notify_for_day(0)
+
+        publish.assert_called_once()
+        self.assertFalse(publish.call_args.kwargs["healthy"])
 
     def test_tyzx_only_merges_available_unlocked_slots(self):
         result = tyzx_watcher.parse_tyzx_court_data(

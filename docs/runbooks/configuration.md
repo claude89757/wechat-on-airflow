@@ -20,6 +20,17 @@ When adding a Variable:
 4. Configure production without logging the value.
 5. Run `make production-health` and verify only name-level completeness.
 
+## Shenzhen Bay Booking Authorization
+
+`SZW_API_AUTHORIZATION` stores the complete Shenzhen Bay booking API authorization value,
+including the `Wechat ` prefix. Keep it only in Airflow Variables; never place it in source,
+documentation, shell history, or logs.
+
+The venue adapter validates the JWT structure and `exp` claim before each request. A missing,
+malformed, or expired value marks the Web observation unhealthy and fails the affected Airflow
+task so its configured retry and failure visibility remain effective. Renewing the credential only
+requires replacing this Variable; it does not require a code deployment.
+
 ## Web Subscription Publisher
 
 All five venue DAGs require:

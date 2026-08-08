@@ -6,7 +6,10 @@
 @Software: PyCharm
 """
 
+import base64
+import binascii
 import datetime
+import json
 import re
 import time
 
@@ -83,6 +86,42 @@ def extract_time_hhmm(time_value: str) -> str:
     return ""
 
 
+def validate_szw_authorization(authorization: str, *, now: float | None = None) -> str:
+    """校验 Airflow Variable 中的完整 Wechat JWT，不记录令牌内容。"""
+    authorization = authorization.strip()
+    if not authorization:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 未配置")
+    if "\n" in authorization or "\r" in authorization:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 格式非法")
+
+    scheme, separator, token = authorization.partition(" ")
+    token_parts = token.split(".")
+    if scheme != "Wechat" or not separator or len(token_parts) != 3:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 必须是完整的 Wechat JWT")
+
+    try:
+        payload_segment = token_parts[1]
+        payload_segment += "=" * (-len(payload_segment) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_segment).decode("utf-8"))
+        expires_at = payload["exp"]
+        if isinstance(expires_at, bool) or not isinstance(expires_at, int | float):
+            raise TypeError("exp must be numeric")
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        UnicodeDecodeError,
+        binascii.Error,
+        json.JSONDecodeError,
+    ):
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION JWT 格式非法") from None
+
+    current_time = time.time() if now is None else now
+    if expires_at <= current_time:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 已过期，请更新令牌")
+    return authorization
+
+
 def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:
     """
     获取可预订的场地信息
@@ -93,11 +132,9 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     Returns:
         dict: 场地信息，格式为{场地名: [[开始时间, 结束时间], ...]}
     """
-    szw_authorization = Variable.get("SZW_API_AUTHORIZATION", default="").strip()
-    if not szw_authorization:
-        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 未配置")
-    if "\n" in szw_authorization or "\r" in szw_authorization:
-        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 格式非法")
+    szw_authorization = validate_szw_authorization(
+        Variable.get("SZW_API_AUTHORIZATION", default="")
+    )
 
     got_response = False
     response_data = None
@@ -113,22 +150,22 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         }
         headers = {
             "Host": SZW_HOST,
-            "appid": SZW_APP_ID,
-            "authorization": szw_authorization,
-            "projectuuid": SZW_PROJECT_UUID,
+            "appId": SZW_APP_ID,
+            "Authorization": szw_authorization,
+            "projectUuid": SZW_PROJECT_UUID,
             "xweb_xhr": "1",
-            "content-type": "application/json",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 "
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 "
             "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
             "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
-            "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641739) XWEB/18926",
-            "accept": "*/*",
-            "sec-fetch-site": "cross-site",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-dest": "empty",
-            "referer": "https://servicewechat.com/wx020209beec4251e0/15/page-frame.html",
-            "accept-language": "zh-CN,zh;q=0.9",
+            "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641c1d) XWEB/25300",
+            "Accept": "*/*",
+            "Sec-Fetch-Site": "cross-site",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Referer": "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
+            "Accept-Language": "zh-CN,zh;q=0.9",
         }
         request_kwargs = {
             "headers": headers,
@@ -225,6 +262,7 @@ def check_and_notify_for_day(day_offset: int):
     up_for_send_data_list = []
     webapp_slots = []
     webapp_error = None
+    booking_error = None
     try:
         time_range = {"start_time": "08:30", "end_time": "22:30"}
         court_data = get_free_tennis_court_infos_for_szw(input_date, ["不使用代理"], time_range)
@@ -257,6 +295,7 @@ def check_and_notify_for_day(day_offset: int):
     except Exception as e:
         print(f"Error checking date {input_date}: {str(e)}")
         webapp_error = str(e)
+        booking_error = e
 
     publish_venue_observation(
         "szw",
@@ -265,6 +304,8 @@ def check_and_notify_for_day(day_offset: int):
         healthy=webapp_error is None,
         error=webapp_error,
     )
+    if booking_error is not None:
+        raise RuntimeError(f"深圳湾场地查询失败: {webapp_error}") from booking_error
 
     # 处理通知逻辑
     if up_for_send_data_list:
