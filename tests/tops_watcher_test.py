@@ -170,8 +170,18 @@ class VenueDomainTest(unittest.TestCase):
             captured.update(kwargs)
             return FakeResponse()
 
+        class FakeSession:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def post(self, url, **kwargs):
+                return fake_post(url, **kwargs)
+
         with (
-            patch.object(szw_watcher.requests, "post", side_effect=fake_post),
+            patch.object(szw_watcher, "create_crland_session", return_value=FakeSession()),
             patch.object(szw_watcher.time, "sleep"),
         ):
             result = szw_watcher.get_free_tennis_court_infos_for_szw(
@@ -202,6 +212,21 @@ class VenueDomainTest(unittest.TestCase):
         )
         self.assertIn("Chrome/144.0.0.0", headers["User-Agent"])
         self.assertIn("XWEB/25300", headers["User-Agent"])
+
+    def test_new_crland_venues_use_independent_ids_and_booking_contracts(self):
+        rain = szw_watcher.CRLAND_VENUES["szw_rain"]
+        self.assertEqual(rain.venue_id, "szw_rain")
+        self.assertEqual(rain.venue_name, "深圳湾风雨场")
+        self.assertEqual(rain.project_uuid, "3a59e62a07f811f1bec0aeefcf2e061a")
+        self.assertEqual(rain.field_area_uuid, "71abff5590af11f195a452a64e4c2bdc")
+        self.assertEqual((rain.start_time, rain.end_time), ("07:30", "22:30"))
+
+        gba = szw_watcher.CRLAND_VENUES["gba"]
+        self.assertEqual(gba.venue_id, "gba")
+        self.assertEqual(gba.venue_name, "大湾区网球场")
+        self.assertEqual(gba.project_uuid, "0ddda9c33d4e11f1b51c2273436a3e4e")
+        self.assertEqual(gba.field_area_uuid, "cec42d973dee11f1b51c2273436a3e4e")
+        self.assertEqual((gba.start_time, gba.end_time), ("09:00", "21:00"))
 
     def test_szw_booking_failure_marks_observation_unhealthy_and_fails_task(self):
         with (

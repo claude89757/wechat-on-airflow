@@ -119,6 +119,74 @@ active_dags:
       - wechat_dedupe_cache_written_before_wechat_delivery
       - webapp_observation_precedes_wechat
 
+  - dag_id: 深圳湾风雨场网球场巡检
+    file: dags/tennis_dags/sz_tennis/szw_rain_watcher.py
+    schedule: every_30_seconds
+    tasks:
+      - check_and_notify_day_0
+      - check_and_notify_day_1
+      - check_and_notify_day_2
+      - check_and_notify_day_3
+    variables:
+      - SZW_API_AUTHORIZATION
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 深圳湾风雨场网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.szw_watcher
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - szw_booking_api
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Shenzhen Bay covered-court tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 大湾区网球场巡检
+    file: dags/tennis_dags/sz_tennis/gba_watcher.py
+    schedule: every_30_seconds
+    tasks:
+      - check_and_notify_day_0
+      - check_and_notify_day_1
+      - check_and_notify_day_2
+      - check_and_notify_day_3
+    variables:
+      - SZW_API_AUTHORIZATION
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 大湾区网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.szw_watcher
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - szw_booking_api
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Greater Bay Area tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
   - dag_id: 深圳金地网球场巡检
     file: dags/tennis_dags/sz_tennis/jdwx_watcher.py
     schedule: every_30_seconds

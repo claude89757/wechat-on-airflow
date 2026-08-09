@@ -33,7 +33,7 @@ requires replacing this Variable; it does not require a code deployment.
 
 ## Web Subscription Publisher
 
-All five venue DAGs require:
+All active venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in

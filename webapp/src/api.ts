@@ -1,4 +1,4 @@
-export const VENUE_IDS = ["szw", "sysh", "tops", "tyzx", "jdwx"] as const;
+export const VENUE_IDS = ["szw", "szw_rain", "gba", "sysh", "tops", "tyzx", "jdwx"] as const;
 
 export type VenueId = (typeof VENUE_IDS)[number];
 
@@ -53,8 +53,8 @@ export const FALLBACK_DASHBOARD: Dashboard = {
   metrics: {
     activeSubscriptions: 128,
     remindersToday: 6,
-    healthyVenues: 5,
-    totalVenues: 5,
+    healthyVenues: 7,
+    totalVenues: 7,
   },
   venues: [
     {
@@ -64,6 +64,22 @@ export const FALLBACK_DASHBOARD: Dashboard = {
       subscriberCount: 28,
       lastInspectionAt: "2026-07-29T10:41:40+08:00",
       lastNotificationAt: "2026-07-29T10:26:00+08:00",
+    },
+    {
+      id: "szw_rain",
+      name: "深圳湾风雨场",
+      healthy: true,
+      subscriberCount: 0,
+      lastInspectionAt: "2026-07-29T10:41:38+08:00",
+      lastNotificationAt: null,
+    },
+    {
+      id: "gba",
+      name: "大湾区网球场",
+      healthy: true,
+      subscriberCount: 0,
+      lastInspectionAt: "2026-07-29T10:41:36+08:00",
+      lastNotificationAt: null,
     },
     {
       id: "sysh",

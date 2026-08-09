@@ -11,10 +11,14 @@ import binascii
 import datetime
 import json
 import re
+import ssl
 import time
+from dataclasses import dataclass
 
 import requests
 from airflow.sdk import Variable
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
 
 from wechat_airflow.notifications.webapp import (
     flatten_court_slots,
@@ -27,6 +31,73 @@ SZW_HOST = "wlhmobile.crland.com.cn"
 SZW_APP_ID = "wx020209beec4251e0"
 SZW_PROJECT_UUID = "3a59e62a07f811f1bec0aeefcf2e061a"
 SZW_FIELD_AREA_UUID = "b7f8a0770a4d11f198f45a68b1262c30"
+
+
+@dataclass(frozen=True)
+class CrlandVenue:
+    venue_id: str
+    venue_name: str
+    project_uuid: str
+    field_area_uuid: str
+    start_time: str
+    end_time: str
+    cache_key: str
+    dag_id: str
+
+
+CRLAND_VENUES = {
+    "szw": CrlandVenue(
+        venue_id="szw",
+        venue_name="深圳湾",
+        project_uuid=SZW_PROJECT_UUID,
+        field_area_uuid=SZW_FIELD_AREA_UUID,
+        start_time="08:30",
+        end_time="22:30",
+        cache_key="深圳湾网球场",
+        dag_id="深圳湾网球场巡检",
+    ),
+    "szw_rain": CrlandVenue(
+        venue_id="szw_rain",
+        venue_name="深圳湾风雨场",
+        project_uuid="3a59e62a07f811f1bec0aeefcf2e061a",
+        field_area_uuid="71abff5590af11f195a452a64e4c2bdc",
+        start_time="07:30",
+        end_time="22:30",
+        cache_key="深圳湾风雨场网球场",
+        dag_id="深圳湾风雨场网球场巡检",
+    ),
+    "gba": CrlandVenue(
+        venue_id="gba",
+        venue_name="大湾区网球场",
+        project_uuid="0ddda9c33d4e11f1b51c2273436a3e4e",
+        field_area_uuid="cec42d973dee11f1b51c2273436a3e4e",
+        start_time="09:00",
+        end_time="21:00",
+        cache_key="大湾区网球场",
+        dag_id="大湾区网球场巡检",
+    ),
+}
+
+
+class CrlandTLSAdapter(HTTPAdapter):
+    """保留证书校验，仅允许华润旧服务器需要的 legacy renegotiation。"""
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        ssl_context = ssl.create_default_context()
+        ssl_context.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+        pool_kwargs["ssl_context"] = ssl_context
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            **pool_kwargs,
+        )
+
+
+def create_crland_session() -> requests.Session:
+    session = requests.Session()
+    session.mount("https://", CrlandTLSAdapter())
+    return session
 
 
 def print_with_timestamp(*args, **kwargs):
@@ -122,7 +193,12 @@ def validate_szw_authorization(authorization: str, *, now: float | None = None) 
     return authorization
 
 
-def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:
+def get_free_tennis_court_infos_for_szw(
+    date: str,
+    proxy_list: list,
+    time_range: dict,
+    venue_key: str = "szw",
+) -> dict:
     """
     获取可预订的场地信息
     Args:
@@ -132,6 +208,10 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     Returns:
         dict: 场地信息，格式为{场地名: [[开始时间, 结束时间], ...]}
     """
+    venue = CRLAND_VENUES.get(venue_key)
+    if venue is None:
+        raise ValueError(f"未知华润场地配置: {venue_key}")
+
     szw_authorization = validate_szw_authorization(
         Variable.get("SZW_API_AUTHORIZATION", default="")
     )
@@ -142,17 +222,17 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
 
     for proxy in proxy_list:
         payload = {
-            "fieldAreaUuid": SZW_FIELD_AREA_UUID,
+            "fieldAreaUuid": venue.field_area_uuid,
             "reserveDate": date,
             "enterpriseUuid": "",
             "discountSpecUuid": "",
-            "projectUuid": SZW_PROJECT_UUID,
+            "projectUuid": venue.project_uuid,
         }
         headers = {
             "Host": SZW_HOST,
             "appId": SZW_APP_ID,
             "Authorization": szw_authorization,
-            "projectUuid": SZW_PROJECT_UUID,
+            "projectUuid": venue.project_uuid,
             "xweb_xhr": "1",
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -178,7 +258,8 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         print(f"trying for {proxy}")
         try:
             print(f"data: {payload}")
-            response = requests.post(SZW_MATRIX_API_URL, **request_kwargs)
+            with create_crland_session() as session:
+                response = session.post(SZW_MATRIX_API_URL, **request_kwargs)
             print(f"response status_code: {response.status_code}")
             if response.status_code == 200:
                 try:
@@ -240,15 +321,19 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         raise Exception(f"all attempts failed: {last_error}")
 
 
-def check_and_notify_for_day(day_offset: int):
+def check_and_notify_for_day(day_offset: int, venue_key: str = "szw"):
     """检查指定天数后的网球场可用情况并发送通知
 
     Args:
         day_offset: 相对于今天的偏移天数（0表示今天，1表示明天，以此类推）
     """
+    venue = CRLAND_VENUES.get(venue_key)
+    if venue is None:
+        raise ValueError(f"未知华润场地配置: {venue_key}")
+
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print(f"Day {day_offset}: 每天0点-8点不巡检")
-        publish_venue_observation("szw", "深圳湾", [], healthy=True)
+        publish_venue_observation(venue.venue_id, venue.venue_name, [], healthy=True)
         return
 
     run_start_time = time.time()
@@ -264,8 +349,13 @@ def check_and_notify_for_day(day_offset: int):
     webapp_error = None
     booking_error = None
     try:
-        time_range = {"start_time": "08:30", "end_time": "22:30"}
-        court_data = get_free_tennis_court_infos_for_szw(input_date, ["不使用代理"], time_range)
+        time_range = {"start_time": venue.start_time, "end_time": venue.end_time}
+        court_data = get_free_tennis_court_infos_for_szw(
+            input_date,
+            ["不使用代理"],
+            time_range,
+            venue_key=venue_key,
+        )
         print(f"{input_date} court_data: {court_data}")
         webapp_slots.extend(flatten_court_slots(input_date, court_data))
 
@@ -288,7 +378,7 @@ def check_and_notify_for_day(day_offset: int):
                     up_for_send_data_list.append(
                         {
                             "date": inform_date,
-                            "court_name": f"深圳湾{court_name}",
+                            "court_name": f"{venue.venue_name}{court_name}",
                             "free_slot_list": filtered_slots,
                         }
                     )
@@ -298,18 +388,18 @@ def check_and_notify_for_day(day_offset: int):
         booking_error = e
 
     publish_venue_observation(
-        "szw",
-        "深圳湾",
+        venue.venue_id,
+        venue.venue_name,
         webapp_slots,
         healthy=webapp_error is None,
         error=webapp_error,
     )
     if booking_error is not None:
-        raise RuntimeError(f"深圳湾场地查询失败: {webapp_error}") from booking_error
+        raise RuntimeError(f"{venue.venue_name}场地查询失败: {webapp_error}") from booking_error
 
     # 处理通知逻辑
     if up_for_send_data_list:
-        cache_key = "深圳湾网球场"
+        cache_key = venue.cache_key
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
         up_for_send_msg_list = []
         for data in up_for_send_data_list:
@@ -332,7 +422,7 @@ def check_and_notify_for_day(day_offset: int):
 
         if up_for_send_msg_list:
             sended_msg_list.extend(up_for_send_msg_list)
-            description = f"深圳湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            description = f"{venue.venue_name}场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             Variable.set(
                 key=cache_key,
                 value=sended_msg_list[-100:],
@@ -350,7 +440,7 @@ def check_and_notify_for_day(day_offset: int):
             send_wechat_text_to_chatrooms_best_effort(
                 chat_names_list,
                 all_in_one_msg,
-                source="深圳湾网球场巡检",
+                source=venue.dag_id,
             )
 
     run_end_time = time.time()
