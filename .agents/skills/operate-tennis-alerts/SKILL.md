@@ -112,6 +112,8 @@ Use the `Makefile` as the supported interface. Prefer:
 ```text
 make production-health
 make phone-diagnose
+make sender-diagnose
+make sender-recover
 make verify
 make deploy-check
 make rollback-check

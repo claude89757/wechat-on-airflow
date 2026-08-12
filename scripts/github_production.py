@@ -92,7 +92,7 @@ def main() -> None:
             "db_cleanup_check",
             "phone_diagnose",
         },
-        "sender": {"health", "dry_run", "apply"},
+        "sender": {"health", "device_diagnose", "device_recover", "dry_run", "apply"},
     }
     if operation not in allowed[args.component]:
         raise OpsError(f"unsupported {args.component} operation: {operation}")

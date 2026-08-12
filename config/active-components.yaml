@@ -341,6 +341,7 @@ active_services:
       - public_http_contract_has_no_token
       - one_process_per_device_lock
       - automatic_restart_and_healthcheck
+      - protected_adb_diagnosis_and_recovery
       - readiness_requires_appium_adb_boot_and_wechat
       - appium_listens_on_loopback_only
       - tests_never_send_real_messages

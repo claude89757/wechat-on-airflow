@@ -288,6 +288,8 @@ def main() -> None:
         or operations.get("authentication") != "ssh_public_key"
         or operations.get("airflow_workflow") != "production-airflow.yml"
         or operations.get("sender_workflow") != "production-wechat-sender.yml"
+        or operations.get("sender_operations")
+        != ["health", "device_diagnose", "device_recover", "dry_run", "apply"]
     ):
         fail("production operations must be GitHub Environment controlled")
     expected_github_secrets = {

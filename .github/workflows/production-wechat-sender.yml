@@ -10,6 +10,8 @@ on:
         type: choice
         options:
           - health
+          - device_diagnose
+          - device_recover
           - dry_run
           - apply
       target_commit:
@@ -64,6 +66,12 @@ jobs:
           case "$OPERATION" in
             health)
               MODE=health
+              ;;
+            device_diagnose)
+              MODE=device-diagnose
+              ;;
+            device_recover)
+              MODE=device-recover
               ;;
             dry_run)
               MODE=dry-run

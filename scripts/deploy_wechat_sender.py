@@ -128,8 +128,156 @@ print(json.dumps({
 PY
 }
 
+device_state() {
+    service_enabled="$(systemctl is-enabled wechat-sender.service 2>/dev/null || true)"
+    service_active="$(systemctl is-active wechat-sender.service 2>/dev/null || true)"
+    appium_active="$(systemctl is-active appium-6002.service 2>/dev/null || true)"
+    adb_rc=0
+    adb_output="$(adb devices 2>&1)" || adb_rc="$?"
+    configured_device="$(tr -d '\r\n' < "$credential_dir/wechat_allowed_device_name")"
+    configured_state="$(adb -s "$configured_device" get-state 2>/dev/null || true)"
+    ready_payload="$(curl --silent --show-error --max-time 5 \
+        http://127.0.0.1:7001/readyz 2>/dev/null || true)"
+    usb_adb_interfaces=0
+    for interface in /sys/bus/usb/devices/*:*; do
+        [ -r "$interface/bInterfaceClass" ] || continue
+        interface_class="$(tr '[:upper:]' '[:lower:]' < "$interface/bInterfaceClass")"
+        interface_subclass="$(tr '[:upper:]' '[:lower:]' < "$interface/bInterfaceSubClass")"
+        interface_protocol="$(tr '[:upper:]' '[:lower:]' < "$interface/bInterfaceProtocol")"
+        if [ "$interface_class" = "ff" ] && \
+           [ "$interface_subclass" = "42" ] && \
+           [ "$interface_protocol" = "01" ]; then
+            usb_adb_interfaces=$((usb_adb_interfaces + 1))
+        fi
+    done
+
+    ADB_OUTPUT="$adb_output" READY_PAYLOAD="$ready_payload" python3 - \
+        "$service_enabled" "$service_active" "$appium_active" "$adb_rc" \
+        "$configured_state" "$usb_adb_interfaces" <<'PY'
+import json
+import os
+import sys
+
+counts = {"device": 0, "offline": 0, "unauthorized": 0, "other": 0}
+for line in os.environ.pop("ADB_OUTPUT", "").splitlines():
+    if "\t" not in line:
+        continue
+    _, state = line.split("\t", 1)
+    state = state.strip().split(maxsplit=1)[0]
+    counts[state if state in counts else "other"] += 1
+
+try:
+    readiness = json.loads(os.environ.pop("READY_PAYLOAD", ""))
+except (json.JSONDecodeError, TypeError):
+    readiness = {}
+if not isinstance(readiness, dict):
+    readiness = {}
+
+service_enabled = sys.argv[1] == "enabled"
+service_active = sys.argv[2] == "active"
+appium_active = sys.argv[3] == "active"
+adb_command_ok = sys.argv[4] == "0"
+configured_device_online = sys.argv[5] == "device"
+usb_adb_interface_count = int(sys.argv[6])
+ready = readiness.get("ok") is True
+readiness_error = readiness.get("error")
+if not isinstance(readiness_error, str):
+    readiness_error = None
+
+failure_category = None
+if not ready:
+    if not service_active:
+        failure_category = "sender_service_inactive"
+    elif not appium_active:
+        failure_category = "appium_service_inactive"
+    elif not adb_command_ok:
+        failure_category = "adb_command_failed"
+    elif counts["unauthorized"]:
+        failure_category = "adb_device_unauthorized"
+    elif counts["offline"]:
+        failure_category = "adb_device_offline"
+    elif counts["device"] == 0 and usb_adb_interface_count == 0:
+        failure_category = "adb_usb_interface_absent"
+    elif counts["device"] == 0:
+        failure_category = "adb_device_not_enumerated"
+    elif not configured_device_online:
+        failure_category = "configured_device_not_online"
+    else:
+        failure_category = readiness_error or "sender_not_ready"
+
+print(json.dumps({
+    "ok": True,
+    "read_only": True,
+    "ready": ready,
+    "service_enabled": service_enabled,
+    "service_active": service_active,
+    "appium_active": appium_active,
+    "adb": {
+        "command_ok": adb_command_ok,
+        "state_counts": counts,
+        "configured_device_online": configured_device_online,
+    },
+    "usb_adb_interface_count": usb_adb_interface_count,
+    "readiness_error": readiness_error,
+    "failure_category": failure_category,
+}, sort_keys=True))
+PY
+}
+
+recover_device() {
+    before="$(device_state)"
+    systemctl stop wechat-sender.service
+    systemctl stop appium-6002.service
+    adb kill-server >/dev/null 2>&1 || true
+    udevadm settle --timeout=10 >/dev/null 2>&1 || true
+    adb start-server >/dev/null 2>&1
+    adb reconnect >/dev/null 2>&1 || true
+    systemctl start appium-6002.service
+    systemctl start wechat-sender.service
+    attempt=0
+    while [ "$attempt" -lt 12 ]; do
+        if curl --fail --silent --show-error --max-time 5 \
+            http://127.0.0.1:7001/readyz >/dev/null 2>&1; then
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 5
+    done
+    after="$(device_state)"
+    BEFORE="$before" AFTER="$after" python3 - <<'PY'
+import json
+import os
+
+before = json.loads(os.environ.pop("BEFORE"))
+after = json.loads(os.environ.pop("AFTER"))
+print(json.dumps({
+    "ok": after.get("ready") is True,
+    "applied": True,
+    "phone_rebooted": False,
+    "notification_sent": False,
+    "actions": [
+        "restart_adb_server",
+        "settle_usb_devices",
+        "restart_appium_service",
+        "restart_sender_service",
+        "wait_for_readiness",
+    ],
+    "before": before,
+    "after": after,
+}, sort_keys=True))
+PY
+}
+
 if [ "$mode" = "health" ]; then
     health
+    exit 0
+fi
+if [ "$mode" = "device-diagnose" ]; then
+    device_state
+    exit 0
+fi
+if [ "$mode" = "device-recover" ]; then
+    recover_device
     exit 0
 fi
 
@@ -211,7 +359,11 @@ health
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Operate the production WeChat sender.")
-    parser.add_argument("--operation", choices=("health", "dry-run", "apply"), required=True)
+    parser.add_argument(
+        "--operation",
+        choices=("health", "dry-run", "apply", "device-diagnose", "device-recover"),
+        required=True,
+    )
     parser.add_argument("--target-commit", default="HEAD")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()

@@ -90,6 +90,19 @@ and the installed WeChat package. It never opens WeChat or sends a message.
 Production health derives this readiness URL from the configured
 `WECHAT_SEND_API_URL`; it never prints the endpoint value.
 
+Production diagnosis and bounded recovery are exposed only through the
+protected GitHub Environment:
+
+```bash
+make sender-diagnose
+make sender-recover
+```
+
+Diagnosis suppresses serials and reports state categories. Recovery restarts
+ADB, Appium, and the sender, then waits for `/readyz`; it never reboots the phone
+or sends a message. A missing USB ADB interface remains a physical-device
+incident and is not hidden by restarting services.
+
 ## Airflow Configuration
 
 Airflow calls the service through `wechat_airflow.notifications.wechat`.

@@ -60,6 +60,15 @@ If Appium is ready but port `7001` has no listener, deploy the exact pushed
 commit with `scripts/install_wechat_sender.sh`; a restart alone is not a durable
 repair. Preserve the incident outbox and verify new failures stop accumulating.
 
+Use `make sender-diagnose` when `/readyz` fails. The protected operation reports
+service, Appium, ADB state counts, and whether a USB ADB interface is present;
+it suppresses device serials. For a stale ADB or Appium process, run
+`make sender-recover`. Recovery rebuilds the ADB server, settles USB devices,
+restarts Appium and the sender, and waits up to one minute for readiness. It
+does not reboot the phone or send a message. If the result is
+`adb_usb_interface_absent`, stop: software recovery cannot replace a missing
+USB connection, disabled USB debugging, or a powered-off device.
+
 ## Duplicate Notification
 
 Stop manual retries. For subscriber email, inspect the D1

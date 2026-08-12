@@ -196,6 +196,19 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
             'install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null', script
         )
 
+    def test_sender_device_recovery_is_bounded_and_never_reboots_or_sends(self):
+        script = deploy_wechat_sender.remote_script()
+
+        self.assertIn('if [ "$mode" = "device-diagnose" ]', script)
+        self.assertIn('if [ "$mode" = "device-recover" ]', script)
+        self.assertIn("adb kill-server", script)
+        self.assertIn("adb start-server", script)
+        self.assertIn("usb_adb_interface_count", script)
+        self.assertIn('"phone_rebooted": False', script)
+        self.assertIn('"notification_sent": False', script)
+        self.assertNotIn("adb reboot", script)
+        self.assertNotIn("/v1/wechat/send", script)
+
     def test_production_health_reports_runtime_secret_metadata_without_values(self):
         source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")
 

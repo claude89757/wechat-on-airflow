@@ -77,6 +77,12 @@ production_operations:
   github_environment: production
   airflow_workflow: production-airflow.yml
   sender_workflow: production-wechat-sender.yml
+  sender_operations:
+    - health
+    - device_diagnose
+    - device_recover
+    - dry_run
+    - apply
   authentication: ssh_public_key
   airflow_ssh_environment:
     host: AIRFLOW_SSH_HOST
