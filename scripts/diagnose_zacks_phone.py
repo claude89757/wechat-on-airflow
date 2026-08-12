@@ -40,11 +40,11 @@ test -n "$service"
 compose exec -T "$service" python - <<'PY'
 import json
 import re
-from pathlib import Path
 
 from airflow.models.dagrun import DagRun
 from airflow.models.taskinstance import TaskInstance
 from airflow.utils.session import create_session
+from airflow.utils.log.log_reader import TaskLogReader
 
 DAG_ID = "zacks_phone_daily_reboot"
 SIGNAL = re.compile(
@@ -99,21 +99,21 @@ with create_session() as session:
     ]
 
 evidence = []
-log_root = Path("/opt/airflow/logs") / f"dag_id={DAG_ID}" / f"run_id={run.run_id}"
-for task in task_rows:
-    if task["state"].lower() != "failed":
+reader = TaskLogReader()
+for instance, task in zip(instances, task_rows, strict=True):
+    if task["state"].lower() != "failed" or task["try_number"] < 1:
         continue
-    task_root = log_root / f"task_id={task['task_id']}"
-    paths = sorted(
-        task_root.rglob("attempt=*.log") if task_root.is_dir() else [],
-        key=lambda path: path.stat().st_mtime,
-    )
     signatures = []
-    for path in paths[-3:]:
+    messages_examined = 0
+    read_errors = []
+    for attempt in range(1, task["try_number"] + 1):
         try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
+            stream, _ = reader.read_log_chunks(instance, attempt, {})
+            lines = [str(message.event) for message in stream]
+        except Exception as exc:
+            read_errors.append(type(exc).__name__)
             continue
+        messages_examined += len(lines)
         for line in lines[-400:]:
             if SIGNAL.search(line):
                 sanitized = sanitize(line)
@@ -122,7 +122,8 @@ for task in task_rows:
     evidence.append(
         {
             "task_id": task["task_id"],
-            "log_files_found": len(paths),
+            "log_messages_examined": messages_examined,
+            "log_read_errors": sorted(set(read_errors)),
             "error_signatures": signatures[-40:],
         }
     )
