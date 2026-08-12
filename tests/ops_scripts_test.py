@@ -419,9 +419,10 @@ class PhoneDiagnosticTest(unittest.TestCase):
         self.assertIn('DAG_ID = "zacks_phone_daily_reboot"', script)
         self.assertIn('"read_only": True', script)
         self.assertIn("error_signatures", script)
-        self.assertNotIn("Variable.get", script)
-        self.assertNotIn("adb ", script)
+        self.assertIn('build_login_shell_adb_command("devices")', script)
+        self.assertIn('"failure_category": None', script)
         self.assertNotIn("reboot_device", script)
+        self.assertNotIn('build_login_shell_adb_command("reboot")', script)
 
     def test_diagnostic_parses_only_structured_result(self):
         payload = diagnose_zacks_phone.parse_remote_result(
@@ -435,6 +436,15 @@ class PhoneDiagnosticTest(unittest.TestCase):
         python_source = script.split("python - <<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
 
         compile(python_source, "diagnose_zacks_phone_remote.py", "exec")
+
+    def test_diagnostic_redacts_credentials_from_error_evidence(self):
+        value = "postgresql://user:pass@db password=unsafe"
+
+        redacted = diagnose_zacks_phone.redact_error(value)
+
+        self.assertNotIn(":pass@", redacted)
+        self.assertNotIn("unsafe", redacted)
+        self.assertIn("<redacted>", redacted)
 
 
 class FreshStartConfigurationTest(unittest.TestCase):
