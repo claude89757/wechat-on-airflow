@@ -421,6 +421,8 @@ class PhoneDiagnosticTest(unittest.TestCase):
         self.assertIn("error_signatures", script)
         self.assertIn('build_login_shell_adb_command("devices")', script)
         self.assertIn('"failure_category": None', script)
+        self.assertIn('Variable.get("APPIUM_SERVER_LIST"', script)
+        self.assertIn("ANDROID_DEVICE_LOGGER.disabled = True", script)
         self.assertNotIn("reboot_device", script)
         self.assertNotIn('build_login_shell_adb_command("reboot")', script)
 

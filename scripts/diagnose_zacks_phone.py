@@ -61,14 +61,16 @@ from io import StringIO
 
 from airflow.models.dagrun import DagRun
 from airflow.models.taskinstance import TaskInstance
+from airflow.models.variable import Variable
 from airflow.utils.log.log_reader import TaskLogReader
 from airflow.utils.session import create_session
 
 from wechat_airflow.clients.android_device import (
+    LOGGER as ANDROID_DEVICE_LOGGER,
     build_login_shell_adb_command,
     exec_cmd_by_ssh_with_status,
 )
-from wechat_airflow.maintenance.zacks_phone_reboot import load_zacks_device_config
+from wechat_airflow.maintenance.zacks_phone_reboot import find_zacks_appium_server
 
 DAG_ID = "zacks_phone_daily_reboot"
 SIGNAL = re.compile(
@@ -169,18 +171,35 @@ probe = {
     "failure_category": None,
 }
 try:
-    config = load_zacks_device_config()
-    login = config["login_info"]
+    values = Variable.get("APPIUM_SERVER_LIST", default_var=[], deserialize_json=True)
+    if not isinstance(values, list):
+        raise ValueError("invalid list")
+    config = find_zacks_appium_server(
+        [item for item in values if isinstance(item, dict)]
+    )
+    login = config.get("login_info")
+    if not isinstance(login, dict):
+        raise ValueError("invalid login info")
+    required_login = ("device_ip", "username", "password", "port", "host_key_sha256")
+    if any(not login.get(name) for name in required_login):
+        raise ValueError("missing login field")
+    if not config.get("device_name"):
+        raise ValueError("missing device name")
     probe["configuration_valid"] = True
-    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
-        output, _, exit_status = exec_cmd_by_ssh_with_status(
-            login["device_ip"],
-            login["port"],
-            login["username"],
-            login["password"],
-            login["host_key_sha256"],
-            build_login_shell_adb_command("devices"),
-        )
+    logger_disabled = ANDROID_DEVICE_LOGGER.disabled
+    ANDROID_DEVICE_LOGGER.disabled = True
+    try:
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+            output, _, exit_status = exec_cmd_by_ssh_with_status(
+                login["device_ip"],
+                login["port"],
+                login["username"],
+                login["password"],
+                login["host_key_sha256"],
+                build_login_shell_adb_command("devices"),
+            )
+    finally:
+        ANDROID_DEVICE_LOGGER.disabled = logger_disabled
     probe["ssh_connected"] = exit_status is not None
     probe["adb_command_ok"] = exit_status == 0
     online_devices = []
