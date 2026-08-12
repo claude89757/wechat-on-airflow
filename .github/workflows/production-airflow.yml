@@ -13,6 +13,7 @@ on:
           - deploy_preflight
           - deploy_apply
           - db_cleanup_check
+          - phone_diagnose
       target_commit:
         description: Exact commit SHA on main
         required: true
@@ -79,6 +80,9 @@ jobs:
               ;;
             db_cleanup_check)
               PYTHONPATH=src python scripts/airflow_db_cleanup.py --format json
+              ;;
+            phone_diagnose)
+              PYTHONPATH=src python scripts/diagnose_zacks_phone.py --format json
               ;;
             *)
               exit 2

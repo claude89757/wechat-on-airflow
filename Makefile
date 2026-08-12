@@ -8,7 +8,7 @@ COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
 
 .PHONY: setup local-secrets webapp-setup webapp-check format lint typecheck test test-dags compose-config sender-config \
 	smoke verify deploy deploy-check production-health rollback-check db-cleanup-check \
-	image sender-image sender-deploy sender-health
+	phone-diagnose image sender-image sender-deploy sender-health
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -72,6 +72,9 @@ rollback-check: local-secrets
 
 db-cleanup-check:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow db_cleanup_check
+
+phone-diagnose:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow phone_diagnose
 
 sender-deploy:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py sender deploy $(DEPLOY_ARGS)

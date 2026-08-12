@@ -769,7 +769,7 @@ PY
     if not isinstance(runtime_secrets, dict) or runtime_secrets.get("ok") is not True:
         add_issue(
             "runtime_secrets",
-            "Airflow host Secret files are missing, have unsafe metadata, or legacy files remain",
+            "Airflow host Secret files are missing or have unsafe metadata",
             "repair the root-owned Secret directory through the protected deployment workflow",
         )
     if unhealthy_services:

@@ -70,9 +70,12 @@ preserve evidence before changing either cache.
 
 ## Phone Reboot Failure
 
-Validate the `APPIUM_SERVER_LIST` shape by field names only, then inspect remote
-SSH reachability and `adb devices` state. The DAG must never fall back to an
-unrelated device when multiple devices are online.
+Run `make phone-diagnose` first. It reports the latest failed task and filtered,
+redacted error signatures through the protected GitHub production Environment;
+it does not read Variable values, execute ADB, or reboot the device. Then
+validate the `APPIUM_SERVER_LIST` shape by field names only and inspect the
+identified SSH or ADB boundary. The DAG must never fall back to an unrelated
+device when multiple devices are online.
 
 Every resolved incident should add a regression test or update this runbook,
 the component manifest, or an ADR.

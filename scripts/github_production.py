@@ -85,7 +85,13 @@ def main() -> None:
     if args.component == "sender" and operation == "deploy":
         operation = "apply" if args.apply else "dry_run"
     allowed = {
-        "airflow": {"health", "deploy_preflight", "deploy_apply", "db_cleanup_check"},
+        "airflow": {
+            "health",
+            "deploy_preflight",
+            "deploy_apply",
+            "db_cleanup_check",
+            "phone_diagnose",
+        },
         "sender": {"health", "dry_run", "apply"},
     }
     if operation not in allowed[args.component]:

@@ -17,6 +17,7 @@ import _ops  # noqa: E402
 import airflow_db_cleanup  # noqa: E402
 import deploy_airflow  # noqa: E402
 import deploy_wechat_sender  # noqa: E402
+import diagnose_zacks_phone  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
@@ -26,6 +27,7 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
     def test_remote_operations_require_public_key_authentication(self):
         for script_name in (
             "airflow_db_cleanup.py",
+            "diagnose_zacks_phone.py",
             "deploy_airflow.py",
             "deploy_wechat_sender.py",
             "production_health.py",
@@ -408,6 +410,31 @@ class ProductionHealthParsingTest(unittest.TestCase):
         self.assertEqual(recent, {})
         self.assertEqual(historical, {})
         self.assertEqual(set(malformed), {"BROKEN"})
+
+
+class PhoneDiagnosticTest(unittest.TestCase):
+    def test_diagnostic_is_read_only_and_scoped_to_zacks_reboot(self):
+        script = diagnose_zacks_phone.remote_script()
+
+        self.assertIn('DAG_ID = "zacks_phone_daily_reboot"', script)
+        self.assertIn('"read_only": True', script)
+        self.assertIn("error_signatures", script)
+        self.assertNotIn("Variable.get", script)
+        self.assertNotIn("adb ", script)
+        self.assertNotIn("reboot_device", script)
+
+    def test_diagnostic_parses_only_structured_result(self):
+        payload = diagnose_zacks_phone.parse_remote_result(
+            'command output\n{"ok": true, "read_only": true}\n'
+        )
+
+        self.assertEqual(payload, {"ok": True, "read_only": True})
+
+    def test_embedded_diagnostic_python_is_valid(self):
+        script = diagnose_zacks_phone.remote_script()
+        python_source = script.split("python - <<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
+
+        compile(python_source, "diagnose_zacks_phone_remote.py", "exec")
 
 
 class FreshStartConfigurationTest(unittest.TestCase):
