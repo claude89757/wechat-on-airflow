@@ -1,5 +1,30 @@
 # Production Baseline
 
+## Platform-Native Production Secrets
+
+On 2026-08-12 production operations moved from workstation-held credentials to
+the protected GitHub `production` Environment. GitHub Actions now authenticates
+to the Airflow and Android hosts with separate scoped Ed25519 deployment
+identities and pinned host keys. Runtime values remain at their owning service:
+Airflow Variables, Cloudflare Worker Secrets, root-owned Compose Secret source
+files, and systemd credentials. GitHub stores deployment access, not copies of
+application runtime secrets.
+
+Airflow infrastructure credentials were moved to
+`/etc/wechat-on-airflow/secrets`; the application services were rebuilt from
+commit `67693cfd5294a9b0b3286faefea6bcad7cdc785a` with all six application
+containers healthy and the original DAG pause state restored after four active
+tasks drained. The sender credentials were moved to
+`/etc/wechat-sender/credentials`; commit
+`cb6e36b0544a3417b7c2d10febd4c669e95b658e` completed the sender deployment
+with its service enabled, active, and ready. No real notification was sent.
+
+After the cutover, the one-time parsers and migration branches were removed.
+Normal production deployment now fails closed unless the declared Secret and
+credential files already exist with their contracted ownership and modes. The
+repository, developer workstation, active Airflow host checkout, and sender
+host no longer contain runtime environment files.
+
 ## Web-Only Subscriber Email
 
 On 2026-07-30 subscriber email ownership moved exclusively to the Cloudflare

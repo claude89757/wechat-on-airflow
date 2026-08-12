@@ -47,7 +47,6 @@ target_commit="$1"
 mode="$2"
 install_dir="$3"
 credential_dir="$4"
-legacy_file="/etc/wechat-sender.env"
 service_file="/etc/systemd/system/wechat-sender.service"
 venv_dir="/opt/wechat-sender-venv"
 
@@ -64,14 +63,13 @@ health() {
         ready=true
     fi
     python3 - "$current_commit" "$service_enabled" "$service_active" "$ready" \
-        "$credential_dir" "$legacy_file" <<'PY'
+        "$credential_dir" <<'PY'
 import json
 import stat
 import sys
 from pathlib import Path
 
 directory = Path(sys.argv[5])
-legacy_file = Path(sys.argv[6])
 expected_files = ("wechat_allowed_device_name", "wechat_appium_url")
 try:
     directory_stat = directory.stat()
@@ -79,6 +77,7 @@ try:
         directory.is_dir()
         and stat.S_IMODE(directory_stat.st_mode) == 0o700
         and directory_stat.st_uid == 0
+        and directory_stat.st_gid == 0
     )
 except OSError:
     directory_ready = False
@@ -91,7 +90,7 @@ for name in expected_files:
             "present": path.is_file(),
             "nonempty": path.is_file() and details.st_size > 0,
             "mode": stat.S_IMODE(details.st_mode),
-            "owned_by_root": details.st_uid == 0,
+            "owned_by_root": details.st_uid == 0 and details.st_gid == 0,
         }
     except OSError:
         files[name] = {
@@ -108,7 +107,6 @@ files_ready = all(
     for details in files.values()
 )
 credentials_ready = directory_ready and files_ready
-legacy_file_absent = not legacy_file.exists()
 
 print(json.dumps({
     "ok": (
@@ -116,7 +114,6 @@ print(json.dumps({
         and sys.argv[3] == "active"
         and sys.argv[4] == "true"
         and credentials_ready
-        and legacy_file_absent
     ),
     "commit": sys.argv[1] or None,
     "service_enabled": sys.argv[2] == "enabled",
@@ -126,7 +123,6 @@ print(json.dumps({
         "ready": credentials_ready,
         "directory_ready": directory_ready,
         "files": files,
-        "legacy_file_absent": legacy_file_absent,
     },
 }, sort_keys=True))
 PY
@@ -142,16 +138,11 @@ if [ -s "$credential_dir/wechat_allowed_device_name" ] && \
    [ -s "$credential_dir/wechat_appium_url" ]; then
     credentials_ready=true
 fi
-legacy_ready=false
-if [ -s "$legacy_file" ]; then
-    legacy_ready=true
-fi
-
 if [ "$mode" = "dry-run" ]; then
-    test "$credentials_ready" = true || test "$legacy_ready" = true
-    git -C "$install_dir" fetch --quiet origin
+    test "$credentials_ready" = true
+    git -C "$install_dir" fetch --quiet origin </dev/null
     git -C "$install_dir" cat-file -e "$target_commit^{commit}"
-    python3 - "$current_commit" "$target_commit" "$credentials_ready" "$legacy_ready" <<'PY'
+    python3 - "$current_commit" "$target_commit" <<'PY'
 import json
 import sys
 
@@ -160,8 +151,7 @@ print(json.dumps({
     "applied": False,
     "current_commit": sys.argv[1] or None,
     "target_commit": sys.argv[2],
-    "credentials_ready": sys.argv[3] == "true",
-    "legacy_migration_required": sys.argv[3] != "true" and sys.argv[4] == "true",
+    "credentials_ready": True,
 }, sort_keys=True))
 PY
     exit 0
@@ -169,39 +159,7 @@ fi
 
 test "$mode" = "apply"
 test "$(id -u)" = 0
-
-python3 - "$legacy_file" "$credential_dir" <<'PY'
-import os
-import sys
-from pathlib import Path
-
-legacy = Path(sys.argv[1])
-directory = Path(sys.argv[2])
-mapping = {
-    "WECHAT_ALLOWED_DEVICE_NAME": "wechat_allowed_device_name",
-    "WECHAT_APPIUM_URL": "wechat_appium_url",
-}
-values = {}
-if legacy.is_file():
-    for raw_line in legacy.read_text(encoding="utf-8").splitlines():
-        if "=" not in raw_line or raw_line.lstrip().startswith("#"):
-            continue
-        key, value = raw_line.split("=", 1)
-        values[key.strip()] = value.strip().strip("'\"")
-directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-directory.chmod(0o700)
-for legacy_name, filename in mapping.items():
-    destination = directory / filename
-    if destination.is_file() and destination.stat().st_size:
-        destination.chmod(0o600)
-        continue
-    value = values.get(legacy_name, "")
-    if not value:
-        raise SystemExit(f"missing sender credential: {legacy_name}")
-    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(value + "\n")
-PY
+test "$credentials_ready" = true
 
 unit_backup="$(mktemp)"
 if [ -f "$service_file" ]; then
@@ -244,13 +202,6 @@ git -C "$install_dir" checkout --quiet --detach "$target_commit"
 "$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit" </dev/null
 "$install_dir/scripts/install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null
 
-if [ -f "$legacy_file" ]; then
-    if command -v shred >/dev/null 2>&1; then
-        shred --remove --zero "$legacy_file"
-    else
-        rm -f "$legacy_file"
-    fi
-fi
 current_commit="$target_commit"
 rm -f "$unit_backup"
 trap - EXIT HUP INT TERM

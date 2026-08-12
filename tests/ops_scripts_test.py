@@ -170,25 +170,26 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("retired_dags_left_paused", script)
         self.assertIn('restore_dags "$restore_regex"', script)
 
-    def test_application_deploy_migrates_then_removes_legacy_environment_file(self):
+    def test_application_deploy_requires_file_secrets_without_exporting_values(self):
         script = deploy_airflow.remote_script()
 
-        self.assertIn("migrate_runtime_secrets", script)
-        self.assertIn("shred --remove --zero", script)
+        self.assertIn("validate_runtime_secrets", script)
+        self.assertIn("640:0:0", script)
+        self.assertNotIn("migrate_runtime_secrets", script)
+        self.assertNotIn("AIRFLOW_FERNET_KEY=", script)
         self.assertNotIn("rollback_env_file", script)
-        self.assertIn("destination.chmod(0o640)", script)
         self.assertIn("compose build --quiet airflow-api-server </dev/null", script)
 
 
 class WeChatSenderDeploymentTest(unittest.TestCase):
-    def test_sender_deploy_is_exact_commit_and_removes_legacy_file_after_success(self):
+    def test_sender_deploy_is_exact_commit_and_requires_systemd_credentials(self):
         script = deploy_wechat_sender.remote_script()
 
         self.assertIn('cat-file -e "$target_commit^{commit}"', script)
         self.assertIn("wechat_allowed_device_name", script)
-        self.assertIn("shred --remove --zero", script)
         self.assertIn("rollback", script)
-        self.assertIn('"legacy_file_absent": legacy_file_absent', script)
+        self.assertNotIn("wechat-sender.env", script)
+        self.assertNotIn("legacy_migration", script)
         self.assertIn(
             'install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null', script
         )
@@ -197,7 +198,6 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")
 
         self.assertIn('"runtime_secrets"', source)
-        self.assertIn('"legacy_files_absent"', source)
         self.assertNotIn("(directory / name).read_text", source)
         self.assertNotIn("(directory / name).read_bytes", source)
 

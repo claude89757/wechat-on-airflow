@@ -197,15 +197,14 @@ def main() -> None:
 set -eu
 cd "$1"
 printf '__RUNTIME_SECRETS__\n'
-python3 - "$1" "$2" <<'PY'
+python3 - "$2" <<'PY'
 import json
 import os
 import stat
 import sys
 from pathlib import Path
 
-repository = Path(sys.argv[1])
-directory = Path(sys.argv[2])
+directory = Path(sys.argv[1])
 expected_files = json.loads(__RUNTIME_SECRET_FILES_JSON__)
 
 
@@ -233,8 +232,6 @@ try:
 except OSError:
     directory_ready = False
 files = {name: metadata(directory / name) for name in expected_files}
-legacy_files = [repository / ".env", *repository.glob(".env.deploy-backup-*")]
-legacy_files_absent = not any(path.is_file() for path in legacy_files)
 files_ready = all(
     details["present"]
     and details["nonempty"]
@@ -245,10 +242,9 @@ files_ready = all(
 print(
     json.dumps(
         {
-            "ok": directory_ready and files_ready and legacy_files_absent,
+            "ok": directory_ready and files_ready,
             "directory_ready": directory_ready,
             "files": files,
-            "legacy_files_absent": legacy_files_absent,
         },
         sort_keys=True,
     )

@@ -103,68 +103,31 @@ current_commit="$(git rev-parse HEAD)"
 current_image="wechat-on-airflow:${{airflow_version}}-$(printf '%s' "$current_commit" | cut -c1-7)"
 active_image="$current_image"
 
-secret_value() {{
-    filename="$1"
-    legacy_name="$2"
-    if [ -s "$secret_dir/$filename" ]; then
-        cat "$secret_dir/$filename"
-        return
-    fi
-    python3 - "$repo_path/.env" "$legacy_name" <<'PY'
-import shlex
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-name = sys.argv[2]
-if not path.is_file():
-    raise SystemExit(1)
-for raw_line in path.read_text(encoding="utf-8").splitlines():
-    line = raw_line.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    key, value = line.split("=", 1)
-    if key.strip() != name:
-        continue
-    value = value.strip()
-    if value and value[0] in {{"'", '"'}}:
-        parsed = shlex.split(value)
-        value = parsed[0] if parsed else ""
-    if not value:
-        raise SystemExit(1)
-    print(value)
-    raise SystemExit(0)
-raise SystemExit(1)
-PY
+validate_runtime_secrets() {{
+    test "$(stat -c '%a:%u:%g' "$secret_dir")" = "750:0:0"
+    for filename in \
+        airflow_fernet_key \
+        airflow_api_secret_key \
+        airflow_jwt_secret \
+        airflow_database_password \
+        airflow_admin_password; do
+        test -s "$secret_dir/$filename"
+        test "$(stat -c '%a:%u:%g' "$secret_dir/$filename")" = "640:0:0"
+    done
 }}
 
 compose() {{
-    airflow_fernet_key="$(secret_value airflow_fernet_key AIRFLOW_FERNET_KEY)"
-    airflow_api_secret_key="$(secret_value airflow_api_secret_key AIRFLOW_API_SECRET_KEY)"
-    airflow_jwt_secret="$(secret_value airflow_jwt_secret AIRFLOW_JWT_SECRET)"
-    airflow_database_password="$(secret_value airflow_database_password AIRFLOW_DATABASE_PASSWORD)"
-    airflow_admin_password="$(secret_value airflow_admin_password AIRFLOW_PASSWORD)"
     if docker compose version >/dev/null 2>&1; then
         AIRFLOW_IMAGE_NAME="$active_image" \
         AIRFLOW_BASE_URL="$base_url" \
         AIRFLOW_EXECUTION_API_SERVER_URL="$execution_api_url" \
         AIRFLOW_SECRET_DIR="$secret_dir" \
-        AIRFLOW_FERNET_KEY="$airflow_fernet_key" \
-        AIRFLOW_API_SECRET_KEY="$airflow_api_secret_key" \
-        AIRFLOW_JWT_SECRET="$airflow_jwt_secret" \
-        AIRFLOW_DATABASE_PASSWORD="$airflow_database_password" \
-        AIRFLOW_PASSWORD="$airflow_admin_password" \
         docker compose "$@"
     elif command -v docker-compose >/dev/null 2>&1; then
         AIRFLOW_IMAGE_NAME="$active_image" \
         AIRFLOW_BASE_URL="$base_url" \
         AIRFLOW_EXECUTION_API_SERVER_URL="$execution_api_url" \
         AIRFLOW_SECRET_DIR="$secret_dir" \
-        AIRFLOW_FERNET_KEY="$airflow_fernet_key" \
-        AIRFLOW_API_SECRET_KEY="$airflow_api_secret_key" \
-        AIRFLOW_JWT_SECRET="$airflow_jwt_secret" \
-        AIRFLOW_DATABASE_PASSWORD="$airflow_database_password" \
-        AIRFLOW_PASSWORD="$airflow_admin_password" \
         docker-compose "$@"
     else
         printf 'docker compose is unavailable\\n' >&2
@@ -173,6 +136,7 @@ compose() {{
 }}
 
 test -z "$(git status --porcelain --untracked-files=no)"
+validate_runtime_secrets
 compose config --quiet </dev/null
 api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
 test -n "$api_service"
@@ -357,54 +321,6 @@ while [ "$(active_task_count)" -ne 0 ]; do
     sleep 5
 done
 
-migrate_runtime_secrets() {{
-    python3 - "$repo_path/.env" "$secret_dir" <<'PY'
-import os
-import shlex
-import sys
-from pathlib import Path
-
-legacy_path = Path(sys.argv[1])
-secret_dir = Path(sys.argv[2])
-mapping = {{
-    "AIRFLOW_FERNET_KEY": "airflow_fernet_key",
-    "AIRFLOW_API_SECRET_KEY": "airflow_api_secret_key",
-    "AIRFLOW_JWT_SECRET": "airflow_jwt_secret",
-    "AIRFLOW_DATABASE_PASSWORD": "airflow_database_password",
-    "AIRFLOW_PASSWORD": "airflow_admin_password",
-}}
-values = {{}}
-if legacy_path.is_file():
-    for raw_line in legacy_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if value and value[0] in {{"'", '"'}}:
-            parsed = shlex.split(value)
-            value = parsed[0] if parsed else ""
-        values[key] = value
-
-secret_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
-secret_dir.chmod(0o750)
-for legacy_name, filename in mapping.items():
-    destination = secret_dir / filename
-    if destination.is_file() and destination.stat().st_size:
-        destination.chmod(0o640)
-        continue
-    value = values.get(legacy_name, "")
-    if not value:
-        raise SystemExit(f"missing runtime secret: {{legacy_name}}")
-    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(value)
-        handle.write("\\n")
-PY
-}}
-
-migrate_runtime_secrets
 git checkout --quiet --detach "$target_commit"
 active_image="$target_image"
 
@@ -446,15 +362,6 @@ api_service="$(compose ps --services --status running | awk '/^airflow-api-serve
 test -n "$api_service"
 restore_dags "$restore_regex"
 rm -f "$dag_state_file"
-for legacy_env in .env .env.deploy-backup-*; do
-    if [ -f "$legacy_env" ]; then
-        if command -v shred >/dev/null 2>&1; then
-            shred --remove --zero "$legacy_env"
-        else
-            rm -f "$legacy_env"
-        fi
-    fi
-done
 trap - EXIT HUP INT TERM
 python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$current_image" "$initial_active_tasks" "$retired_dag_count" <<'PY'
 import json
