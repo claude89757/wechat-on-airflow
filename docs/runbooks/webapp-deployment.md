@@ -46,7 +46,7 @@ Set them with Wrangler secret commands. The Airflow
 ## Verify
 
 - `/api/healthz` returns `ok: true`.
-- `/api/bootstrap` returns five venues and no email addresses.
+- `/api/bootstrap` returns six venues and no email addresses.
 - An unauthenticated observation write returns HTTP 401.
 - Natural venue DAG runs publish fresh inspection timestamps.
 - Browser layout and the create-subscription flow pass mobile visual checks.

@@ -1,5 +1,6 @@
 export const VENUES = {
   szw: "深圳湾",
+  gba: "大湾区网球场",
   sysh: "上越沙河",
   tops: "TOPS 科技园",
   tyzx: "深圳市体育中心",

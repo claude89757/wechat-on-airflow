@@ -1,4 +1,4 @@
-export const VENUE_IDS = ["szw", "sysh", "tops", "tyzx", "jdwx"] as const;
+export const VENUE_IDS = ["szw", "gba", "sysh", "tops", "tyzx", "jdwx"] as const;
 
 export type VenueId = (typeof VENUE_IDS)[number];
 
@@ -53,8 +53,8 @@ export const FALLBACK_DASHBOARD: Dashboard = {
   metrics: {
     activeSubscriptions: 128,
     remindersToday: 6,
-    healthyVenues: 5,
-    totalVenues: 5,
+    healthyVenues: 6,
+    totalVenues: 6,
   },
   venues: [
     {
@@ -64,6 +64,14 @@ export const FALLBACK_DASHBOARD: Dashboard = {
       subscriberCount: 28,
       lastInspectionAt: "2026-07-29T10:41:40+08:00",
       lastNotificationAt: "2026-07-29T10:26:00+08:00",
+    },
+    {
+      id: "gba",
+      name: "大湾区网球场",
+      healthy: true,
+      subscriberCount: 0,
+      lastInspectionAt: "2026-07-29T10:41:34+08:00",
+      lastNotificationAt: null,
     },
     {
       id: "sysh",
@@ -108,7 +116,7 @@ export const EMPTY_DASHBOARD: Dashboard = {
     activeSubscriptions: 0,
     remindersToday: 0,
     healthyVenues: 0,
-    totalVenues: 5,
+    totalVenues: 6,
   },
   venues: FALLBACK_DASHBOARD.venues.map((venue) => ({
     ...venue,

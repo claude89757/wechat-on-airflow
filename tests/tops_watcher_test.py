@@ -165,7 +165,7 @@ class VenueDomainTest(unittest.TestCase):
             authorization,
         )
 
-    def test_szw_request_matches_current_mini_program_contract(self):
+    def test_crland_request_matches_current_mini_program_contract(self):
         authorization = make_szw_authorization(4_102_444_800)
         FakeVariable.values = {"SZW_API_AUTHORIZATION": authorization}
         captured = {}
@@ -201,7 +201,7 @@ class VenueDomainTest(unittest.TestCase):
         with (
             patch.object(
                 szw_watcher,
-                "create_szw_http_session",
+                "create_crland_http_session",
                 return_value=FakeSession(),
             ),
             patch.object(szw_watcher.time, "sleep"),
@@ -209,25 +209,28 @@ class VenueDomainTest(unittest.TestCase):
             result = szw_watcher.get_free_tennis_court_infos_for_szw(
                 "2026-08-10",
                 ["不使用代理"],
-                {"start_time": "08:30", "end_time": "22:30"},
+                {"start_time": "09:00", "end_time": "21:00"},
+                project_uuid=szw_watcher.GBA_PROJECT_UUID,
+                field_area_uuid=szw_watcher.GBA_FIELD_AREA_UUID,
+                court_name_prefix="大湾区",
             )
 
-        self.assertEqual(result, {"1号场": [["08:30", "22:30"]]})
+        self.assertEqual(result, {"大湾区1号场": [["09:00", "21:00"]]})
         self.assertEqual(captured["url"], szw_watcher.SZW_MATRIX_API_URL)
         self.assertEqual(
             captured["json"],
             {
-                "fieldAreaUuid": "b7f8a0770a4d11f198f45a68b1262c30",
+                "fieldAreaUuid": "cec42d973dee11f1b51c2273436a3e4e",
                 "reserveDate": "2026-08-10",
                 "enterpriseUuid": "",
                 "discountSpecUuid": "",
-                "projectUuid": "3a59e62a07f811f1bec0aeefcf2e061a",
+                "projectUuid": "0ddda9c33d4e11f1b51c2273436a3e4e",
             },
         )
         headers = captured["headers"]
         self.assertEqual(headers["appId"], "wx020209beec4251e0")
         self.assertEqual(headers["Authorization"], authorization)
-        self.assertEqual(headers["projectUuid"], "3a59e62a07f811f1bec0aeefcf2e061a")
+        self.assertEqual(headers["projectUuid"], "0ddda9c33d4e11f1b51c2273436a3e4e")
         self.assertEqual(
             headers["Referer"],
             "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
@@ -236,10 +239,10 @@ class VenueDomainTest(unittest.TestCase):
         self.assertIn("XWEB/25300", headers["User-Agent"])
 
     def test_szw_session_enables_legacy_tls_only_for_its_host(self):
-        session = szw_watcher.create_szw_http_session()
+        session = szw_watcher.create_crland_http_session()
         try:
             adapter = session.adapters[f"https://{szw_watcher.SZW_HOST}/"]
-            self.assertIsInstance(adapter, szw_watcher.SzwLegacyTlsAdapter)
+            self.assertIsInstance(adapter, szw_watcher.CrlandLegacyTlsAdapter)
             self.assertTrue(adapter.ssl_context.options & szw_watcher.SSL_OP_LEGACY_SERVER_CONNECT)
             self.assertIsNot(
                 session.adapters["https://"],
@@ -247,6 +250,110 @@ class VenueDomainTest(unittest.TestCase):
             )
         finally:
             session.close()
+
+    def test_crland_venues_merge_covered_courts_and_keep_gba_independent(self):
+        shenzhen_bay = szw_watcher.CRLAND_VENUES["szw"]
+        self.assertEqual(shenzhen_bay.venue_id, "szw")
+        self.assertEqual(len(shenzhen_bay.booking_areas), 2)
+        self.assertEqual(
+            shenzhen_bay.booking_areas[1].field_area_uuid,
+            "71abff5590af11f195a452a64e4c2bdc",
+        )
+        self.assertEqual(shenzhen_bay.booking_areas[1].court_name_prefix, "风雨场")
+        self.assertEqual(
+            (
+                shenzhen_bay.booking_areas[1].start_time,
+                shenzhen_bay.booking_areas[1].end_time,
+            ),
+            ("07:30", "22:30"),
+        )
+
+        greater_bay_area = szw_watcher.CRLAND_VENUES["gba"]
+        self.assertEqual(greater_bay_area.venue_id, "gba")
+        self.assertEqual(greater_bay_area.venue_name, "大湾区网球场")
+        self.assertEqual(
+            greater_bay_area.booking_areas[0].project_uuid,
+            "0ddda9c33d4e11f1b51c2273436a3e4e",
+        )
+        self.assertEqual(
+            greater_bay_area.booking_areas[0].field_area_uuid,
+            "cec42d973dee11f1b51c2273436a3e4e",
+        )
+
+    def test_szw_publishes_outdoor_and_covered_courts_as_one_observation(self):
+        class NoonDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 12, 12, 0, tzinfo=tz)
+
+        with (
+            patch.object(szw_watcher.datetime, "datetime", NoonDateTime),
+            patch.object(
+                szw_watcher,
+                "get_free_tennis_court_infos_for_szw",
+                side_effect=[
+                    {"1号场": [["09:00", "10:00"]]},
+                    {"风雨场网球1号": [["10:00", "11:00"]]},
+                ],
+            ) as get_courts,
+            patch.object(szw_watcher, "publish_venue_observation") as publish,
+        ):
+            szw_watcher.check_and_notify_for_day(0)
+
+        self.assertEqual(get_courts.call_count, 2)
+        self.assertEqual(
+            get_courts.call_args_list[1].kwargs["court_name_prefix"],
+            "风雨场",
+        )
+        publish.assert_called_once_with(
+            "szw",
+            "深圳湾",
+            [
+                {
+                    "date": "2026-08-12",
+                    "court_name": "1号场",
+                    "start_time": "09:00",
+                    "end_time": "10:00",
+                },
+                {
+                    "date": "2026-08-12",
+                    "court_name": "风雨场网球1号",
+                    "start_time": "10:00",
+                    "end_time": "11:00",
+                },
+            ],
+            healthy=True,
+            error=None,
+        )
+
+    def test_gba_publishes_an_independent_observation(self):
+        class NoonDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 12, 12, 0, tzinfo=tz)
+
+        with (
+            patch.object(szw_watcher.datetime, "datetime", NoonDateTime),
+            patch.object(
+                szw_watcher,
+                "get_free_tennis_court_infos_for_szw",
+                return_value={},
+            ) as get_courts,
+            patch.object(szw_watcher, "publish_venue_observation") as publish,
+        ):
+            szw_watcher.check_and_notify_for_day(0, venue_key="gba")
+
+        self.assertEqual(
+            get_courts.call_args.kwargs["project_uuid"],
+            "0ddda9c33d4e11f1b51c2273436a3e4e",
+        )
+        publish.assert_called_once_with(
+            "gba",
+            "大湾区网球场",
+            [],
+            healthy=True,
+            error=None,
+        )
 
     def test_szw_upstream_failure_is_published_and_fails_the_task(self):
         class NoonDateTime(datetime.datetime):

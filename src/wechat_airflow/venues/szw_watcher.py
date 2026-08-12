@@ -13,6 +13,7 @@ import json
 import re
 import ssl
 import time
+from dataclasses import dataclass
 
 import requests
 from airflow.sdk import Variable
@@ -31,11 +32,71 @@ SZW_HOST = "wlhmobile.crland.com.cn"
 SZW_APP_ID = "wx020209beec4251e0"
 SZW_PROJECT_UUID = "3a59e62a07f811f1bec0aeefcf2e061a"
 SZW_FIELD_AREA_UUID = "b7f8a0770a4d11f198f45a68b1262c30"
+SZW_COVERED_FIELD_AREA_UUID = "71abff5590af11f195a452a64e4c2bdc"
+GBA_PROJECT_UUID = "0ddda9c33d4e11f1b51c2273436a3e4e"
+GBA_FIELD_AREA_UUID = "cec42d973dee11f1b51c2273436a3e4e"
 SSL_OP_LEGACY_SERVER_CONNECT = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
 
 
-class SzwLegacyTlsAdapter(HTTPAdapter):
-    """Allow the Shenzhen Bay host's legacy TLS renegotiation only."""
+@dataclass(frozen=True)
+class CrlandBookingArea:
+    project_uuid: str
+    field_area_uuid: str
+    start_time: str
+    end_time: str
+    court_name_prefix: str = ""
+
+
+@dataclass(frozen=True)
+class CrlandVenue:
+    venue_id: str
+    venue_name: str
+    booking_areas: tuple[CrlandBookingArea, ...]
+    cache_key: str
+    dag_id: str
+
+
+CRLAND_VENUES = {
+    "szw": CrlandVenue(
+        venue_id="szw",
+        venue_name="深圳湾",
+        booking_areas=(
+            CrlandBookingArea(
+                project_uuid=SZW_PROJECT_UUID,
+                field_area_uuid=SZW_FIELD_AREA_UUID,
+                start_time="08:30",
+                end_time="22:30",
+            ),
+            CrlandBookingArea(
+                project_uuid=SZW_PROJECT_UUID,
+                field_area_uuid=SZW_COVERED_FIELD_AREA_UUID,
+                start_time="07:30",
+                end_time="22:30",
+                court_name_prefix="风雨场",
+            ),
+        ),
+        cache_key="深圳湾网球场",
+        dag_id="深圳湾网球场巡检",
+    ),
+    "gba": CrlandVenue(
+        venue_id="gba",
+        venue_name="大湾区网球场",
+        booking_areas=(
+            CrlandBookingArea(
+                project_uuid=GBA_PROJECT_UUID,
+                field_area_uuid=GBA_FIELD_AREA_UUID,
+                start_time="09:00",
+                end_time="21:00",
+            ),
+        ),
+        cache_key="大湾区网球场",
+        dag_id="大湾区网球场巡检",
+    ),
+}
+
+
+class CrlandLegacyTlsAdapter(HTTPAdapter):
+    """Allow the CRLand host's legacy TLS renegotiation only."""
 
     def __init__(self) -> None:
         self.ssl_context = create_urllib3_context()
@@ -47,9 +108,9 @@ class SzwLegacyTlsAdapter(HTTPAdapter):
         return super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
 
 
-def create_szw_http_session() -> requests.Session:
+def create_crland_http_session() -> requests.Session:
     session = requests.Session()
-    session.mount(f"https://{SZW_HOST}/", SzwLegacyTlsAdapter())
+    session.mount(f"https://{SZW_HOST}/", CrlandLegacyTlsAdapter())
     return session
 
 
@@ -111,7 +172,7 @@ def extract_time_hhmm(time_value: str) -> str:
 
 
 def validate_szw_authorization(authorization: str, *, now: float | None = None) -> str:
-    """校验 Airflow Variable 中的完整 Wechat JWT，不记录令牌内容。"""
+    """校验并规范化 Airflow Variable 中的 Wechat JWT，不记录令牌内容。"""
     authorization = authorization.strip()
     if not authorization:
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 未配置")
@@ -152,7 +213,15 @@ def validate_szw_authorization(authorization: str, *, now: float | None = None) 
     return f"Wechat {token}"
 
 
-def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:
+def get_free_tennis_court_infos_for_szw(
+    date: str,
+    proxy_list: list,
+    time_range: dict,
+    *,
+    project_uuid: str = SZW_PROJECT_UUID,
+    field_area_uuid: str = SZW_FIELD_AREA_UUID,
+    court_name_prefix: str = "",
+) -> dict:
     """
     获取可预订的场地信息
     Args:
@@ -170,20 +239,20 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     response_data = None
     last_error = None
 
-    with create_szw_http_session() as session:
+    with create_crland_http_session() as session:
         for proxy in proxy_list:
             payload = {
-                "fieldAreaUuid": SZW_FIELD_AREA_UUID,
+                "fieldAreaUuid": field_area_uuid,
                 "reserveDate": date,
                 "enterpriseUuid": "",
                 "discountSpecUuid": "",
-                "projectUuid": SZW_PROJECT_UUID,
+                "projectUuid": project_uuid,
             }
             headers = {
                 "Host": SZW_HOST,
                 "appId": SZW_APP_ID,
                 "Authorization": szw_authorization,
-                "projectUuid": SZW_PROJECT_UUID,
+                "projectUuid": project_uuid,
                 "xweb_xhr": "1",
                 "Content-Type": "application/json",
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -240,7 +309,8 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     if got_response and response_data:
         result = response_data["result"]
         venue_name_infos = {
-            venue["fieldUuid"]: venue["fieldName"] for venue in result.get("fieldList", [])
+            venue["fieldUuid"]: f"{court_name_prefix}{venue['fieldName']}"
+            for venue in result.get("fieldList", [])
         }
         print(venue_name_infos)
 
@@ -272,15 +342,19 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
         raise Exception(f"all attempts failed: {last_error}")
 
 
-def check_and_notify_for_day(day_offset: int):
+def check_and_notify_for_day(day_offset: int, venue_key: str = "szw"):
     """检查指定天数后的网球场可用情况并发送通知
 
     Args:
         day_offset: 相对于今天的偏移天数（0表示今天，1表示明天，以此类推）
     """
+    venue = CRLAND_VENUES.get(venue_key)
+    if venue is None:
+        raise ValueError(f"未知华润场地配置: {venue_key}")
+
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
         print(f"Day {day_offset}: 每天0点-8点不巡检")
-        publish_venue_observation("szw", "深圳湾", [], healthy=True)
+        publish_venue_observation(venue.venue_id, venue.venue_name, [], healthy=True)
         return
 
     run_start_time = time.time()
@@ -296,8 +370,23 @@ def check_and_notify_for_day(day_offset: int):
     webapp_error = None
     booking_error = None
     try:
-        time_range = {"start_time": "08:30", "end_time": "22:30"}
-        court_data = get_free_tennis_court_infos_for_szw(input_date, ["不使用代理"], time_range)
+        court_data = {}
+        for booking_area in venue.booking_areas:
+            area_data = get_free_tennis_court_infos_for_szw(
+                input_date,
+                ["不使用代理"],
+                {
+                    "start_time": booking_area.start_time,
+                    "end_time": booking_area.end_time,
+                },
+                project_uuid=booking_area.project_uuid,
+                field_area_uuid=booking_area.field_area_uuid,
+                court_name_prefix=booking_area.court_name_prefix,
+            )
+            duplicate_courts = court_data.keys() & area_data.keys()
+            if duplicate_courts:
+                raise ValueError(f"华润场地名称重复: {sorted(duplicate_courts)}")
+            court_data.update(area_data)
         print(f"{input_date} court_data: {court_data}")
         webapp_slots.extend(flatten_court_slots(input_date, court_data))
 
@@ -320,7 +409,7 @@ def check_and_notify_for_day(day_offset: int):
                     up_for_send_data_list.append(
                         {
                             "date": inform_date,
-                            "court_name": f"深圳湾{court_name}",
+                            "court_name": f"{venue.venue_name}{court_name}",
                             "free_slot_list": filtered_slots,
                         }
                     )
@@ -330,18 +419,20 @@ def check_and_notify_for_day(day_offset: int):
         booking_error = e
 
     publish_venue_observation(
-        "szw",
-        "深圳湾",
+        venue.venue_id,
+        venue.venue_name,
         webapp_slots,
         healthy=webapp_error is None,
         error=webapp_error,
     )
     if booking_error is not None:
-        raise AirflowFailException(f"深圳湾场地接口巡检失败: {webapp_error}") from booking_error
+        raise AirflowFailException(
+            f"{venue.venue_name}场地接口巡检失败: {webapp_error}"
+        ) from booking_error
 
     # 处理通知逻辑
     if up_for_send_data_list:
-        cache_key = "深圳湾网球场"
+        cache_key = venue.cache_key
         sended_msg_list = Variable.get(cache_key, deserialize_json=True, default=[])
         up_for_send_msg_list = []
         for data in up_for_send_data_list:
@@ -364,7 +455,7 @@ def check_and_notify_for_day(day_offset: int):
 
         if up_for_send_msg_list:
             sended_msg_list.extend(up_for_send_msg_list)
-            description = f"深圳湾网球场场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            description = f"{venue.venue_name}场地通知 - 最后更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             Variable.set(
                 key=cache_key,
                 value=sended_msg_list[-100:],
@@ -382,7 +473,7 @@ def check_and_notify_for_day(day_offset: int):
             send_wechat_text_to_chatrooms_best_effort(
                 chat_names_list,
                 all_in_one_msg,
-                source="深圳湾网球场巡检",
+                source=venue.dag_id,
             )
 
     run_end_time = time.time()

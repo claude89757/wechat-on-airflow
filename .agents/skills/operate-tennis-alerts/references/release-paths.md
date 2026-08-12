@@ -45,7 +45,7 @@ cd webapp && npm run cf:deploy
 Verify:
 
 - `/api/healthz` reports healthy;
-- unauthenticated `/api/bootstrap` exposes five venues and no email address;
+- unauthenticated `/api/bootstrap` exposes six venues and no email address;
 - unauthenticated observation writes return HTTP 401;
 - natural venue runs refresh inspection timestamps;
 - mobile subscription creation and keyboard behavior pass browser checks.

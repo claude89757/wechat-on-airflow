@@ -5,14 +5,20 @@
 Run `make test-dags`, then inspect the exact file and traceback. Reusable modules
 must remain outside `dags/`; do not fix imports by mutating `sys.path`.
 
-## Shenzhen Bay Inspection Failure
+## CRLand Inspection Failure
 
 If the Shenzhen Bay DAG runs quickly or appears successful while Web reports the
 venue as unhealthy, inspect all `day_0` through `day_3` task logs. An
 `UNSAFE_LEGACY_RENEGOTIATION_DISABLED` error means the upstream booking host
-still requires legacy TLS server renegotiation. The Shenzhen Bay client mounts
+still requires legacy TLS server renegotiation. The CRLand client mounts
 a compatibility SSL context only for `wlhmobile.crland.com.cn`; certificate
 verification remains enabled and the setting must not be applied globally.
+
+The Shenzhen Bay observation merges the outdoor and covered booking areas. A
+failure in either request must fail the task and publish one unhealthy `szw`
+observation; do not publish a partial result as healthy. The Greater Bay Area
+venue uses the same client and authorization but publishes its own `gba`
+observation from a separate DAG.
 
 If TLS succeeds but the API returns code `403` with a missing WeChat token
 message, the sensitive `SZW_API_AUTHORIZATION` Variable is no longer accepted.

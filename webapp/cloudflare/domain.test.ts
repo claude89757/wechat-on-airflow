@@ -35,6 +35,17 @@ describe("subscription domain", () => {
     ).toThrow("7–14");
   });
 
+  it("accepts Greater Bay Area subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["gba"],
+        startTime: "18:00",
+        endTime: "21:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["gba"]);
+  });
+
   it("matches overlapping slots but excludes touching boundaries", () => {
     const slot = validateSlotObservation({
       date: "2026-07-31",

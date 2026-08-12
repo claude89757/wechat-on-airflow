@@ -20,12 +20,14 @@ When adding a Variable:
 4. Configure production without logging the value.
 5. Run `make production-health` and verify only name-level completeness.
 
-## Shenzhen Bay Booking Authorization
+## CRLand Booking Authorization
 
-`SZW_API_AUTHORIZATION` stores the Shenzhen Bay booking API JWT. The canonical
-form includes the `Wechat ` prefix; the adapter also accepts the legacy raw JWT
-and adds the prefix in memory. Keep it only in Airflow Variables; never place it
-in source, documentation, shell history, or logs.
+`SZW_API_AUTHORIZATION` stores the shared CRLand booking API JWT used by the
+Shenzhen Bay outdoor area, Shenzhen Bay covered area, and Greater Bay Area
+venue. The canonical form includes the `Wechat ` prefix; the adapter also
+accepts the legacy raw JWT and adds the prefix in memory. Keep it only in
+Airflow Variables; never place it in source, documentation, shell history, or
+logs.
 
 The venue adapter validates the JWT structure and `exp` claim before each request. A missing,
 malformed, or expired value marks the Web observation unhealthy and fails the affected Airflow
@@ -34,7 +36,7 @@ requires replacing this Variable; it does not require a code deployment.
 
 ## Web Subscription Publisher
 
-All five venue DAGs require:
+All six venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in
