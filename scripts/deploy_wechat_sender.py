@@ -238,11 +238,11 @@ trap 'rollback 129' HUP
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
-git -C "$install_dir" fetch --force origin '+refs/heads/*:refs/remotes/origin/*'
+git -C "$install_dir" fetch --force origin '+refs/heads/*:refs/remotes/origin/*' </dev/null
 git -C "$install_dir" cat-file -e "$target_commit^{commit}"
 git -C "$install_dir" checkout --quiet --detach "$target_commit"
-"$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit"
-"$install_dir/scripts/install_wechat_sender.sh" --apply --target-commit "$target_commit"
+"$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit" </dev/null
+"$install_dir/scripts/install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null
 
 if [ -f "$legacy_file" ]; then
     if command -v shred >/dev/null 2>&1; then

@@ -177,6 +177,7 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("shred --remove --zero", script)
         self.assertNotIn("rollback_env_file", script)
         self.assertIn("destination.chmod(0o640)", script)
+        self.assertIn("compose build --quiet airflow-api-server </dev/null", script)
 
 
 class WeChatSenderDeploymentTest(unittest.TestCase):
@@ -188,6 +189,9 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         self.assertIn("shred --remove --zero", script)
         self.assertIn("rollback", script)
         self.assertIn('"legacy_file_absent": legacy_file_absent', script)
+        self.assertIn(
+            'install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null', script
+        )
 
     def test_production_health_reports_runtime_secret_metadata_without_values(self):
         source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")

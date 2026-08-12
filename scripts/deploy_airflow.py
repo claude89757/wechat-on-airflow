@@ -173,7 +173,7 @@ compose() {{
 }}
 
 test -z "$(git status --porcelain --untracked-files=no)"
-compose config --quiet
+compose config --quiet </dev/null
 api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
 test -n "$api_service"
 
@@ -223,7 +223,7 @@ PY
 fi
 
 test "$mode" = "apply"
-git fetch --quiet origin
+git fetch --quiet origin </dev/null
 git cat-file -e "$target_commit^{{commit}}"
 git merge-base --is-ancestor "$target_commit" origin/main
 
@@ -408,10 +408,10 @@ migrate_runtime_secrets
 git checkout --quiet --detach "$target_commit"
 active_image="$target_image"
 
-compose config --quiet
-compose build --quiet airflow-api-server >/dev/null
+compose config --quiet </dev/null
+compose build --quiet airflow-api-server </dev/null >/dev/null
 docker image inspect "$target_image" >/dev/null
-compose up -d --no-deps {services} >/dev/null
+compose up -d --no-deps {services} </dev/null >/dev/null
 
 deadline="$(( $(date +%s) + 300 ))"
 while :; do
