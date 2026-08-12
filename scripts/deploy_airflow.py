@@ -5,18 +5,16 @@ import argparse
 import base64
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 import yaml
 from _ops import (
     REPO_ROOT,
     OpsError,
+    airflow_remote,
     emit,
-    latest_successful_backup,
-    merged_env,
-    required_env,
     run,
+    ssh_command,
 )
 
 APPLICATION_SERVICES = (
@@ -51,31 +49,23 @@ def resolve_target_commit(revision: str) -> str:
     return commit
 
 
-def local_preflight(target_commit: str, backup_dir: Path) -> dict[str, Any]:
+def local_preflight(target_commit: str) -> dict[str, Any]:
     status = run(["git", "status", "--porcelain"]).stdout.strip()
-    upstream_result = run(
-        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-        check=False,
-    )
-    upstream = upstream_result.stdout.strip() if upstream_result.returncode == 0 else ""
-    pushed = bool(upstream) and (
+    run(["git", "fetch", "--quiet", "origin", "main"])
+    pushed = (
         run(
-            ["git", "merge-base", "--is-ancestor", target_commit, upstream],
+            ["git", "merge-base", "--is-ancestor", target_commit, "origin/main"],
             check=False,
         ).returncode
         == 0
     )
-    backup = latest_successful_backup(backup_dir)
     checks = {
         "clean_worktree": not status,
-        "has_upstream": bool(upstream),
         "target_commit_is_pushed": pushed,
-        "encrypted_database_backup": backup is not None,
     }
     return {
         "ok": all(checks.values()),
         "checks": checks,
-        "backup_file": str(backup) if backup else None,
     }
 
 
@@ -103,12 +93,78 @@ target_commit="$2"
 target_image="$3"
 mode="$4"
 target_dag_ids_b64="$5"
+airflow_version="$6"
+secret_dir="$7"
+base_url="$8"
+execution_api_url="$9"
 cd "$repo_path"
 
+current_commit="$(git rev-parse HEAD)"
+current_image="wechat-on-airflow:${{airflow_version}}-$(printf '%s' "$current_commit" | cut -c1-7)"
+active_image="$current_image"
+
+secret_value() {{
+    filename="$1"
+    legacy_name="$2"
+    if [ -s "$secret_dir/$filename" ]; then
+        cat "$secret_dir/$filename"
+        return
+    fi
+    python3 - "$repo_path/.env" "$legacy_name" <<'PY'
+import shlex
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+name = sys.argv[2]
+if not path.is_file():
+    raise SystemExit(1)
+for raw_line in path.read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    if key.strip() != name:
+        continue
+    value = value.strip()
+    if value and value[0] in {{"'", '"'}}:
+        parsed = shlex.split(value)
+        value = parsed[0] if parsed else ""
+    if not value:
+        raise SystemExit(1)
+    print(value)
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+}}
+
 compose() {{
+    airflow_fernet_key="$(secret_value airflow_fernet_key AIRFLOW_FERNET_KEY)"
+    airflow_api_secret_key="$(secret_value airflow_api_secret_key AIRFLOW_API_SECRET_KEY)"
+    airflow_jwt_secret="$(secret_value airflow_jwt_secret AIRFLOW_JWT_SECRET)"
+    airflow_database_password="$(secret_value airflow_database_password AIRFLOW_DATABASE_PASSWORD)"
+    airflow_admin_password="$(secret_value airflow_admin_password AIRFLOW_PASSWORD)"
     if docker compose version >/dev/null 2>&1; then
+        AIRFLOW_IMAGE_NAME="$active_image" \
+        AIRFLOW_BASE_URL="$base_url" \
+        AIRFLOW_EXECUTION_API_SERVER_URL="$execution_api_url" \
+        AIRFLOW_SECRET_DIR="$secret_dir" \
+        AIRFLOW_FERNET_KEY="$airflow_fernet_key" \
+        AIRFLOW_API_SECRET_KEY="$airflow_api_secret_key" \
+        AIRFLOW_JWT_SECRET="$airflow_jwt_secret" \
+        AIRFLOW_DATABASE_PASSWORD="$airflow_database_password" \
+        AIRFLOW_PASSWORD="$airflow_admin_password" \
         docker compose "$@"
     elif command -v docker-compose >/dev/null 2>&1; then
+        AIRFLOW_IMAGE_NAME="$active_image" \
+        AIRFLOW_BASE_URL="$base_url" \
+        AIRFLOW_EXECUTION_API_SERVER_URL="$execution_api_url" \
+        AIRFLOW_SECRET_DIR="$secret_dir" \
+        AIRFLOW_FERNET_KEY="$airflow_fernet_key" \
+        AIRFLOW_API_SECRET_KEY="$airflow_api_secret_key" \
+        AIRFLOW_JWT_SECRET="$airflow_jwt_secret" \
+        AIRFLOW_DATABASE_PASSWORD="$airflow_database_password" \
+        AIRFLOW_PASSWORD="$airflow_admin_password" \
         docker-compose "$@"
     else
         printf 'docker compose is unavailable\\n' >&2
@@ -116,7 +172,6 @@ compose() {{
     fi
 }}
 
-current_commit="$(git rev-parse HEAD)"
 test -z "$(git status --porcelain --untracked-files=no)"
 compose config --quiet
 api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{{print; exit}}')"
@@ -173,10 +228,7 @@ git cat-file -e "$target_commit^{{commit}}"
 git merge-base --is-ancestor "$target_commit" origin/main
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-env_backup=".env.deploy-backup-${{timestamp}}-${{current_commit}}"
 dag_state_file=".deploy-dag-state-${{timestamp}}"
-cp -p .env "$env_backup"
-chmod 600 "$env_backup"
 
 compose exec -T -e TARGET_DAG_IDS_B64="$target_dag_ids_b64" \
     "$api_service" python - >"$dag_state_file" <<'PY'
@@ -278,7 +330,7 @@ rollback() {{
     trap - EXIT HUP INT TERM
     if [ "$rc" -ne 0 ]; then
         git checkout --quiet --detach "$current_commit" || true
-        cp -p "$env_backup" .env || true
+        active_image="$current_image"
         compose up -d --no-deps {services} >/dev/null 2>&1 || true
         restore_dags "$pause_regex" || true
     fi
@@ -305,28 +357,56 @@ while [ "$(active_task_count)" -ne 0 ]; do
     sleep 5
 done
 
-git checkout --quiet --detach "$target_commit"
-python3 - .env "$target_image" <<'PY'
+migrate_runtime_secrets() {{
+    python3 - "$repo_path/.env" "$secret_dir" <<'PY'
+import os
+import shlex
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
-image = sys.argv[2]
-lines = path.read_text(encoding="utf-8").splitlines()
-replacement = f"AIRFLOW_IMAGE_NAME={{image}}"
-updated = []
-found = False
-for line in lines:
-    if line.startswith("AIRFLOW_IMAGE_NAME="):
-        updated.append(replacement)
-        found = True
-    else:
-        updated.append(line)
-if not found:
-    updated.append(replacement)
-path.write_text("\\n".join(updated) + "\\n", encoding="utf-8")
+legacy_path = Path(sys.argv[1])
+secret_dir = Path(sys.argv[2])
+mapping = {{
+    "AIRFLOW_FERNET_KEY": "airflow_fernet_key",
+    "AIRFLOW_API_SECRET_KEY": "airflow_api_secret_key",
+    "AIRFLOW_JWT_SECRET": "airflow_jwt_secret",
+    "AIRFLOW_DATABASE_PASSWORD": "airflow_database_password",
+    "AIRFLOW_PASSWORD": "airflow_admin_password",
+}}
+values = {{}}
+if legacy_path.is_file():
+    for raw_line in legacy_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if value and value[0] in {{"'", '"'}}:
+            parsed = shlex.split(value)
+            value = parsed[0] if parsed else ""
+        values[key] = value
+
+secret_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+secret_dir.chmod(0o700)
+for legacy_name, filename in mapping.items():
+    destination = secret_dir / filename
+    if destination.is_file() and destination.stat().st_size:
+        destination.chmod(0o600)
+        continue
+    value = values.get(legacy_name, "")
+    if not value:
+        raise SystemExit(f"missing runtime secret: {{legacy_name}}")
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(value)
+        handle.write("\\n")
 PY
-chmod 600 .env
+}}
+
+migrate_runtime_secrets
+git checkout --quiet --detach "$target_commit"
+active_image="$target_image"
 
 compose config --quiet
 compose build --quiet airflow-api-server >/dev/null
@@ -366,8 +446,17 @@ api_service="$(compose ps --services --status running | awk '/^airflow-api-serve
 test -n "$api_service"
 restore_dags "$restore_regex"
 rm -f "$dag_state_file"
+for legacy_env in .env .env.deploy-backup-*; do
+    if [ -f "$legacy_env" ]; then
+        if command -v shred >/dev/null 2>&1; then
+            shred --remove --zero "$legacy_env"
+        else
+            rm -f "$legacy_env"
+        fi
+    fi
+done
 trap - EXIT HUP INT TERM
-python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$env_backup" "$initial_active_tasks" "$retired_dag_count" <<'PY'
+python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$current_image" "$initial_active_tasks" "$retired_dag_count" <<'PY'
 import json
 import sys
 
@@ -378,7 +467,7 @@ print(json.dumps({{
     "current_commit": sys.argv[2],
     "target_image": sys.argv[3],
     "healthy_application_containers": int(sys.argv[4]),
-    "rollback_env_file": sys.argv[5],
+    "rollback_image": sys.argv[5],
     "drained_task_instances": int(sys.argv[6]),
     "retired_dags_left_paused": int(sys.argv[7]),
     "dag_pause_state_restored": True,
@@ -396,11 +485,6 @@ def main() -> None:
     mode.add_argument("--apply", action="store_true")
     parser.add_argument("--target-commit", default="HEAD")
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.add_argument(
-        "--backup-dir",
-        type=Path,
-        default=Path.home() / "airflow-production-backups",
-    )
     args = parser.parse_args()
 
     target_commit = resolve_target_commit(args.target_commit)
@@ -415,7 +499,7 @@ def main() -> None:
         (REPO_ROOT / "config" / "runtime-target.yaml").read_text(encoding="utf-8")
     )
     target_image = airflow_image_name(str(runtime_target["target"]["airflow"]), target_commit)
-    preflight = local_preflight(target_commit, args.backup_dir)
+    preflight = local_preflight(target_commit)
     if not preflight["ok"]:
         emit(
             {
@@ -429,35 +513,23 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    values = merged_env()
-    remote = required_env(values, ["SERVER_IP", "PORT", "USERNAME", "PASSWORD", "REMOTE_PATH"])
-    ssh_env = dict(values)
-    ssh_env["SSHPASS"] = remote["PASSWORD"]
+    remote = airflow_remote()
     command = [
-        "sshpass",
-        "-e",
-        "ssh",
-        "-o",
-        "PreferredAuthentications=keyboard-interactive,password",
-        "-o",
-        "PubkeyAuthentication=no",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        "ConnectTimeout=15",
-        "-p",
-        remote["PORT"],
-        f"{remote['USERNAME']}@{remote['SERVER_IP']}",
+        *ssh_command(remote),
         "bash",
         "-s",
         "--",
-        remote["REMOTE_PATH"],
+        remote["repository_path"],
         target_commit,
         target_image,
         "apply" if args.apply else "dry-run",
         target_dag_ids_b64,
+        str(runtime_target["target"]["airflow"]),
+        str(runtime_target["target"]["production_secret_directory"]),
+        str(runtime_target["managed_services"]["cloudflare_tunnel"]["public_base_url"]),
+        str(runtime_target["target"]["execution_api_server_url"]),
     ]
-    result = run(command, env=ssh_env, check=False, input_text=remote_script())
+    result = run(command, check=False, input_text=remote_script())
     if result.returncode:
         detail = result.stderr.strip().splitlines()
         message = detail[-1] if detail else "remote deployment command failed"

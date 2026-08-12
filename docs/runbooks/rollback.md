@@ -4,7 +4,8 @@
 
 1. Stop affected application services.
 2. Check out the previously recorded pushed Airflow 3 commit.
-3. Resolve and validate its Compose configuration.
+3. Resolve and validate its Compose configuration using the host Secret
+   directory and the previously recorded image.
 4. Load or build its pinned image.
 5. Start the affected services.
 6. Run the production health check and compare with the pre-deploy record.
@@ -20,7 +21,8 @@ unchanged. No database restore or downgrade is required:
 2. Stop and remove Airflow 3 containers without deleting bind-mounted data.
 3. Preserve failed Airflow 3 logs, configuration counts, and health output.
 4. Check out the recorded Airflow 2 commit.
-5. Restore the mode-600 Airflow 2 environment file.
+5. Restore the encrypted Airflow 2 runtime credential bundle through its
+   separately approved legacy procedure.
 6. Validate that Compose resolves to the original database, Redis, and log paths.
 7. Start the Airflow 2 PostgreSQL and Redis services, then its application services.
 8. Verify Airflow version, active DAGs, configuration names, and service health.

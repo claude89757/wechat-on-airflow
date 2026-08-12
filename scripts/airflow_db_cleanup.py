@@ -9,11 +9,11 @@ from typing import Any
 
 from _ops import (
     OpsError,
+    airflow_remote,
     emit,
     latest_successful_backup,
-    merged_env,
-    required_env,
     run,
+    ssh_command,
 )
 
 DEFAULT_RETENTION_DAYS = 180
@@ -142,8 +142,7 @@ def main() -> None:
     )
     if args.apply and cutoff >= datetime.now(UTC):
         raise OpsError("confirmed deletion cutoff must be in the past")
-    values = merged_env()
-    remote = required_env(values, ["SERVER_IP", "PORT", "USERNAME", "PASSWORD", "REMOTE_PATH"])
+    remote = airflow_remote()
     commit = run(["git", "rev-parse", "HEAD"]).stdout.strip()
     status = run(["git", "status", "--porcelain"]).stdout.strip()
     upstream = run(
@@ -163,32 +162,17 @@ def main() -> None:
             "apply requires a clean pushed commit and a verified encrypted database backup"
         )
 
-    ssh_env = dict(values)
-    ssh_env["SSHPASS"] = remote["PASSWORD"]
     command = [
-        "sshpass",
-        "-e",
-        "ssh",
-        "-o",
-        "PreferredAuthentications=keyboard-interactive,password",
-        "-o",
-        "PubkeyAuthentication=no",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        "ConnectTimeout=15",
-        "-p",
-        remote["PORT"],
-        f"{remote['USERNAME']}@{remote['SERVER_IP']}",
+        *ssh_command(remote),
         "bash",
         "-s",
         "--",
-        remote["REMOTE_PATH"],
+        remote["repository_path"],
         commit,
         cutoff.isoformat(),
         "apply" if args.apply else "dry-run",
     ]
-    result = run(command, env=ssh_env, check=False, input_text=remote_script())
+    result = run(command, check=False, input_text=remote_script())
     if result.returncode:
         raise OpsError(result.stderr.strip() or "production cleanup command failed")
     remote_result = parse_remote_result(result.stdout)

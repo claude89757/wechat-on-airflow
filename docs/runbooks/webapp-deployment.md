@@ -14,8 +14,9 @@ make webapp-check
 cd webapp && npm run test:runtime
 ```
 
-Local Worker development uses an ignored `webapp/.dev.vars`. Never put
-production values in that file or source control.
+Local Worker tests use mocks and development-only values. Production Worker
+credentials stay in Cloudflare Worker Secrets and are not downloaded into the
+repository.
 
 ## Production Secrets
 

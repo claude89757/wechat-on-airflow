@@ -2,11 +2,12 @@ PYTHON ?= python3.12
 VENV ?= .venv
 BIN := $(VENV)/bin
 COMPOSE_BIN ?= $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif docker-compose version >/dev/null 2>&1; then echo docker-compose; else echo "docker compose"; fi)
-COMPOSE := $(COMPOSE_BIN) --env-file .env.example
+LOCAL_SECRET_DIR := $(abspath .local/secrets)
+COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
 
-.PHONY: setup webapp-setup webapp-check format lint typecheck test test-dags compose-config sender-config \
+.PHONY: setup local-secrets webapp-setup webapp-check format lint typecheck test test-dags compose-config sender-config \
 	smoke verify deploy deploy-check production-health rollback-check db-cleanup-check \
-	image sender-image
+	image sender-image sender-deploy sender-health
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -16,6 +17,9 @@ setup:
 
 webapp-setup:
 	cd webapp && npm ci
+
+local-secrets:
+	PYTHONPATH=scripts $(BIN)/python scripts/prepare_local_secrets.py
 
 webapp-check:
 	cd webapp && npm test
@@ -41,12 +45,12 @@ test-dags: image
 	$(COMPOSE) run --rm --no-deps --entrypoint python airflow-cli \
 		/opt/airflow/project/scripts/check_dag_imports.py
 
-compose-config:
+compose-config: local-secrets
 	$(COMPOSE) config --quiet
-	$(COMPOSE_BIN) -f docker-compose.sender.yml --env-file .env.example config --quiet
+	$(COMPOSE_BIN) -f docker-compose.sender.yml config --quiet
 
 sender-config:
-	$(COMPOSE_BIN) -f docker-compose.sender.yml --env-file .env.example config --quiet
+	$(COMPOSE_BIN) -f docker-compose.sender.yml config --quiet
 
 smoke:
 	PYTHONPATH=src $(BIN)/python scripts/check_active_components.py
@@ -54,22 +58,28 @@ smoke:
 verify: lint typecheck test webapp-check compose-config smoke test-dags
 
 deploy:
-	PYTHONPATH=src $(BIN)/python scripts/deploy_airflow.py $(DEPLOY_ARGS)
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow deploy $(DEPLOY_ARGS)
 
-deploy-check:
+deploy-check: local-secrets
 	PYTHONPATH=src $(BIN)/python scripts/deploy_check.py --dry-run
 
 production-health:
-	PYTHONPATH=src $(BIN)/python scripts/production_health.py --format json
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow health
 
-rollback-check:
+rollback-check: local-secrets
 	PYTHONPATH=src $(BIN)/python scripts/rollback_check.py --dry-run
 
 db-cleanup-check:
-	PYTHONPATH=src $(BIN)/python scripts/airflow_db_cleanup.py --format json
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow db_cleanup_check
 
-image:
+sender-deploy:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py sender deploy $(DEPLOY_ARGS)
+
+sender-health:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py sender health
+
+image: local-secrets
 	$(COMPOSE) build airflow-cli
 
 sender-image:
-	$(COMPOSE_BIN) -f docker-compose.sender.yml --env-file .env.example build
+	$(COMPOSE_BIN) -f docker-compose.sender.yml build

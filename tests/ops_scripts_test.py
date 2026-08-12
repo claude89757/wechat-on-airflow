@@ -16,24 +16,27 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import _ops  # noqa: E402
 import airflow_db_cleanup  # noqa: E402
 import deploy_airflow  # noqa: E402
+import deploy_wechat_sender  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
 
 
 class RemoteSshAuthenticationContractTest(unittest.TestCase):
-    def test_remote_operations_accept_keyboard_interactive_password_auth(self):
+    def test_remote_operations_require_public_key_authentication(self):
         for script_name in (
             "airflow_db_cleanup.py",
             "deploy_airflow.py",
+            "deploy_wechat_sender.py",
             "production_health.py",
         ):
             source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
-            self.assertIn(
-                '"PreferredAuthentications=keyboard-interactive,password"',
-                source,
-                script_name,
-            )
+            self.assertNotIn("sshpass", source, script_name)
+            self.assertNotIn('remote["PASSWORD"]', source, script_name)
+
+        command = _ops.ssh_command({"host": "host", "port": "22", "username": "deploy"})
+        self.assertIn("PreferredAuthentications=publickey", command)
+        self.assertIn("PasswordAuthentication=no", command)
 
 
 class WeChatSenderServiceContractTest(unittest.TestCase):
@@ -41,7 +44,9 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         unit = (ROOT / "deploy/systemd/wechat-sender.service").read_text(encoding="utf-8")
 
         self.assertIn("User=wechat-sender", unit)
-        self.assertIn("EnvironmentFile=/etc/wechat-sender.env", unit)
+        self.assertIn("LoadCredential=wechat_allowed_device_name:", unit)
+        self.assertIn("LoadCredential=wechat_appium_url:", unit)
+        self.assertNotIn("EnvironmentFile=", unit)
         self.assertIn(
             "ExecStart=/opt/wechat-sender-venv/bin/python -m uvicorn ",
             unit,
@@ -84,14 +89,16 @@ class DockerComposeCommandTest(unittest.TestCase):
         self.assertIn("--proxy-headers", api_server["command"])
         self.assertEqual(api_server["ports"], ["127.0.0.1:8080:8080"])
 
-    def test_example_urls_use_matching_root_paths(self):
-        env_lines = set((ROOT / ".env.example").read_text(encoding="utf-8").splitlines())
+    def test_runtime_uses_file_backed_secrets(self):
+        compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+        environment = compose["x-airflow-env"]
 
-        self.assertIn("AIRFLOW_BASE_URL=http://localhost:8080", env_lines)
-        self.assertIn(
-            "AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/execution/",
-            env_lines,
-        )
+        self.assertIn("AIRFLOW__CORE__FERNET_KEY_CMD", environment)
+        self.assertIn("AIRFLOW__DATABASE__SQL_ALCHEMY_CONN_CMD", environment)
+        self.assertIn("read_runtime_secret.py", environment["AIRFLOW__CORE__FERNET_KEY_CMD"])
+        self.assertNotIn("AIRFLOW__CORE__FERNET_KEY", environment)
+        self.assertEqual(len(compose["secrets"]), 5)
+        self.assertFalse((ROOT / ".env.example").exists())
 
     @patch("_ops.subprocess.run")
     @patch("_ops.shutil.which")
@@ -159,6 +166,32 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("target_dag_ids_b64", script)
         self.assertIn("retired_dags_left_paused", script)
         self.assertIn('restore_dags "$restore_regex"', script)
+
+    def test_application_deploy_migrates_then_removes_legacy_environment_file(self):
+        script = deploy_airflow.remote_script()
+
+        self.assertIn("migrate_runtime_secrets", script)
+        self.assertIn("shred --remove --zero", script)
+        self.assertNotIn("rollback_env_file", script)
+
+
+class WeChatSenderDeploymentTest(unittest.TestCase):
+    def test_sender_deploy_is_exact_commit_and_removes_legacy_file_after_success(self):
+        script = deploy_wechat_sender.remote_script()
+
+        self.assertIn('cat-file -e "$target_commit^{commit}"', script)
+        self.assertIn("wechat_allowed_device_name", script)
+        self.assertIn("shred --remove --zero", script)
+        self.assertIn("rollback", script)
+        self.assertIn('"legacy_file_absent": legacy_file_absent', script)
+
+    def test_production_health_reports_runtime_secret_metadata_without_values(self):
+        source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")
+
+        self.assertIn('"runtime_secrets"', source)
+        self.assertIn('"legacy_files_absent"', source)
+        self.assertNotIn("(directory / name).read_text", source)
+        self.assertNotIn("(directory / name).read_bytes", source)
 
 
 class AirflowDatabaseCleanupTest(unittest.TestCase):

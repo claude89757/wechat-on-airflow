@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,35 +12,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 class OpsError(RuntimeError):
     pass
-
-
-def load_env(path: Path | None = None) -> dict[str, str]:
-    env_path = path or REPO_ROOT / ".env"
-    values: dict[str, str] = {}
-    if not env_path.exists():
-        return values
-
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if value and value[0] in {"'", '"'}:
-            try:
-                parsed = shlex.split(value)
-            except ValueError as exc:
-                raise OpsError(f"invalid quoted value for {key} in {env_path}") from exc
-            value = parsed[0] if parsed else ""
-        values[key] = value
-    return values
-
-
-def merged_env(path: Path | None = None) -> dict[str, str]:
-    values = load_env(path)
-    values.update(os.environ)
-    return values
 
 
 def run(
@@ -85,6 +55,55 @@ def required_env(values: dict[str, str], names: list[str]) -> dict[str, str]:
     if missing:
         raise OpsError(f"missing required environment keys: {', '.join(missing)}")
     return {name: values[name] for name in names}
+
+
+def airflow_remote() -> dict[str, str]:
+    values = required_env(
+        dict(os.environ),
+        [
+            "AIRFLOW_SSH_HOST",
+            "AIRFLOW_SSH_PORT",
+            "AIRFLOW_SSH_USER",
+            "AIRFLOW_REPOSITORY_PATH",
+        ],
+    )
+    return {
+        "host": values["AIRFLOW_SSH_HOST"],
+        "port": values["AIRFLOW_SSH_PORT"],
+        "username": values["AIRFLOW_SSH_USER"],
+        "repository_path": values["AIRFLOW_REPOSITORY_PATH"],
+    }
+
+
+def sender_remote() -> dict[str, str]:
+    values = required_env(
+        dict(os.environ),
+        ["WECHAT_SENDER_SSH_HOST", "WECHAT_SENDER_SSH_PORT", "WECHAT_SENDER_SSH_USER"],
+    )
+    return {
+        "host": values["WECHAT_SENDER_SSH_HOST"],
+        "port": values["WECHAT_SENDER_SSH_PORT"],
+        "username": values["WECHAT_SENDER_SSH_USER"],
+    }
+
+
+def ssh_command(remote: dict[str, str]) -> list[str]:
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "PreferredAuthentications=publickey",
+        "-o",
+        "PasswordAuthentication=no",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "ConnectTimeout=15",
+        "-p",
+        remote["port"],
+        f"{remote['username']}@{remote['host']}",
+    ]
 
 
 def docker_compose_command() -> list[str]:

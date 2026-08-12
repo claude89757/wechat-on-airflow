@@ -35,15 +35,17 @@ exposure is an operational decision; do not expose the Appium port itself.
 
 Production runs the service directly on the Android device host under systemd.
 It does not run on the Airflow host or depend on the Airflow containers. Store
-the two runtime settings in `/etc/wechat-sender.env`, owned by root with mode
-`600`:
+the two runtime settings as root-owned systemd credential source files:
 
 ```bash
-WECHAT_ALLOWED_DEVICE_NAME=<adb-serial>
-WECHAT_APPIUM_URL=http://127.0.0.1:6002
+install -d -o root -g root -m 700 /etc/wechat-sender/credentials
+install -o root -g root -m 600 /secure/input/device \
+  /etc/wechat-sender/credentials/wechat_allowed_device_name
+install -o root -g root -m 600 /secure/input/appium-url \
+  /etc/wechat-sender/credentials/wechat_appium_url
 ```
 
-`WECHAT_ALLOWED_DEVICE_NAME` is the exact serial reported by `adb devices`, not
+The device credential is the exact serial reported by `adb devices`, not
 the marketing model name. The same value must be used by
 `WECHAT_SEND_DEVICE_NAME` and the Zacks entry in `APPIUM_SERVER_LIST`.
 

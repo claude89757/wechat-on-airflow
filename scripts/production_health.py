@@ -7,10 +7,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import yaml
-from _ops import REPO_ROOT, OpsError, emit, merged_env, required_env, run
+from _ops import REPO_ROOT, OpsError, airflow_remote, emit, run, ssh_command
 
 MARKERS = (
     "commit",
+    "runtime_secrets",
     "compose",
     "airflow_version",
     "execution_api",
@@ -144,8 +145,7 @@ def main() -> None:
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
 
-    values = merged_env()
-    remote = required_env(values, ["SERVER_IP", "PORT", "USERNAME", "PASSWORD", "REMOTE_PATH"])
+    remote = airflow_remote()
     manifest = yaml.safe_load(
         (REPO_ROOT / "config" / "active-components.yaml").read_text(encoding="utf-8")
     )
@@ -190,10 +190,69 @@ def main() -> None:
     tunnel_public_base_url = str(tunnel_target["public_base_url"]).rstrip("/")
     tunnel_origin_base_url = str(tunnel_target["origin_base_url"]).rstrip("/")
     tunnel_health_path = str(tunnel_target["health_path"])
+    runtime_secret_directory = str(runtime_target["target"]["production_secret_directory"])
+    runtime_secret_files = sorted(runtime_target["target"]["runtime_secrets"].values())
 
     remote_script = r"""
 set -eu
 cd "$1"
+printf '__RUNTIME_SECRETS__\n'
+python3 - "$1" "$2" <<'PY'
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+repository = Path(sys.argv[1])
+directory = Path(sys.argv[2])
+expected_files = json.loads(__RUNTIME_SECRET_FILES_JSON__)
+
+
+def metadata(path):
+    try:
+        details = path.stat()
+    except OSError:
+        return {"present": False, "nonempty": False, "mode": None, "owned_by_root": False}
+    return {
+        "present": path.is_file(),
+        "nonempty": path.is_file() and details.st_size > 0,
+        "mode": stat.S_IMODE(details.st_mode),
+        "owned_by_root": details.st_uid == 0,
+    }
+
+
+try:
+    directory_stat = directory.stat()
+    directory_ready = (
+        directory.is_dir()
+        and stat.S_IMODE(directory_stat.st_mode) == 0o700
+        and directory_stat.st_uid == 0
+    )
+except OSError:
+    directory_ready = False
+files = {name: metadata(directory / name) for name in expected_files}
+legacy_files = [repository / ".env", *repository.glob(".env.deploy-backup-*")]
+legacy_files_absent = not any(path.is_file() for path in legacy_files)
+files_ready = all(
+    details["present"]
+    and details["nonempty"]
+    and details["mode"] == 0o600
+    and details["owned_by_root"]
+    for details in files.values()
+)
+print(
+    json.dumps(
+        {
+            "ok": directory_ready and files_ready and legacy_files_absent,
+            "directory_ready": directory_ready,
+            "files": files,
+            "legacy_files_absent": legacy_files_absent,
+        },
+        sort_keys=True,
+    )
+)
+PY
 compose() {
     if docker compose version >/dev/null 2>&1; then
         docker compose "$@"
@@ -547,6 +606,10 @@ PY
             repr(json.dumps(dag_source_paths, ensure_ascii=True)),
         )
         .replace("__RUN_COUNT__", str(queried_run_count))
+        .replace(
+            "__RUNTIME_SECRET_FILES_JSON__",
+            repr(json.dumps(runtime_secret_files, ensure_ascii=True)),
+        )
     )
     remote_script = remote_script.replace(
         "__SENDER_ENDPOINT_VARIABLE__", repr(sender_endpoint_variable)
@@ -567,33 +630,20 @@ PY
         "__FALLBACK_OUTBOX_NAMES_JSON__",
         repr(json.dumps(fallback_outbox_names)),
     )
-    ssh_env = dict(values)
-    ssh_env["SSHPASS"] = remote["PASSWORD"]
     command = [
-        "sshpass",
-        "-e",
-        "ssh",
-        "-o",
-        "PreferredAuthentications=keyboard-interactive,password",
-        "-o",
-        "PubkeyAuthentication=no",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        "ConnectTimeout=15",
-        "-p",
-        remote["PORT"],
-        f"{remote['USERNAME']}@{remote['SERVER_IP']}",
+        *ssh_command(remote),
         "bash",
         "-s",
         "--",
-        remote["REMOTE_PATH"],
+        remote["repository_path"],
+        runtime_secret_directory,
     ]
-    result = run(command, env=ssh_env, check=False, input_text=remote_script)
+    result = run(command, check=False, input_text=remote_script)
     if result.returncode:
         raise OpsError(result.stderr.strip() or "production SSH health command failed")
 
     sections = parse_sections(result.stdout)
+    runtime_secrets = parse_json_output(sections["runtime_secrets"], {})
     compose_rows = parse_compose_rows(sections["compose"])
     execution_api = parse_json_output(sections["execution_api"], {})
     import_errors = parse_json_output(sections["import_errors"], [])
@@ -718,6 +768,12 @@ PY
             "airflow_version",
             f"deployed {airflow_version}, target {target_airflow}",
             "deploy the pinned target image with the documented fresh metadata database",
+        )
+    if not isinstance(runtime_secrets, dict) or runtime_secrets.get("ok") is not True:
+        add_issue(
+            "runtime_secrets",
+            "Airflow host Secret files are missing, have unsafe metadata, or legacy files remain",
+            "repair the root-owned Secret directory through the protected deployment workflow",
         )
     if unhealthy_services:
         add_issue(
@@ -849,6 +905,7 @@ PY
         "deployed_commit": deployed_commit,
         "airflow_version": airflow_version,
         "target_airflow_version": target_airflow,
+        "runtime_secrets": runtime_secrets,
         "service_count": len(compose_rows),
         "unhealthy_services": unhealthy_services,
         "missing_target_services": missing_services,

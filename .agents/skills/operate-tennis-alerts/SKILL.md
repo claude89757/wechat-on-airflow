@@ -119,8 +119,11 @@ make db-cleanup-check
 ```
 
 Do not replace structured scripts with improvised remote shell sequences.
-Read `.env` only through the repository operations code; never echo or log its
-contents.
+Authenticate the workstation with GitHub and dispatch production operations
+through the protected workflows. Runtime credentials must come from GitHub
+Environment secrets, Airflow Variables, Cloudflare Worker Secrets, Docker
+Secrets, or systemd credentials; the repository and developer workstation
+must not contain production secret files.
 
 ## Finish Only With Evidence
 

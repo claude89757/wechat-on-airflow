@@ -6,7 +6,7 @@ TARGET_COMMIT=""
 REPOSITORY_URL="${WECHAT_SENDER_REPOSITORY_URL:-https://github.com/claude89757/wechat-on-airflow.git}"
 INSTALL_DIR="${WECHAT_SENDER_INSTALL_DIR:-/opt/wechat-on-airflow}"
 VENV_DIR="${WECHAT_SENDER_VENV_DIR:-/opt/wechat-sender-venv}"
-CONFIG_FILE="${WECHAT_SENDER_CONFIG_FILE:-/etc/wechat-sender.env}"
+CREDENTIAL_DIR="${WECHAT_SENDER_CREDENTIAL_DIR:-/etc/wechat-sender/credentials}"
 SERVICE_NAME="wechat-sender.service"
 APPIUM_SERVICE_NAME="appium-6002.service"
 APPIUM_OVERRIDE_DIR="/etc/systemd/system/${APPIUM_SERVICE_NAME}.d"
@@ -18,10 +18,10 @@ Usage: scripts/install_wechat_sender.sh --target-commit <full-sha> [--apply]
 
 The command is read-only by default. Apply mode installs the exact Git commit,
 creates a dedicated service user and virtual environment, and enables the
-systemd service. The protected configuration file must already contain:
+systemd service. The protected credential directory must already contain:
 
-  WECHAT_ALLOWED_DEVICE_NAME=<device>
-  WECHAT_APPIUM_URL=http://127.0.0.1:6002
+  wechat_allowed_device_name
+  wechat_appium_url
 EOF
 }
 
@@ -65,13 +65,16 @@ while (($#)); do
 done
 
 [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "target commit must be a full lowercase SHA"
-[[ -f "$CONFIG_FILE" ]] || fail "missing protected configuration: $CONFIG_FILE"
-[[ "$(stat -c '%a' "$CONFIG_FILE")" == "600" ]] || fail "$CONFIG_FILE must have mode 600"
-grep -Eq '^WECHAT_ALLOWED_DEVICE_NAME=.+$' "$CONFIG_FILE" ||
-  fail "$CONFIG_FILE is missing WECHAT_ALLOWED_DEVICE_NAME"
-grep -Eq '^WECHAT_APPIUM_URL=http://(127\.0\.0\.1|localhost):6002/?$' "$CONFIG_FILE" ||
+[[ -d "$CREDENTIAL_DIR" ]] || fail "missing protected credentials: $CREDENTIAL_DIR"
+[[ "$(stat -c '%a' "$CREDENTIAL_DIR")" == "700" ]] || fail "$CREDENTIAL_DIR must have mode 700"
+for credential in wechat_allowed_device_name wechat_appium_url; do
+  [[ -s "$CREDENTIAL_DIR/$credential" ]] || fail "missing credential: $credential"
+  [[ "$(stat -c '%a' "$CREDENTIAL_DIR/$credential")" == "600" ]] ||
+    fail "$credential must have mode 600"
+done
+grep -Eq '^http://(127\.0\.0\.1|localhost):6002/?$' "$CREDENTIAL_DIR/wechat_appium_url" ||
   fail "WECHAT_APPIUM_URL must use the local Appium service on port 6002"
-DEVICE_NAME="$(sed -n 's/^WECHAT_ALLOWED_DEVICE_NAME=//p' "$CONFIG_FILE" | tail -n 1)"
+DEVICE_NAME="$(tr -d '\r\n' <"$CREDENTIAL_DIR/wechat_allowed_device_name")"
 [[ "$DEVICE_NAME" =~ ^[A-Za-z0-9._:-]+$ ]] ||
   fail "WECHAT_ALLOWED_DEVICE_NAME must be an adb-safe device serial"
 for command in adb appium tesseract; do

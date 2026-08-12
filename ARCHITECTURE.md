@@ -97,6 +97,13 @@ the cutover boundary.
   and the WeChat fallback outbox is reset without replay.
 - Production maintenance is executed through scripts and one-off deployment
   manager commands, not through Airflow internal Python APIs.
+- GitHub is the production identity, approval, and audit control plane. Its
+  protected workflows hold only scoped deployment identities; Airflow,
+  Cloudflare, and the Android sender retain their own runtime secrets.
+- Airflow infrastructure credentials are mounted per service from the
+  root-owned host Secret directory. The sender reads systemd credentials.
+  Developer machines generate isolated test credentials and never receive
+  production values.
 - Metadata cleanup is deliberately outside the DagBag and Task SDK boundary.
   Its command is read-only by default and requires human-approved date
   confirmation before deleting records.

@@ -30,7 +30,8 @@ undeclared historical state. Airflow outboxes are never replayed.
 2. The exact commit and Airflow image are pushed or transferred and identified.
 3. The encrypted Airflow 2 backup remains verified.
 4. Root storage has at least the floor in `config/runtime-target.yaml`.
-5. The old database, Redis, logs, `.env`, commit, and image are recorded.
+5. The old database, Redis, logs, encrypted runtime credential bundle, commit,
+   and image are recorded.
 6. Required external service checks are complete without sending test messages.
 
 The isolated fresh-start procedure was verified on 2026-07-17; see
@@ -51,7 +52,7 @@ transcript, Git, or a runbook.
 
 1. Pause every Airflow 2 DAG and wait for running tasks to finish.
 2. Stop the Airflow 2 application services.
-3. Copy `.env` to a mode-600 `.env.airflow2` rollback file.
+3. Export the legacy runtime credentials into the encrypted rollback bundle.
 4. Stop and remove the old Compose containers without deleting bind-mounted
    data.
 5. Deploy the exact Airflow 3 commit and image.

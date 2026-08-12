@@ -9,7 +9,8 @@ Type=simple
 User=wechat-sender
 Group=wechat-sender
 WorkingDirectory=/opt/wechat-on-airflow
-EnvironmentFile=/etc/wechat-sender.env
+LoadCredential=wechat_allowed_device_name:/etc/wechat-sender/credentials/wechat_allowed_device_name
+LoadCredential=wechat_appium_url:/etc/wechat-sender/credentials/wechat_appium_url
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/wechat-sender-venv/bin/python -m uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1

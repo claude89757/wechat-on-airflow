@@ -1,0 +1,86 @@
+name: Production Airflow
+run-name: production/airflow/${{ inputs.operation }}/${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Protected operation
+        required: true
+        type: choice
+        options:
+          - health
+          - deploy_preflight
+          - deploy_apply
+          - db_cleanup_check
+      target_commit:
+        description: Exact commit SHA on main
+        required: true
+        type: string
+      request_id:
+        description: Unique request correlation ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-airflow
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install operations dependencies
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Validate exact target
+        run: |
+          git cat-file -e "${{ inputs.target_commit }}^{commit}"
+          git merge-base --is-ancestor "${{ inputs.target_commit }}" origin/main
+      - name: Execute protected operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          case "$OPERATION" in
+            health)
+              PYTHONPATH=src python scripts/production_health.py --format json
+              ;;
+            deploy_preflight)
+              PYTHONPATH=src python scripts/deploy_airflow.py --target-commit "$TARGET_COMMIT" --format json
+              ;;
+            deploy_apply)
+              PYTHONPATH=src python scripts/deploy_airflow.py --apply --target-commit "$TARGET_COMMIT" --format json
+              ;;
+            db_cleanup_check)
+              PYTHONPATH=src python scripts/airflow_db_cleanup.py --format json
+              ;;
+            *)
+              exit 2
+              ;;
+          esac

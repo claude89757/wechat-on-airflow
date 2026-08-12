@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from pathlib import Path
 from threading import Lock
 from urllib.request import urlopen
 
@@ -50,12 +51,26 @@ def _json_error(status_code: int, error: str, message: str) -> JSONResponse:
     )
 
 
+def _runtime_setting(environment_name: str, credential_name: str, default: str = "") -> str:
+    environment_value = os.getenv(environment_name, "").strip()
+    if environment_value:
+        return environment_value
+    credential_directory = os.getenv("CREDENTIALS_DIRECTORY", "").strip()
+    if not credential_directory:
+        return default
+    try:
+        value = (Path(credential_directory) / credential_name).read_text(encoding="utf-8")
+    except OSError:
+        return default
+    return value.strip() or default
+
+
 def _allowed_device_name() -> str:
-    return os.getenv("WECHAT_ALLOWED_DEVICE_NAME", "").strip()
+    return _runtime_setting("WECHAT_ALLOWED_DEVICE_NAME", "wechat_allowed_device_name")
 
 
 def _appium_url() -> str:
-    return os.getenv("WECHAT_APPIUM_URL", DEFAULT_APPIUM_URL)
+    return _runtime_setting("WECHAT_APPIUM_URL", "wechat_appium_url", DEFAULT_APPIUM_URL)
 
 
 def _run_adb(

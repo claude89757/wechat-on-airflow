@@ -5,6 +5,7 @@ target:
   executor: CeleryExecutor
   dag_distribution: image
   execution_api_server_url_env: AIRFLOW_EXECUTION_API_SERVER_URL
+  execution_api_server_url: http://airflow-api-server:8080/execution/
   auth_manager: FabAuthManager
   base_image: apache/airflow:3.3.0-python3.12@sha256:b572e9241d7b09b295c9ea97adeb7b3dfc932e2fbcdebec59256dad69061bb29
   providers:
@@ -33,6 +34,14 @@ target:
   broker:
     engine: Redis
     visibility_timeout_seconds: 86400
+  local_secret_directory: .local/secrets
+  production_secret_directory: /etc/wechat-on-airflow/secrets
+  runtime_secrets:
+    AIRFLOW_FERNET_KEY: airflow_fernet_key
+    AIRFLOW_API_SECRET_KEY: airflow_api_secret_key
+    AIRFLOW_JWT_SECRET: airflow_jwt_secret
+    AIRFLOW_DATABASE_PASSWORD: airflow_database_password
+    AIRFLOW_PASSWORD: airflow_admin_password
 images:
   postgresql: bitnami/postgresql@sha256:42a8200d35971f931b869ef5252d996e137c6beb4b8f1b6d2181dc7d1b6f62e0
   redis: bitnami/redis@sha256:1c41e7028ac48d7a9d79d855a432eef368aa440f37c8073ae1651879b02c72f4
@@ -55,7 +64,37 @@ managed_services:
     endpoint_variable: WECHAT_SEND_API_URL
     readiness_path: /readyz
     deployment_owner: android_device_host
+    credential_directory: /etc/wechat-sender/credentials
+    runtime_credentials:
+      WECHAT_ALLOWED_DEVICE_NAME: wechat_allowed_device_name
+      WECHAT_APPIUM_URL: wechat_appium_url
     workers_per_device: 1
+production_operations:
+  github_environment: production
+  airflow_workflow: production-airflow.yml
+  sender_workflow: production-wechat-sender.yml
+  authentication: ssh_public_key
+  airflow_ssh_environment:
+    host: AIRFLOW_SSH_HOST
+    port: AIRFLOW_SSH_PORT
+    username: AIRFLOW_SSH_USER
+    repository_path: AIRFLOW_REPOSITORY_PATH
+  sender_ssh_environment:
+    host: WECHAT_SENDER_SSH_HOST
+    port: WECHAT_SENDER_SSH_PORT
+    username: WECHAT_SENDER_SSH_USER
+  github_environment_secrets:
+    - AIRFLOW_SSH_HOST
+    - AIRFLOW_SSH_PORT
+    - AIRFLOW_SSH_USER
+    - AIRFLOW_REPOSITORY_PATH
+    - AIRFLOW_SSH_PRIVATE_KEY
+    - AIRFLOW_SSH_KNOWN_HOSTS
+    - WECHAT_SENDER_SSH_HOST
+    - WECHAT_SENDER_SSH_PORT
+    - WECHAT_SENDER_SSH_USER
+    - WECHAT_SENDER_SSH_PRIVATE_KEY
+    - WECHAT_SENDER_SSH_KNOWN_HOSTS
 maintenance:
   airflow_metadata_cleanup:
     command: scripts/airflow_db_cleanup.py

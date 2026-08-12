@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -60,6 +62,22 @@ class SenderAgentTest(unittest.TestCase):
             from sender_agent.app import _appium_url
 
             self.assertEqual(_appium_url(), "http://127.0.0.1:6002")
+
+    def test_reads_systemd_credentials_without_environment_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "wechat_allowed_device_name").write_text(
+                "credential-device\n", encoding="utf-8"
+            )
+            Path(directory, "wechat_appium_url").write_text(
+                "http://localhost:6002\n", encoding="utf-8"
+            )
+            with patch.dict(
+                os.environ,
+                {"CREDENTIALS_DIRECTORY": directory},
+                clear=True,
+            ):
+                self.assertEqual(sender_app._allowed_device_name(), "credential-device")
+                self.assertEqual(sender_app._appium_url(), "http://localhost:6002")
 
     def test_health_reports_required_runtime_configuration(self):
         response = self.client.get("/healthz")

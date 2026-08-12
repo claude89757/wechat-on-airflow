@@ -57,11 +57,12 @@ strategy changes.
 
 ## WeChat Sender
 
-Use the Android-host installer in preflight mode, then apply:
+Dispatch the protected sender workflow in preflight mode, then apply:
 
 ```text
-sudo scripts/install_wechat_sender.sh --target-commit <full-sha>
-sudo scripts/install_wechat_sender.sh --apply --target-commit <full-sha>
+make sender-deploy DEPLOY_ARGS="--target-commit <full-sha>"
+make sender-deploy DEPLOY_ARGS="--apply --target-commit <full-sha>"
+make sender-health
 ```
 
 Verify systemd is enabled and active and both `/healthz` and `/readyz` succeed.

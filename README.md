@@ -59,8 +59,10 @@ daily time ranges, and a 7–14 day validity period.
 
 ## Configuration
 
-Copy `.env.example` to `.env` for container-level settings. Airflow Variable
-names and their schemas are documented in:
+Run `make local-secrets` to generate ignored, development-only Docker Secret
+files. Production settings are managed by the protected GitHub environment,
+Airflow Variables, Cloudflare Worker Secrets, host Docker Secrets, and systemd
+credentials. Airflow Variable names and their schemas are documented in:
 
 - `config/active-components.yaml`
 - `config/config-contracts.yaml`

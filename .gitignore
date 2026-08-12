@@ -1,6 +1,6 @@
 .env
 .env.*
-!.env.example
+.local/
 .DS_Store
 .idea/
 .mypy_cache/

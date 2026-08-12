@@ -8,8 +8,8 @@ services:
       dockerfile: docker/sender/Dockerfile
     restart: unless-stopped
     environment:
-      WECHAT_ALLOWED_DEVICE_NAME: ${WECHAT_ALLOWED_DEVICE_NAME:?WECHAT_ALLOWED_DEVICE_NAME is required}
-      WECHAT_APPIUM_URL: ${WECHAT_APPIUM_URL:?WECHAT_APPIUM_URL is required}
+      WECHAT_ALLOWED_DEVICE_NAME: ${WECHAT_ALLOWED_DEVICE_NAME:-development-device}
+      WECHAT_APPIUM_URL: ${WECHAT_APPIUM_URL:-http://127.0.0.1:6002}
     ports:
       - "7001:7001"
     read_only: true

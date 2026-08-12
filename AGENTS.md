@@ -105,9 +105,11 @@ never schedule or invoke deletion autonomously.
 
 ## Production Access
 
-Server connection details are read from the untracked `.env`. Production
-inspection must be read-only unless the task explicitly reaches a documented
-deployment step.
+Production access is mediated by the protected GitHub `production`
+Environment. A workstation authenticates only with `gh auth login`; GitHub
+Actions receives scoped SSH deployment identities and invokes the structured
+operations scripts. Runtime secrets stay in platform-native stores and are
+never downloaded to developer devices.
 
 Before and after a production change:
 
@@ -118,8 +120,9 @@ make production-health
 The health check fails when the production commit differs from local Git HEAD.
 Run it from the exact pushed commit intended to own production.
 
-Never print Variable values, Connection credentials, email addresses, API
-tokens, database passwords, device login details, or the Fernet key.
+Never print Variable values, Connection credentials, GitHub Environment
+secrets, email addresses, API tokens, database passwords, device login
+details, or the Fernet key.
 
 ## Agent Authority
 

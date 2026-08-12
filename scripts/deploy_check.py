@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
-from _ops import OpsError, docker_compose_command, emit, latest_successful_backup, run
+from _ops import REPO_ROOT, OpsError, docker_compose_command, emit, latest_successful_backup, run
 
 
 def main() -> None:
@@ -39,18 +40,15 @@ def main() -> None:
     compose = run(
         [
             *compose_command,
-            "--env-file",
-            ".env.example",
             "config",
             "--quiet",
         ],
+        env={**os.environ, "AIRFLOW_SECRET_DIR": str(REPO_ROOT / ".local" / "secrets")},
         check=False,
     )
     sender_compose = run(
         [
             *compose_command,
-            "--env-file",
-            ".env.example",
             "-f",
             "docker-compose.sender.yml",
             "config",

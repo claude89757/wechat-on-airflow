@@ -1,0 +1,79 @@
+name: Production WeChat Sender
+run-name: production/sender/${{ inputs.operation }}/${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Protected operation
+        required: true
+        type: choice
+        options:
+          - health
+          - dry_run
+          - apply
+      target_commit:
+        description: Exact commit SHA on main
+        required: true
+        type: string
+      request_id:
+        description: Unique request correlation ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-wechat-sender
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      WECHAT_SENDER_SSH_HOST: ${{ secrets.WECHAT_SENDER_SSH_HOST }}
+      WECHAT_SENDER_SSH_PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
+      WECHAT_SENDER_SSH_USER: ${{ secrets.WECHAT_SENDER_SSH_USER }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install operations dependencies
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.WECHAT_SENDER_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.WECHAT_SENDER_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Execute protected operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          case "$OPERATION" in
+            health)
+              MODE=health
+              ;;
+            dry_run)
+              MODE=dry-run
+              ;;
+            apply)
+              MODE=apply
+              ;;
+            *)
+              exit 2
+              ;;
+          esac
+          PYTHONPATH=src python scripts/deploy_wechat_sender.py \
+            --operation "$MODE" --target-commit "$TARGET_COMMIT" --format json

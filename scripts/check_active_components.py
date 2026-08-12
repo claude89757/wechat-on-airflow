@@ -13,9 +13,12 @@ CONTRACTS = ROOT / "config" / "config-contracts.yaml"
 RUNTIME_TARGET = ROOT / "config" / "runtime-target.yaml"
 AIRFLOW_DOCKERFILE = ROOT / "docker" / "airflow" / "Dockerfile"
 COMPOSE_FILE = ROOT / "docker-compose.yml"
-ENV_EXAMPLE = ROOT / ".env.example"
 SENDER_SERVICE_FILE = ROOT / "deploy" / "systemd" / "wechat-sender.service"
 SENDER_INSTALL_SCRIPT = ROOT / "scripts" / "install_wechat_sender.sh"
+PRODUCTION_WORKFLOWS = {
+    "production-airflow.yml",
+    "production-wechat-sender.yml",
+}
 DAG_MAX_LINES = 120
 FORBIDDEN_DAG_IMPORT_ROOTS = {"httpx", "paramiko", "requests", "socket", "urllib3"}
 
@@ -209,13 +212,21 @@ def main() -> None:
         fail("Airflow API server must trust Cloudflare Tunnel proxy headers")
     if api_server.get("ports") != ["127.0.0.1:8080:8080"]:
         fail("Airflow API server must expose port 8080 on loopback only")
-    env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
-    required_example_lines = {
-        "AIRFLOW_BASE_URL=http://localhost:8080",
-        "AIRFLOW_EXECUTION_API_SERVER_URL=http://airflow-api-server:8080/execution/",
-    }
-    if not required_example_lines.issubset(set(env_example.splitlines())):
-        fail("example Airflow URLs must use matching root paths")
+    target = runtime_target.get("target", {})
+    if target.get("execution_api_server_url") != ("http://airflow-api-server:8080/execution/"):
+        fail("Airflow Execution API runtime target must use the internal root path")
+    runtime_secrets = target.get("runtime_secrets", {})
+    if set(runtime_secrets) != {
+        "AIRFLOW_FERNET_KEY",
+        "AIRFLOW_API_SECRET_KEY",
+        "AIRFLOW_JWT_SECRET",
+        "AIRFLOW_DATABASE_PASSWORD",
+        "AIRFLOW_PASSWORD",
+    }:
+        fail("Airflow host Secret contract is incomplete")
+    compose_secrets = compose.get("secrets", {})
+    if len(compose_secrets) != len(runtime_secrets):
+        fail("Compose must declare every Airflow runtime Secret")
     tunnel_target = runtime_target.get("managed_services", {}).get("cloudflare_tunnel", {})
     if (
         tunnel_target.get("runtime") != "systemd"
@@ -235,13 +246,21 @@ def main() -> None:
         or sender_target.get("endpoint_variable") != "WECHAT_SEND_API_URL"
         or sender_target.get("readiness_path") != "/readyz"
         or sender_target.get("deployment_owner") != "android_device_host"
+        or sender_target.get("workers_per_device") != 1
+        or sender_target.get("credential_directory") != "/etc/wechat-sender/credentials"
+        or sender_target.get("runtime_credentials")
+        != {
+            "WECHAT_ALLOWED_DEVICE_NAME": "wechat_allowed_device_name",
+            "WECHAT_APPIUM_URL": "wechat_appium_url",
+        }
     ):
         fail("WeChat sender health must follow the external device-host runtime contract")
     sender_service = SENDER_SERVICE_FILE.read_text(encoding="utf-8")
     sender_install = SENDER_INSTALL_SCRIPT.read_text(encoding="utf-8")
     required_service_lines = {
         "User=wechat-sender",
-        "EnvironmentFile=/etc/wechat-sender.env",
+        "LoadCredential=wechat_allowed_device_name:/etc/wechat-sender/credentials/wechat_allowed_device_name",
+        "LoadCredential=wechat_appium_url:/etc/wechat-sender/credentials/wechat_appium_url",
         "Restart=always",
         "Requires=appium-6002.service",
     }
@@ -256,6 +275,36 @@ def main() -> None:
         )
     if "--target-commit" not in sender_install or "checkout --detach" not in sender_install:
         fail("WeChat sender installer must deploy an exact Git commit")
+    operations = runtime_target.get("production_operations", {})
+    if (
+        operations.get("github_environment") != "production"
+        or operations.get("authentication") != "ssh_public_key"
+        or operations.get("airflow_workflow") != "production-airflow.yml"
+        or operations.get("sender_workflow") != "production-wechat-sender.yml"
+    ):
+        fail("production operations must be GitHub Environment controlled")
+    expected_github_secrets = {
+        "AIRFLOW_SSH_HOST",
+        "AIRFLOW_SSH_PORT",
+        "AIRFLOW_SSH_USER",
+        "AIRFLOW_REPOSITORY_PATH",
+        "AIRFLOW_SSH_PRIVATE_KEY",
+        "AIRFLOW_SSH_KNOWN_HOSTS",
+        "WECHAT_SENDER_SSH_HOST",
+        "WECHAT_SENDER_SSH_PORT",
+        "WECHAT_SENDER_SSH_USER",
+        "WECHAT_SENDER_SSH_PRIVATE_KEY",
+        "WECHAT_SENDER_SSH_KNOWN_HOSTS",
+    }
+    if set(operations.get("github_environment_secrets", [])) != expected_github_secrets:
+        fail("GitHub production Environment secret contract is incomplete")
+    missing_workflows = sorted(
+        name
+        for name in PRODUCTION_WORKFLOWS
+        if not (ROOT / ".github" / "workflows" / name).is_file()
+    )
+    if missing_workflows:
+        fail("production operation workflows are missing: " + ", ".join(missing_workflows))
     cleanup_target = runtime_target.get("maintenance", {}).get("airflow_metadata_cleanup", {})
     if (
         cleanup_target.get("command") != "scripts/airflow_db_cleanup.py"
