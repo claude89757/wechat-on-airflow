@@ -60,7 +60,10 @@ daily time ranges, and a 7–14 day validity period.
 ## Configuration
 
 Run `make local-secrets` to generate ignored, development-only Docker Secret
-files. Production settings are managed by the protected GitHub environment,
+files inside a mode-`700` directory. The development files are mode `644`
+because Linux Compose bind mounts preserve source ownership while the
+containers use different non-root UIDs; the enclosing directory limits host
+access. Production settings are managed by the protected GitHub environment,
 Airflow Variables, Cloudflare Worker Secrets, host Docker Secrets, and systemd
 credentials. Airflow Variable names and their schemas are documented in:
 

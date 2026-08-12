@@ -91,6 +91,7 @@ class DockerComposeCommandTest(unittest.TestCase):
 
     def test_runtime_uses_file_backed_secrets(self):
         compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+        runtime = yaml.safe_load((ROOT / "config/runtime-target.yaml").read_text(encoding="utf-8"))
         environment = compose["x-airflow-env"]
 
         self.assertIn("AIRFLOW__CORE__FERNET_KEY_CMD", environment)
@@ -99,6 +100,8 @@ class DockerComposeCommandTest(unittest.TestCase):
         self.assertNotIn("AIRFLOW__CORE__FERNET_KEY", environment)
         self.assertEqual(len(compose["secrets"]), 5)
         self.assertFalse((ROOT / ".env.example").exists())
+        self.assertEqual(runtime["target"]["local_secret_file_mode"], "0644")
+        self.assertEqual(runtime["target"]["production_secret_file_mode"], "0640")
 
     @patch("_ops.subprocess.run")
     @patch("_ops.shutil.which")
@@ -173,6 +176,7 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("migrate_runtime_secrets", script)
         self.assertIn("shred --remove --zero", script)
         self.assertNotIn("rollback_env_file", script)
+        self.assertIn("destination.chmod(0o640)", script)
 
 
 class WeChatSenderDeploymentTest(unittest.TestCase):

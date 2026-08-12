@@ -103,12 +103,14 @@ alternate-host runtime.
 ## Runtime Secrets
 
 Airflow infrastructure secrets are source files under
-`/etc/wechat-on-airflow/secrets`, owned by root with directory mode `700` and
-file mode `600`. Compose mounts only the declared Secret files, and Airflow
-loads them through supported command-backed configuration. Do not create a
-repository environment file. Recreating containers must go through the
-protected GitHub workflow so the exact image, public base URL, internal
-Execution API URL, and Secret directory are applied together.
+`/etc/wechat-on-airflow/secrets`, owned by `root:root` with directory mode
+`750` and file mode `640`. Airflow and PostgreSQL run as distinct non-root UIDs
+with primary group `0`, so this is the minimum shared permission required by
+Compose's bind-mounted file Secrets. Compose mounts only the declared Secret
+files, and Airflow loads them through supported command-backed configuration.
+Do not create a repository environment file. Recreating containers must go
+through the protected GitHub workflow so the exact image, public base URL,
+internal Execution API URL, and Secret directory are applied together.
 
 ## Metadata Cleanup
 

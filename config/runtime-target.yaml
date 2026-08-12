@@ -35,7 +35,11 @@ target:
     engine: Redis
     visibility_timeout_seconds: 86400
   local_secret_directory: .local/secrets
+  local_secret_directory_mode: "0700"
+  local_secret_file_mode: "0644"
   production_secret_directory: /etc/wechat-on-airflow/secrets
+  production_secret_directory_mode: "0750"
+  production_secret_file_mode: "0640"
   runtime_secrets:
     AIRFLOW_FERNET_KEY: airflow_fernet_key
     AIRFLOW_API_SECRET_KEY: airflow_api_secret_key

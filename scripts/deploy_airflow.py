@@ -387,17 +387,17 @@ if legacy_path.is_file():
             value = parsed[0] if parsed else ""
         values[key] = value
 
-secret_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-secret_dir.chmod(0o700)
+secret_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
+secret_dir.chmod(0o750)
 for legacy_name, filename in mapping.items():
     destination = secret_dir / filename
     if destination.is_file() and destination.stat().st_size:
-        destination.chmod(0o600)
+        destination.chmod(0o640)
         continue
     value = values.get(legacy_name, "")
     if not value:
         raise SystemExit(f"missing runtime secret: {{legacy_name}}")
-    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         handle.write(value)
         handle.write("\\n")

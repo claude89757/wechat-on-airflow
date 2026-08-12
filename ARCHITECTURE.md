@@ -101,7 +101,9 @@ the cutover boundary.
   protected workflows hold only scoped deployment identities; Airflow,
   Cloudflare, and the Android sender retain their own runtime secrets.
 - Airflow infrastructure credentials are mounted per service from the
-  root-owned host Secret directory. The sender reads systemd credentials.
+  root-owned, root-group-readable host Secret directory. Airflow and
+  PostgreSQL remain non-root processes in group `0`; the sender reads systemd
+  credentials.
   Developer machines generate isolated test credentials and never receive
   production values.
 - Metadata cleanup is deliberately outside the DagBag and Task SDK boundary.

@@ -216,6 +216,13 @@ def main() -> None:
     if target.get("execution_api_server_url") != ("http://airflow-api-server:8080/execution/"):
         fail("Airflow Execution API runtime target must use the internal root path")
     runtime_secrets = target.get("runtime_secrets", {})
+    if (
+        target.get("local_secret_directory_mode") != "0700"
+        or target.get("local_secret_file_mode") != "0644"
+        or target.get("production_secret_directory_mode") != "0750"
+        or target.get("production_secret_file_mode") != "0640"
+    ):
+        fail("Airflow Secret permissions must support the non-root container group contract")
     if set(runtime_secrets) != {
         "AIRFLOW_FERNET_KEY",
         "AIRFLOW_API_SECRET_KEY",

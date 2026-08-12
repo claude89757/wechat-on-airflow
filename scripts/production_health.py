@@ -218,7 +218,7 @@ def metadata(path):
         "present": path.is_file(),
         "nonempty": path.is_file() and details.st_size > 0,
         "mode": stat.S_IMODE(details.st_mode),
-        "owned_by_root": details.st_uid == 0,
+        "owned_by_root": details.st_uid == 0 and details.st_gid == 0,
     }
 
 
@@ -226,8 +226,9 @@ try:
     directory_stat = directory.stat()
     directory_ready = (
         directory.is_dir()
-        and stat.S_IMODE(directory_stat.st_mode) == 0o700
+        and stat.S_IMODE(directory_stat.st_mode) == 0o750
         and directory_stat.st_uid == 0
+        and directory_stat.st_gid == 0
     )
 except OSError:
     directory_ready = False
@@ -237,7 +238,7 @@ legacy_files_absent = not any(path.is_file() for path in legacy_files)
 files_ready = all(
     details["present"]
     and details["nonempty"]
-    and details["mode"] == 0o600
+    and details["mode"] == 0o640
     and details["owned_by_root"]
     for details in files.values()
 )
