@@ -25,6 +25,29 @@ credential files already exist with their contracted ownership and modes. The
 repository, developer workstation, active Airflow host checkout, and sender
 host no longer contain runtime environment files.
 
+The final legacy-removal commit `1308ad618a4dc56cd492e98ead140eef48e4bf52`
+was deployed to both production hosts. Subsequent protected diagnostics run
+from the pushed `main` commit through GitHub Actions and do not copy production
+credentials back to an operator workstation. Local development uses generated,
+ignored files under `.local/secrets`; these values are not production data.
+
+## Android USB Incident On 2026-08-12
+
+The protected Airflow phone probe confirmed that `APPIUM_SERVER_LIST` is valid,
+SSH authentication succeeds, and `adb devices` executes successfully, but no
+online device is returned. The independent sender-host probe confirmed that
+`wechat-sender.service` and `appium-6002.service` are active while both the ADB
+device list and the kernel USB ADB-interface count are zero. Sender `/readyz`
+therefore correctly reports `device_not_ready`.
+
+This isolates the current failure to the physical phone/USB-debugging boundary,
+not Airflow configuration, GitHub deployment authentication, Appium process
+management, or the no-`.env` migration. The bounded software recovery was not
+run because restarting ADB cannot restore an absent USB interface. No phone
+reboot, real WeChat send, fallback replay, or metadata deletion was performed.
+Venue observations and subscriber email remain independent of this sender
+fault by contract.
+
 ## Web-Only Subscriber Email
 
 On 2026-07-30 subscriber email ownership moved exclusively to the Cloudflare
