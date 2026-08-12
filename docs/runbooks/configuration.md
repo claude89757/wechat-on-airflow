@@ -22,9 +22,10 @@ When adding a Variable:
 
 ## Shenzhen Bay Booking Authorization
 
-`SZW_API_AUTHORIZATION` stores the complete Shenzhen Bay booking API authorization value,
-including the `Wechat ` prefix. Keep it only in Airflow Variables; never place it in source,
-documentation, shell history, or logs.
+`SZW_API_AUTHORIZATION` stores the Shenzhen Bay booking API JWT. The canonical
+form includes the `Wechat ` prefix; the adapter also accepts the legacy raw JWT
+and adds the prefix in memory. Keep it only in Airflow Variables; never place it
+in source, documentation, shell history, or logs.
 
 The venue adapter validates the JWT structure and `exp` claim before each request. A missing,
 malformed, or expired value marks the Web observation unhealthy and fails the affected Airflow

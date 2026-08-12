@@ -118,10 +118,16 @@ def validate_szw_authorization(authorization: str, *, now: float | None = None) 
     if "\n" in authorization or "\r" in authorization:
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 格式非法")
 
-    scheme, separator, token = authorization.partition(" ")
+    if authorization.startswith("Wechat "):
+        token = authorization.removeprefix("Wechat ")
+    elif " " not in authorization:
+        token = authorization
+    else:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 必须是 Wechat JWT")
+
     token_parts = token.split(".")
-    if scheme != "Wechat" or not separator or len(token_parts) != 3:
-        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 必须是完整的 Wechat JWT")
+    if len(token_parts) != 3:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 必须是 Wechat JWT")
 
     try:
         payload_segment = token_parts[1]
@@ -143,7 +149,7 @@ def validate_szw_authorization(authorization: str, *, now: float | None = None) 
     current_time = time.time() if now is None else now
     if expires_at <= current_time:
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 已过期，请更新令牌")
-    return authorization
+    return f"Wechat {token}"
 
 
 def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range: dict) -> dict:

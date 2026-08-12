@@ -154,6 +154,17 @@ class VenueDomainTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "已过期"):
             szw_watcher.validate_szw_authorization(make_szw_authorization(1), now=2)
 
+    def test_szw_normalizes_legacy_raw_jwt_authorization(self):
+        authorization = make_szw_authorization(4_102_444_800)
+
+        self.assertEqual(
+            szw_watcher.validate_szw_authorization(
+                authorization.removeprefix("Wechat "),
+                now=1,
+            ),
+            authorization,
+        )
+
     def test_szw_request_matches_current_mini_program_contract(self):
         authorization = make_szw_authorization(4_102_444_800)
         FakeVariable.values = {"SZW_API_AUTHORIZATION": authorization}
