@@ -1,6 +1,7 @@
 PYTHON ?= python3.12
 VENV ?= .venv
 BIN := $(VENV)/bin
+RUNTIME_PYTHON := $(shell if [ -x "$(BIN)/python" ]; then printf '%s' "$(BIN)/python"; else printf '%s' "$(PYTHON)"; fi)
 COMPOSE_BIN ?= $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif docker-compose version >/dev/null 2>&1; then echo docker-compose; else echo "docker compose"; fi)
 LOCAL_SECRET_DIR := $(abspath .local/secrets)
 COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
@@ -19,7 +20,7 @@ webapp-setup:
 	cd webapp && npm ci
 
 local-secrets:
-	PYTHONPATH=scripts $(BIN)/python scripts/prepare_local_secrets.py
+	PYTHONPATH=scripts $(RUNTIME_PYTHON) scripts/prepare_local_secrets.py
 
 webapp-check:
 	cd webapp && npm test
