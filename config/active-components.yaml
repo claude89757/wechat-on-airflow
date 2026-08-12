@@ -126,7 +126,6 @@ active_dags:
       - check_and_notify_day_0
       - check_and_notify_day_1
       - check_and_notify_day_2
-      - check_and_notify_day_3
     variables:
       - SZW_API_AUTHORIZATION
       - SZ_TENNIS_CHATROOMS

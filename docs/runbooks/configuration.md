@@ -34,6 +34,10 @@ malformed, or expired value marks the Web observation unhealthy and fails the af
 task so its configured retry and failure visibility remain effective. Renewing the credential only
 requires replacing this Variable; it does not require a code deployment.
 
+The Greater Bay Area API permits today plus the next two calendar days. Its DAG
+therefore runs `day_0` through `day_2`; longer-lived Web subscriptions continue
+matching as later dates enter that rolling upstream window.
+
 ## Web Subscription Publisher
 
 All six venue DAGs require:

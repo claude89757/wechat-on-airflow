@@ -20,6 +20,11 @@ observation; do not publish a partial result as healthy. The Greater Bay Area
 venue uses the same client and authorization but publishes its own `gba`
 observation from a separate DAG.
 
+Greater Bay Area business code `2000` with a three-day booking-window message
+means the requested date is outside the upstream horizon. The DAG must remain
+wired to `day_0` through `day_2`; do not convert this response into healthy
+empty availability.
+
 If TLS succeeds but the API returns code `403` with a missing WeChat token
 message, the sensitive `SZW_API_AUTHORIZATION` Variable is no longer accepted.
 Refresh it through the approved configuration procedure and validate it with a

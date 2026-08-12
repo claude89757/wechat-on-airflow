@@ -28,7 +28,8 @@ dag = DAG(
     tags=["深圳"],
 )
 
-for day_offset in range(4):
+# The upstream API exposes today plus the next two calendar days.
+for day_offset in range(3):
     PythonOperator(
         task_id=f"check_and_notify_day_{day_offset}",
         python_callable=check_and_notify_for_day,
