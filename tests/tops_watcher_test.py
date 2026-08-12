@@ -251,6 +251,65 @@ class VenueDomainTest(unittest.TestCase):
         finally:
             session.close()
 
+    def test_crland_retries_transient_forbidden_response(self):
+        authorization = make_szw_authorization(4_102_444_800)
+        FakeVariable.values = {"SZW_API_AUTHORIZATION": authorization}
+
+        class FakeResponse:
+            def __init__(self, status_code):
+                self.status_code = status_code
+
+            @staticmethod
+            def json():
+                return {
+                    "code": 200,
+                    "text": "success",
+                    "result": {
+                        "fieldList": [{"fieldUuid": "court-1", "fieldName": "1号场"}],
+                        "matrix": [{"fieldUuid": "court-1", "matrix": []}],
+                    },
+                }
+
+        class FakeSession:
+            responses = iter([FakeResponse(403), FakeResponse(403), FakeResponse(200)])
+            post_count = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def post(self, *args, **kwargs):
+                self.post_count += 1
+                return next(self.responses)
+
+        session = FakeSession()
+        with (
+            patch.object(
+                szw_watcher,
+                "create_crland_http_session",
+                return_value=session,
+            ),
+            patch.object(szw_watcher.time, "sleep") as sleep,
+        ):
+            result = szw_watcher.get_free_tennis_court_infos_for_szw(
+                "2026-08-12",
+                ["不使用代理"],
+                {"start_time": "09:00", "end_time": "21:00"},
+            )
+
+        self.assertEqual(result, {"1号场": [["09:00", "21:00"]]})
+        self.assertEqual(session.post_count, 3)
+        self.assertEqual(
+            sleep.call_args_list,
+            [
+                unittest.mock.call(szw_watcher.CRLAND_RETRY_DELAY_SECONDS),
+                unittest.mock.call(szw_watcher.CRLAND_RETRY_DELAY_SECONDS),
+                unittest.mock.call(1),
+            ],
+        )
+
     def test_crland_venues_merge_covered_courts_and_keep_gba_independent(self):
         shenzhen_bay = szw_watcher.CRLAND_VENUES["szw"]
         self.assertEqual(shenzhen_bay.venue_id, "szw")

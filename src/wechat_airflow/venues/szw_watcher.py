@@ -35,6 +35,8 @@ SZW_FIELD_AREA_UUID = "b7f8a0770a4d11f198f45a68b1262c30"
 SZW_COVERED_FIELD_AREA_UUID = "71abff5590af11f195a452a64e4c2bdc"
 GBA_PROJECT_UUID = "0ddda9c33d4e11f1b51c2273436a3e4e"
 GBA_FIELD_AREA_UUID = "cec42d973dee11f1b51c2273436a3e4e"
+CRLAND_REQUEST_ATTEMPTS = 3
+CRLAND_RETRY_DELAY_SECONDS = 2
 SSL_OP_LEGACY_SERVER_CONNECT = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
 
 
@@ -238,35 +240,35 @@ def get_free_tennis_court_infos_for_szw(
     got_response = False
     response_data = None
     last_error = None
+    payload = {
+        "fieldAreaUuid": field_area_uuid,
+        "reserveDate": date,
+        "enterpriseUuid": "",
+        "discountSpecUuid": "",
+        "projectUuid": project_uuid,
+    }
+    headers = {
+        "Host": SZW_HOST,
+        "appId": SZW_APP_ID,
+        "Authorization": szw_authorization,
+        "projectUuid": project_uuid,
+        "xweb_xhr": "1",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 "
+        "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
+        "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
+        "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641c1d) XWEB/25300",
+        "Accept": "*/*",
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+        "Referer": "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+    }
 
     with create_crland_http_session() as session:
         for proxy in proxy_list:
-            payload = {
-                "fieldAreaUuid": field_area_uuid,
-                "reserveDate": date,
-                "enterpriseUuid": "",
-                "discountSpecUuid": "",
-                "projectUuid": project_uuid,
-            }
-            headers = {
-                "Host": SZW_HOST,
-                "appId": SZW_APP_ID,
-                "Authorization": szw_authorization,
-                "projectUuid": project_uuid,
-                "xweb_xhr": "1",
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 "
-                "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
-                "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
-                "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641c1d) XWEB/25300",
-                "Accept": "*/*",
-                "Sec-Fetch-Site": "cross-site",
-                "Sec-Fetch-Mode": "cors",
-                "Sec-Fetch-Dest": "empty",
-                "Referer": "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
-                "Accept-Language": "zh-CN,zh;q=0.9",
-            }
             request_kwargs = {
                 "headers": headers,
                 "json": payload,
@@ -275,36 +277,52 @@ def get_free_tennis_court_infos_for_szw(
             if proxy and proxy != "不使用代理":
                 request_kwargs["proxies"] = {"https": proxy}
 
-            print(f"trying for {proxy}")
-            try:
-                print(f"data: {payload}")
-                response = session.post(SZW_MATRIX_API_URL, **request_kwargs)
-                print(f"response status_code: {response.status_code}")
-                if response.status_code == 200:
-                    try:
-                        response_data = response.json()
-                    except Exception as e:
-                        last_error = f"invalid json response: {e}"
-                        print(last_error)
-                        continue
-                    if response_data.get("code") == 200 and response_data.get("result"):
-                        print(f"api success, text: {response_data.get('text')}")
-                        got_response = True
-                        time.sleep(1)
-                        break
-                    error_message = response_data.get("text") or response_data.get("message")
-                    last_error = (
-                        f"api error code={response_data.get('code')}, message={error_message}"
-                    )
-                    print(f"api error for {proxy}: {last_error}")
-                else:
-                    last_error = f"http status code={response.status_code}"
+            for attempt in range(1, CRLAND_REQUEST_ATTEMPTS + 1):
+                print(f"trying for {proxy}, attempt {attempt}/{CRLAND_REQUEST_ATTEMPTS}")
+                retryable = False
+                try:
+                    print(f"data: {payload}")
+                    response = session.post(SZW_MATRIX_API_URL, **request_kwargs)
+                    print(f"response status_code: {response.status_code}")
+                    if response.status_code == 200:
+                        try:
+                            response_data = response.json()
+                        except Exception as e:
+                            last_error = f"invalid json response: {e}"
+                            print(last_error)
+                            retryable = True
+                        else:
+                            if response_data.get("code") == 200 and response_data.get("result"):
+                                print(f"api success, text: {response_data.get('text')}")
+                                got_response = True
+                                time.sleep(1)
+                                break
+                            error_message = response_data.get("text") or response_data.get(
+                                "message"
+                            )
+                            last_error = (
+                                f"api error code={response_data.get('code')}, "
+                                f"message={error_message}"
+                            )
+                            print(f"api error for {proxy}: {last_error}")
+                            break
+                    else:
+                        last_error = f"http status code={response.status_code}"
+                        print(f"failed for {proxy}: {last_error}")
+                        retryable = (
+                            response.status_code in {403, 429} or response.status_code >= 500
+                        )
+                except Exception as error:
+                    last_error = str(error)
                     print(f"failed for {proxy}: {last_error}")
+                    retryable = True
+
+                if retryable and attempt < CRLAND_REQUEST_ATTEMPTS:
+                    time.sleep(CRLAND_RETRY_DELAY_SECONDS)
                     continue
-            except Exception as error:
-                last_error = str(error)
-                print(f"failed for {proxy}: {last_error}")
-                continue
+                break
+            if got_response:
+                break
 
     if got_response and response_data:
         result = response_data["result"]

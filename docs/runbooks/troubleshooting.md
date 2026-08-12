@@ -36,6 +36,11 @@ is a false-success regression. Validate the adapter with the unit tests and a
 read-only upstream query; do not trigger email or WeChat delivery during the
 check.
 
+The client retries HTTP 403, 429, 5xx, malformed JSON, and transport failures
+with a short bounded delay because the upstream intermittently rejects bursts.
+Other application business codes fail immediately. Repeated 403 responses after
+the bounded attempts still mark the observation unhealthy and fail the task.
+
 ## Email Delay or Failure
 
 Check the Airflow Web observation result, Worker logs, D1 notification outbox,
