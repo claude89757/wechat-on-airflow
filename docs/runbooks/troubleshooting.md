@@ -5,6 +5,26 @@
 Run `make test-dags`, then inspect the exact file and traceback. Reusable modules
 must remain outside `dags/`; do not fix imports by mutating `sys.path`.
 
+## Shenzhen Bay Inspection Failure
+
+If the Shenzhen Bay DAG runs quickly or appears successful while Web reports the
+venue as unhealthy, inspect all `day_0` through `day_3` task logs. An
+`UNSAFE_LEGACY_RENEGOTIATION_DISABLED` error means the upstream booking host
+still requires legacy TLS server renegotiation. The Shenzhen Bay client mounts
+a compatibility SSL context only for `wlhmobile.crland.com.cn`; certificate
+verification remains enabled and the setting must not be applied globally.
+
+If TLS succeeds but the API returns code `403` with a missing WeChat token
+message, the sensitive `SZW_API_AUTHORIZATION` Variable is no longer accepted.
+Refresh it through the approved configuration procedure and validate it with a
+read-only query. Never print or commit the Variable value.
+
+An upstream booking request failure must publish an unhealthy Web observation
+and then fail the Airflow task. A successful task with an unhealthy observation
+is a false-success regression. Validate the adapter with the unit tests and a
+read-only upstream query; do not trigger email or WeChat delivery during the
+check.
+
 ## Email Delay or Failure
 
 Check the Airflow Web observation result, Worker logs, D1 notification outbox,

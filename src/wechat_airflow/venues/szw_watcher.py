@@ -11,10 +11,14 @@ import binascii
 import datetime
 import json
 import re
+import ssl
 import time
 
 import requests
 from airflow.sdk import Variable
+from airflow.sdk.exceptions import AirflowFailException
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 from wechat_airflow.notifications.webapp import (
     flatten_court_slots,
@@ -27,6 +31,26 @@ SZW_HOST = "wlhmobile.crland.com.cn"
 SZW_APP_ID = "wx020209beec4251e0"
 SZW_PROJECT_UUID = "3a59e62a07f811f1bec0aeefcf2e061a"
 SZW_FIELD_AREA_UUID = "b7f8a0770a4d11f198f45a68b1262c30"
+SSL_OP_LEGACY_SERVER_CONNECT = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+
+
+class SzwLegacyTlsAdapter(HTTPAdapter):
+    """Allow the Shenzhen Bay host's legacy TLS renegotiation only."""
+
+    def __init__(self) -> None:
+        self.ssl_context = create_urllib3_context()
+        self.ssl_context.options |= SSL_OP_LEGACY_SERVER_CONNECT
+        super().__init__()
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        pool_kwargs["ssl_context"] = self.ssl_context
+        return super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+
+
+def create_szw_http_session() -> requests.Session:
+    session = requests.Session()
+    session.mount(f"https://{SZW_HOST}/", SzwLegacyTlsAdapter())
+    return session
 
 
 def print_with_timestamp(*args, **kwargs):
@@ -140,70 +164,72 @@ def get_free_tennis_court_infos_for_szw(date: str, proxy_list: list, time_range:
     response_data = None
     last_error = None
 
-    for proxy in proxy_list:
-        payload = {
-            "fieldAreaUuid": SZW_FIELD_AREA_UUID,
-            "reserveDate": date,
-            "enterpriseUuid": "",
-            "discountSpecUuid": "",
-            "projectUuid": SZW_PROJECT_UUID,
-        }
-        headers = {
-            "Host": SZW_HOST,
-            "appId": SZW_APP_ID,
-            "Authorization": szw_authorization,
-            "projectUuid": SZW_PROJECT_UUID,
-            "xweb_xhr": "1",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 "
-            "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
-            "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
-            "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641c1d) XWEB/25300",
-            "Accept": "*/*",
-            "Sec-Fetch-Site": "cross-site",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Dest": "empty",
-            "Referer": "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-        }
-        request_kwargs = {
-            "headers": headers,
-            "json": payload,
-            "timeout": 15,
-        }
-        if proxy and proxy != "不使用代理":
-            request_kwargs["proxies"] = {"https": proxy}
+    with create_szw_http_session() as session:
+        for proxy in proxy_list:
+            payload = {
+                "fieldAreaUuid": SZW_FIELD_AREA_UUID,
+                "reserveDate": date,
+                "enterpriseUuid": "",
+                "discountSpecUuid": "",
+                "projectUuid": SZW_PROJECT_UUID,
+            }
+            headers = {
+                "Host": SZW_HOST,
+                "appId": SZW_APP_ID,
+                "Authorization": szw_authorization,
+                "projectUuid": SZW_PROJECT_UUID,
+                "xweb_xhr": "1",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 "
+                "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
+                "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
+                "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641c1d) XWEB/25300",
+                "Accept": "*/*",
+                "Sec-Fetch-Site": "cross-site",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Dest": "empty",
+                "Referer": "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+            }
+            request_kwargs = {
+                "headers": headers,
+                "json": payload,
+                "timeout": 15,
+            }
+            if proxy and proxy != "不使用代理":
+                request_kwargs["proxies"] = {"https": proxy}
 
-        print(f"trying for {proxy}")
-        try:
-            print(f"data: {payload}")
-            response = requests.post(SZW_MATRIX_API_URL, **request_kwargs)
-            print(f"response status_code: {response.status_code}")
-            if response.status_code == 200:
-                try:
-                    response_data = response.json()
-                except Exception as e:
-                    last_error = f"invalid json response: {e}"
-                    print(last_error)
+            print(f"trying for {proxy}")
+            try:
+                print(f"data: {payload}")
+                response = session.post(SZW_MATRIX_API_URL, **request_kwargs)
+                print(f"response status_code: {response.status_code}")
+                if response.status_code == 200:
+                    try:
+                        response_data = response.json()
+                    except Exception as e:
+                        last_error = f"invalid json response: {e}"
+                        print(last_error)
+                        continue
+                    if response_data.get("code") == 200 and response_data.get("result"):
+                        print(f"api success, text: {response_data.get('text')}")
+                        got_response = True
+                        time.sleep(1)
+                        break
+                    error_message = response_data.get("text") or response_data.get("message")
+                    last_error = (
+                        f"api error code={response_data.get('code')}, message={error_message}"
+                    )
+                    print(f"api error for {proxy}: {last_error}")
+                else:
+                    last_error = f"http status code={response.status_code}"
+                    print(f"failed for {proxy}: {last_error}")
                     continue
-                if response_data.get("code") == 200 and response_data.get("result"):
-                    print(f"api success, text: {response_data.get('text')}")
-                    got_response = True
-                    time.sleep(1)
-                    break
-                last_error = (
-                    f"api error code={response_data.get('code')}, text={response_data.get('text')}"
-                )
-                print(f"api error for {proxy}: {last_error}")
-            else:
-                last_error = f"http status code={response.status_code}"
+            except Exception as error:
+                last_error = str(error)
                 print(f"failed for {proxy}: {last_error}")
                 continue
-        except Exception as error:
-            last_error = str(error)
-            print(f"failed for {proxy}: {last_error}")
-            continue
 
     if got_response and response_data:
         result = response_data["result"]
@@ -305,7 +331,7 @@ def check_and_notify_for_day(day_offset: int):
         error=webapp_error,
     )
     if booking_error is not None:
-        raise RuntimeError(f"深圳湾场地查询失败: {webapp_error}") from booking_error
+        raise AirflowFailException(f"深圳湾场地接口巡检失败: {webapp_error}") from booking_error
 
     # 处理通知逻辑
     if up_for_send_data_list:

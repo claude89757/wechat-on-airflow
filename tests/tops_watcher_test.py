@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import datetime
 import importlib
 import json
 import sys
@@ -41,11 +42,17 @@ class FakeVariable:
         cls.values[key] = value
 
 
+class FakeAirflowFailException(Exception):
+    pass
+
+
 def install_import_stubs():
     airflow_module = types.ModuleType("airflow")
     airflow_sdk_module = types.ModuleType("airflow.sdk")
+    airflow_sdk_exceptions_module = types.ModuleType("airflow.sdk.exceptions")
     airflow_sdk_module.DAG = FakeDAG
     airflow_sdk_module.Variable = FakeVariable
+    airflow_sdk_exceptions_module.AirflowFailException = FakeAirflowFailException
 
     operators_module = types.ModuleType("airflow.operators")
     providers_module = types.ModuleType("airflow.providers")
@@ -56,6 +63,7 @@ def install_import_stubs():
 
     sys.modules["airflow"] = airflow_module
     sys.modules["airflow.sdk"] = airflow_sdk_module
+    sys.modules["airflow.sdk.exceptions"] = airflow_sdk_exceptions_module
     sys.modules["airflow.operators"] = operators_module
     sys.modules["airflow.providers"] = providers_module
     sys.modules["airflow.providers.standard"] = standard_module
@@ -170,8 +178,21 @@ class VenueDomainTest(unittest.TestCase):
             captured.update(kwargs)
             return FakeResponse()
 
+        class FakeSession:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            post = staticmethod(fake_post)
+
         with (
-            patch.object(szw_watcher.requests, "post", side_effect=fake_post),
+            patch.object(
+                szw_watcher,
+                "create_szw_http_session",
+                return_value=FakeSession(),
+            ),
             patch.object(szw_watcher.time, "sleep"),
         ):
             result = szw_watcher.get_free_tennis_court_infos_for_szw(
@@ -203,20 +224,47 @@ class VenueDomainTest(unittest.TestCase):
         self.assertIn("Chrome/144.0.0.0", headers["User-Agent"])
         self.assertIn("XWEB/25300", headers["User-Agent"])
 
-    def test_szw_booking_failure_marks_observation_unhealthy_and_fails_task(self):
+    def test_szw_session_enables_legacy_tls_only_for_its_host(self):
+        session = szw_watcher.create_szw_http_session()
+        try:
+            adapter = session.adapters[f"https://{szw_watcher.SZW_HOST}/"]
+            self.assertIsInstance(adapter, szw_watcher.SzwLegacyTlsAdapter)
+            self.assertTrue(adapter.ssl_context.options & szw_watcher.SSL_OP_LEGACY_SERVER_CONNECT)
+            self.assertIsNot(
+                session.adapters["https://"],
+                adapter,
+            )
+        finally:
+            session.close()
+
+    def test_szw_upstream_failure_is_published_and_fails_the_task(self):
+        class NoonDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 12, 12, 0, tzinfo=tz)
+
         with (
+            patch.object(szw_watcher.datetime, "datetime", NoonDateTime),
             patch.object(
                 szw_watcher,
                 "get_free_tennis_court_infos_for_szw",
-                side_effect=RuntimeError("booking authentication failed"),
+                side_effect=RuntimeError("upstream TLS failed"),
             ),
             patch.object(szw_watcher, "publish_venue_observation") as publish,
-            self.assertRaisesRegex(RuntimeError, "booking authentication failed"),
         ):
-            szw_watcher.check_and_notify_for_day(0)
+            with self.assertRaisesRegex(
+                FakeAirflowFailException,
+                "upstream TLS failed",
+            ):
+                szw_watcher.check_and_notify_for_day(0)
 
-        publish.assert_called_once()
-        self.assertFalse(publish.call_args.kwargs["healthy"])
+        publish.assert_called_once_with(
+            "szw",
+            "深圳湾",
+            [],
+            healthy=False,
+            error="upstream TLS failed",
+        )
 
     def test_tyzx_only_merges_available_unlocked_slots(self):
         result = tyzx_watcher.parse_tyzx_court_data(
