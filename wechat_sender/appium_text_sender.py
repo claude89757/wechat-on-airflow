@@ -516,7 +516,7 @@ class TextWeChatOperator:
         if not self._open_search_from_main_page():
             self._tap_ratio(0.83, 0.07)
 
-        if not self._wait_for_activity("FTSMainUI", timeout=5):
+        if not self._wait_for_search_page(timeout=5):
             raise AppiumTimeoutError("WeChat search page did not open")
 
         search_inputs = self.driver.find_elements(
@@ -573,7 +573,7 @@ class TextWeChatOperator:
                 _run_stale_retry(button.click)
             except Exception:
                 continue
-            if self._wait_for_activity("FTSMainUI", timeout=2):
+            if self._wait_for_search_page(timeout=2):
                 return True
             if not self.is_at_main_page():
                 self.return_to_chats()
@@ -581,7 +581,7 @@ class TextWeChatOperator:
 
     def _return_to_search_results(self) -> None:
         self.driver.press_keycode(4)
-        if not self._wait_for_activity("FTSMainUI", timeout=5):
+        if not self._wait_for_search_page(timeout=5):
             raise ContactNotFoundError("unable to return to WeChat search results")
 
     def _send_accessible_messages(self, messages: list[str]) -> None:
@@ -843,6 +843,45 @@ class TextWeChatOperator:
                 return True
             time.sleep(0.25)
         return self._activity_ends_with(suffix)
+
+    def _has_accessible_search_input(self) -> bool:
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        try:
+            screen_height = self.driver.get_window_size()["height"]
+            inputs = self.driver.find_elements(
+                by=AppiumBy.XPATH,
+                value="//android.widget.EditText",
+            )
+            return any(
+                element.rect["y"] + element.rect["height"] / 2 <= screen_height * 0.18
+                for element in inputs
+            )
+        except Exception:
+            return False
+
+    def _is_accessible_search_page(self) -> bool:
+        return self._activity_ends_with("FTSMainUI") or self._has_accessible_search_input()
+
+    def _wait_for_search_page(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._is_accessible_search_page():
+                return True
+            time.sleep(0.25)
+        if self._is_accessible_search_page():
+            return True
+        return any(
+            self._find_visual_line(
+                text,
+                region=(0.0, 0.0, 1.0, 0.18),
+                scale=1.5,
+                page_segmentation_mode=11,
+                minimum_score=0.86,
+            )
+            is not None
+            for text in ("搜索", "取消")
+        )
 
     def _is_visual_chat_page(self, receiver: str) -> bool:
         is_chatting_activity = self._activity_ends_with("ChattingUI")

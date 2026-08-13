@@ -587,9 +587,7 @@ class WeChatSenderTest(unittest.TestCase):
         operator.driver.current_activity = ".ui.FTSMainUI"
         operator.driver.set_clipboard_text = lambda _value: None
         operator.driver.press_keycode = lambda _value: None
-        operator._wait_for_activity = lambda suffix, timeout: suffix == "FTSMainUI" and bool(
-            timeout
-        )
+        operator._wait_for_search_page = lambda timeout: bool(timeout)
         operator._click_accessible_text = lambda _receiver: False
         candidates = [
             OcrLine("Zacks网球场预定小助手_2群", 100, 300, 800, 360),
@@ -622,6 +620,40 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertEqual(returns, ["back"])
         self.assertEqual(operator.current_receiver, "Zacks网球场预定小助手_2群")
         self.assertEqual(len(operator.driver.scripts), 3)
+
+    def test_launcher_search_page_is_detected_from_top_input(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.LauncherUI"
+        operator._activity_ends_with = lambda suffix: suffix == "LauncherUI"
+        operator._has_accessible_search_input = lambda: True
+
+        self.assertTrue(operator._is_accessible_search_page())
+
+    def test_chat_input_is_not_treated_as_search_input(self):
+        class Input:
+            rect = {"x": 0, "y": 2000, "width": 900, "height": 100}
+
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.find_elements = lambda **_kwargs: [Input()]
+
+        appiumby_module = ModuleType("appium.webdriver.common.appiumby")
+
+        class StubAppiumBy:
+            XPATH = "xpath"
+
+        appiumby_module.AppiumBy = StubAppiumBy
+        with patch.dict(
+            "sys.modules",
+            {
+                "appium": ModuleType("appium"),
+                "appium.webdriver": ModuleType("appium.webdriver"),
+                "appium.webdriver.common": ModuleType("appium.webdriver.common"),
+                "appium.webdriver.common.appiumby": appiumby_module,
+            },
+        ):
+            self.assertFalse(operator._has_accessible_search_input())
 
     def test_restarts_wechat_when_initial_session_is_not_at_main_page(self):
         result = send_text_messages(

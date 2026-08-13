@@ -138,6 +138,9 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 - If an accessibility search control does not open the search activity, the
   sender returns to the chat list and retries the known top-right search
   coordinate.
+- Search-page verification accepts either the dedicated WeChat search activity
+  or a text input located in the top bar. Bottom chat inputs cannot satisfy
+  this check.
 - Search results are tried in visual order and every candidate must open a
   WeChat chat activity with a title matching the requested receiver. Message
   input is not touched until that verification passes.
