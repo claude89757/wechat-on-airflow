@@ -949,11 +949,7 @@ class TextWeChatOperator:
     def _is_verified_chat_open(self, receiver: str) -> bool:
         if self.current_receiver != receiver:
             return False
-        is_chatting_activity = self._activity_ends_with("ChattingUI")
-        is_launcher_activity = self._activity_ends_with("LauncherUI")
-        if not (is_chatting_activity or is_launcher_activity):
-            return False
-        return not is_launcher_activity or not self._is_visual_main_page()
+        return self._activity_ends_with("ChattingUI") or self._activity_ends_with("LauncherUI")
 
     def _is_visual_main_page(self) -> bool:
         if self.driver.current_package != "com.tencent.mm":

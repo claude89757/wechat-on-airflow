@@ -153,8 +153,9 @@ create stale or duplicate notifications. Resolve the sender fault, verify
   input is not touched until that verification passes.
 - On devices with an empty accessibility tree, that successful strict title
   check is retained for the current navigation only. The input guard verifies
-  the package, chat activity, and absence of the main-page navigation state
-  without repeating unstable OCR on the same frame; any navigation clears it.
+  the package and chat-compatible activity without repeating unstable OCR or
+  bottom-navigation color detection on the same frame; any sender-controlled
+  navigation clears it.
 - UiAutomator selectors remain the primary path. If WeChat exposes an empty
   accessibility hierarchy, the sender uses local screenshots and Tesseract to
   identify the visible chat, search result, and send button.
