@@ -194,6 +194,18 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("retired_dags_left_paused", script)
         self.assertIn('restore_dags "$restore_regex"', script)
 
+    def test_recovery_deploy_bounds_current_work_and_preserves_outbox(self):
+        script = deploy_airflow.remote_script()
+
+        self.assertIn('if [ "$recover_active_tasks" = "true" ]', script)
+        self.assertIn("TaskInstance.dag_id.in_(dag_ids)", script)
+        self.assertIn("DagRun.dag_id.in_(dag_ids)", script)
+        self.assertIn('task_instance.state = "failed"', script)
+        self.assertIn('dag_run.state = "failed"', script)
+        self.assertIn("redis-cli FLUSHDB", script)
+        self.assertIn('"outbox_preserved": True', script)
+        self.assertNotIn("Variable.delete", script)
+
     def test_application_deploy_requires_file_secrets_without_exporting_values(self):
         script = deploy_airflow.remote_script()
 

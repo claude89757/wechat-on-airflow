@@ -84,6 +84,15 @@ runs:
 make airflow-resume TARGET_COMMIT=<pushed-full-sha>
 ```
 
+If an exact-commit deployment cannot drain current task instances after the
+DAGs are paused, use the bounded recovery deployment. It terminates only active
+work for manifest-declared DAGs, flushes the dedicated Celery broker, preserves
+incident outboxes and history, and then performs the normal deployment:
+
+```bash
+make deploy-recovery DEPLOY_ARGS="--target-commit <pushed-full-sha>"
+```
+
 The protected operation pauses all six WeChat-producing venue DAGs, freezes the
 scheduler, worker, and triggerer, marks the current active task instances and
 DAG runs as failed, flushes the dedicated Celery Redis broker, and restarts

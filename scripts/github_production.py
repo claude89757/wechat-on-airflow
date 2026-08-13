@@ -108,6 +108,7 @@ def main() -> None:
             "health",
             "deploy_preflight",
             "deploy_apply",
+            "deploy_recovery",
             "db_cleanup_check",
             "phone_diagnose",
             "wechat_quiesce",

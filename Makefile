@@ -7,7 +7,7 @@ LOCAL_SECRET_DIR := $(abspath .local/secrets)
 COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
 
 .PHONY: setup local-secrets webapp-setup webapp-check format lint typecheck test test-dags compose-config sender-config \
-	smoke verify deploy deploy-check production-health rollback-check db-cleanup-check \
+	smoke verify deploy deploy-recovery deploy-check production-health rollback-check db-cleanup-check \
 	phone-diagnose wechat-quiesce airflow-resume image sender-image sender-deploy sender-health sender-diagnose sender-screenshot sender-recover
 
 setup:
@@ -60,6 +60,9 @@ verify: lint typecheck test webapp-check compose-config smoke test-dags
 
 deploy:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow deploy $(DEPLOY_ARGS)
+
+deploy-recovery:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow deploy_recovery $(DEPLOY_ARGS)
 
 deploy-check: local-secrets
 	PYTHONPATH=src $(BIN)/python scripts/deploy_check.py --dry-run

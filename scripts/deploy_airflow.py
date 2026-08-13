@@ -97,6 +97,7 @@ airflow_version="$6"
 secret_dir="$7"
 base_url="$8"
 execution_api_url="$9"
+recover_active_tasks="${{10}}"
 cd "$repo_path"
 
 current_commit="$(git rev-parse HEAD)"
@@ -311,6 +312,74 @@ if [ -n "$pause_regex" ]; then
         --treat-dag-id-as-regex --yes "$pause_regex" </dev/null >/dev/null
 fi
 
+recovered_task_instances=0
+recovered_dag_runs=0
+purged_broker_keys=0
+if [ "$recover_active_tasks" = "true" ]; then
+    compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer >/dev/null
+    recovery_result="$(compose exec -T -e TARGET_DAG_IDS_B64="$target_dag_ids_b64" \
+        "$api_service" python - <<'PY'
+import base64
+import json
+import os
+from datetime import UTC, datetime
+
+from sqlalchemy import select
+from airflow.models.dagrun import DagRun
+from airflow.models.taskinstance import TaskInstance
+from airflow.utils.session import create_session
+
+dag_ids = json.loads(base64.b64decode(os.environ.pop("TARGET_DAG_IDS_B64")))
+active_task_states = ({active_task_states})
+active_run_states = ("queued", "running")
+now = datetime.now(UTC)
+
+with create_session() as session:
+    task_instances = list(
+        session.scalars(
+            select(TaskInstance).where(
+                TaskInstance.dag_id.in_(dag_ids),
+                TaskInstance.state.in_(active_task_states),
+            )
+        )
+    )
+    dag_runs = list(
+        session.scalars(
+            select(DagRun).where(
+                DagRun.dag_id.in_(dag_ids), DagRun.state.in_(active_run_states)
+            )
+        )
+    )
+    for task_instance in task_instances:
+        task_instance.state = "failed"
+        task_instance.end_date = task_instance.end_date or now
+        if task_instance.start_date is not None and task_instance.duration is None:
+            task_instance.duration = max((now - task_instance.start_date).total_seconds(), 0)
+    for dag_run in dag_runs:
+        dag_run.state = "failed"
+        dag_run.end_date = dag_run.end_date or now
+    session.flush()
+print(json.dumps({{"task_instances": len(task_instances), "dag_runs": len(dag_runs)}}))
+PY
+)"
+    recovered_task_instances="$(RECOVERY_RESULT="$recovery_result" python3 - <<'PY'
+import json
+import os
+
+print(json.loads(os.environ.pop("RECOVERY_RESULT").splitlines()[-1])["task_instances"])
+PY
+)"
+    recovered_dag_runs="$(RECOVERY_RESULT="$recovery_result" python3 - <<'PY'
+import json
+import os
+
+print(json.loads(os.environ.pop("RECOVERY_RESULT").splitlines()[-1])["dag_runs"])
+PY
+)"
+    purged_broker_keys="$(compose exec -T redis redis-cli DBSIZE | tr -d '\r')"
+    test "$(compose exec -T redis redis-cli FLUSHDB | tr -d '\r')" = "OK"
+fi
+
 drain_deadline="$(( $(date +%s) + 600 ))"
 initial_active_tasks="$(active_task_count)"
 while [ "$(active_task_count)" -ne 0 ]; do
@@ -363,7 +432,7 @@ test -n "$api_service"
 restore_dags "$restore_regex"
 rm -f "$dag_state_file"
 trap - EXIT HUP INT TERM
-python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$current_image" "$initial_active_tasks" "$retired_dag_count" <<'PY'
+python3 - "$current_commit" "$target_commit" "$target_image" "$container_count" "$current_image" "$initial_active_tasks" "$retired_dag_count" "$recovered_task_instances" "$recovered_dag_runs" "$purged_broker_keys" <<'PY'
 import json
 import sys
 
@@ -377,6 +446,10 @@ print(json.dumps({{
     "rollback_image": sys.argv[5],
     "drained_task_instances": int(sys.argv[6]),
     "retired_dags_left_paused": int(sys.argv[7]),
+    "recovered_task_instances": int(sys.argv[8]),
+    "recovered_dag_runs": int(sys.argv[9]),
+    "purged_broker_keys": int(sys.argv[10]),
+    "outbox_preserved": True,
     "dag_pause_state_restored": True,
 }}, sort_keys=True))
 PY
@@ -390,6 +463,7 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--apply", action="store_true")
+    parser.add_argument("--recover-active-tasks", action="store_true")
     parser.add_argument("--target-commit", default="HEAD")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
@@ -435,6 +509,7 @@ def main() -> None:
         str(runtime_target["target"]["production_secret_directory"]),
         str(runtime_target["managed_services"]["cloudflare_tunnel"]["public_base_url"]),
         str(runtime_target["target"]["execution_api_server_url"]),
+        "true" if args.recover_active_tasks else "false",
     ]
     result = run(command, check=False, input_text=remote_script())
     if result.returncode:
