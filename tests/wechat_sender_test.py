@@ -379,6 +379,24 @@ class WeChatSenderTest(unittest.TestCase):
             0,
         )
 
+    def test_visual_text_match_rejects_missing_numbered_group_suffix(self):
+        self.assertEqual(
+            _visual_text_match_score(
+                "Zacks网球场预定小助手",
+                "Zacks网球场预定小助手_2群",
+            ),
+            0,
+        )
+
+    def test_visual_text_match_accepts_chinese_ocr_error_with_same_group_number(self):
+        self.assertGreaterEqual(
+            _visual_text_match_score(
+                "Zacks网球场预订小助于_2群",
+                "Zacks网球场预定小助手_2群",
+            ),
+            0.72,
+        )
+
     def test_parses_tesseract_lines_back_to_screen_coordinates(self):
         tsv = (
             "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop"
@@ -455,6 +473,7 @@ class WeChatSenderTest(unittest.TestCase):
         operator.is_at_main_page = lambda: True
         operator._click_accessible_text = lambda _value: False
         operator._has_accessible_wechat_controls = lambda: False
+        operator._find_accessible_text_candidates = lambda *_args, **_kwargs: []
         operator._wait_for_chat = lambda _receiver, timeout: bool(timeout)
         operator._find_visual_line = lambda *_args, **_kwargs: OcrLine(
             text="Zacks_大沙河限定免费",
@@ -480,6 +499,7 @@ class WeChatSenderTest(unittest.TestCase):
         operator.is_at_main_page = lambda: True
         operator._click_accessible_text = lambda _value: False
         operator._has_accessible_wechat_controls = lambda: True
+        operator._find_accessible_text_candidates = lambda *_args, **_kwargs: []
         operator._wait_for_chat = lambda _receiver, timeout: bool(timeout)
         operator._find_visual_line = lambda *_args, **_kwargs: OcrLine(
             text="Zacks网球场预定小助手_2",
@@ -488,6 +508,31 @@ class WeChatSenderTest(unittest.TestCase):
             right=780,
             bottom=680,
         )
+
+        opened = operator.is_contact_in_recent_chats("Zacks网球场预定小助手_2群")
+
+        self.assertTrue(opened)
+        self.assertEqual(operator.driver.swipes, [])
+
+    def test_accessible_partial_chat_name_is_checked_before_ocr(self):
+        class Element:
+            text = "Zacks网球场预订小助于_2群"
+            rect = {"x": 100, "y": 400, "width": 700, "height": 80}
+
+            def get_attribute(self, _name):
+                return ""
+
+            def click(self):
+                return None
+
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.current_receiver = None
+        operator.is_at_main_page = lambda: True
+        operator._click_accessible_text = lambda _value: False
+        operator._find_accessible_text_candidates = lambda *_args, **_kwargs: [Element()]
+        operator._wait_for_chat = lambda _receiver, timeout: bool(timeout)
+        operator._find_visual_line = lambda *_args, **_kwargs: None
 
         opened = operator.is_contact_in_recent_chats("Zacks网球场预定小助手_2群")
 

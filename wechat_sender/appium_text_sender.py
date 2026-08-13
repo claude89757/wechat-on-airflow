@@ -1,7 +1,9 @@
 import csv
+import difflib
 import io
 import json
 import random
+import re
 import subprocess
 import tempfile
 import time
@@ -148,10 +150,25 @@ def _visual_text_match_score(candidate: str, expected: str) -> float:
     if normalized_expected in normalized_candidate:
         return 0.99
 
+    candidate_digits = re.findall(r"\d+", normalized_candidate)
+    expected_digits = re.findall(r"\d+", normalized_expected)
+    if expected_digits and candidate_digits != expected_digits:
+        return 0.0
+
     if len(normalized_candidate) >= max(
         8, len(normalized_expected) - 2
     ) and normalized_expected.startswith(normalized_candidate):
         return 0.9 + 0.08 * len(normalized_candidate) / len(normalized_expected)
+
+    if len(normalized_candidate) < max(8, round(len(normalized_expected) * 0.6)):
+        return 0.0
+    similarity = difflib.SequenceMatcher(
+        None,
+        normalized_candidate,
+        normalized_expected,
+    ).ratio()
+    if similarity >= 0.72:
+        return similarity
     return 0.0
 
 
@@ -368,6 +385,20 @@ class TextWeChatOperator:
                 return True
             self.return_to_chats()
 
+        for element in self._find_accessible_text_candidates(
+            receiver,
+            top_ratio=0.10,
+            bottom_ratio=0.90,
+        ):
+            try:
+                _run_stale_retry(element.click)
+            except Exception:
+                continue
+            if self._wait_for_chat(receiver, timeout=6):
+                self.current_receiver = receiver
+                return True
+            self.return_to_chats()
+
         line = self._find_visual_line(
             receiver,
             region=(0.15, 0.10, 0.93, 0.90),
@@ -423,16 +454,66 @@ class TextWeChatOperator:
         except Exception:
             return False
 
+    @staticmethod
+    def _accessible_element_text(element: Any) -> str:
+        values = []
+        try:
+            values.append(str(element.text or ""))
+        except Exception:
+            pass
+        for attribute in ("text", "contentDescription", "content-desc"):
+            try:
+                values.append(str(element.get_attribute(attribute) or ""))
+            except Exception:
+                continue
+        return " ".join(value for value in values if value)
+
+    def _find_accessible_text_candidates(
+        self,
+        receiver: str,
+        *,
+        top_ratio: float,
+        bottom_ratio: float,
+        minimum_score: float = 0.72,
+    ) -> list[Any]:
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        try:
+            screen_height = self.driver.get_window_size()["height"]
+            elements = self.driver.find_elements(
+                by=AppiumBy.XPATH,
+                value="//*[@text!='' or @content-desc!='']",
+            )
+        except Exception:
+            return []
+
+        candidates = []
+        for element in elements:
+            try:
+                rect = element.rect
+                center_y = rect["y"] + rect["height"] / 2
+            except Exception:
+                continue
+            if not screen_height * top_ratio <= center_y <= screen_height * bottom_ratio:
+                continue
+            score = _visual_text_match_score(
+                self._accessible_element_text(element),
+                receiver,
+            )
+            if score >= minimum_score:
+                candidates.append((score, center_y, rect["x"], element))
+        return [
+            element
+            for _score, _center_y, _left, element in sorted(
+                candidates,
+                key=lambda item: (item[1], item[2], -item[0]),
+            )
+        ]
+
     def _search_and_open_chat(self, receiver: str) -> None:
         from appium.webdriver.common.appiumby import AppiumBy
 
-        search_buttons = self.driver.find_elements(
-            by=AppiumBy.ACCESSIBILITY_ID,
-            value="搜索",
-        )
-        if search_buttons:
-            _run_stale_retry(search_buttons[0].click)
-        else:
+        if not self._open_search_from_main_page():
             self._tap_ratio(0.83, 0.07)
 
         if not self._wait_for_activity("FTSMainUI", timeout=5):
@@ -469,6 +550,34 @@ class TextWeChatOperator:
             self._return_to_search_results()
 
         raise ContactNotFoundError(f"receiver did not open: {receiver}")
+
+    def _open_search_from_main_page(self) -> bool:
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        try:
+            screen = self.driver.get_window_size()
+            search_buttons = self.driver.find_elements(
+                by=AppiumBy.ACCESSIBILITY_ID,
+                value="搜索",
+            )
+        except Exception:
+            return False
+
+        for button in search_buttons:
+            try:
+                rect = button.rect
+                center_x = rect["x"] + rect["width"] / 2
+                center_y = rect["y"] + rect["height"] / 2
+                if center_x < screen["width"] * 0.55 or center_y > screen["height"] * 0.18:
+                    continue
+                _run_stale_retry(button.click)
+            except Exception:
+                continue
+            if self._wait_for_activity("FTSMainUI", timeout=2):
+                return True
+            if not self.is_at_main_page():
+                self.return_to_chats()
+        return False
 
     def _return_to_search_results(self) -> None:
         self.driver.press_keycode(4)
@@ -664,12 +773,14 @@ class TextWeChatOperator:
         region: tuple[float, float, float, float],
         scale: float,
         page_segmentation_mode: int,
+        minimum_score: float = 0.72,
     ) -> OcrLine | None:
         lines = self._find_visual_lines(
             value,
             region=region,
             scale=scale,
             page_segmentation_mode=page_segmentation_mode,
+            minimum_score=minimum_score,
         )
         return lines[0] if lines else None
 
@@ -680,6 +791,7 @@ class TextWeChatOperator:
         region: tuple[float, float, float, float],
         scale: float,
         page_segmentation_mode: int,
+        minimum_score: float = 0.72,
     ) -> list[OcrLine]:
         scored_lines = [
             (_visual_text_match_score(line.text, value), line)
@@ -692,7 +804,7 @@ class TextWeChatOperator:
         return [
             line
             for score, line in sorted(
-                (item for item in scored_lines if item[0] > 0),
+                (item for item in scored_lines if item[0] >= minimum_score),
                 key=lambda item: (item[1].top, item[1].left, -item[0]),
             )
         ]
@@ -747,23 +859,20 @@ class TextWeChatOperator:
                 region=(0.08, 0.01, 0.92, 0.16),
                 scale=1.5,
                 page_segmentation_mode=11,
+                minimum_score=0.86,
             )
             is not None
         )
 
     def _has_accessible_title(self, receiver: str) -> bool:
-        from appium.webdriver.common.appiumby import AppiumBy
-
-        try:
-            screen_height = self.driver.get_window_size()["height"]
-            for xpath in _recent_chat_xpaths(receiver):
-                for element in self.driver.find_elements(by=AppiumBy.XPATH, value=xpath):
-                    rect = element.rect
-                    if rect["y"] + rect["height"] <= screen_height * 0.18:
-                        return True
-        except Exception:
-            return False
-        return False
+        return bool(
+            self._find_accessible_text_candidates(
+                receiver,
+                top_ratio=0.0,
+                bottom_ratio=0.18,
+                minimum_score=0.86,
+            )
+        )
 
     def _wait_for_chat(self, receiver: str, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
