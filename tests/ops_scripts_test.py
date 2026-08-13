@@ -15,6 +15,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import _ops  # noqa: E402
 import airflow_db_cleanup  # noqa: E402
+import capture_wechat_sender_ui  # noqa: E402
 import deploy_airflow  # noqa: E402
 import deploy_wechat_sender  # noqa: E402
 import diagnose_zacks_phone  # noqa: E402
@@ -244,6 +245,42 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         self.assertIn('"has_text": bool(attributes.get("text"))', script)
         self.assertNotIn('"text": attributes.get("text")', script)
         self.assertNotIn('"content_description": attributes.get("content-desc")', script)
+
+    def test_sender_ui_capture_is_read_only_and_never_logs_image_bytes(self):
+        script = capture_wechat_sender_ui.remote_script()
+
+        self.assertIn("exec-out screencap -p", script)
+        self.assertNotIn("input tap", script)
+        self.assertNotIn("click", script)
+        self.assertNotIn("/v1/wechat/send", script)
+        self.assertNotIn("uiautomator", script)
+
+    @patch("capture_wechat_sender_ui.sender_remote")
+    @patch("capture_wechat_sender_ui.subprocess.run")
+    def test_sender_ui_capture_validates_png_before_writing(self, mock_run, mock_remote):
+        mock_remote.return_value = {
+            "host": "sender.example",
+            "port": "6000",
+            "username": "deployer",
+        }
+        png = (
+            b"\x89PNG\r\n\x1a\n"
+            + b"\x00" * 8
+            + (1080).to_bytes(4, "big")
+            + (2340).to_bytes(4, "big")
+        )
+        mock_run.return_value = subprocess.CompletedProcess([], 0, png, b"")
+
+        with self.subTest("valid PNG"):
+            from tempfile import TemporaryDirectory
+
+            with TemporaryDirectory() as directory:
+                output = Path(directory) / "wechat-ui.png"
+                self.assertEqual(
+                    capture_wechat_sender_ui.capture_screenshot(output),
+                    (1080, 2340),
+                )
+                self.assertEqual(output.read_bytes(), png)
 
 
 class WeChatDeliveryQuiesceTest(unittest.TestCase):

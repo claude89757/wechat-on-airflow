@@ -11,6 +11,7 @@ on:
         options:
           - health
           - device_diagnose
+          - ui_screenshot
           - device_recover
           - dry_run
           - apply
@@ -59,6 +60,7 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
       - name: Execute protected operation
+        if: inputs.operation != 'ui_screenshot'
         env:
           OPERATION: ${{ inputs.operation }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
@@ -85,3 +87,16 @@ jobs:
           esac
           PYTHONPATH=src python scripts/deploy_wechat_sender.py \
             --operation "$MODE" --target-commit "$TARGET_COMMIT" --format json
+      - name: Capture protected UI evidence
+        if: inputs.operation == 'ui_screenshot'
+        run: |
+          python scripts/capture_wechat_sender_ui.py \
+            --output .local/diagnostics/wechat-ui.png
+      - name: Upload protected UI evidence
+        if: inputs.operation == 'ui_screenshot'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-sender-ui-${{ inputs.request_id }}
+          path: .local/diagnostics/wechat-ui.png
+          if-no-files-found: error
+          retention-days: 1

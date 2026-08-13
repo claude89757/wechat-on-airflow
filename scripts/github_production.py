@@ -6,7 +6,7 @@ import json
 import time
 import uuid
 
-from _ops import OpsError, run
+from _ops import REPO_ROOT, OpsError, run
 
 WORKFLOWS = {
     "airflow": "production-airflow.yml",
@@ -66,6 +66,25 @@ def dispatch(component: str, operation: str, target_commit: str) -> None:
         print(logs.stdout.rstrip())
     if watched.returncode:
         raise OpsError(f"GitHub production workflow failed: run {run_id}")
+    if component == "sender" and operation == "ui_screenshot":
+        artifact_name = f"wechat-sender-ui-{request_id}"
+        destination = REPO_ROOT / ".local" / "diagnostics" / request_id
+        run(
+            [
+                "gh",
+                "run",
+                "download",
+                str(run_id),
+                "--name",
+                artifact_name,
+                "--dir",
+                str(destination),
+            ]
+        )
+        screenshot_path = destination / "wechat-ui.png"
+        if not screenshot_path.is_file():
+            raise OpsError("GitHub did not download the sender UI screenshot")
+        print(f"artifact_path={screenshot_path}")
 
 
 def main() -> None:
@@ -93,7 +112,14 @@ def main() -> None:
             "phone_diagnose",
             "wechat_quiesce",
         },
-        "sender": {"health", "device_diagnose", "device_recover", "dry_run", "apply"},
+        "sender": {
+            "health",
+            "device_diagnose",
+            "ui_screenshot",
+            "device_recover",
+            "dry_run",
+            "apply",
+        },
     }
     if operation not in allowed[args.component]:
         raise OpsError(f"unsupported {args.component} operation: {operation}")

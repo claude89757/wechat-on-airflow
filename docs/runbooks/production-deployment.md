@@ -107,6 +107,12 @@ device incidents: current activity, control geometry, resource IDs, and known
 navigation roles. It deliberately reports only whether other text is present,
 never chat names or message content.
 
+For an incident where WeChat exposes no usable accessibility tree, run
+`make sender-screenshot`. The protected workflow captures one read-only device
+screenshot, stores it as a GitHub artifact for one day, and downloads it under
+the ignored `.local/diagnostics/` directory. Treat the image as sensitive
+operational evidence: do not commit it or paste it into logs.
+
 ## Runtime Secrets
 
 Airflow infrastructure secrets are source files under

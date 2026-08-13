@@ -298,7 +298,14 @@ def main() -> None:
             "wechat_quiesce",
         ]
         or operations.get("sender_operations")
-        != ["health", "device_diagnose", "device_recover", "dry_run", "apply"]
+        != [
+            "health",
+            "device_diagnose",
+            "ui_screenshot",
+            "device_recover",
+            "dry_run",
+            "apply",
+        ]
     ):
         fail("production operations must be GitHub Environment controlled")
     expected_github_secrets = {

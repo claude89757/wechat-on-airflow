@@ -87,6 +87,7 @@ production_operations:
   sender_operations:
     - health
     - device_diagnose
+    - ui_screenshot
     - device_recover
     - dry_run
     - apply
