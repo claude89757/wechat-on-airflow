@@ -296,6 +296,7 @@ def main() -> None:
             "db_cleanup_check",
             "phone_diagnose",
             "wechat_quiesce",
+            "airflow_resume",
         ]
         or operations.get("sender_operations")
         != [

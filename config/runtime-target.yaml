@@ -84,6 +84,7 @@ production_operations:
     - db_cleanup_check
     - phone_diagnose
     - wechat_quiesce
+    - airflow_resume
   sender_operations:
     - health
     - device_diagnose

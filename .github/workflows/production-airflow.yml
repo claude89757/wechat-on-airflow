@@ -15,6 +15,7 @@ on:
           - db_cleanup_check
           - phone_diagnose
           - wechat_quiesce
+          - airflow_resume
       target_commit:
         description: Exact commit SHA on main
         required: true
@@ -87,6 +88,10 @@ jobs:
               ;;
             wechat_quiesce)
               PYTHONPATH=scripts python scripts/quiesce_wechat_delivery.py \
+                --target-commit "$TARGET_COMMIT" --format json
+              ;;
+            airflow_resume)
+              PYTHONPATH=scripts python scripts/resume_airflow_scheduling.py \
                 --target-commit "$TARGET_COMMIT" --format json
               ;;
             *)

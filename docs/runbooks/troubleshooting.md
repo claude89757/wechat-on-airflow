@@ -76,6 +76,14 @@ clear the current Celery workload with:
 make wechat-quiesce TARGET_COMMIT=<currently-deployed-full-sha>
 ```
 
+If an interrupted deployment leaves all declared DAGs paused after external
+prerequisites are healthy, restore scheduling without triggering historical
+runs:
+
+```bash
+make airflow-resume TARGET_COMMIT=<pushed-full-sha>
+```
+
 The protected operation pauses all six WeChat-producing venue DAGs, freezes the
 scheduler, worker, and triggerer, marks the current active task instances and
 DAG runs as failed, flushes the dedicated Celery Redis broker, and restarts

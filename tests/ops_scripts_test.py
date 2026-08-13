@@ -22,6 +22,7 @@ import diagnose_zacks_phone  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
 import quiesce_wechat_delivery  # noqa: E402
+import resume_airflow_scheduling  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
 
 
@@ -34,6 +35,7 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
             "deploy_wechat_sender.py",
             "production_health.py",
             "quiesce_wechat_delivery.py",
+            "resume_airflow_scheduling.py",
         ):
             source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
             self.assertNotIn("sshpass", source, script_name)
@@ -42,6 +44,19 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
         command = _ops.ssh_command({"host": "host", "port": "22", "username": "deploy"})
         self.assertIn("PreferredAuthentications=publickey", command)
         self.assertIn("PasswordAuthentication=no", command)
+        self.assertIn("ServerAliveInterval=30", command)
+        self.assertIn("ServerAliveCountMax=20", command)
+
+
+class AirflowSchedulingResumeTest(unittest.TestCase):
+    def test_resume_is_bounded_to_declared_dags_without_triggering_runs(self):
+        script = resume_airflow_scheduling.remote_script()
+
+        self.assertIn("airflow dags unpause", script)
+        self.assertIn("--treat-dag-id-as-regex --yes", script)
+        self.assertIn('verification["paused_dags"] == 0', script)
+        self.assertNotIn("airflow dags trigger", script)
+        self.assertNotIn("DagRun", script)
 
 
 class WeChatSenderServiceContractTest(unittest.TestCase):
