@@ -290,10 +290,12 @@ restore_dags() {{
     done
 }}
 
+execution_services_stopped=false
+
 rollback() {{
     rc="${{1:-$?}}"
     trap - EXIT HUP INT TERM
-    if [ "$rc" -ne 0 ]; then
+    if [ "$rc" -ne 0 ] || [ "$execution_services_stopped" = "true" ]; then
         git checkout --quiet --detach "$current_commit" || true
         active_image="$current_image"
         compose up -d --no-deps {services} >/dev/null 2>&1 || true
@@ -316,7 +318,8 @@ recovered_task_instances=0
 recovered_dag_runs=0
 purged_broker_keys=0
 if [ "$recover_active_tasks" = "true" ]; then
-    compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer >/dev/null
+    compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer </dev/null >/dev/null
+    execution_services_stopped=true
     recovery_result="$(compose exec -T -e TARGET_DAG_IDS_B64="$target_dag_ids_b64" \
         "$api_service" python - <<'PY'
 import base64
@@ -376,8 +379,8 @@ import os
 print(json.loads(os.environ.pop("RECOVERY_RESULT").splitlines()[-1])["dag_runs"])
 PY
 )"
-    purged_broker_keys="$(compose exec -T redis redis-cli DBSIZE | tr -d '\r')"
-    test "$(compose exec -T redis redis-cli FLUSHDB | tr -d '\r')" = "OK"
+    purged_broker_keys="$(compose exec -T redis redis-cli DBSIZE </dev/null | tr -d '\r')"
+    test "$(compose exec -T redis redis-cli FLUSHDB </dev/null | tr -d '\r')" = "OK"
 fi
 
 drain_deadline="$(( $(date +%s) + 600 ))"
@@ -397,6 +400,7 @@ compose config --quiet </dev/null
 compose build --quiet airflow-api-server </dev/null >/dev/null
 docker image inspect "$target_image" >/dev/null
 compose up -d --no-deps {services} </dev/null >/dev/null
+execution_services_stopped=false
 
 deadline="$(( $(date +%s) + 300 ))"
 while :; do

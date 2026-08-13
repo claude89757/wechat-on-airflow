@@ -198,6 +198,14 @@ class AirflowDeploymentTest(unittest.TestCase):
         script = deploy_airflow.remote_script()
 
         self.assertIn('if [ "$recover_active_tasks" = "true" ]', script)
+        self.assertIn(
+            "compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer </dev/null",
+            script,
+        )
+        self.assertIn(
+            '[ "$rc" -ne 0 ] || [ "$execution_services_stopped" = "true" ]',
+            script,
+        )
         self.assertIn("TaskInstance.dag_id.in_(dag_ids)", script)
         self.assertIn("DagRun.dag_id.in_(dag_ids)", script)
         self.assertIn('task_instance.state = "failed"', script)
