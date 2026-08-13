@@ -56,7 +56,7 @@ class OcrLine:
 
 
 VISUAL_INPUT_CLEAR_KEYSTROKES = 1024
-VISUAL_MAIN_NAVIGATION_TOP_RATIO = 0.90
+VISUAL_MAIN_NAVIGATION_TOP_RATIO = 0.925
 VISUAL_SEND_BUTTON_REGION = (0.78, 0.57, 1.0, 0.66)
 
 
@@ -376,7 +376,9 @@ class TextWeChatOperator:
             raise InvalidSendRequestError("messages must contain at least one item")
         self.current_receiver = None
 
-        if not self.is_contact_in_recent_chats(receiver):
+        if self.is_target_chat_open(receiver):
+            self.current_receiver = receiver
+        elif not self.is_contact_in_recent_chats(receiver):
             self._search_and_open_chat(receiver)
 
         if not self._is_verified_chat_open(receiver):
@@ -929,6 +931,9 @@ class TextWeChatOperator:
             is not None
         )
 
+    def is_target_chat_open(self, receiver: str) -> bool:
+        return self._is_visual_chat_page(receiver)
+
     def _has_accessible_title(self, receiver: str) -> bool:
         return bool(
             self._find_accessible_text_candidates(
@@ -1084,7 +1089,7 @@ def send_text_messages(
             force_app_launch=False,
         )
         sleeper(startup_wait_seconds)
-        if not operator.is_at_main_page():
+        if not operator.is_at_main_page() and not operator.is_target_chat_open(normalized_receiver):
             operator.close()
             operator = None
             sleeper(close_wait_seconds)
@@ -1094,9 +1099,13 @@ def send_text_messages(
                 force_app_launch=True,
             )
             sleeper(restart_wait_seconds)
-            if not operator.is_at_main_page():
+            if not operator.is_at_main_page() and not operator.is_target_chat_open(
+                normalized_receiver
+            ):
                 operator.return_to_chats()
-            if not operator.is_at_main_page():
+            if not operator.is_at_main_page() and not operator.is_target_chat_open(
+                normalized_receiver
+            ):
                 raise DeviceNotReadyError("WeChat main page is not available")
 
         operator.send_message(receiver=normalized_receiver, messages=normalized_messages)

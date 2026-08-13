@@ -135,6 +135,8 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 ## Behavior
 
 - The sender checks visible recent chats before using search.
+- A currently open chat whose title strictly matches the requested receiver is
+  reused before the sender navigates back to the recent-chat list.
 - Visible-chat detection combines accessibility text with OCR even when WeChat
   exposes only a partial accessibility tree. It never scrolls the recent-chat
   list while selecting a receiver.

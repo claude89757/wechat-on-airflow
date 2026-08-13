@@ -39,6 +39,9 @@ class FakeOperator:
     def is_at_main_page(self):
         return self.at_main_page
 
+    def is_target_chat_open(self, _receiver):
+        return False
+
     def send_message(self, receiver, messages):
         self.sent.append((receiver, list(messages)))
 
@@ -658,7 +661,7 @@ class WeChatSenderTest(unittest.TestCase):
 
             def crop(self, bounds):
                 self.crop_bounds = bounds
-                green_pixels = 150 if bounds[1] < 2106 else 0
+                green_pixels = 150 if bounds[1] < 2164 else 0
                 return NavigationRegion(green_pixels)
 
         screenshot = Screenshot()
@@ -674,11 +677,31 @@ class WeChatSenderTest(unittest.TestCase):
         with patch.dict("sys.modules", {"PIL": pil_module, "PIL.Image": image_module}):
             self.assertFalse(operator._is_visual_main_page())
 
-        self.assertEqual(VISUAL_MAIN_NAVIGATION_TOP_RATIO, 0.90)
+        self.assertEqual(VISUAL_MAIN_NAVIGATION_TOP_RATIO, 0.925)
         self.assertEqual(
             screenshot.crop_bounds,
-            (0, 2106, 292, 2340),
+            (0, 2164, 292, 2340),
         )
+
+    def test_send_reuses_an_already_open_verified_target_chat(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.current_receiver = None
+        operator.is_target_chat_open = lambda _receiver: True
+        operator.is_contact_in_recent_chats = lambda _receiver: (_ for _ in ()).throw(
+            AssertionError("recent chats must not be opened")
+        )
+        operator._search_and_open_chat = lambda _receiver: (_ for _ in ()).throw(
+            AssertionError("search must not be opened")
+        )
+        operator._is_verified_chat_open = lambda receiver: (operator.current_receiver == receiver)
+        operator._has_accessible_message_input = lambda: False
+        sent = []
+        operator._send_visual_messages = lambda messages: sent.extend(messages)
+        operator.return_to_chats = lambda: None
+
+        operator.send_message("target-chat", ["hello"])
+
+        self.assertEqual(sent, ["hello"])
 
     def test_verified_chat_does_not_repeat_unstable_title_ocr(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
