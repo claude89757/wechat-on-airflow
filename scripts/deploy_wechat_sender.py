@@ -195,6 +195,12 @@ device_state() {
     adb_output="$(adb devices 2>&1)" || adb_rc="$?"
     configured_device="$(tr -d '\r\n' < "$credential_dir/wechat_allowed_device_name")"
     configured_state="$(adb -s "$configured_device" get-state 2>/dev/null || true)"
+    ui_dump_file="$(mktemp)"
+    adb -s "$configured_device" exec-out uiautomator dump /dev/tty \
+        >"$ui_dump_file" 2>/dev/null || true
+    current_focus="$(adb -s "$configured_device" shell dumpsys window windows \
+        2>/dev/null | sed -n 's/.*mCurrentFocus=Window{[^ ]* [^ ]* \([^}]*\)}.*/\1/p' \
+        | head -n 1)"
     ready_payload="$(curl --silent --show-error --max-time 5 \
         http://127.0.0.1:7001/readyz 2>/dev/null || true)"
     usb_adb_interfaces=0
@@ -210,12 +216,92 @@ device_state() {
         fi
     done
 
-    ADB_OUTPUT="$adb_output" READY_PAYLOAD="$ready_payload" python3 - \
+    ADB_OUTPUT="$adb_output" READY_PAYLOAD="$ready_payload" \
+        UI_DUMP_FILE="$ui_dump_file" CURRENT_FOCUS="$current_focus" python3 - \
         "$service_enabled" "$service_active" "$appium_active" "$adb_rc" \
         "$configured_state" "$usb_adb_interfaces" <<'PY'
 import json
 import os
+import re
 import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+def ui_role(value):
+    return {
+        "搜索": "search",
+        "取消": "cancel",
+        "微信": "chats_tab",
+        "通讯录": "contacts_tab",
+        "发现": "discover_tab",
+        "我": "me_tab",
+    }.get(value)
+
+
+def sanitized_node(node):
+    attributes = node.attrib
+    return {
+        "class": attributes.get("class"),
+        "resource_id": attributes.get("resource-id"),
+        "bounds": attributes.get("bounds"),
+        "clickable": attributes.get("clickable") == "true",
+        "focused": attributes.get("focused") == "true",
+        "text_role": ui_role(attributes.get("text")),
+        "description_role": ui_role(attributes.get("content-desc")),
+        "has_text": bool(attributes.get("text")),
+        "has_description": bool(attributes.get("content-desc")),
+    }
+
+
+def parse_ui_snapshot(path):
+    snapshot = {
+        "dump_available": False,
+        "node_count": 0,
+        "top_clickable_controls": [],
+        "search_controls": [],
+        "edit_inputs": [],
+    }
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return snapshot
+    finally:
+        path.unlink(missing_ok=True)
+    xml_start = raw.find("<?xml")
+    if xml_start < 0:
+        return snapshot
+    try:
+        root = ET.fromstring(raw[xml_start:])
+    except ET.ParseError:
+        return snapshot
+
+    nodes = list(root.iter("node"))
+    snapshot["dump_available"] = True
+    snapshot["node_count"] = len(nodes)
+    parsed_bounds = []
+    for node in nodes:
+        match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+        if match:
+            parsed_bounds.append((node, tuple(map(int, match.groups()))))
+    screen_bottom = max((bounds[3] for _node, bounds in parsed_bounds), default=0)
+    for node, bounds in parsed_bounds:
+        details = sanitized_node(node)
+        text_role = details["text_role"]
+        description_role = details["description_role"]
+        if text_role == "search" or description_role == "search":
+            snapshot["search_controls"].append(details)
+        if str(node.attrib.get("class", "")).endswith("EditText"):
+            snapshot["edit_inputs"].append(details)
+        center_y = (bounds[1] + bounds[3]) / 2
+        if (
+            node.attrib.get("clickable") == "true"
+            and screen_bottom
+            and center_y <= screen_bottom * 0.20
+            and len(snapshot["top_clickable_controls"]) < 20
+        ):
+            snapshot["top_clickable_controls"].append(details)
+    return snapshot
 
 counts = {"device": 0, "offline": 0, "unauthorized": 0, "other": 0}
 for line in os.environ.pop("ADB_OUTPUT", "").splitlines():
@@ -277,6 +363,10 @@ print(json.dumps({
         "configured_device_online": configured_device_online,
     },
     "usb_adb_interface_count": usb_adb_interface_count,
+    "ui": {
+        "current_focus": os.environ.pop("CURRENT_FOCUS", "") or None,
+        **parse_ui_snapshot(Path(os.environ.pop("UI_DUMP_FILE"))),
+    },
     "readiness_error": readiness_error,
     "failure_category": failure_category,
 }, sort_keys=True))

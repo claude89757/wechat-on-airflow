@@ -102,6 +102,11 @@ do not call the send endpoint as a smoke test. Historical fallback records are
 not replayed automatically. Docker Compose is retained only as a development
 or alternate-host runtime.
 
+`make sender-diagnose` also returns a sanitized UI structure snapshot for
+device incidents: current activity, control geometry, resource IDs, and known
+navigation roles. It deliberately reports only whether other text is present,
+never chat names or message content.
+
 ## Runtime Secrets
 
 Airflow infrastructure secrets are source files under

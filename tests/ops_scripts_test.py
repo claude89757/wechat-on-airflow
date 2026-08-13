@@ -233,6 +233,17 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         self.assertNotIn("adb reboot", script)
         self.assertNotIn("/v1/wechat/send", script)
 
+    def test_sender_device_diagnosis_captures_only_sanitized_ui_structure(self):
+        script = deploy_wechat_sender.remote_script()
+
+        self.assertIn("uiautomator dump /dev/tty", script)
+        self.assertIn('"top_clickable_controls": []', script)
+        self.assertIn('"search_controls": []', script)
+        self.assertIn('"edit_inputs": []', script)
+        self.assertIn('"has_text": bool(attributes.get("text"))', script)
+        self.assertNotIn('"text": attributes.get("text")', script)
+        self.assertNotIn('"content_description": attributes.get("content-desc")', script)
+
 
 class WeChatDeliveryQuiesceTest(unittest.TestCase):
     def test_quiesce_is_scoped_and_preserves_incident_outbox(self):
