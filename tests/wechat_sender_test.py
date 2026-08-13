@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from wechat_sender.appium_text_sender import (
     VISUAL_INPUT_CLEAR_KEYSTROKES,
+    VISUAL_MAIN_NAVIGATION_TOP_RATIO,
     DeviceNotReadyError,
     InvalidSendRequestError,
     OcrLine,
@@ -602,6 +603,47 @@ class WeChatSenderTest(unittest.TestCase):
         operator._has_accessible_title = lambda _receiver: True
 
         self.assertFalse(operator._is_visual_chat_page("Zacks网球场预定小助手_2群"))
+
+    def test_visual_main_page_ignores_chat_content_above_bottom_navigation(self):
+        class NavigationRegion:
+            def __init__(self, green_pixels):
+                self.green_pixels = green_pixels
+
+            def getdata(self):
+                return [(0, 180, 80)] * self.green_pixels + [(240, 240, 240)]
+
+        class Screenshot:
+            size = (1080, 2340)
+
+            def __init__(self):
+                self.crop_bounds = None
+
+            def convert(self, _mode):
+                return self
+
+            def crop(self, bounds):
+                self.crop_bounds = bounds
+                green_pixels = 150 if bounds[1] < 2106 else 0
+                return NavigationRegion(green_pixels)
+
+        screenshot = Screenshot()
+        image_module = ModuleType("PIL.Image")
+        image_module.open = lambda _value: screenshot
+        pil_module = ModuleType("PIL")
+        pil_module.Image = image_module
+
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.get_screenshot_as_png = lambda: b"png"
+
+        with patch.dict("sys.modules", {"PIL": pil_module, "PIL.Image": image_module}):
+            self.assertFalse(operator._is_visual_main_page())
+
+        self.assertEqual(VISUAL_MAIN_NAVIGATION_TOP_RATIO, 0.90)
+        self.assertEqual(
+            screenshot.crop_bounds,
+            (0, 2106, 292, 2340),
+        )
 
     def test_verified_chat_does_not_repeat_unstable_title_ocr(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)

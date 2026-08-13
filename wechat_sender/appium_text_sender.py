@@ -56,6 +56,7 @@ class OcrLine:
 
 
 VISUAL_INPUT_CLEAR_KEYSTROKES = 1024
+VISUAL_MAIN_NAVIGATION_TOP_RATIO = 0.90
 
 
 def _appium_url(appium_server_url: str, path: str) -> str:
@@ -961,7 +962,14 @@ class TextWeChatOperator:
 
         image = Image.open(io.BytesIO(self.driver.get_screenshot_as_png())).convert("RGB")
         width, height = image.size
-        navigation = image.crop((0, round(height * 0.88), round(width * 0.27), height))
+        navigation = image.crop(
+            (
+                0,
+                round(height * VISUAL_MAIN_NAVIGATION_TOP_RATIO),
+                round(width * 0.27),
+                height,
+            )
+        )
         green_pixels = sum(
             1
             for red, green, blue in navigation.getdata()
