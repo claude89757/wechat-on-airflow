@@ -8,7 +8,7 @@ COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
 
 .PHONY: setup local-secrets webapp-setup webapp-check format lint typecheck test test-dags compose-config sender-config \
 	smoke verify deploy deploy-check production-health rollback-check db-cleanup-check \
-	phone-diagnose image sender-image sender-deploy sender-health sender-diagnose sender-recover
+	phone-diagnose wechat-quiesce image sender-image sender-deploy sender-health sender-diagnose sender-recover
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -75,6 +75,10 @@ db-cleanup-check:
 
 phone-diagnose:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow phone_diagnose
+
+wechat-quiesce:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow wechat_quiesce \
+		--target-commit $(TARGET_COMMIT)
 
 sender-deploy:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py sender deploy $(DEPLOY_ARGS)

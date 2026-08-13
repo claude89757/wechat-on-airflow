@@ -288,6 +288,15 @@ def main() -> None:
         or operations.get("authentication") != "ssh_public_key"
         or operations.get("airflow_workflow") != "production-airflow.yml"
         or operations.get("sender_workflow") != "production-wechat-sender.yml"
+        or operations.get("airflow_operations")
+        != [
+            "health",
+            "deploy_preflight",
+            "deploy_apply",
+            "db_cleanup_check",
+            "phone_diagnose",
+            "wechat_quiesce",
+        ]
         or operations.get("sender_operations")
         != ["health", "device_diagnose", "device_recover", "dry_run", "apply"]
     ):

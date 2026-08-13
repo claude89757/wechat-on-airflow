@@ -20,6 +20,7 @@ import deploy_wechat_sender  # noqa: E402
 import diagnose_zacks_phone  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
+import quiesce_wechat_delivery  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
 
 
@@ -31,6 +32,7 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
             "deploy_airflow.py",
             "deploy_wechat_sender.py",
             "production_health.py",
+            "quiesce_wechat_delivery.py",
         ):
             source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
             self.assertNotIn("sshpass", source, script_name)
@@ -208,6 +210,34 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         self.assertIn('"notification_sent": False', script)
         self.assertNotIn("adb reboot", script)
         self.assertNotIn("/v1/wechat/send", script)
+
+
+class WeChatDeliveryQuiesceTest(unittest.TestCase):
+    def test_quiesce_is_scoped_and_preserves_incident_outbox(self):
+        script = quiesce_wechat_delivery.remote_script()
+
+        self.assertEqual(len(quiesce_wechat_delivery.WECHAT_DAG_IDS), 6)
+        self.assertIn(
+            "compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer",
+            script,
+        )
+        self.assertIn("model.is_paused = True", script)
+        self.assertIn('task_instance.state = "failed"', script)
+        self.assertIn('dag_run.state = "failed"', script)
+        self.assertIn("redis-cli FLUSHDB", script)
+        self.assertIn('"purged_broker_keys": int(sys.argv[3])', script)
+        self.assertIn('"operation_commit": sys.argv[2]', script)
+        self.assertIn('"outbox_preserved": True', script)
+        self.assertNotIn("Variable.delete", script)
+        self.assertNotIn("WECHAT_SEND_FALLBACK_OUTBOX_VAR", script)
+
+    def test_quiesce_remote_result_parser_uses_structured_output(self):
+        self.assertEqual(
+            quiesce_wechat_delivery.parse_remote_result(
+                'progress\n{"ok": true, "cleared_task_instances": 4}\n'
+            ),
+            {"ok": True, "cleared_task_instances": 4},
+        )
 
     def test_production_health_reports_runtime_secret_metadata_without_values(self):
         source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")

@@ -69,6 +69,21 @@ does not reboot the phone or send a message. If the result is
 `adb_usb_interface_absent`, stop: software recovery cannot replace a missing
 USB connection, disabled USB debugging, or a powered-off device.
 
+If venue DAGs continuously contend for the one-device sender, stop new work and
+clear the current Celery workload with:
+
+```text
+make wechat-quiesce TARGET_COMMIT=<currently-deployed-full-sha>
+```
+
+The protected operation pauses all six WeChat-producing venue DAGs, freezes the
+scheduler, worker, and triggerer, marks the current active task instances and
+DAG runs as failed, flushes the dedicated Celery Redis broker, and restarts
+Airflow.
+It leaves proxy and phone-maintenance DAGs eligible for their next schedules.
+It does not delete run history or replay/delete `WECHAT_SEND_FALLBACK_OUTBOX`.
+Unpause the venue DAGs only after sender navigation is repaired and verified.
+
 ## Duplicate Notification
 
 Stop manual retries. For subscriber email, inspect the D1

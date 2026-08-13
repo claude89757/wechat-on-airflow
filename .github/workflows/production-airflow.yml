@@ -14,6 +14,7 @@ on:
           - deploy_apply
           - db_cleanup_check
           - phone_diagnose
+          - wechat_quiesce
       target_commit:
         description: Exact commit SHA on main
         required: true
@@ -83,6 +84,10 @@ jobs:
               ;;
             phone_diagnose)
               PYTHONPATH=src python scripts/diagnose_zacks_phone.py --format json
+              ;;
+            wechat_quiesce)
+              PYTHONPATH=scripts python scripts/quiesce_wechat_delivery.py \
+                --target-commit "$TARGET_COMMIT" --format json
               ;;
             *)
               exit 2

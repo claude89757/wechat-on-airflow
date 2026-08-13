@@ -91,6 +91,7 @@ def main() -> None:
             "deploy_apply",
             "db_cleanup_check",
             "phone_diagnose",
+            "wechat_quiesce",
         },
         "sender": {"health", "device_diagnose", "device_recover", "dry_run", "apply"},
     }
