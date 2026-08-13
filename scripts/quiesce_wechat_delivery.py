@@ -31,6 +31,14 @@ def parse_remote_result(output: str) -> dict[str, Any]:
     raise OpsError("WeChat delivery quiesce returned no structured result")
 
 
+def is_quiesced(verification: dict[str, Any]) -> bool:
+    return (
+        verification.get("paused_wechat_dags") == len(WECHAT_DAG_IDS)
+        and verification.get("active_wechat_task_instances") == 0
+        and verification.get("active_wechat_dag_runs") == 0
+    )
+
+
 def remote_script() -> str:
     return r"""
 set -eu
@@ -141,10 +149,22 @@ trap - EXIT HUP INT TERM
 
 deadline="$(( $(date +%s) + 180 ))"
 while :; do
-    scheduler_running="$(compose ps --services --status running | awk '/^airflow-scheduler$/{print; exit}')"
-    worker_running="$(compose ps --services --status running | awk '/^airflow-worker$/{print; exit}')"
-    triggerer_running="$(compose ps --services --status running | awk '/^airflow-triggerer$/{print; exit}')"
-    if [ -n "$scheduler_running" ] && [ -n "$worker_running" ] && [ -n "$triggerer_running" ]; then
+    services_healthy=true
+    for service in airflow-scheduler airflow-worker airflow-triggerer; do
+        service_ids="$(compose ps -q "$service")"
+        if [ -z "$service_ids" ]; then
+            services_healthy=false
+            continue
+        fi
+        for service_id in $service_ids; do
+            state="$(docker inspect --format '{{.State.Status}}' "$service_id")"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$service_id")"
+            if [ "$state" != "running" ] || { [ "$health" != "healthy" ] && [ "$health" != "none" ]; }; then
+                services_healthy=false
+            fi
+        done
+    done
+    if [ "$services_healthy" = "true" ]; then
         break
     fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
@@ -249,6 +269,82 @@ PY
 """
 
 
+def verification_script() -> str:
+    return r"""
+set -eu
+cd "$1"
+wechat_dag_ids_b64="$2"
+
+compose() {
+    if docker compose version >/dev/null 2>&1; then
+        docker compose "$@"
+    elif command -v docker-compose >/dev/null 2>&1; then
+        docker-compose "$@"
+    else
+        return 127
+    fi
+}
+
+api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
+test -n "$api_service"
+compose exec -T -e WECHAT_DAG_IDS_B64="$wechat_dag_ids_b64" "$api_service" python - <<'PY'
+import base64
+import json
+import os
+
+from sqlalchemy import func, select
+
+from airflow.models.dag import DagModel
+from airflow.models.dagrun import DagRun
+from airflow.models.taskinstance import TaskInstance
+from airflow.utils.session import create_session
+
+wechat_dag_ids = json.loads(base64.b64decode(os.environ.pop("WECHAT_DAG_IDS_B64")))
+active_task_states = (
+    "running",
+    "queued",
+    "scheduled",
+    "restarting",
+    "up_for_retry",
+    "up_for_reschedule",
+    "deferred",
+)
+active_run_states = ("queued", "running")
+
+with create_session() as session:
+    paused_count = session.scalar(
+        select(func.count())
+        .select_from(DagModel)
+        .where(DagModel.dag_id.in_(wechat_dag_ids), DagModel.is_paused.is_(True))
+    )
+    active_task_count = session.scalar(
+        select(func.count())
+        .select_from(TaskInstance)
+        .where(
+            TaskInstance.dag_id.in_(wechat_dag_ids),
+            TaskInstance.state.in_(active_task_states),
+        )
+    )
+    active_run_count = session.scalar(
+        select(func.count())
+        .select_from(DagRun)
+        .where(DagRun.dag_id.in_(wechat_dag_ids), DagRun.state.in_(active_run_states))
+    )
+
+print(
+    json.dumps(
+        {
+            "paused_wechat_dags": int(paused_count or 0),
+            "active_wechat_task_instances": int(active_task_count or 0),
+            "active_wechat_dag_runs": int(active_run_count or 0),
+        },
+        sort_keys=True,
+    )
+)
+PY
+"""
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Pause WeChat-producing DAGs and clear current Airflow work."
@@ -276,7 +372,37 @@ def main() -> None:
         json.dumps(WECHAT_DAG_IDS, ensure_ascii=False).encode("utf-8")
     ).decode("ascii")
     remote = airflow_remote()
-    result = run(
+
+    verification_command = [
+        *ssh_command(remote),
+        "bash",
+        "-s",
+        "--",
+        remote["repository_path"],
+        dag_ids_b64,
+    ]
+    initial_verification_result = run(
+        verification_command,
+        check=False,
+        input_text=verification_script(),
+    )
+    if initial_verification_result.returncode == 0:
+        initial_verification = parse_remote_result(initial_verification_result.stdout)
+        if is_quiesced(initial_verification):
+            emit(
+                {
+                    "ok": True,
+                    "applied": False,
+                    "already_quiesced": True,
+                    "operation_commit": target_commit,
+                    "outbox_preserved": True,
+                    "verification": initial_verification,
+                },
+                args.format,
+            )
+            return
+
+    action_result = run(
         [
             *ssh_command(remote),
             "bash",
@@ -289,12 +415,34 @@ def main() -> None:
         check=False,
         input_text=remote_script(),
     )
-    if result.returncode:
-        detail = result.stderr.strip().splitlines()
+    if action_result.returncode:
+        detail = action_result.stderr.strip().splitlines()
         raise OpsError(detail[-1] if detail else "WeChat delivery quiesce failed")
-    payload = parse_remote_result(result.stdout)
+
+    verification_result = run(
+        verification_command,
+        check=False,
+        input_text=verification_script(),
+    )
+    if verification_result.returncode:
+        detail = verification_result.stderr.strip().splitlines()
+        raise OpsError(detail[-1] if detail else "WeChat delivery verification failed")
+    verification = parse_remote_result(verification_result.stdout)
+    action_payload = None
+    if action_result.stdout.strip():
+        action_payload = parse_remote_result(action_result.stdout)
+    ok = is_quiesced(verification)
+    payload = {
+        "ok": ok,
+        "applied": True,
+        "operation_commit": target_commit,
+        "action_reported": action_payload is not None,
+        "action": action_payload,
+        "outbox_preserved": True,
+        "verification": verification,
+    }
     emit(payload, args.format)
-    if payload.get("ok") is not True:
+    if not ok:
         raise SystemExit(1)
 
 

@@ -228,8 +228,13 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
         self.assertIn('"purged_broker_keys": int(sys.argv[3])', script)
         self.assertIn('"operation_commit": sys.argv[2]', script)
         self.assertIn('"outbox_preserved": True', script)
+        self.assertIn('health="$(docker inspect', script)
         self.assertNotIn("Variable.delete", script)
         self.assertNotIn("WECHAT_SEND_FALLBACK_OUTBOX_VAR", script)
+
+        verification = quiesce_wechat_delivery.verification_script()
+        self.assertIn('"active_wechat_task_instances"', verification)
+        self.assertIn('"active_wechat_dag_runs"', verification)
 
     def test_quiesce_remote_result_parser_uses_structured_output(self):
         self.assertEqual(
@@ -237,6 +242,18 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
                 'progress\n{"ok": true, "cleared_task_instances": 4}\n'
             ),
             {"ok": True, "cleared_task_instances": 4},
+        )
+
+    def test_quiesce_requires_paused_dags_and_no_active_work(self):
+        quiet = {
+            "paused_wechat_dags": 6,
+            "active_wechat_task_instances": 0,
+            "active_wechat_dag_runs": 0,
+        }
+
+        self.assertTrue(quiesce_wechat_delivery.is_quiesced(quiet))
+        self.assertFalse(
+            quiesce_wechat_delivery.is_quiesced({**quiet, "active_wechat_task_instances": 1})
         )
 
     def test_production_health_reports_runtime_secret_metadata_without_values(self):
