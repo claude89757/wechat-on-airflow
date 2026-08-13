@@ -75,6 +75,10 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         self.assertIn("^[0-9a-f]{40}$", installer)
         self.assertIn('checkout --detach "$TARGET_COMMIT"', installer)
         self.assertIn("Git fetch failed after 3 attempts", installer)
+        self.assertIn(
+            'if ! git -C "$INSTALL_DIR" cat-file -e "${TARGET_COMMIT}^{commit}"',
+            installer,
+        )
         self.assertIn("systemctl enable", installer)
         self.assertIn("http://127.0.0.1:7001/readyz", installer)
         self.assertIn("tesseract --list-langs", installer)
@@ -190,6 +194,10 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         script = deploy_wechat_sender.remote_script()
 
         self.assertIn('cat-file -e "$target_commit^{commit}"', script)
+        self.assertIn('fetch --quiet --force "$bundle_path"', script)
+        self.assertIn("refs/remotes/origin/main:refs/remotes/origin/main", script)
+        self.assertNotIn("fetch --quiet origin", script)
+        self.assertIn('rm -f -- "$bundle_path"', script)
         self.assertIn("wechat_allowed_device_name", script)
         self.assertIn("rollback", script)
         self.assertNotIn("wechat-sender.env", script)
@@ -197,6 +205,20 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         self.assertIn(
             'install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null', script
         )
+
+    @patch("deploy_wechat_sender.run")
+    def test_sender_bundle_upload_uses_hardened_scp(self, mock_run):
+        deploy_wechat_sender.upload_deployment_bundle(
+            ROOT / "repository.bundle",
+            {"host": "sender.example", "port": "6000", "username": "deployer"},
+            "/tmp/wechat-sender-test.bundle",
+        )
+
+        command = mock_run.call_args.args[0]
+        self.assertEqual(command[0], "scp")
+        self.assertIn("StrictHostKeyChecking=yes", command)
+        self.assertIn("BatchMode=yes", command)
+        self.assertEqual(command[-1], "deployer@sender.example:/tmp/wechat-sender-test.bundle")
 
     def test_sender_device_recovery_is_bounded_and_never_reboots_or_sends(self):
         script = deploy_wechat_sender.remote_script()

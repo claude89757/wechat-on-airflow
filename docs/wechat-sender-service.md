@@ -70,6 +70,12 @@ sudo scripts/install_wechat_sender.sh --target-commit <full-sha>
 sudo scripts/install_wechat_sender.sh --apply --target-commit <full-sha>
 ```
 
+The protected production workflow stages a verified Git bundle over SSH before
+running these checks. This keeps exact-commit deployment available when the
+Android host cannot connect to GitHub directly. A standalone installation still
+uses the configured repository remote when the target commit is not available
+locally.
+
 The installer creates an unprivileged `wechat-sender` account, installs locked
 dependencies, enables `wechat-sender.service`, and waits for readiness. The unit
 starts exactly one Uvicorn worker and restarts it automatically. The in-process

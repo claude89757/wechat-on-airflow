@@ -116,7 +116,9 @@ else
   git -C "$INSTALL_DIR" remote set-url origin "$REPOSITORY_URL"
 fi
 
-fetch_origin
+if ! git -C "$INSTALL_DIR" cat-file -e "${TARGET_COMMIT}^{commit}" 2>/dev/null; then
+  fetch_origin
+fi
 git -C "$INSTALL_DIR" cat-file -e "${TARGET_COMMIT}^{commit}" ||
   fail "target commit is not available from the repository"
 git -C "$INSTALL_DIR" checkout --detach "$TARGET_COMMIT"

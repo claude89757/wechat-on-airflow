@@ -4,12 +4,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import tempfile
+import uuid
+from pathlib import Path
 from typing import Any
 
 import yaml
 from _ops import REPO_ROOT, OpsError, emit, run, sender_remote, ssh_command
 
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+REMOTE_BUNDLE_PREFIX = "/tmp/wechat-sender-"
 
 
 def resolve_target_commit(revision: str) -> str:
@@ -40,6 +44,46 @@ def parse_remote_result(output: str) -> dict[str, Any]:
     raise OpsError("sender operation returned no structured result")
 
 
+def create_deployment_bundle(path: Path) -> None:
+    run(
+        [
+            "git",
+            "bundle",
+            "create",
+            str(path),
+            "refs/remotes/origin/main",
+        ]
+    )
+    run(["git", "bundle", "verify", str(path)])
+
+
+def upload_deployment_bundle(
+    path: Path,
+    remote: dict[str, str],
+    remote_path: str,
+) -> None:
+    run(
+        [
+            "scp",
+            "-q",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "PreferredAuthentications=publickey",
+            "-o",
+            "PasswordAuthentication=no",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            "ConnectTimeout=15",
+            "-P",
+            remote["port"],
+            str(path),
+            f"{remote['username']}@{remote['host']}:{remote_path}",
+        ]
+    )
+
+
 def remote_script() -> str:
     return r"""
 set -eu
@@ -47,8 +91,23 @@ target_commit="$1"
 mode="$2"
 install_dir="$3"
 credential_dir="$4"
+bundle_path="${5:-}"
 service_file="/etc/systemd/system/wechat-sender.service"
 venv_dir="/opt/wechat-sender-venv"
+
+cleanup_bundle() {
+    if [ -n "$bundle_path" ]; then
+        rm -f -- "$bundle_path"
+    fi
+}
+
+if [ -n "$bundle_path" ]; then
+    case "$bundle_path" in
+        /tmp/wechat-sender-*.bundle) ;;
+        *) exit 2 ;;
+    esac
+fi
+trap cleanup_bundle EXIT HUP INT TERM
 
 current_commit=""
 if [ -d "$install_dir/.git" ]; then
@@ -281,6 +340,14 @@ if [ "$mode" = "device-recover" ]; then
     exit 0
 fi
 
+fetch_target() {
+    test -n "$bundle_path"
+    test -f "$bundle_path"
+    git -C "$install_dir" fetch --quiet --force "$bundle_path" \
+        'refs/remotes/origin/main:refs/remotes/origin/main' </dev/null
+    git -C "$install_dir" cat-file -e "$target_commit^{commit}"
+}
+
 credentials_ready=false
 if [ -s "$credential_dir/wechat_allowed_device_name" ] && \
    [ -s "$credential_dir/wechat_appium_url" ]; then
@@ -288,8 +355,7 @@ if [ -s "$credential_dir/wechat_allowed_device_name" ] && \
 fi
 if [ "$mode" = "dry-run" ]; then
     test "$credentials_ready" = true
-    git -C "$install_dir" fetch --quiet origin </dev/null
-    git -C "$install_dir" cat-file -e "$target_commit^{commit}"
+    fetch_target
     python3 - "$current_commit" "$target_commit" <<'PY'
 import json
 import sys
@@ -337,6 +403,7 @@ rollback() {
         systemctl restart wechat-sender.service || true
     fi
     rm -f "$unit_backup"
+    cleanup_bundle
     exit "$rc"
 }
 trap rollback EXIT
@@ -344,14 +411,14 @@ trap 'rollback 129' HUP
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
-git -C "$install_dir" fetch --force origin '+refs/heads/*:refs/remotes/origin/*' </dev/null
-git -C "$install_dir" cat-file -e "$target_commit^{commit}"
+fetch_target
 git -C "$install_dir" checkout --quiet --detach "$target_commit"
 "$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit" </dev/null
 "$install_dir/scripts/install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null
 
 current_commit="$target_commit"
 rm -f "$unit_backup"
+cleanup_bundle
 trap - EXIT HUP INT TERM
 health
 """
@@ -374,19 +441,28 @@ def main() -> None:
     )
     sender = runtime["managed_services"]["wechat_sender"]
     remote = sender_remote()
-    command = [
-        *ssh_command(remote),
-        "sudo",
-        "-n",
-        "bash",
-        "-s",
-        "--",
-        target_commit,
-        args.operation,
-        "/opt/wechat-on-airflow",
-        str(sender["credential_directory"]),
-    ]
-    result = run(command, check=False, input_text=remote_script())
+    remote_bundle_path = ""
+    with tempfile.TemporaryDirectory(prefix="wechat-sender-deploy-") as directory:
+        if args.operation in {"dry-run", "apply"}:
+            bundle_path = Path(directory) / "repository.bundle"
+            create_deployment_bundle(bundle_path)
+            remote_bundle_path = f"{REMOTE_BUNDLE_PREFIX}{uuid.uuid4().hex}.bundle"
+            upload_deployment_bundle(bundle_path, remote, remote_bundle_path)
+
+        command = [
+            *ssh_command(remote),
+            "sudo",
+            "-n",
+            "bash",
+            "-s",
+            "--",
+            target_commit,
+            args.operation,
+            "/opt/wechat-on-airflow",
+            str(sender["credential_directory"]),
+            remote_bundle_path,
+        ]
+        result = run(command, check=False, input_text=remote_script())
     if result.returncode:
         detail = result.stderr.strip().splitlines()
         raise OpsError(detail[-1] if detail else "sender operation failed")

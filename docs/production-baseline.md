@@ -48,6 +48,21 @@ reboot, real WeChat send, fallback replay, or metadata deletion was performed.
 Venue observations and subscriber email remain independent of this sender
 fault by contract.
 
+## Android Host GitHub Connectivity On 2026-08-13
+
+Two protected sender deployment preflights failed before changing production:
+the Android host first reported a terminated Git TLS connection and then timed
+out connecting to `github.com:443`. The sender service remained enabled, active,
+and ready on its previous exact commit; no notification was sent by either
+preflight.
+
+Sender deployment no longer requires the Android host to reach GitHub. The
+protected workflow verifies `origin/main`, creates a complete Git bundle, and
+stages it over the existing pinned SSH connection. The remote deployment then
+imports and checks out the requested full commit from that bundle. Standalone
+installation retains bounded direct-fetch retries when a commit is not already
+available locally.
+
 ## Web-Only Subscriber Email
 
 On 2026-07-30 subscriber email ownership moved exclusively to the Cloudflare

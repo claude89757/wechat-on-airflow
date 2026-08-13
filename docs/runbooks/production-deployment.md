@@ -94,11 +94,13 @@ make sender-health
 Use root-owned files under `/etc/wechat-sender/credentials` with directory mode
 `700` and file mode `600` for the device and loopback Appium endpoint. Apply
 mode deploys an exact commit, runs one unprivileged worker, retries transient
-Git fetch failures, enables automatic
-startup, and waits for `GET /readyz`. Also verify `GET /healthz`; do not call
-the send endpoint as a smoke test. Historical fallback records are not replayed
-automatically. Docker Compose is retained only as a development or
-alternate-host runtime.
+Git fetch failures for standalone installs, enables automatic startup, and waits
+for `GET /readyz`. The protected workflow transfers the verified `origin/main`
+history as a Git bundle over its pinned SSH connection, so the Android host does
+not need direct GitHub access during a deployment. Also verify `GET /healthz`;
+do not call the send endpoint as a smoke test. Historical fallback records are
+not replayed automatically. Docker Compose is retained only as a development
+or alternate-host runtime.
 
 ## Runtime Secrets
 
