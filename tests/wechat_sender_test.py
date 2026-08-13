@@ -1,4 +1,5 @@
 import unittest
+from types import ModuleType
 from unittest.mock import patch
 
 from wechat_sender.appium_text_sender import (
@@ -14,6 +15,7 @@ from wechat_sender.appium_text_sender import (
     _parse_tesseract_tsv,
     _recent_chat_xpaths,
     _run_stale_retry,
+    _visual_text_match_score,
     _xpath_literal,
     cleanup_appium_device,
     send_text_messages,
@@ -350,6 +352,33 @@ class WeChatSenderTest(unittest.TestCase):
             _normalize_visual_text("Zacks_大沙河限定免费"),
         )
 
+    def test_visual_text_match_accepts_long_truncated_chat_name(self):
+        self.assertGreater(
+            _visual_text_match_score(
+                "Zacks网球场预定小助手_2",
+                "Zacks网球场预定小助手_2群",
+            ),
+            0,
+        )
+
+    def test_visual_text_match_rejects_short_ambiguous_prefix(self):
+        self.assertEqual(
+            _visual_text_match_score(
+                "Zacks网球场",
+                "Zacks网球场预定小助手_2群",
+            ),
+            0,
+        )
+
+    def test_visual_text_match_rejects_similar_group_suffix(self):
+        self.assertEqual(
+            _visual_text_match_score(
+                "Zacks网球场预定小助手_1群",
+                "Zacks网球场预定小助手_2群",
+            ),
+            0,
+        )
+
     def test_parses_tesseract_lines_back_to_screen_coordinates(self):
         tsv = (
             "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop"
@@ -443,6 +472,111 @@ class WeChatSenderTest(unittest.TestCase):
             operator.driver.scripts,
             [("mobile: clickGesture", {"x": 450, "y": 640})],
         )
+
+    def test_partial_accessibility_still_checks_visible_chat_without_scrolling(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.current_receiver = None
+        operator.is_at_main_page = lambda: True
+        operator._click_accessible_text = lambda _value: False
+        operator._has_accessible_wechat_controls = lambda: True
+        operator._wait_for_chat = lambda _receiver, timeout: bool(timeout)
+        operator._find_visual_line = lambda *_args, **_kwargs: OcrLine(
+            text="Zacks网球场预定小助手_2",
+            left=200,
+            top=600,
+            right=780,
+            bottom=680,
+        )
+
+        opened = operator.is_contact_in_recent_chats("Zacks网球场预定小助手_2群")
+
+        self.assertTrue(opened)
+        self.assertEqual(operator.driver.swipes, [])
+
+    def test_non_chat_wechat_page_is_not_accepted_as_target_chat(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".plugin.profile.ui.ContactInfoUI"
+        operator._has_accessible_title = lambda _receiver: True
+        operator._find_visual_line = lambda *_args, **_kwargs: OcrLine(
+            text="Zacks网球场预定小助手_2群",
+            left=200,
+            top=60,
+            right=800,
+            bottom=120,
+        )
+
+        self.assertFalse(operator._is_visual_chat_page("Zacks网球场预定小助手_2群"))
+
+    def test_chat_activity_requires_matching_title(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.chatting.ChattingUI"
+        operator._has_accessible_title = lambda _receiver: False
+        operator._find_visual_line = lambda *_args, **_kwargs: None
+
+        self.assertFalse(operator._is_visual_chat_page("Zacks网球场预定小助手_2群"))
+
+    def test_launcher_activity_accepts_verified_chat_title(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.LauncherUI"
+        operator._is_visual_main_page = lambda: False
+        operator._has_accessible_title = lambda _receiver: True
+
+        self.assertTrue(operator._is_visual_chat_page("Zacks网球场预定小助手_2群"))
+
+    def test_launcher_main_page_is_not_accepted_as_chat(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.LauncherUI"
+        operator._is_visual_main_page = lambda: True
+        operator._has_accessible_title = lambda _receiver: True
+
+        self.assertFalse(operator._is_visual_chat_page("Zacks网球场预定小助手_2群"))
+
+    def test_search_tries_next_visual_result_after_wrong_entry(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.FTSMainUI"
+        operator.driver.set_clipboard_text = lambda _value: None
+        operator.driver.press_keycode = lambda _value: None
+        operator._wait_for_activity = lambda suffix, timeout: suffix == "FTSMainUI" and bool(
+            timeout
+        )
+        operator._click_accessible_text = lambda _receiver: False
+        candidates = [
+            OcrLine("Zacks网球场预定小助手_2群", 100, 300, 800, 360),
+            OcrLine("Zacks网球场预定小助手_2群", 100, 500, 800, 560),
+        ]
+        operator._find_visual_lines = lambda *_args, **_kwargs: candidates
+        opened = iter([False, True])
+        operator._wait_for_chat = lambda _receiver, timeout: next(opened) and bool(timeout)
+        returns = []
+        operator._return_to_search_results = lambda: returns.append("back")
+
+        appiumby_module = ModuleType("appium.webdriver.common.appiumby")
+
+        class StubAppiumBy:
+            ACCESSIBILITY_ID = "accessibility id"
+            XPATH = "xpath"
+
+        appiumby_module.AppiumBy = StubAppiumBy
+        with patch.dict(
+            "sys.modules",
+            {
+                "appium": ModuleType("appium"),
+                "appium.webdriver": ModuleType("appium.webdriver"),
+                "appium.webdriver.common": ModuleType("appium.webdriver.common"),
+                "appium.webdriver.common.appiumby": appiumby_module,
+            },
+        ):
+            operator._search_and_open_chat("Zacks网球场预定小助手_2群")
+
+        self.assertEqual(returns, ["back"])
+        self.assertEqual(operator.current_receiver, "Zacks网球场预定小助手_2群")
+        self.assertEqual(len(operator.driver.scripts), 3)
 
     def test_restarts_wechat_when_initial_session_is_not_at_main_page(self):
         result = send_text_messages(

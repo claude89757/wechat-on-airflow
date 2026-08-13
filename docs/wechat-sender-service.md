@@ -129,6 +129,15 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 ## Behavior
 
 - The sender checks visible recent chats before using search.
+- Visible-chat detection combines accessibility text with OCR even when WeChat
+  exposes only a partial accessibility tree. It never scrolls the recent-chat
+  list while selecting a receiver.
+- Truncated OCR names are accepted only when they preserve all but at most two
+  normalized trailing characters. Similar numbered groups are not fuzzy
+  matched.
+- Search results are tried in visual order and every candidate must open a
+  WeChat chat activity with a title matching the requested receiver. Message
+  input is not touched until that verification passes.
 - UiAutomator selectors remain the primary path. If WeChat exposes an empty
   accessibility hierarchy, the sender uses local screenshots and Tesseract to
   identify the visible chat, search result, and send button.

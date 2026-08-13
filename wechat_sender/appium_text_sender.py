@@ -138,6 +138,23 @@ def _normalize_visual_text(value: str) -> str:
     return "".join(character.lower() for character in value if character.isalnum())
 
 
+def _visual_text_match_score(candidate: str, expected: str) -> float:
+    normalized_candidate = _normalize_visual_text(candidate)
+    normalized_expected = _normalize_visual_text(expected)
+    if not normalized_candidate or not normalized_expected:
+        return 0.0
+    if normalized_candidate == normalized_expected:
+        return 1.0
+    if normalized_expected in normalized_candidate:
+        return 0.99
+
+    if len(normalized_candidate) >= max(
+        8, len(normalized_expected) - 2
+    ) and normalized_expected.startswith(normalized_candidate):
+        return 0.9 + 0.08 * len(normalized_candidate) / len(normalized_expected)
+    return 0.0
+
+
 def _parse_tesseract_tsv(
     value: str,
     *,
@@ -330,7 +347,10 @@ class TextWeChatOperator:
         if not self.is_contact_in_recent_chats(receiver):
             self._search_and_open_chat(receiver)
 
-        if self._has_accessible_wechat_controls():
+        if not self._wait_for_chat(receiver, timeout=2):
+            raise ContactNotFoundError(f"target chat was not verified: {receiver}")
+
+        if self._has_accessible_message_input():
             self._send_accessible_messages(messages)
         else:
             self._send_visual_messages(messages)
@@ -343,30 +363,23 @@ class TextWeChatOperator:
             time.sleep(1)
 
         if self._click_accessible_text(receiver):
-            time.sleep(1)
-            return True
-
-        if not self._has_accessible_wechat_controls():
-            line = self._find_visual_line(
-                receiver,
-                region=(0.15, 0.10, 0.93, 0.90),
-                scale=0.5,
-                page_segmentation_mode=11,
-            )
-            if line is None:
-                return False
-            self._tap_ocr_line(line)
-            if not self._wait_for_chat(receiver, timeout=6):
-                raise ContactNotFoundError(f"visible receiver did not open: {receiver}")
-            self.current_receiver = receiver
-            return True
-
-        for _ in range(4):
-            self.scroll_down()
-            time.sleep(0.5)
-            if self._click_accessible_text(receiver):
-                time.sleep(1)
+            if self._wait_for_chat(receiver, timeout=6):
+                self.current_receiver = receiver
                 return True
+            self.return_to_chats()
+
+        line = self._find_visual_line(
+            receiver,
+            region=(0.15, 0.10, 0.93, 0.90),
+            scale=1.25,
+            page_segmentation_mode=11,
+        )
+        if line is not None:
+            self._tap_ocr_line(line)
+            if self._wait_for_chat(receiver, timeout=6):
+                self.current_receiver = receiver
+                return True
+            self.return_to_chats()
         return False
 
     def _click_accessible_text(self, value: str) -> bool:
@@ -392,6 +405,19 @@ class TextWeChatOperator:
                 self.driver.find_elements(
                     by=AppiumBy.XPATH,
                     value="//*[@package='com.tencent.mm' and @clickable='true']",
+                )
+            )
+        except Exception:
+            return False
+
+    def _has_accessible_message_input(self) -> bool:
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        try:
+            return bool(
+                self.driver.find_elements(
+                    by=AppiumBy.XPATH,
+                    value="//android.widget.EditText",
                 )
             )
         except Exception:
@@ -423,20 +449,31 @@ class TextWeChatOperator:
             self.driver.press_keycode(279)
         time.sleep(1)
 
-        if not self._click_accessible_text(receiver):
-            line = self._find_visual_line(
-                receiver,
-                region=(0.08, 0.12, 0.94, 0.42),
-                scale=0.65,
-                page_segmentation_mode=11,
-            )
-            if line is None:
-                raise ContactNotFoundError(f"receiver not found: {receiver}")
-            self._tap_ocr_line(line)
+        if self._click_accessible_text(receiver):
+            if self._wait_for_chat(receiver, timeout=6):
+                self.current_receiver = receiver
+                return
+            self._return_to_search_results()
 
-        if not self._wait_for_chat(receiver, timeout=6):
-            raise ContactNotFoundError(f"receiver did not open: {receiver}")
-        self.current_receiver = receiver
+        matching_lines = self._find_visual_lines(
+            receiver,
+            region=(0.08, 0.12, 0.94, 0.70),
+            scale=1.25,
+            page_segmentation_mode=11,
+        )
+        for line in matching_lines:
+            self._tap_ocr_line(line)
+            if self._wait_for_chat(receiver, timeout=6):
+                self.current_receiver = receiver
+                return
+            self._return_to_search_results()
+
+        raise ContactNotFoundError(f"receiver did not open: {receiver}")
+
+    def _return_to_search_results(self) -> None:
+        self.driver.press_keycode(4)
+        if not self._wait_for_activity("FTSMainUI", timeout=5):
+            raise ContactNotFoundError("unable to return to WeChat search results")
 
     def _send_accessible_messages(self, messages: list[str]) -> None:
         from appium.webdriver.common.appiumby import AppiumBy
@@ -628,19 +665,37 @@ class TextWeChatOperator:
         scale: float,
         page_segmentation_mode: int,
     ) -> OcrLine | None:
-        normalized_value = _normalize_visual_text(value)
-        return next(
-            (
-                line
-                for line in self._ocr_lines(
-                    region=region,
-                    scale=scale,
-                    page_segmentation_mode=page_segmentation_mode,
-                )
-                if _normalize_visual_text(line.text) == normalized_value
-            ),
-            None,
+        lines = self._find_visual_lines(
+            value,
+            region=region,
+            scale=scale,
+            page_segmentation_mode=page_segmentation_mode,
         )
+        return lines[0] if lines else None
+
+    def _find_visual_lines(
+        self,
+        value: str,
+        *,
+        region: tuple[float, float, float, float],
+        scale: float,
+        page_segmentation_mode: int,
+    ) -> list[OcrLine]:
+        scored_lines = [
+            (_visual_text_match_score(line.text, value), line)
+            for line in self._ocr_lines(
+                region=region,
+                scale=scale,
+                page_segmentation_mode=page_segmentation_mode,
+            )
+        ]
+        return [
+            line
+            for score, line in sorted(
+                (item for item in scored_lines if item[0] > 0),
+                key=lambda item: (item[1].top, item[1].left, -item[0]),
+            )
+        ]
 
     def _tap_ocr_line(self, line: OcrLine) -> None:
         self.driver.execute_script(
@@ -678,10 +733,37 @@ class TextWeChatOperator:
         return self._activity_ends_with(suffix)
 
     def _is_visual_chat_page(self, receiver: str) -> bool:
-        del receiver
-        if self.driver.current_package != "com.tencent.mm":
+        is_chatting_activity = self._activity_ends_with("ChattingUI")
+        is_launcher_activity = self._activity_ends_with("LauncherUI")
+        if not (is_chatting_activity or is_launcher_activity):
             return False
-        return not self._is_visual_main_page() and not self._activity_ends_with("FTSMainUI")
+        if is_launcher_activity and self._is_visual_main_page():
+            return False
+        if self._has_accessible_title(receiver):
+            return True
+        return (
+            self._find_visual_line(
+                receiver,
+                region=(0.08, 0.01, 0.92, 0.16),
+                scale=1.5,
+                page_segmentation_mode=11,
+            )
+            is not None
+        )
+
+    def _has_accessible_title(self, receiver: str) -> bool:
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        try:
+            screen_height = self.driver.get_window_size()["height"]
+            for xpath in _recent_chat_xpaths(receiver):
+                for element in self.driver.find_elements(by=AppiumBy.XPATH, value=xpath):
+                    rect = element.rect
+                    if rect["y"] + rect["height"] <= screen_height * 0.18:
+                        return True
+        except Exception:
+            return False
+        return False
 
     def _wait_for_chat(self, receiver: str, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
