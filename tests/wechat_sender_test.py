@@ -603,6 +603,26 @@ class WeChatSenderTest(unittest.TestCase):
 
         self.assertFalse(operator._is_visual_chat_page("Zacks网球场预定小助手_2群"))
 
+    def test_verified_chat_does_not_repeat_unstable_title_ocr(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.chatting.ChattingUI"
+        operator.current_receiver = "Zacks网球场预定小助手_2群"
+        operator._is_visual_chat_page = lambda _receiver: (_ for _ in ()).throw(
+            AssertionError("strict title OCR must not repeat after verification")
+        )
+
+        self.assertTrue(operator._is_verified_chat_open("Zacks网球场预定小助手_2群"))
+
+    def test_verified_launcher_chat_is_rejected_after_returning_to_main_page(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.LauncherUI"
+        operator.current_receiver = "Zacks网球场预定小助手_2群"
+        operator._is_visual_main_page = lambda: True
+
+        self.assertFalse(operator._is_verified_chat_open("Zacks网球场预定小助手_2群"))
+
     def test_search_tries_next_visual_result_after_wrong_entry(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
         operator.driver = VisualOnlyDriver()

@@ -372,11 +372,12 @@ class TextWeChatOperator:
     def send_message(self, receiver: str, messages: list[str]) -> None:
         if not messages:
             raise InvalidSendRequestError("messages must contain at least one item")
+        self.current_receiver = None
 
         if not self.is_contact_in_recent_chats(receiver):
             self._search_and_open_chat(receiver)
 
-        if not self._wait_for_chat(receiver, timeout=2):
+        if not self._is_verified_chat_open(receiver):
             raise ContactNotFoundError(f"target chat was not verified: {receiver}")
 
         if self._has_accessible_message_input():
@@ -529,6 +530,7 @@ class TextWeChatOperator:
     def _search_and_open_chat(self, receiver: str) -> None:
         from appium.webdriver.common.appiumby import AppiumBy
 
+        self.current_receiver = None
         if not self._open_search_from_main_page():
             self._tap_ratio(0.83, 0.07)
 
@@ -594,6 +596,7 @@ class TextWeChatOperator:
         return False
 
     def _return_to_search_results(self) -> None:
+        self.current_receiver = None
         self.driver.press_keycode(4)
         if not self._wait_for_search_page(timeout=5):
             raise ContactNotFoundError("unable to return to WeChat search results")
@@ -630,7 +633,7 @@ class TextWeChatOperator:
                 raise SendFailedError(str(exc)) from exc
 
     def _send_visual_messages(self, messages: list[str]) -> None:
-        if not self.current_receiver or not self._is_visual_chat_page(self.current_receiver):
+        if not self.current_receiver or not self._is_verified_chat_open(self.current_receiver):
             raise DeviceNotReadyError("WeChat chat page is not active")
 
         self._tap_ratio(0.25, 0.955)
@@ -943,6 +946,15 @@ class TextWeChatOperator:
             time.sleep(0.25)
         return self._is_visual_chat_page(receiver)
 
+    def _is_verified_chat_open(self, receiver: str) -> bool:
+        if self.current_receiver != receiver:
+            return False
+        is_chatting_activity = self._activity_ends_with("ChattingUI")
+        is_launcher_activity = self._activity_ends_with("LauncherUI")
+        if not (is_chatting_activity or is_launcher_activity):
+            return False
+        return not is_launcher_activity or not self._is_visual_main_page()
+
     def _is_visual_main_page(self) -> bool:
         if self.driver.current_package != "com.tencent.mm":
             return False
@@ -972,6 +984,7 @@ class TextWeChatOperator:
     def return_to_chats(self) -> None:
         from appium.webdriver.common.appiumby import AppiumBy
 
+        self.current_receiver = None
         for _ in range(6):
             if self.is_at_main_page():
                 return
