@@ -236,7 +236,8 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
     def test_sender_device_diagnosis_captures_only_sanitized_ui_structure(self):
         script = deploy_wechat_sender.remote_script()
 
-        self.assertIn("uiautomator dump /dev/tty", script)
+        self.assertIn("uiautomator dump --compressed", script)
+        self.assertIn('exec-out cat "$remote_ui_dump"', script)
         self.assertIn('"top_clickable_controls": []', script)
         self.assertIn('"search_controls": []', script)
         self.assertIn('"edit_inputs": []', script)

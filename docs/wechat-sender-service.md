@@ -138,12 +138,13 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 - Visible-chat detection combines accessibility text with OCR even when WeChat
   exposes only a partial accessibility tree. It never scrolls the recent-chat
   list while selecting a receiver.
-- Candidate names allow bounded OCR substitutions and short truncation, but a
-  numbered group must retain the same numeric suffix. The stricter title check
-  still runs before message input is touched.
-- If an accessibility search control does not open the search activity, the
-  sender returns to the chat list and retries the known top-right search
-  coordinate.
+- Candidate names allow bounded OCR substitutions and short truncation. A
+  visible numeric suffix must match; when display truncation hides the entire
+  suffix, the row is only a candidate and the complete chat title must still
+  match before message input is touched.
+- An accessibility search control is accepted when it opens a recognized search
+  surface or verifiably leaves the chat list. The known top-right coordinate is
+  used only while the main page remains active.
 - Search-page verification accepts either the dedicated WeChat search activity
   or a text input located in the top bar. Bottom chat inputs cannot satisfy
   this check.

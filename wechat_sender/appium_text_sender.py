@@ -140,7 +140,12 @@ def _normalize_visual_text(value: str) -> str:
     return "".join(character.lower() for character in value if character.isalnum())
 
 
-def _visual_text_match_score(candidate: str, expected: str) -> float:
+def _visual_text_match_score(
+    candidate: str,
+    expected: str,
+    *,
+    allow_truncated_numeric_suffix: bool = False,
+) -> float:
     normalized_candidate = _normalize_visual_text(candidate)
     normalized_expected = _normalize_visual_text(expected)
     if not normalized_candidate or not normalized_expected:
@@ -153,6 +158,13 @@ def _visual_text_match_score(candidate: str, expected: str) -> float:
     candidate_digits = re.findall(r"\d+", normalized_candidate)
     expected_digits = re.findall(r"\d+", normalized_expected)
     if expected_digits and candidate_digits != expected_digits:
+        if (
+            allow_truncated_numeric_suffix
+            and not candidate_digits
+            and len(normalized_candidate) >= max(8, round(len(normalized_expected) * 0.6))
+            and normalized_expected.startswith(normalized_candidate)
+        ):
+            return 0.9 + 0.08 * len(normalized_candidate) / len(normalized_expected)
         return 0.0
 
     if len(normalized_candidate) >= max(
@@ -389,6 +401,7 @@ class TextWeChatOperator:
             receiver,
             top_ratio=0.10,
             bottom_ratio=0.90,
+            allow_truncated_numeric_suffix=True,
         ):
             try:
                 _run_stale_retry(element.click)
@@ -399,13 +412,14 @@ class TextWeChatOperator:
                 return True
             self.return_to_chats()
 
-        line = self._find_visual_line(
+        lines = self._find_visual_lines(
             receiver,
             region=(0.15, 0.10, 0.93, 0.90),
             scale=1.25,
             page_segmentation_mode=11,
+            allow_truncated_numeric_suffix=True,
         )
-        if line is not None:
+        for line in lines:
             self._tap_ocr_line(line)
             if self._wait_for_chat(receiver, timeout=6):
                 self.current_receiver = receiver
@@ -475,6 +489,7 @@ class TextWeChatOperator:
         top_ratio: float,
         bottom_ratio: float,
         minimum_score: float = 0.72,
+        allow_truncated_numeric_suffix: bool = False,
     ) -> list[Any]:
         from appium.webdriver.common.appiumby import AppiumBy
 
@@ -499,6 +514,7 @@ class TextWeChatOperator:
             score = _visual_text_match_score(
                 self._accessible_element_text(element),
                 receiver,
+                allow_truncated_numeric_suffix=allow_truncated_numeric_suffix,
             )
             if score >= minimum_score:
                 candidates.append((score, center_y, rect["x"], element))
@@ -516,7 +532,7 @@ class TextWeChatOperator:
         if not self._open_search_from_main_page():
             self._tap_ratio(0.83, 0.07)
 
-        if not self._wait_for_search_page(timeout=5):
+        if not self._wait_for_search_page(timeout=5) and self.is_at_main_page():
             raise AppiumTimeoutError("WeChat search page did not open")
 
         search_inputs = self.driver.find_elements(
@@ -573,10 +589,8 @@ class TextWeChatOperator:
                 _run_stale_retry(button.click)
             except Exception:
                 continue
-            if self._wait_for_search_page(timeout=2):
+            if self._wait_for_search_page(timeout=2) or not self.is_at_main_page():
                 return True
-            if not self.is_at_main_page():
-                self.return_to_chats()
         return False
 
     def _return_to_search_results(self) -> None:
@@ -792,9 +806,17 @@ class TextWeChatOperator:
         scale: float,
         page_segmentation_mode: int,
         minimum_score: float = 0.72,
+        allow_truncated_numeric_suffix: bool = False,
     ) -> list[OcrLine]:
         scored_lines = [
-            (_visual_text_match_score(line.text, value), line)
+            (
+                _visual_text_match_score(
+                    line.text,
+                    value,
+                    allow_truncated_numeric_suffix=allow_truncated_numeric_suffix,
+                ),
+                line,
+            )
             for line in self._ocr_lines(
                 region=region,
                 scale=scale,

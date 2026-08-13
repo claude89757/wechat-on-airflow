@@ -196,11 +196,15 @@ device_state() {
     configured_device="$(tr -d '\r\n' < "$credential_dir/wechat_allowed_device_name")"
     configured_state="$(adb -s "$configured_device" get-state 2>/dev/null || true)"
     ui_dump_file="$(mktemp)"
-    adb -s "$configured_device" exec-out uiautomator dump /dev/tty \
-        >"$ui_dump_file" 2>/dev/null || true
-    current_focus="$(adb -s "$configured_device" shell dumpsys window windows \
-        2>/dev/null | sed -n 's/.*mCurrentFocus=Window{[^ ]* [^ ]* \([^}]*\)}.*/\1/p' \
-        | head -n 1)"
+    remote_ui_dump="/data/local/tmp/wechat-sender-ui-$$.xml"
+    if adb -s "$configured_device" shell uiautomator dump --compressed \
+        "$remote_ui_dump" >/dev/null 2>&1; then
+        adb -s "$configured_device" exec-out cat "$remote_ui_dump" \
+            >"$ui_dump_file" 2>/dev/null || true
+    fi
+    adb -s "$configured_device" shell rm -f "$remote_ui_dump" >/dev/null 2>&1 || true
+    current_focus="$(adb -s "$configured_device" shell dumpsys activity activities \
+        2>/dev/null | grep -m 1 -E 'topResumedActivity|mResumedActivity' || true)"
     ready_payload="$(curl --silent --show-error --max-time 5 \
         http://127.0.0.1:7001/readyz 2>/dev/null || true)"
     usb_adb_interfaces=0
@@ -303,6 +307,11 @@ def parse_ui_snapshot(path):
             snapshot["top_clickable_controls"].append(details)
     return snapshot
 
+
+def parse_current_activity(value):
+    match = re.search(r" ([A-Za-z0-9._]+/[A-Za-z0-9._$]+)(?:[ }]|$)", value)
+    return match.group(1) if match else None
+
 counts = {"device": 0, "offline": 0, "unauthorized": 0, "other": 0}
 for line in os.environ.pop("ADB_OUTPUT", "").splitlines():
     if "\t" not in line:
@@ -364,7 +373,7 @@ print(json.dumps({
     },
     "usb_adb_interface_count": usb_adb_interface_count,
     "ui": {
-        "current_focus": os.environ.pop("CURRENT_FOCUS", "") or None,
+        "current_activity": parse_current_activity(os.environ.pop("CURRENT_FOCUS", "")),
         **parse_ui_snapshot(Path(os.environ.pop("UI_DUMP_FILE"))),
     },
     "readiness_error": readiness_error,

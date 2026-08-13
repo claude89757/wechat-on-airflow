@@ -388,6 +388,24 @@ class WeChatSenderTest(unittest.TestCase):
             0,
         )
 
+    def test_recent_chat_match_allows_number_hidden_by_display_truncation(self):
+        self.assertGreater(
+            _visual_text_match_score(
+                "Zacks网球场预定小助手_",
+                "Zacks网球场预定小助手_2群",
+                allow_truncated_numeric_suffix=True,
+            ),
+            0.9,
+        )
+        self.assertEqual(
+            _visual_text_match_score(
+                "Zacks网球场预定小助手_1群",
+                "Zacks网球场预定小助手_2群",
+                allow_truncated_numeric_suffix=True,
+            ),
+            0,
+        )
+
     def test_visual_text_match_accepts_chinese_ocr_error_with_same_group_number(self):
         self.assertGreaterEqual(
             _visual_text_match_score(
@@ -475,13 +493,15 @@ class WeChatSenderTest(unittest.TestCase):
         operator._has_accessible_wechat_controls = lambda: False
         operator._find_accessible_text_candidates = lambda *_args, **_kwargs: []
         operator._wait_for_chat = lambda _receiver, timeout: bool(timeout)
-        operator._find_visual_line = lambda *_args, **_kwargs: OcrLine(
-            text="Zacks_大沙河限定免费",
-            left=200,
-            top=600,
-            right=700,
-            bottom=680,
-        )
+        operator._find_visual_lines = lambda *_args, **_kwargs: [
+            OcrLine(
+                text="Zacks_大沙河限定免费",
+                left=200,
+                top=600,
+                right=700,
+                bottom=680,
+            )
+        ]
 
         opened = operator.is_contact_in_recent_chats("Zacks_大沙河限定免费")
 
@@ -501,13 +521,15 @@ class WeChatSenderTest(unittest.TestCase):
         operator._has_accessible_wechat_controls = lambda: True
         operator._find_accessible_text_candidates = lambda *_args, **_kwargs: []
         operator._wait_for_chat = lambda _receiver, timeout: bool(timeout)
-        operator._find_visual_line = lambda *_args, **_kwargs: OcrLine(
-            text="Zacks网球场预定小助手_2",
-            left=200,
-            top=600,
-            right=780,
-            bottom=680,
-        )
+        operator._find_visual_lines = lambda *_args, **_kwargs: [
+            OcrLine(
+                text="Zacks网球场预定小助手_2",
+                left=200,
+                top=600,
+                right=780,
+                bottom=680,
+            )
+        ]
 
         opened = operator.is_contact_in_recent_chats("Zacks网球场预定小助手_2群")
 
@@ -620,6 +642,36 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertEqual(returns, ["back"])
         self.assertEqual(operator.current_receiver, "Zacks网球场预定小助手_2群")
         self.assertEqual(len(operator.driver.scripts), 3)
+
+    def test_search_button_is_accepted_when_click_leaves_main_page(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator._wait_for_search_page = lambda timeout: False
+        operator.is_at_main_page = lambda: False
+
+        class SearchButton:
+            rect = {"x": 800, "y": 80, "width": 100, "height": 100}
+
+            def click(self):
+                return None
+
+        operator.driver.find_elements = lambda **_kwargs: [SearchButton()]
+        appiumby_module = ModuleType("appium.webdriver.common.appiumby")
+
+        class StubAppiumBy:
+            ACCESSIBILITY_ID = "accessibility id"
+
+        appiumby_module.AppiumBy = StubAppiumBy
+        with patch.dict(
+            "sys.modules",
+            {
+                "appium": ModuleType("appium"),
+                "appium.webdriver": ModuleType("appium.webdriver"),
+                "appium.webdriver.common": ModuleType("appium.webdriver.common"),
+                "appium.webdriver.common.appiumby": appiumby_module,
+            },
+        ):
+            self.assertTrue(operator._open_search_from_main_page())
 
     def test_launcher_search_page_is_detected_from_top_input(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
