@@ -57,6 +57,7 @@ class OcrLine:
 
 VISUAL_INPUT_CLEAR_KEYSTROKES = 1024
 VISUAL_MAIN_NAVIGATION_TOP_RATIO = 0.90
+VISUAL_SEND_BUTTON_REGION = (0.78, 0.57, 1.0, 0.66)
 
 
 def _appium_url(appium_server_url: str, path: str) -> str:
@@ -645,12 +646,11 @@ class TextWeChatOperator:
                 self.driver.set_clipboard_text(message)
                 self.driver.press_keycode(279)
                 time.sleep(0.5)
-                send_region = (0.78, 0.45, 1.0, 0.70)
-                send_line = self._find_visual_green_button(region=send_region)
+                send_line = self._find_visual_green_button(region=VISUAL_SEND_BUTTON_REGION)
                 if send_line is None:
                     send_line = self._find_visual_line(
                         "发送",
-                        region=send_region,
+                        region=VISUAL_SEND_BUTTON_REGION,
                         scale=0.8,
                         page_segmentation_mode=11,
                     )
@@ -660,7 +660,7 @@ class TextWeChatOperator:
                 time.sleep(0.8)
                 if self.driver.current_package != "com.tencent.mm":
                     raise SendFailedError("WeChat left the chat page during send")
-                if self._find_visual_green_button(region=send_region) is not None:
+                if self._find_visual_green_button(region=VISUAL_SEND_BUTTON_REGION) is not None:
                     raise SendFailedError("visual send button remained active after tap")
                 if index < len(messages) - 1:
                     time.sleep(random.uniform(0.3, 3))
@@ -694,7 +694,7 @@ class TextWeChatOperator:
             if result.returncode != 0:
                 raise DeviceNotReadyError("unable to clear visual message input")
 
-        if self._find_visual_green_button(region=(0.78, 0.45, 1.0, 0.70)) is not None:
+        if self._find_visual_green_button(region=VISUAL_SEND_BUTTON_REGION) is not None:
             raise SendFailedError("visual message input still contains a draft")
 
     def _find_visual_green_button(

@@ -5,6 +5,7 @@ from unittest.mock import patch
 from wechat_sender.appium_text_sender import (
     VISUAL_INPUT_CLEAR_KEYSTROKES,
     VISUAL_MAIN_NAVIGATION_TOP_RATIO,
+    VISUAL_SEND_BUTTON_REGION,
     DeviceNotReadyError,
     InvalidSendRequestError,
     OcrLine,
@@ -474,7 +475,8 @@ class WeChatSenderTest(unittest.TestCase):
         mock_run.return_value.returncode = 0
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
         operator.device_name = "test-device"
-        operator._find_visual_green_button = lambda **_kwargs: None
+        regions = []
+        operator._find_visual_green_button = lambda *, region: regions.append(region)
 
         operator._clear_visual_input()
 
@@ -484,6 +486,39 @@ class WeChatSenderTest(unittest.TestCase):
             delete_command[:7], ["adb", "-s", "test-device", "shell", "input", "keyevent", "67"]
         )
         self.assertEqual(delete_command.count("67"), VISUAL_INPUT_CLEAR_KEYSTROKES)
+        self.assertEqual(regions, [VISUAL_SEND_BUTTON_REGION])
+        self.assertEqual(VISUAL_SEND_BUTTON_REGION, (0.78, 0.57, 1.0, 0.66))
+
+    @patch("wechat_sender.appium_text_sender.time.sleep")
+    def test_visual_send_checks_only_the_bottom_input_row(self, _mock_sleep):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.set_clipboard_text = lambda _value: None
+        operator.driver.press_keycode = lambda _value: None
+        operator.current_receiver = "target-chat"
+        operator._is_verified_chat_open = lambda _receiver: True
+        operator._tap_ratio = lambda *_args: None
+        operator._clear_visual_input = lambda: None
+        regions = []
+        buttons = iter(
+            [
+                OcrLine("visual-send-button", 850, 1350, 1050, 1450),
+                None,
+            ]
+        )
+        operator._find_visual_green_button = lambda *, region: (
+            regions.append(region) or next(buttons)
+        )
+        operator._find_visual_line = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("green send button should be used")
+        )
+
+        operator._send_visual_messages(["hello"])
+
+        self.assertEqual(
+            regions,
+            [VISUAL_SEND_BUTTON_REGION, VISUAL_SEND_BUTTON_REGION],
+        )
 
     def test_visual_only_device_opens_visible_chat_without_scrolling(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
