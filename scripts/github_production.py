@@ -66,7 +66,7 @@ def dispatch(
     ]
     if component == "airflow":
         command.extend(["-f", f"confirm_real_send={str(confirm_real_send).lower()}"])
-        command.extend(["-f", f"probe_target_membership={probe_target_membership}"])
+        command.extend(["-f", f"probe_target_membership={probe_target_membership or 'all'}"])
     run(command)
     run_id = discover_run(workflow, title)
     watched = run(["gh", "run", "watch", str(run_id), "--exit-status"], check=False)

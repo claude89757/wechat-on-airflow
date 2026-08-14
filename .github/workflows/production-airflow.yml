@@ -35,7 +35,7 @@ on:
       probe_target_membership:
         description: Optional redacted target selector such as tyzx:1
         required: true
-        default: ""
+        default: all
         type: string
 
 permissions:

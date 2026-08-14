@@ -94,6 +94,8 @@ for target_set, receivers in configured.items():
         by_receiver[receiver] = target
 
 selector = os.environ.get("PROBE_TARGET_MEMBERSHIP", "").strip()
+if selector == "all":
+    selector = ""
 if selector:
     selected_set, selected_index = selector.split(":", 1)
     selected_membership = {
@@ -248,7 +250,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.confirm_real_send:
         raise OpsError("real WeChat delivery requires --confirm-real-send")
-    if args.target_membership and not re.fullmatch(
+    if args.target_membership not in ("", "all") and not re.fullmatch(
         r"(?:general|tyzx):[1-9][0-9]*", args.target_membership
     ):
         raise OpsError("target membership must match general:N or tyzx:N")
