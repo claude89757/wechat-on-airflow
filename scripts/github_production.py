@@ -39,26 +39,33 @@ def discover_run(workflow: str, title: str, timeout_seconds: int = 90) -> int:
     raise OpsError("GitHub did not expose the dispatched workflow run in time")
 
 
-def dispatch(component: str, operation: str, target_commit: str) -> None:
+def dispatch(
+    component: str,
+    operation: str,
+    target_commit: str,
+    *,
+    confirm_real_send: bool = False,
+) -> None:
     workflow = WORKFLOWS[component]
     request_id = uuid.uuid4().hex
     title = f"production/{component}/{operation}/{request_id}"
-    run(
-        [
-            "gh",
-            "workflow",
-            "run",
-            workflow,
-            "--ref",
-            "main",
-            "-f",
-            f"operation={operation}",
-            "-f",
-            f"target_commit={target_commit}",
-            "-f",
-            f"request_id={request_id}",
-        ]
-    )
+    command = [
+        "gh",
+        "workflow",
+        "run",
+        workflow,
+        "--ref",
+        "main",
+        "-f",
+        f"operation={operation}",
+        "-f",
+        f"target_commit={target_commit}",
+        "-f",
+        f"request_id={request_id}",
+    ]
+    if component == "airflow":
+        command.extend(["-f", f"confirm_real_send={str(confirm_real_send).lower()}"])
+    run(command)
     run_id = discover_run(workflow, title)
     watched = run(["gh", "run", "watch", str(run_id), "--exit-status"], check=False)
     logs = run(["gh", "run", "view", str(run_id), "--log"], check=False)
@@ -93,6 +100,7 @@ def main() -> None:
     parser.add_argument("operation")
     parser.add_argument("--target-commit", default="HEAD")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--confirm-real-send", action="store_true")
     args = parser.parse_args()
 
     target_commit = run(
@@ -112,6 +120,7 @@ def main() -> None:
             "db_cleanup_check",
             "phone_diagnose",
             "wechat_delivery_diagnose",
+            "wechat_delivery_probe",
             "wechat_quiesce",
             "airflow_resume",
         },
@@ -126,7 +135,16 @@ def main() -> None:
     }
     if operation not in allowed[args.component]:
         raise OpsError(f"unsupported {args.component} operation: {operation}")
-    dispatch(args.component, operation, target_commit)
+    if operation == "wechat_delivery_probe" and not args.confirm_real_send:
+        raise OpsError("real WeChat delivery requires --confirm-real-send")
+    if args.confirm_real_send and operation != "wechat_delivery_probe":
+        raise OpsError("--confirm-real-send is only valid for wechat_delivery_probe")
+    dispatch(
+        args.component,
+        operation,
+        target_commit,
+        confirm_real_send=args.confirm_real_send,
+    )
 
 
 if __name__ == "__main__":

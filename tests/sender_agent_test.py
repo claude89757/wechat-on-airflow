@@ -213,7 +213,7 @@ class SenderAgentTest(unittest.TestCase):
         self.assertEqual(response.json()["error"], "invalid_request")
 
     @patch("sender_agent.app.device_lock")
-    def test_returns_device_busy_when_lock_is_held(self, mock_lock):
+    def test_waits_for_device_lock_before_returning_busy(self, mock_lock):
         mock_lock.acquire.return_value = False
 
         response = self.client.post(
@@ -227,6 +227,31 @@ class SenderAgentTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["error"], "device_busy")
+        mock_lock.acquire.assert_called_once_with(timeout=sender_app.DEVICE_LOCK_WAIT_SECONDS)
+
+    @patch("sender_agent.app.send_text_messages")
+    @patch("sender_agent.app.device_lock")
+    def test_queued_request_sends_after_lock_becomes_available(self, mock_lock, mock_send):
+        mock_lock.acquire.return_value = True
+        mock_send.return_value = SendResult(
+            success=True,
+            device_name="test-device",
+            receiver="文件传输助手",
+            sent_count=1,
+        )
+
+        response = self.client.post(
+            "/v1/wechat/send",
+            json={
+                "receiver": "文件传输助手",
+                "messages": ["hello"],
+                "device_name": "test-device",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_lock.acquire.assert_called_once_with(timeout=sender_app.DEVICE_LOCK_WAIT_SECONDS)
+        mock_lock.release.assert_called_once_with()
 
     @patch("sender_agent.app.send_text_messages")
     def test_maps_sender_failure(self, mock_send):

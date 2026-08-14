@@ -297,6 +297,7 @@ def main() -> None:
             "db_cleanup_check",
             "phone_diagnose",
             "wechat_delivery_diagnose",
+            "wechat_delivery_probe",
             "wechat_quiesce",
             "airflow_resume",
         ]

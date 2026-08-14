@@ -171,7 +171,9 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 - Each send wakes the display, dismisses a non-secure keyguard, and collapses
   the notification shade before opening WeChat. It also sends one Android back
   action before launch to close Huawei USB-mode and similar system dialogs.
-- `409 device_busy` means another request owns the device lock.
+- Concurrent requests wait up to 70 seconds for the single-device lock so normal
+  Airflow task overlap is serialized instead of rejected immediately.
+- `409 device_busy` means the bounded device queue wait expired.
 - `403 device_not_allowed` means the requested device does not match runtime
   configuration.
 - `503` from `/readyz` means Appium or the configured Android device is not

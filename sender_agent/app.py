@@ -19,6 +19,7 @@ from wechat_sender import (
 
 APP_NAME = "wechat-sender-agent"
 DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
+DEVICE_LOCK_WAIT_SECONDS = 70
 
 app = FastAPI(title=APP_NAME)
 device_lock = Lock()
@@ -165,9 +166,9 @@ def send_wechat(request: SendRequest):
     if request.device_name != allowed_device_name:
         return _json_error(403, "device_not_allowed", "requested device is not allowed")
 
-    acquired = device_lock.acquire(blocking=False)
+    acquired = device_lock.acquire(timeout=DEVICE_LOCK_WAIT_SECONDS)
     if not acquired:
-        return _json_error(409, "device_busy", "device is already sending a message")
+        return _json_error(409, "device_busy", "device queue wait timed out")
 
     try:
         result = send_text_messages(

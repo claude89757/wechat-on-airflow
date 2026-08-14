@@ -21,6 +21,7 @@ import deploy_wechat_sender  # noqa: E402
 import diagnose_wechat_delivery  # noqa: E402
 import diagnose_zacks_phone  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
+import probe_wechat_delivery  # noqa: E402
 import production_health  # noqa: E402
 import quiesce_wechat_delivery  # noqa: E402
 import resume_airflow_scheduling  # noqa: E402
@@ -35,6 +36,7 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
             "deploy_airflow.py",
             "deploy_wechat_sender.py",
             "diagnose_wechat_delivery.py",
+            "probe_wechat_delivery.py",
             "production_health.py",
             "quiesce_wechat_delivery.py",
             "resume_airflow_scheduling.py",
@@ -74,6 +76,20 @@ class WeChatDeliveryDiagnosisTest(unittest.TestCase):
         self.assertNotIn('"message":', script)
         self.assertNotIn("Variable.set", script)
         self.assertNotIn("Variable.delete", script)
+
+
+class WeChatDeliveryProbeTest(unittest.TestCase):
+    def test_probe_requires_approval_and_redacts_targets_and_message(self):
+        script = probe_wechat_delivery.remote_script()
+
+        self.assertIn('test "$2" = "real-send-approved"', script)
+        self.assertIn('"real_send": True', script)
+        self.assertIn('"lane_start_spread_ms": start_spread_ms', script)
+        self.assertIn('"memberships": target["memberships"]', script)
+        self.assertNotIn('"receiver": target["receiver"]', script.split("print(")[-1])
+        self.assertNotIn('"message": message', script.split("print(")[-1])
+        self.assertNotIn("Variable.set", script)
+        self.assertNotIn("WECHAT_SEND_FALLBACK_OUTBOX", script)
 
 
 class WeChatSenderServiceContractTest(unittest.TestCase):

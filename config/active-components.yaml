@@ -340,6 +340,7 @@ active_services:
     invariants:
       - public_http_contract_has_no_token
       - one_process_per_device_lock
+      - concurrent_requests_wait_in_a_bounded_device_queue
       - automatic_restart_and_healthcheck
       - protected_adb_diagnosis_and_recovery
       - readiness_requires_appium_adb_boot_and_wechat

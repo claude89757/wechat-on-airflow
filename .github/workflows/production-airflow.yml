@@ -16,6 +16,7 @@ on:
           - db_cleanup_check
           - phone_diagnose
           - wechat_delivery_diagnose
+          - wechat_delivery_probe
           - wechat_quiesce
           - airflow_resume
       target_commit:
@@ -26,6 +27,11 @@ on:
         description: Unique request correlation ID
         required: true
         type: string
+      confirm_real_send:
+        description: Explicit approval for a real WeChat acceptance message
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -71,6 +77,7 @@ jobs:
         env:
           OPERATION: ${{ inputs.operation }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
+          CONFIRM_REAL_SEND: ${{ inputs.confirm_real_send }}
         run: |
           case "$OPERATION" in
             health)
@@ -94,6 +101,11 @@ jobs:
               ;;
             wechat_delivery_diagnose)
               PYTHONPATH=scripts python scripts/diagnose_wechat_delivery.py --format json
+              ;;
+            wechat_delivery_probe)
+              test "$CONFIRM_REAL_SEND" = "true"
+              PYTHONPATH=scripts python scripts/probe_wechat_delivery.py \
+                --confirm-real-send --format json
               ;;
             wechat_quiesce)
               PYTHONPATH=scripts python scripts/quiesce_wechat_delivery.py \
