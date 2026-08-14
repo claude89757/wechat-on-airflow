@@ -15,6 +15,7 @@ on:
           - deploy_recovery
           - db_cleanup_check
           - phone_diagnose
+          - wechat_delivery_diagnose
           - wechat_quiesce
           - airflow_resume
       target_commit:
@@ -90,6 +91,9 @@ jobs:
               ;;
             phone_diagnose)
               PYTHONPATH=src python scripts/diagnose_zacks_phone.py --format json
+              ;;
+            wechat_delivery_diagnose)
+              PYTHONPATH=scripts python scripts/diagnose_wechat_delivery.py --format json
               ;;
             wechat_quiesce)
               PYTHONPATH=scripts python scripts/quiesce_wechat_delivery.py \

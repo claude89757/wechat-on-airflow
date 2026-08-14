@@ -18,6 +18,7 @@ import airflow_db_cleanup  # noqa: E402
 import capture_wechat_sender_ui  # noqa: E402
 import deploy_airflow  # noqa: E402
 import deploy_wechat_sender  # noqa: E402
+import diagnose_wechat_delivery  # noqa: E402
 import diagnose_zacks_phone  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import production_health  # noqa: E402
@@ -33,6 +34,7 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
             "diagnose_zacks_phone.py",
             "deploy_airflow.py",
             "deploy_wechat_sender.py",
+            "diagnose_wechat_delivery.py",
             "production_health.py",
             "quiesce_wechat_delivery.py",
             "resume_airflow_scheduling.py",
@@ -57,6 +59,18 @@ class AirflowSchedulingResumeTest(unittest.TestCase):
         self.assertIn('verification["paused_dags"] == 0', script)
         self.assertNotIn("airflow dags trigger", script)
         self.assertNotIn("DagRun", script)
+
+
+class WeChatDeliveryDiagnosisTest(unittest.TestCase):
+    def test_diagnosis_is_read_only_and_redacts_receiver_and_message(self):
+        script = diagnose_wechat_delivery.remote_script()
+
+        self.assertIn('"target_index": target_index', script)
+        self.assertIn('"error_category": category', script)
+        self.assertNotIn('"receiver":', script)
+        self.assertNotIn('"message":', script)
+        self.assertNotIn("Variable.set", script)
+        self.assertNotIn("Variable.delete", script)
 
 
 class WeChatSenderServiceContractTest(unittest.TestCase):
