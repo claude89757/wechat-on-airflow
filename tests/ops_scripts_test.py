@@ -67,6 +67,9 @@ class WeChatDeliveryDiagnosisTest(unittest.TestCase):
 
         self.assertIn('"target_index": target_index', script)
         self.assertIn('"error_category": category', script)
+        self.assertIn('"chat_title_not_verified"', script)
+        self.assertIn('"search_result_did_not_open"', script)
+        self.assertIn('"search_return_failed"', script)
         self.assertNotIn('"receiver":', script)
         self.assertNotIn('"message":', script)
         self.assertNotIn("Variable.set", script)

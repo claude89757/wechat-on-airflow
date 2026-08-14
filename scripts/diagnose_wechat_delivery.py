@@ -52,6 +52,16 @@ def chatrooms(name):
 
 def error_category(value):
     text = str(value or "").lower()
+    detail_signatures = (
+        ("target chat was not verified", "chat_title_not_verified"),
+        ("receiver did not open", "search_result_did_not_open"),
+        ("unable to return to wechat search results", "search_return_failed"),
+        ("wechat search page did not open", "search_page_did_not_open"),
+        ("unable to return to wechat main page", "main_page_return_failed"),
+    )
+    for signature, category in detail_signatures:
+        if signature in text:
+            return category
     match = re.search(r"wechat send api failed: ([a-z0-9_]+):", text)
     if match:
         return match.group(1)
