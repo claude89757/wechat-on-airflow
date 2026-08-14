@@ -84,7 +84,7 @@ wechat-delivery-diagnose:
 
 wechat-delivery-probe:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow wechat_delivery_probe \
-		--confirm-real-send
+		--confirm-real-send $(PROBE_ARGS)
 
 wechat-quiesce:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow wechat_quiesce \

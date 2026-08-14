@@ -83,6 +83,8 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
         script = probe_wechat_delivery.remote_script()
 
         self.assertIn('test "$2" = "real-send-approved"', script)
+        self.assertIn("PROBE_TARGET_MEMBERSHIP=$3", script)
+        self.assertIn('"target_selector": selector or None', script)
         self.assertIn('"real_send": True', script)
         self.assertIn('"lane_start_spread_ms": start_spread_ms', script)
         self.assertIn('"memberships": target["memberships"]', script)

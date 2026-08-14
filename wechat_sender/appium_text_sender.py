@@ -57,6 +57,7 @@ class OcrLine:
 
 VISUAL_INPUT_CLEAR_KEYSTROKES = 1024
 VISUAL_MAIN_NAVIGATION_TOP_RATIO = 0.925
+VISUAL_OCR_THRESHOLD = 200
 VISUAL_SEND_BUTTON_REGION = (0.78, 0.57, 1.0, 0.66)
 
 
@@ -251,6 +252,10 @@ def _green_button_bounds(
         right=origin_x + right,
         bottom=origin_y + bottom,
     )
+
+
+def _threshold_ocr_image(image: Any) -> Any:
+    return image.point(lambda pixel: 0 if pixel < VISUAL_OCR_THRESHOLD else 255)
 
 
 def cleanup_appium_device(
@@ -744,6 +749,7 @@ class TextWeChatOperator:
         right = round(width * region[2])
         bottom = round(height * region[3])
         cropped = ImageOps.grayscale(image.crop((left, top, right, bottom)))
+        cropped = _threshold_ocr_image(cropped)
         cropped = cropped.resize(
             (round(cropped.width * scale), round(cropped.height * scale)),
             Image.Resampling.LANCZOS,

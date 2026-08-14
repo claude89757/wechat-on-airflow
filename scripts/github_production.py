@@ -45,6 +45,7 @@ def dispatch(
     target_commit: str,
     *,
     confirm_real_send: bool = False,
+    probe_target_membership: str = "",
 ) -> None:
     workflow = WORKFLOWS[component]
     request_id = uuid.uuid4().hex
@@ -65,6 +66,7 @@ def dispatch(
     ]
     if component == "airflow":
         command.extend(["-f", f"confirm_real_send={str(confirm_real_send).lower()}"])
+        command.extend(["-f", f"probe_target_membership={probe_target_membership}"])
     run(command)
     run_id = discover_run(workflow, title)
     watched = run(["gh", "run", "watch", str(run_id), "--exit-status"], check=False)
@@ -101,6 +103,7 @@ def main() -> None:
     parser.add_argument("--target-commit", default="HEAD")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-real-send", action="store_true")
+    parser.add_argument("--target-membership", default="")
     args = parser.parse_args()
 
     target_commit = run(
@@ -139,11 +142,14 @@ def main() -> None:
         raise OpsError("real WeChat delivery requires --confirm-real-send")
     if args.confirm_real_send and operation != "wechat_delivery_probe":
         raise OpsError("--confirm-real-send is only valid for wechat_delivery_probe")
+    if args.target_membership and operation != "wechat_delivery_probe":
+        raise OpsError("--target-membership is only valid for wechat_delivery_probe")
     dispatch(
         args.component,
         operation,
         target_commit,
         confirm_real_send=args.confirm_real_send,
+        probe_target_membership=args.target_membership,
     )
 
 

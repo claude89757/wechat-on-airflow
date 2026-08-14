@@ -5,6 +5,7 @@ from unittest.mock import patch
 from wechat_sender.appium_text_sender import (
     VISUAL_INPUT_CLEAR_KEYSTROKES,
     VISUAL_MAIN_NAVIGATION_TOP_RATIO,
+    VISUAL_OCR_THRESHOLD,
     VISUAL_SEND_BUTTON_REGION,
     DeviceNotReadyError,
     InvalidSendRequestError,
@@ -17,6 +18,7 @@ from wechat_sender.appium_text_sender import (
     _parse_tesseract_tsv,
     _recent_chat_xpaths,
     _run_stale_retry,
+    _threshold_ocr_image,
     _visual_text_match_score,
     _xpath_literal,
     cleanup_appium_device,
@@ -356,6 +358,18 @@ class WeChatSenderTest(unittest.TestCase):
             _normalize_visual_text("_Zacks-大沙河限定免费"),
             _normalize_visual_text("Zacks_大沙河限定免费"),
         )
+
+    def test_visual_ocr_threshold_keeps_wechat_green_text_dark(self):
+        class Image:
+            def __init__(self, pixels):
+                self.pixels = pixels
+
+            def point(self, transform):
+                return Image([transform(pixel) for pixel in self.pixels])
+
+        image = Image([117, VISUAL_OCR_THRESHOLD - 1, 245])
+
+        self.assertEqual(_threshold_ocr_image(image).pixels, [0, 0, 255])
 
     def test_visual_text_match_accepts_long_truncated_chat_name(self):
         self.assertGreater(

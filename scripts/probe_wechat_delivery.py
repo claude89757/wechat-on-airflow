@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from typing import Any
 
 from _ops import OpsError, airflow_remote, emit, run, ssh_command
@@ -37,8 +38,9 @@ compose() {
 
 api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
 test -n "$api_service"
-compose exec -T "$api_service" python - <<'PY'
+compose exec -T -e "PROBE_TARGET_MEMBERSHIP=$3" "$api_service" python - <<'PY'
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -90,6 +92,17 @@ for target_set, receivers in configured.items():
         }
         targets.append(target)
         by_receiver[receiver] = target
+
+selector = os.environ.get("PROBE_TARGET_MEMBERSHIP", "").strip()
+if selector:
+    selected_set, selected_index = selector.split(":", 1)
+    selected_membership = {
+        "target_set": selected_set,
+        "target_index": int(selected_index),
+    }
+    targets = [
+        target for target in targets if selected_membership in target["memberships"]
+    ]
 
 if not targets:
     print(json.dumps({"ok": False, "error": "no_configured_targets"}, sort_keys=True))
@@ -206,6 +219,7 @@ print(
             "ok": success_count == len(targets),
             "real_send": True,
             "message_kind": "concurrent_delivery_acceptance",
+            "target_selector": selector or None,
             "sent_at": sent_at.isoformat(),
             "configured_target_counts": {
                 name: len(values) for name, values in configured.items()
@@ -229,10 +243,15 @@ def main() -> None:
         description="Send one approved concurrent acceptance message to configured WeChat chats."
     )
     parser.add_argument("--confirm-real-send", action="store_true")
+    parser.add_argument("--target-membership", default="")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
     if not args.confirm_real_send:
         raise OpsError("real WeChat delivery requires --confirm-real-send")
+    if args.target_membership and not re.fullmatch(
+        r"(?:general|tyzx):[1-9][0-9]*", args.target_membership
+    ):
+        raise OpsError("target membership must match general:N or tyzx:N")
 
     remote = airflow_remote()
     result = run(
@@ -243,6 +262,7 @@ def main() -> None:
             "--",
             remote["repository_path"],
             "real-send-approved",
+            args.target_membership,
         ],
         check=False,
         input_text=remote_script(),

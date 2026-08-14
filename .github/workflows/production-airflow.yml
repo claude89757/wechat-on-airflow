@@ -32,6 +32,11 @@ on:
         required: true
         default: false
         type: boolean
+      probe_target_membership:
+        description: Optional redacted target selector such as tyzx:1
+        required: true
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -78,6 +83,7 @@ jobs:
           OPERATION: ${{ inputs.operation }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
           CONFIRM_REAL_SEND: ${{ inputs.confirm_real_send }}
+          PROBE_TARGET_MEMBERSHIP: ${{ inputs.probe_target_membership }}
         run: |
           case "$OPERATION" in
             health)
@@ -105,7 +111,8 @@ jobs:
             wechat_delivery_probe)
               test "$CONFIRM_REAL_SEND" = "true"
               PYTHONPATH=scripts python scripts/probe_wechat_delivery.py \
-                --confirm-real-send --format json
+                --confirm-real-send --target-membership "$PROBE_TARGET_MEMBERSHIP" \
+                --format json
               ;;
             wechat_quiesce)
               PYTHONPATH=scripts python scripts/quiesce_wechat_delivery.py \
