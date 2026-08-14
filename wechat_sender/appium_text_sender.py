@@ -396,12 +396,6 @@ class TextWeChatOperator:
             self.return_to_chats()
             time.sleep(1)
 
-        if self._click_accessible_text(receiver):
-            if self._wait_for_chat(receiver, timeout=6):
-                self.current_receiver = receiver
-                return True
-            self.return_to_chats()
-
         for element in self._find_accessible_text_candidates(
             receiver,
             top_ratio=0.10,
@@ -409,7 +403,7 @@ class TextWeChatOperator:
             allow_truncated_numeric_suffix=True,
         ):
             try:
-                _run_stale_retry(element.click)
+                self._tap_accessible_element(element)
             except Exception:
                 continue
             if self._wait_for_chat(receiver, timeout=6):
@@ -552,7 +546,15 @@ class TextWeChatOperator:
             self.driver.press_keycode(279)
         time.sleep(1)
 
-        if self._click_accessible_text(receiver):
+        for element in self._find_accessible_text_candidates(
+            receiver,
+            top_ratio=0.12,
+            bottom_ratio=0.70,
+        ):
+            try:
+                self._tap_accessible_element(element)
+            except Exception:
+                continue
             if self._wait_for_chat(receiver, timeout=6):
                 self.current_receiver = receiver
                 return
@@ -843,6 +845,16 @@ class TextWeChatOperator:
             {
                 "x": round((line.left + line.right) / 2),
                 "y": round((line.top + line.bottom) / 2),
+            },
+        )
+
+    def _tap_accessible_element(self, element: Any) -> None:
+        rect = _run_stale_retry(lambda: element.rect)
+        self.driver.execute_script(
+            "mobile: clickGesture",
+            {
+                "x": round(rect["x"] + rect["width"] / 2),
+                "y": round(rect["y"] + rect["height"] / 2),
             },
         )
 

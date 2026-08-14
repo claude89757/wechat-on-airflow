@@ -781,6 +781,54 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertEqual(operator.current_receiver, "Zacks网球场预定小助手_2群")
         self.assertEqual(len(operator.driver.scripts), 3)
 
+    def test_search_tries_next_accessible_result_after_wrong_entry(self):
+        class Element:
+            def __init__(self, top):
+                self.rect = {"x": 100, "y": top, "width": 700, "height": 80}
+
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.driver.current_activity = ".ui.FTSMainUI"
+        operator.driver.set_clipboard_text = lambda _value: None
+        operator.driver.press_keycode = lambda _value: None
+        operator._wait_for_search_page = lambda timeout: bool(timeout)
+        operator._find_accessible_text_candidates = lambda *_args, **_kwargs: [
+            Element(300),
+            Element(500),
+        ]
+        operator._find_visual_lines = lambda *_args, **_kwargs: []
+        opened = iter([False, True])
+        operator._wait_for_chat = lambda _receiver, timeout: next(opened) and bool(timeout)
+        returns = []
+        operator._return_to_search_results = lambda: returns.append("back")
+
+        appiumby_module = ModuleType("appium.webdriver.common.appiumby")
+
+        class StubAppiumBy:
+            XPATH = "xpath"
+
+        appiumby_module.AppiumBy = StubAppiumBy
+        with patch.dict(
+            "sys.modules",
+            {
+                "appium": ModuleType("appium"),
+                "appium.webdriver": ModuleType("appium.webdriver"),
+                "appium.webdriver.common": ModuleType("appium.webdriver.common"),
+                "appium.webdriver.common.appiumby": appiumby_module,
+            },
+        ):
+            operator._search_and_open_chat("Zacks_大沙河限定免费")
+
+        self.assertEqual(returns, ["back"])
+        self.assertEqual(operator.current_receiver, "Zacks_大沙河限定免费")
+        self.assertEqual(
+            operator.driver.scripts[-2:],
+            [
+                ("mobile: clickGesture", {"x": 450, "y": 340}),
+                ("mobile: clickGesture", {"x": 450, "y": 540}),
+            ],
+        )
+
     def test_search_button_is_accepted_when_click_leaves_main_page(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
         operator.driver = VisualOnlyDriver()
