@@ -22,6 +22,13 @@ variables:
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve
+  NSWTT_API_CONFIG:
+    type: json_object
+    required_by: [大沙河免费场巡检]
+    sensitive: true
+    required_fields:
+      - app_version
+      - cookie
   SZW_API_AUTHORIZATION:
     type: string
     required_by: [深圳湾网球场巡检, 大湾区网球场巡检]

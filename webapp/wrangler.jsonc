@@ -32,6 +32,7 @@
     "head_sampling_rate": 1
   },
   "vars": {
+    "NOTIFICATION_DAILY_SEND_LIMIT": "1000",
     "TENCENT_REGION": "ap-guangzhou"
   }
 }

@@ -42,6 +42,7 @@ type Panel = "create" | "help" | "subscriptions" | null;
 const VENUE_ACCENTS: Record<VenueId, string> = {
   szw: "teal",
   gba: "cyan",
+  dsh_free: "green",
   sysh: "blue",
   tops: "royal",
   tyzx: "cyan",
@@ -51,6 +52,7 @@ const VENUE_ACCENTS: Record<VenueId, string> = {
 const VENUE_ICONS: Record<VenueId, React.ElementType> = {
   szw: WavesIcon,
   gba: BuildingApartmentIcon,
+  dsh_free: TennisBallIcon,
   sysh: TennisBallIcon,
   tops: BuildingsIcon,
   tyzx: CourtBasketballIcon,

@@ -47,7 +47,7 @@ Set them with Wrangler secret commands. The Airflow
 ## Verify
 
 - `/api/healthz` returns `ok: true`.
-- `/api/bootstrap` returns six venues and no email addresses.
+- `/api/bootstrap` returns seven venues and no email addresses.
 - An unauthenticated observation write returns HTTP 401.
 - Natural venue DAG runs publish fresh inspection timestamps.
 - Browser layout and the create-subscription flow pass mobile visual checks.
@@ -56,3 +56,9 @@ Set them with Wrangler secret commands. The Airflow
 Do not create a fake subscription or inject a production slot during routine
 checks. Notification outbox failures are retained for diagnosis and are retried
 only by the Worker with bounded attempts.
+
+The Worker groups pending slot rows by recipient into one concise delivery and
+caps venue-reminder deliveries at 1,000 per Shanghai calendar day. This
+reserves provider capacity for verification codes. The cap does not weaken
+slot or subscription deduplication; rows remain in the D1 outbox until a later
+bounded drain.

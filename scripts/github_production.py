@@ -126,6 +126,7 @@ def main() -> None:
             "wechat_delivery_probe",
             "wechat_quiesce",
             "airflow_resume",
+            "nswtt_config_sync",
         },
         "sender": {
             "health",

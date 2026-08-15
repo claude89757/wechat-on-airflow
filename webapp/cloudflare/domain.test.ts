@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  formatNotificationDigest,
   activeUntilIso,
   formatSlotLine,
   maskEmail,
@@ -44,6 +45,29 @@ describe("subscription domain", () => {
         durationDays: 7,
       }).venueIds,
     ).toEqual(["gba"]);
+  });
+
+  it("accepts Dashah River free-court subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["dsh_free"],
+        startTime: "08:00",
+        endTime: "22:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["dsh_free"]);
+  });
+
+  it("builds one concise email for multiple new slots", () => {
+    expect(formatNotificationDigest([
+      "大沙河免费场1号场 08-16 星期日 18:00-19:00",
+      "大沙河免费场1号场 08-16 星期日 18:00-19:00",
+      "大沙河免费场1号场 08-16 星期日 19:00-20:00",
+      "大沙河免费场2号场 08-16 星期日 20:00-21:00",
+    ])).toEqual({
+      subject: "大沙河免费场1号场 08-16 星期日 18:00-20:00 等 2 个时段",
+      body: "大沙河免费场1号场 08-16 星期日 18:00-20:00\n大沙河免费场2号场 08-16 星期日 20:00-21:00",
+    });
   });
 
   it("matches overlapping slots but excludes touching boundaries", () => {

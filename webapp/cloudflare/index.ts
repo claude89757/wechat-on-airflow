@@ -1,6 +1,7 @@
 import {
   VENUES,
   activeUntilIso,
+  formatNotificationDigest,
   formatSlotLine,
   maskEmail,
   normalizeEmail,
@@ -23,6 +24,7 @@ type WorkerSecrets = {
   EMAIL_TEMPLATE_ID: string;
   VERIFICATION_PEPPER: string;
   AIRFLOW_PUSH_TOKEN: string;
+  NOTIFICATION_DAILY_SEND_LIMIT: string;
 };
 
 type WorkerEnv = Env & WorkerSecrets;
@@ -70,6 +72,7 @@ const MAX_JSON_BYTES = 32_768;
 const RECEIPT_LIFETIME_MS = 180 * 86_400_000;
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
 const INSPECTION_FRESHNESS_MS = 10 * 60_000;
+const MAX_OUTBOX_BATCH_ROWS = 100;
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: JSON_HEADERS });
@@ -158,7 +161,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
       "SELECT COUNT(*) AS count FROM subscriptions WHERE active = 1 AND active_until > ?",
     ).bind(nowIso),
     env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM notification_outbox WHERE status = 'sent' AND sent_at >= ?",
+      "SELECT COUNT(DISTINCT message_id) AS count FROM notification_outbox WHERE status = 'sent' AND sent_at >= ?",
     ).bind(dayStart),
     env.DB.prepare(
       `SELECT
@@ -188,7 +191,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
           ORDER BY created_at DESC`,
       ).bind(identity.email, nowIso),
       env.DB.prepare(
-        `SELECT COUNT(*) AS count
+        `SELECT COUNT(DISTINCT message_id) AS count
            FROM notification_outbox
           WHERE email = ?
             AND status = 'sent'
@@ -598,6 +601,21 @@ function retryDelayMs(attempt: number): number {
 
 async function drainOutbox(env: WorkerEnv): Promise<void> {
   const now = Date.now();
+  const dayStart = shanghaiDayStart(new Date(now));
+  const configuredLimit = Number(env.NOTIFICATION_DAILY_SEND_LIMIT);
+  const dailyLimit = Number.isInteger(configuredLimit) && configuredLimit > 0
+    ? configuredLimit
+    : 1_000;
+  const deliveryCountRow = await env.DB.prepare(
+    `SELECT COUNT(DISTINCT message_id) AS count
+       FROM notification_outbox
+      WHERE status = 'sent' AND sent_at >= ?`,
+  ).bind(dayStart).first<{ count: number }>();
+  const remainingDeliveries = Math.max(0, dailyLimit - Number(deliveryCountRow?.count || 0));
+  if (!remainingDeliveries) {
+    console.log(JSON.stringify({ event: "notification_daily_budget_reserved", dailyLimit }));
+    return;
+  }
   const pending = (
     await env.DB.prepare(
       `SELECT id, email, subject, body, venue_id, attempt_count
@@ -605,53 +623,75 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
         WHERE status IN ('pending', 'retry', 'processing')
           AND next_attempt_at <= ?
         ORDER BY created_at
-        LIMIT 10`,
-    ).bind(now).all<OutboxRow>()
+        LIMIT ?`,
+    ).bind(now, MAX_OUTBOX_BATCH_ROWS).all<OutboxRow>()
   ).results;
 
+  const selectedEmails = Array.from(new Set(pending.map((item) => item.email)))
+    .slice(0, remainingDeliveries);
+  const selectedEmailSet = new Set(selectedEmails);
+  const grouped = new Map<string, OutboxRow[]>();
   for (const item of pending) {
-    const attempt = item.attempt_count + 1;
-    const lease = await env.DB.prepare(
-      `UPDATE notification_outbox
-          SET status = 'processing', attempt_count = ?, next_attempt_at = ?
-        WHERE id = ?
-          AND status IN ('pending', 'retry', 'processing')
-          AND next_attempt_at <= ?`,
-    ).bind(attempt, now + 5 * 60_000, item.id, now).run();
-    if (!lease.meta.changes) continue;
+    if (!selectedEmailSet.has(item.email)) continue;
+    const rows = grouped.get(item.email) || [];
+    rows.push(item);
+    grouped.set(item.email, rows);
+  }
+
+  for (const rows of grouped.values()) {
+    const claimed: OutboxRow[] = [];
+    for (const item of rows) {
+      const attempt = item.attempt_count + 1;
+      const lease = await env.DB.prepare(
+        `UPDATE notification_outbox
+            SET status = 'processing', attempt_count = ?, next_attempt_at = ?
+          WHERE id = ?
+            AND status IN ('pending', 'retry', 'processing')
+            AND next_attempt_at <= ?`,
+      ).bind(attempt, now + 5 * 60_000, item.id, now).run();
+      if (lease.meta.changes) claimed.push(item);
+    }
+    if (!claimed.length) continue;
 
     try {
+      const digest = formatNotificationDigest(claimed.map((item) => item.body));
       const sent = await sendTencentTemplateEmail(
         env,
-        item.email,
-        item.subject,
-        item.body,
+        claimed[0].email,
+        digest.subject,
+        digest.body,
       );
       const sentAt = new Date().toISOString();
-      await env.DB.batch([
+      const deliveryId = sent.messageId || `worker:${crypto.randomUUID()}`;
+      const updates: D1PreparedStatement[] = claimed.map((item) =>
         env.DB.prepare(
           `UPDATE notification_outbox
               SET status = 'sent', sent_at = ?, message_id = ?, last_error = NULL
             WHERE id = ?`,
-        ).bind(sentAt, sent.messageId, item.id),
-        env.DB.prepare(
+        ).bind(sentAt, deliveryId, item.id)
+      );
+      for (const venueId of new Set(claimed.map((item) => item.venue_id))) {
+        updates.push(env.DB.prepare(
           "UPDATE venue_status SET last_notification_at = ?, updated_at = ? WHERE venue_id = ?",
-        ).bind(sentAt, sentAt, item.venue_id),
-      ]);
-      console.log(JSON.stringify({ event: "notification_sent", outboxId: item.id }));
+        ).bind(sentAt, sentAt, venueId));
+      }
+      await env.DB.batch(updates);
+      console.log(JSON.stringify({ event: "notification_digest_sent", itemCount: claimed.length }));
     } catch (error) {
-      const nextStatus = attempt >= 5 ? "failed" : "retry";
       const reason = error instanceof Error ? error.message.slice(0, 300) : "unknown";
-      await env.DB.prepare(
-        `UPDATE notification_outbox
-            SET status = ?, next_attempt_at = ?, last_error = ?
-          WHERE id = ?`,
-      ).bind(nextStatus, now + retryDelayMs(attempt), reason, item.id).run();
+      const updates = claimed.map((item) => {
+        const attempt = item.attempt_count + 1;
+        const nextStatus = attempt >= 5 ? "failed" : "retry";
+        return env.DB.prepare(
+          `UPDATE notification_outbox
+              SET status = ?, next_attempt_at = ?, last_error = ?
+            WHERE id = ?`,
+        ).bind(nextStatus, now + retryDelayMs(attempt), reason, item.id);
+      });
+      await env.DB.batch(updates);
       console.error(JSON.stringify({
-        event: "notification_failed",
-        outboxId: item.id,
-        attempt,
-        final: nextStatus === "failed",
+        event: "notification_digest_failed",
+        itemCount: claimed.length,
         reason,
       }));
     }

@@ -152,6 +152,33 @@ active_dags:
       - wechat_dedupe_cache_written_before_wechat_delivery
       - webapp_observation_precedes_wechat
 
+  - dag_id: 大沙河免费场巡检
+    file: dags/tennis_dags/sz_tennis/dashahe_free_watcher.py
+    schedule: every_30_seconds
+    tasks:
+      - check_free_courts
+    variables:
+      - NSWTT_API_CONFIG
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.dashahe_free_watcher
+      - wechat_airflow.venues.nswtt_client
+      - wechat_airflow.notifications.webapp
+    external_services:
+      - nswtt_booking_api
+      - zacks_tennis_webapp
+    notifications:
+      - webapp_observation
+    purpose: Detect released Dashah River free-court dates and publish free availability for subscriber email.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - calendar_sale_status_precedes_free_court_detection
+      - empty_place_list_never_creates_subscription_email
+
   - dag_id: 深圳金地网球场巡检
     file: dags/tennis_dags/sz_tennis/jdwx_watcher.py
     schedule: every_30_seconds

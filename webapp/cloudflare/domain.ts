@@ -1,6 +1,7 @@
 export const VENUES = {
   szw: "深圳湾",
   gba: "大湾区网球场",
+  dsh_free: "大沙河免费场",
   sysh: "上越沙河",
   tops: "TOPS 科技园",
   tyzx: "深圳市体育中心",
@@ -124,6 +125,54 @@ export function formatSlotLine(venueName: string, slot: SlotObservation): string
     ? slot.courtName
     : `${venueName}${slot.courtName}`;
   return `${location} ${slot.date.slice(5)} ${weekday} ${slot.startTime}-${slot.endTime}`;
+}
+
+export function formatNotificationDigest(lines: string[]): { subject: string; body: string } {
+  const uniqueLines = Array.from(new Set(lines.map((line) => line.trim()).filter(Boolean)));
+  const intervalPattern = /^(.*) ((?:[01]\d|2[0-3]):[0-5]\d)-((?:[01]\d|2[0-3]):[0-5]\d)$/;
+  const intervalGroups = new Map<string, Array<{ start: string; end: string }>>();
+  const outputOrder: string[] = [];
+  const unparsed = new Map<string, string>();
+  for (const line of uniqueLines) {
+    const match = line.match(intervalPattern);
+    if (!match) {
+      const key = `line:${line}`;
+      outputOrder.push(key);
+      unparsed.set(key, line);
+      continue;
+    }
+    const prefix = match[1];
+    const key = `interval:${prefix}`;
+    if (!intervalGroups.has(key)) outputOrder.push(key);
+    const intervals = intervalGroups.get(key) || [];
+    intervals.push({ start: match[2], end: match[3] });
+    intervalGroups.set(key, intervals);
+  }
+  const compactedLines = outputOrder.flatMap((key) => {
+    const plainLine = unparsed.get(key);
+    if (plainLine) return [plainLine];
+    const prefix = key.slice("interval:".length);
+    const intervals = (intervalGroups.get(key) || []).sort((left, right) =>
+      left.start.localeCompare(right.start)
+    );
+    const merged: Array<{ start: string; end: string }> = [];
+    for (const interval of intervals) {
+      const previous = merged.at(-1);
+      if (previous && interval.start <= previous.end) {
+        if (interval.end > previous.end) previous.end = interval.end;
+      } else {
+        merged.push({ ...interval });
+      }
+    }
+    return merged.map((interval) => `${prefix} ${interval.start}-${interval.end}`);
+  });
+  if (!compactedLines.length) throw new Error("通知内容为空");
+  return {
+    subject: compactedLines.length === 1
+      ? compactedLines[0]
+      : `${compactedLines[0]} 等 ${compactedLines.length} 个时段`,
+    body: compactedLines.join("\n"),
+  };
 }
 
 export async function sha256Hex(value: string): Promise<string> {

@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
     API["Venue booking APIs"] --> DAG["Venue polling DAGs"]
+    NSWTT["NSWTT calendar and free slices"] --> DAG
     Proxy["Proxy sources and cache"] --> DAG
     DAG -->|"best effort, before WeChat"| Worker["Cloudflare Worker"]
     DAG --> Cache["Airflow Variable WeChat dedupe cache"]
@@ -24,6 +25,11 @@ observed slot event keys, and a retrying email outbox in D1. A
 `(subscription_id, event_key)` uniqueness contract prevents duplicate
 subscriber notifications. User-selected time windows are independent of the
 legacy weekday/weekend filters retained only for WeChat.
+
+The Dashah River adapter is calendar-gated because free courts are not released
+for every date. It publishes only zero-price availability from dates that are
+both on sale and backed by a non-empty free-court list. The Web application
+therefore never infers a free release from an ordinary empty calendar date.
 
 The Airflow WeChat deduplication cache is written before WeChat delivery.
 Its fallback outbox is a deduplicated incident record, not an automatic retry

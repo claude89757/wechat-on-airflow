@@ -25,6 +25,7 @@ import probe_wechat_delivery  # noqa: E402
 import production_health  # noqa: E402
 import quiesce_wechat_delivery  # noqa: E402
 import resume_airflow_scheduling  # noqa: E402
+import sync_nswtt_config  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
 
 
@@ -40,6 +41,7 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
             "production_health.py",
             "quiesce_wechat_delivery.py",
             "resume_airflow_scheduling.py",
+            "sync_nswtt_config.py",
         ):
             source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
             self.assertNotIn("sshpass", source, script_name)
@@ -50,6 +52,19 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
         self.assertIn("PasswordAuthentication=no", command)
         self.assertIn("ServerAliveInterval=30", command)
         self.assertIn("ServerAliveCountMax=20", command)
+
+
+class NswttConfigSyncTest(unittest.TestCase):
+    def test_sync_contract_accepts_only_bounded_fields(self):
+        value = sync_nswtt_config.validated_config(
+            '{"app_version":"2.14.30","cookie":{"sid":"secret"}}'
+        )
+        self.assertIn('"app_version":"2.14.30"', value)
+
+        with self.assertRaisesRegex(_ops.OpsError, "unsupported fields"):
+            sync_nswtt_config.validated_config(
+                '{"app_version":"2.14.30","cookie":"sid=x","email":"hidden"}'
+            )
 
 
 class AirflowSchedulingResumeTest(unittest.TestCase):

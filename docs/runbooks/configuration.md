@@ -38,9 +38,27 @@ The Greater Bay Area API permits today plus the next two calendar days. Its DAG
 therefore runs `day_0` through `day_2`; longer-lived Web subscriptions continue
 matching as later dates enter that rolling upstream window.
 
+## NSWTT Free-Court Authorization
+
+`NSWTT_API_CONFIG` is a sensitive JSON object used only by the Dashah River
+free-court DAG. It requires `app_version` and `cookie`; `page_path`,
+`page_uuid`, `project_id`, `base_url`, and `timeout_seconds` are bounded
+optional fields. Never log or commit its value.
+
+The canonical value is stored in the protected GitHub `production`
+Environment as the `NSWTT_API_CONFIG` secret. Rotate it there, then run the
+`nswtt_config_sync` protected Airflow operation. The operation validates the
+shape and streams the value directly into the Airflow API Server container;
+developer devices do not retrieve the production value.
+
+The adapter first selects calendar rows whose `status`, `openstatus`, and
+`issale` are all `200`. It then requires a non-empty free `placelist` for each
+selected date. A calendar date with no free courts is a healthy empty result,
+not an email event. Only zero-price slices with `status=200` are published.
+
 ## Web Subscription Publisher
 
-All six venue DAGs require:
+All seven venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in

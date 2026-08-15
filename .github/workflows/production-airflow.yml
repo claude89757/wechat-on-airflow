@@ -19,6 +19,7 @@ on:
           - wechat_delivery_probe
           - wechat_quiesce
           - airflow_resume
+          - nswtt_config_sync
       target_commit:
         description: Exact commit SHA on main
         required: true
@@ -84,6 +85,7 @@ jobs:
           TARGET_COMMIT: ${{ inputs.target_commit }}
           CONFIRM_REAL_SEND: ${{ inputs.confirm_real_send }}
           PROBE_TARGET_MEMBERSHIP: ${{ inputs.probe_target_membership }}
+          NSWTT_API_CONFIG: ${{ secrets.NSWTT_API_CONFIG }}
         run: |
           case "$OPERATION" in
             health)
@@ -121,6 +123,9 @@ jobs:
             airflow_resume)
               PYTHONPATH=scripts python scripts/resume_airflow_scheduling.py \
                 --target-commit "$TARGET_COMMIT" --format json
+              ;;
+            nswtt_config_sync)
+              PYTHONPATH=scripts python scripts/sync_nswtt_config.py
               ;;
             *)
               exit 2

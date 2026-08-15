@@ -48,6 +48,25 @@ and Tencent SES result category. Do not print addresses or secret values.
 Airflow has no fixed email recipient lists and must not send email directly.
 An observation or email failure must not fail the venue DAG.
 
+If email verification returns `验证码发送失败，请稍后重试`, inspect Worker logs
+and query only grouped D1 outbox status/error counts. `FrequencyLimit` means
+too many messages targeted one address; `ExceedSendLimit` means venue mail
+consumed the provider's daily account quota. Do not reveal addresses while
+diagnosing. Confirm that current code sends recipient digests, that the
+Shanghai-day venue delivery count is below `NOTIFICATION_DAILY_SEND_LIMIT`,
+and that failed historical rows are not replayed. Provider daily limits may
+still require waiting for the provider reset after the source defect is fixed.
+
+## NSWTT Free-Court Inspection Failure
+
+The Dashah River free-court DAG must query the calendar before slice data. A
+date is queryable only when calendar sale fields are all `200`; it supports
+subscriber notification only when the free slice response also contains at
+least one place. An empty place list is expected on dates with no free-court
+release and must remain a healthy empty observation. Authentication expiry
+fails the task and requires rotating the protected GitHub Environment secret,
+then running `nswtt_config_sync` before the next deployment health check.
+
 ## WeChat Failure
 
 Check sender `/healthz`, `device_busy` responses, Appium availability, device

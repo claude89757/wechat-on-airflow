@@ -300,6 +300,7 @@ def main() -> None:
             "wechat_delivery_probe",
             "wechat_quiesce",
             "airflow_resume",
+            "nswtt_config_sync",
         ]
         or operations.get("sender_operations")
         != [
@@ -319,6 +320,7 @@ def main() -> None:
         "AIRFLOW_REPOSITORY_PATH",
         "AIRFLOW_SSH_PRIVATE_KEY",
         "AIRFLOW_SSH_KNOWN_HOSTS",
+        "NSWTT_API_CONFIG",
         "WECHAT_SENDER_SSH_HOST",
         "WECHAT_SENDER_SSH_PORT",
         "WECHAT_SENDER_SSH_USER",
