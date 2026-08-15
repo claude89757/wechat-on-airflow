@@ -74,6 +74,9 @@ class AirflowSchedulingResumeTest(unittest.TestCase):
         self.assertIn("airflow dags unpause", script)
         self.assertIn("--treat-dag-id-as-regex --yes", script)
         self.assertIn('verification["paused_dags"] == 0', script)
+        self.assertIn('"missing_required_services": missing_required_services', script)
+        self.assertIn('"unpause_command_exit_code": unpause_exit_code', script)
+        self.assertNotIn("service_count == 9", script)
         self.assertNotIn("airflow dags trigger", script)
         self.assertNotIn("DagRun", script)
 

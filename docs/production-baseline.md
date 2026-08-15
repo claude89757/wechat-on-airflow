@@ -1,5 +1,47 @@
 # Production Baseline
 
+## Dashah Free-Court And Email Quota Release On 2026-08-16
+
+Commit `ea97edf8589b4fae8d2e19385c943d4665fa07eb` added the NSWTT-backed
+`大沙河免费场巡检` DAG and the `dsh_free` Web venue. The watcher requires both an
+open calendar date and a non-empty free-court place list before publishing
+zero-price slots. A date with no free-court place list is a healthy empty
+observation and cannot create subscriber email.
+
+The bounded `NSWTT_API_CONFIG` value is stored in the protected GitHub
+`production` Environment and synchronized to its Airflow Variable without
+copying the value to a workstation or repository. D1 migration
+`0003_add_dashahe_free_venue.sql` was applied, and Cloudflare Worker version
+`03624477-a6ca-4065-9efb-781cf7abb27c` was published. The public health endpoint
+returned healthy and bootstrap exposed all seven configured venues.
+
+The verification-code incident was traced to one venue email per raw slot.
+That behavior exhausted the Tencent SES per-recipient and daily quotas shared
+with verification mail. The Worker now groups a recipient's pending venue rows
+into one compact email, merges adjacent intervals, counts deliveries by
+provider message ID, and caps venue-notification sends at 1,000 per day so
+verification capacity remains available.
+
+After the Shanghai midnight quota boundary, D1 recorded one frequency-limit
+failure at `00:00:22`, followed by 33 successful provider deliveries with no
+pending or retry rows. This confirms the shared delivery channel recovered
+without an outbox backlog; verification delivery itself was not invoked during
+acceptance.
+
+Airflow deployed the exact implementation commit with all application
+containers healthy and the notification outbox preserved. The new DAG was
+activated through the protected scheduling operation and completed three
+natural 30-second runs successfully; the following full production health
+check passed with ten unpaused DAGs and zero import errors. Acceptance used
+read-only provider and application checks and did not send a real email or
+WeChat message.
+
+The activation exposed a false-negative in the scheduling operation: it
+compared eight unique running Compose service names with nine container
+instances because the scheduler has two replicas. The operation now validates
+the required service-name set from `runtime-target.yaml` and treats the
+verified final DAG state as authoritative for idempotent completion.
+
 ## Platform-Native Production Secrets
 
 On 2026-08-12 production operations moved from workstation-held credentials to
