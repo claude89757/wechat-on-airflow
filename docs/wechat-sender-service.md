@@ -150,6 +150,10 @@ create stale or duplicate notifications. Resolve the sender fault, verify
   verified by its transition into a WeChat chat activity when Huawei title OCR
   is unavailable. Search results never use this fallback and still require a
   matching chat title.
+- OCR coordinates are tied to a fingerprint of the source chat-name row. The
+  sender captures a fresh frame immediately before tapping; if an incoming
+  message reordered the chat list during OCR, it discards every coordinate
+  from that frame and rescans instead of tapping or falling back to search.
 - An accessibility search control is accepted when it opens a recognized search
   surface or verifiably leaves the chat list. The known top-right coordinate is
   used only while the main page remains active.

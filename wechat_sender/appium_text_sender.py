@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
@@ -54,11 +54,19 @@ class OcrLine:
     top: int
     right: int
     bottom: int
+    frame_fingerprint: bytes | None = field(default=None, repr=False, compare=False)
+    fingerprint_bounds: tuple[int, int, int, int] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
 
 VISUAL_INPUT_CLEAR_KEYSTROKES = 1024
 VISUAL_MAIN_NAVIGATION_TOP_RATIO = 0.925
 VISUAL_OCR_THRESHOLD = 200
+VISUAL_RECENT_CHAT_SCAN_ATTEMPTS = 3
+VISUAL_ROW_FINGERPRINT_MAX_MISMATCH_RATIO = 0.005
 VISUAL_SEND_BUTTON_REGION = (0.78, 0.57, 1.0, 0.66)
 
 
@@ -276,6 +284,34 @@ def _threshold_ocr_image(image: Any) -> Any:
     return image.point(lambda pixel: 0 if pixel < VISUAL_OCR_THRESHOLD else 255)
 
 
+def _line_fingerprint_bounds(
+    line: OcrLine,
+    *,
+    width: int,
+    height: int,
+) -> tuple[int, int, int, int]:
+    return (
+        max(line.left - 6, 0),
+        max(line.top - 4, 0),
+        min(line.right + 6, width),
+        min(line.bottom + 4, height),
+    )
+
+
+def _image_region_fingerprint(
+    image: Any,
+    bounds: tuple[int, int, int, int],
+) -> bytes:
+    return _threshold_ocr_image(image.crop(bounds).convert("L")).tobytes()
+
+
+def _fingerprints_match(expected: bytes, current: bytes) -> bool:
+    if not expected or len(expected) != len(current):
+        return False
+    mismatches = sum(left != right for left, right in zip(expected, current, strict=True))
+    return mismatches / len(expected) <= VISUAL_ROW_FINGERPRINT_MAX_MISMATCH_RATIO
+
+
 def cleanup_appium_device(
     appium_server_url: str,
     device_name: str,
@@ -439,20 +475,30 @@ class TextWeChatOperator:
                 return True
             self.return_to_chats()
 
-        lines = self._find_visual_lines(
-            receiver,
-            region=(0.15, 0.10, 0.93, 0.90),
-            scale=1.25,
-            page_segmentation_mode=11,
-            allow_truncated_numeric_suffix=True,
-        )
-        for line in lines:
-            self._tap_ocr_line(line)
-            if self._wait_for_recent_chat(receiver, line.text, timeout=6):
-                self.current_receiver = receiver
-                self.navigation_path = "recent_visual"
-                return True
-            self.return_to_chats()
+        frame_changed = False
+        for _attempt in range(VISUAL_RECENT_CHAT_SCAN_ATTEMPTS):
+            lines = self._find_visual_lines(
+                receiver,
+                region=(0.15, 0.10, 0.93, 0.90),
+                scale=1.25,
+                page_segmentation_mode=11,
+                allow_truncated_numeric_suffix=True,
+            )
+            frame_changed = False
+            for line in lines:
+                if not self._is_ocr_line_current(line):
+                    frame_changed = True
+                    break
+                self._tap_ocr_line(line)
+                if self._wait_for_recent_chat(receiver, line.text, timeout=6):
+                    self.current_receiver = receiver
+                    self.navigation_path = "recent_visual"
+                    return True
+                self.return_to_chats()
+            if not frame_changed:
+                return False
+        if frame_changed:
+            raise AppiumTimeoutError("WeChat recent chat list changed during selection")
         return False
 
     def _click_accessible_text(self, value: str) -> bool:
@@ -768,7 +814,7 @@ class TextWeChatOperator:
         except ImportError as exc:
             raise DeviceNotReadyError("Pillow is required for visual WeChat automation") from exc
 
-        image = Image.open(io.BytesIO(self.driver.get_screenshot_as_png()))
+        image = Image.open(io.BytesIO(self.driver.get_screenshot_as_png())).convert("RGB")
         width, height = image.size
         left = round(width * region[0])
         top = round(height * region[1])
@@ -813,12 +859,31 @@ class TextWeChatOperator:
 
         if result is None or result.returncode != 0:
             raise DeviceNotReadyError("visual text recognition failed")
-        return _parse_tesseract_tsv(
+        lines = _parse_tesseract_tsv(
             result.stdout,
             origin_x=left,
             origin_y=top,
             scale=scale,
         )
+        return [
+            OcrLine(
+                text=line.text,
+                left=line.left,
+                top=line.top,
+                right=line.right,
+                bottom=line.bottom,
+                frame_fingerprint=_image_region_fingerprint(image, bounds),
+                fingerprint_bounds=bounds,
+            )
+            for line in lines
+            for bounds in [
+                _line_fingerprint_bounds(
+                    line,
+                    width=width,
+                    height=height,
+                )
+            ]
+        ]
 
     def _find_visual_line(
         self,
@@ -879,6 +944,18 @@ class TextWeChatOperator:
                 "y": round((line.top + line.bottom) / 2),
             },
         )
+
+    def _is_ocr_line_current(self, line: OcrLine) -> bool:
+        if line.frame_fingerprint is None or line.fingerprint_bounds is None:
+            return True
+        try:
+            from PIL import Image
+
+            image = Image.open(io.BytesIO(self.driver.get_screenshot_as_png())).convert("RGB")
+            current = _image_region_fingerprint(image, line.fingerprint_bounds)
+        except Exception:
+            return False
+        return _fingerprints_match(line.frame_fingerprint, current)
 
     def _tap_accessible_element(self, element: Any) -> None:
         rect = _run_stale_retry(lambda: element.rect)

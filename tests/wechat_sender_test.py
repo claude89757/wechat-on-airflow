@@ -6,13 +6,16 @@ from wechat_sender.appium_text_sender import (
     VISUAL_INPUT_CLEAR_KEYSTROKES,
     VISUAL_MAIN_NAVIGATION_TOP_RATIO,
     VISUAL_OCR_THRESHOLD,
+    VISUAL_RECENT_CHAT_SCAN_ATTEMPTS,
     VISUAL_SEND_BUTTON_REGION,
+    AppiumTimeoutError,
     DeviceNotReadyError,
     InvalidSendRequestError,
     OcrLine,
     SendFailedError,
     SendResult,
     TextWeChatOperator,
+    _fingerprints_match,
     _green_button_bounds,
     _is_unambiguous_recent_chat_match,
     _normalize_visual_text,
@@ -372,6 +375,14 @@ class WeChatSenderTest(unittest.TestCase):
 
         self.assertEqual(_threshold_ocr_image(image).pixels, [0, 0, 255])
 
+    def test_visual_row_fingerprint_rejects_a_changed_chat_name(self):
+        unchanged = bytes([0, 255] * 1000)
+        changed = bytearray(unchanged)
+        changed[:40] = bytes([255] * 40)
+
+        self.assertTrue(_fingerprints_match(unchanged, unchanged))
+        self.assertFalse(_fingerprints_match(unchanged, bytes(changed)))
+
     def test_visual_text_match_accepts_long_truncated_chat_name(self):
         self.assertGreater(
             _visual_text_match_score(
@@ -629,6 +640,55 @@ class WeChatSenderTest(unittest.TestCase):
                 timeout=6,
             )
         )
+
+    def test_visual_recent_chat_rescans_after_the_list_reorders(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.current_receiver = None
+        operator.navigation_path = "unknown"
+        operator.is_at_main_page = lambda: True
+        operator._find_accessible_text_candidates = lambda *_args, **_kwargs: []
+        scans = iter(
+            [
+                [OcrLine("Zacks_大沙河限定免费", 100, 500, 800, 560)],
+                [OcrLine("Zacks_大沙河限定免费", 100, 300, 800, 360)],
+            ]
+        )
+        operator._find_visual_lines = lambda *_args, **_kwargs: next(scans)
+        current_checks = iter([False, True])
+        operator._is_ocr_line_current = lambda _line: next(current_checks)
+        operator._wait_for_recent_chat = lambda *_args, **_kwargs: True
+
+        opened = operator.is_contact_in_recent_chats("Zacks_大沙河限定免费")
+
+        self.assertTrue(opened)
+        self.assertEqual(operator.navigation_path, "recent_visual")
+        self.assertEqual(
+            operator.driver.scripts,
+            [("mobile: clickGesture", {"x": 450, "y": 330})],
+        )
+
+    def test_visual_recent_chat_never_taps_or_searches_with_stale_coordinates(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.current_receiver = None
+        operator.navigation_path = "unknown"
+        operator.is_at_main_page = lambda: True
+        operator._find_accessible_text_candidates = lambda *_args, **_kwargs: []
+        scans = []
+
+        def find_lines(*_args, **_kwargs):
+            scans.append("scan")
+            return [OcrLine("Zacks_大沙河限定免费", 100, 500, 800, 560)]
+
+        operator._find_visual_lines = find_lines
+        operator._is_ocr_line_current = lambda _line: False
+
+        with self.assertRaisesRegex(AppiumTimeoutError, "chat list changed"):
+            operator.is_contact_in_recent_chats("Zacks_大沙河限定免费")
+
+        self.assertEqual(len(scans), VISUAL_RECENT_CHAT_SCAN_ATTEMPTS)
+        self.assertEqual(operator.driver.scripts, [])
 
     def test_partial_accessibility_still_checks_visible_chat_without_scrolling(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
