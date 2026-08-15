@@ -89,6 +89,7 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
         self.assertIn('"real_send": True', script)
         self.assertIn('"lane_start_spread_ms": start_spread_ms', script)
         self.assertIn('"memberships": target["memberships"]', script)
+        self.assertIn('"navigation_path": payload.get("navigation_path", "unknown")', script)
         self.assertNotIn('"receiver": target["receiver"]', script.split("print(")[-1])
         self.assertNotIn('"message": message', script.split("print(")[-1])
         self.assertNotIn("Variable.set", script)

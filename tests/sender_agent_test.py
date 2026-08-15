@@ -30,6 +30,7 @@ class SenderAgentTest(unittest.TestCase):
             device_name="test-device",
             receiver="文件传输助手",
             sent_count=1,
+            navigation_path="recent_visual",
         )
 
         response = self.client.post(
@@ -49,6 +50,7 @@ class SenderAgentTest(unittest.TestCase):
                 "device_name": "test-device",
                 "receiver": "文件传输助手",
                 "sent_count": 1,
+                "navigation_path": "recent_visual",
             },
         )
         mock_send.assert_called_once()

@@ -44,6 +44,7 @@ class SendResult:
     device_name: str
     receiver: str
     sent_count: int
+    navigation_path: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,23 @@ def _visual_text_match_score(
     if similarity >= 0.72:
         return similarity
     return 0.0
+
+
+def _is_unambiguous_recent_chat_match(candidate: str, expected: str) -> bool:
+    normalized_candidate = _normalize_visual_text(candidate)
+    normalized_expected = _normalize_visual_text(expected)
+    candidate_digits = re.findall(r"\d+", normalized_candidate)
+    expected_digits = re.findall(r"\d+", normalized_expected)
+    if expected_digits and candidate_digits != expected_digits:
+        return False
+    return (
+        _visual_text_match_score(
+            candidate,
+            expected,
+            allow_truncated_numeric_suffix=True,
+        )
+        >= 0.95
+    )
 
 
 def _parse_tesseract_tsv(
@@ -371,6 +389,7 @@ class TextWeChatOperator:
         }
         self.device_name = device_name
         self.current_receiver: str | None = None
+        self.navigation_path = "unknown"
         self.driver = AppiumWebDriver(
             command_executor=appium_server_url,
             options=UiAutomator2Options().load_capabilities(capabilities),
@@ -380,9 +399,11 @@ class TextWeChatOperator:
         if not messages:
             raise InvalidSendRequestError("messages must contain at least one item")
         self.current_receiver = None
+        self.navigation_path = "unknown"
 
         if self.is_target_chat_open(receiver):
             self.current_receiver = receiver
+            self.navigation_path = "already_open"
         elif not self.is_contact_in_recent_chats(receiver):
             self._search_and_open_chat(receiver)
 
@@ -407,12 +428,14 @@ class TextWeChatOperator:
             bottom_ratio=0.90,
             allow_truncated_numeric_suffix=True,
         ):
+            candidate_text = self._accessible_element_text(element)
             try:
                 self._tap_accessible_element(element)
             except Exception:
                 continue
-            if self._wait_for_chat(receiver, timeout=6):
+            if self._wait_for_recent_chat(receiver, candidate_text, timeout=6):
                 self.current_receiver = receiver
+                self.navigation_path = "recent_accessibility"
                 return True
             self.return_to_chats()
 
@@ -425,8 +448,9 @@ class TextWeChatOperator:
         )
         for line in lines:
             self._tap_ocr_line(line)
-            if self._wait_for_chat(receiver, timeout=6):
+            if self._wait_for_recent_chat(receiver, line.text, timeout=6):
                 self.current_receiver = receiver
+                self.navigation_path = "recent_visual"
                 return True
             self.return_to_chats()
         return False
@@ -484,7 +508,7 @@ class TextWeChatOperator:
                 values.append(str(element.get_attribute(attribute) or ""))
             except Exception:
                 continue
-        return " ".join(value for value in values if value)
+        return " ".join(dict.fromkeys(value for value in values if value))
 
     def _find_accessible_text_candidates(
         self,
@@ -526,7 +550,7 @@ class TextWeChatOperator:
             element
             for _score, _center_y, _left, element in sorted(
                 candidates,
-                key=lambda item: (item[1], item[2], -item[0]),
+                key=lambda item: (-item[0], item[1], item[2]),
             )
         ]
 
@@ -562,6 +586,7 @@ class TextWeChatOperator:
                 continue
             if self._wait_for_chat(receiver, timeout=6):
                 self.current_receiver = receiver
+                self.navigation_path = "search_accessibility"
                 return
             self._return_to_search_results()
 
@@ -575,6 +600,7 @@ class TextWeChatOperator:
             self._tap_ocr_line(line)
             if self._wait_for_chat(receiver, timeout=6):
                 self.current_receiver = receiver
+                self.navigation_path = "search_visual"
                 return
             self._return_to_search_results()
 
@@ -841,7 +867,7 @@ class TextWeChatOperator:
             line
             for score, line in sorted(
                 (item for item in scored_lines if item[0] >= minimum_score),
-                key=lambda item: (item[1].top, item[1].left, -item[0]),
+                key=lambda item: (-item[0], item[1].top, item[1].left),
             )
         ]
 
@@ -969,6 +995,19 @@ class TextWeChatOperator:
                 return True
             time.sleep(0.25)
         return self._is_visual_chat_page(receiver)
+
+    def _wait_for_recent_chat(
+        self,
+        receiver: str,
+        candidate_text: str,
+        timeout: float,
+    ) -> bool:
+        if _is_unambiguous_recent_chat_match(candidate_text, receiver):
+            if self._wait_for_activity("ChattingUI", timeout=min(timeout, 3)):
+                return True
+            if self._activity_ends_with("LauncherUI") and not self._is_visual_main_page():
+                return True
+        return self._wait_for_chat(receiver, timeout=timeout)
 
     def _is_verified_chat_open(self, receiver: str) -> bool:
         if self.current_receiver != receiver:
@@ -1132,6 +1171,7 @@ def send_text_messages(
             device_name=device_name,
             receiver=normalized_receiver,
             sent_count=len(normalized_messages),
+            navigation_path=getattr(operator, "navigation_path", "unknown"),
         )
     except WeChatSenderError:
         raise

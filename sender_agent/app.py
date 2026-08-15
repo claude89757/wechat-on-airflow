@@ -183,6 +183,7 @@ def send_wechat(request: SendRequest):
             "device_name": result.device_name,
             "receiver": result.receiver,
             "sent_count": result.sent_count,
+            "navigation_path": result.navigation_path,
         }
     except InvalidSendRequestError as exc:
         return _json_error(400, exc.error_code, str(exc))

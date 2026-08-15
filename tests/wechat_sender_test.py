@@ -14,6 +14,7 @@ from wechat_sender.appium_text_sender import (
     SendResult,
     TextWeChatOperator,
     _green_button_bounds,
+    _is_unambiguous_recent_chat_match,
     _normalize_visual_text,
     _parse_tesseract_tsv,
     _recent_chat_xpaths,
@@ -425,6 +426,20 @@ class WeChatSenderTest(unittest.TestCase):
             0,
         )
 
+    def test_recent_chat_match_does_not_trust_a_missing_numeric_suffix(self):
+        self.assertFalse(
+            _is_unambiguous_recent_chat_match(
+                "Zacks网球场预定小助手",
+                "Zacks网球场预定小助手_2群",
+            )
+        )
+        self.assertTrue(
+            _is_unambiguous_recent_chat_match(
+                "Zacks网球场预定小助手_2群",
+                "Zacks网球场预定小助手_2群",
+            )
+        )
+
     def test_visual_text_match_accepts_chinese_ocr_error_with_same_group_number(self):
         self.assertGreaterEqual(
             _visual_text_match_score(
@@ -563,6 +578,56 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertEqual(
             operator.driver.scripts,
             [("mobile: clickGesture", {"x": 450, "y": 640})],
+        )
+
+    def test_visible_candidates_prefer_exact_numbered_group_over_earlier_prefix(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator._ocr_lines = lambda **_kwargs: [
+            OcrLine("Zacks网球场预定小助手", 100, 300, 700, 360),
+            OcrLine("Zacks网球场预定小助手_2群", 100, 500, 800, 560),
+        ]
+
+        candidates = operator._find_visual_lines(
+            "Zacks网球场预定小助手_2群",
+            region=(0.15, 0.10, 0.93, 0.90),
+            scale=1.25,
+            page_segmentation_mode=11,
+            allow_truncated_numeric_suffix=True,
+        )
+
+        self.assertEqual(
+            [candidate.text for candidate in candidates],
+            ["Zacks网球场预定小助手_2群", "Zacks网球场预定小助手"],
+        )
+
+    def test_unambiguous_recent_chat_uses_activity_when_title_ocr_is_unavailable(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator._wait_for_activity = lambda suffix, timeout: suffix == "ChattingUI" and bool(
+            timeout
+        )
+        operator._wait_for_chat = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unambiguous home candidate must not require title OCR")
+        )
+
+        self.assertTrue(
+            operator._wait_for_recent_chat(
+                "Zacks网球场预定小助手_2群",
+                "Zacks网球场预定小助手_2群",
+                timeout=6,
+            )
+        )
+
+    def test_ambiguous_recent_chat_still_requires_matching_title(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator._wait_for_activity = lambda *_args, **_kwargs: True
+        operator._wait_for_chat = lambda receiver, timeout: False
+
+        self.assertFalse(
+            operator._wait_for_recent_chat(
+                "Zacks网球场预定小助手_2群",
+                "Zacks网球场预定小助手",
+                timeout=6,
+            )
         )
 
     def test_partial_accessibility_still_checks_visible_chat_without_scrolling(self):
@@ -716,6 +781,29 @@ class WeChatSenderTest(unittest.TestCase):
         operator.send_message("target-chat", ["hello"])
 
         self.assertEqual(sent, ["hello"])
+        self.assertEqual(operator.navigation_path, "already_open")
+
+    def test_send_uses_visible_numbered_group_without_opening_search(self):
+        operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.driver = VisualOnlyDriver()
+        operator.current_receiver = None
+        operator.navigation_path = "unknown"
+        operator.is_at_main_page = lambda: True
+        operator.is_target_chat_open = lambda _receiver: False
+        operator._find_accessible_text_candidates = lambda *_args, **_kwargs: []
+        operator._find_visual_lines = lambda *_args, **_kwargs: [
+            OcrLine("Zacks网球场预定小助手_2群", 100, 500, 800, 560)
+        ]
+        operator._search_and_open_chat = lambda _receiver: (_ for _ in ()).throw(
+            AssertionError("visible target must not open search")
+        )
+        operator._has_accessible_message_input = lambda: False
+        operator._send_visual_messages = lambda _messages: None
+        operator.return_to_chats = lambda: None
+
+        operator.send_message("Zacks网球场预定小助手_2群", ["hello"])
+
+        self.assertEqual(operator.navigation_path, "recent_visual")
 
     def test_verified_chat_does_not_repeat_unstable_title_ocr(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)

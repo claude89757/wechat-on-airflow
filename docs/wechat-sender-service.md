@@ -24,7 +24,8 @@ Success:
   "success": true,
   "device_name": "configured-device",
   "receiver": "chat name",
-  "sent_count": 2
+  "sent_count": 2,
+  "navigation_path": "recent_visual"
 }
 ```
 
@@ -140,19 +141,24 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 - Visible-chat detection combines accessibility text with OCR even when WeChat
   exposes only a partial accessibility tree. It never scrolls the recent-chat
   list while selecting a receiver.
-- Candidate names allow bounded OCR substitutions and short truncation. A
+- Candidate names allow bounded OCR substitutions and short truncation. Exact
+  and higher-confidence rows are attempted before earlier similar rows. A
   visible numeric suffix must match; when display truncation hides the entire
   suffix, the row is only a candidate and the complete chat title must still
   match before message input is touched.
+- A high-confidence visible-chat row with an unambiguous numeric suffix may be
+  verified by its transition into a WeChat chat activity when Huawei title OCR
+  is unavailable. Search results never use this fallback and still require a
+  matching chat title.
 - An accessibility search control is accepted when it opens a recognized search
   surface or verifiably leaves the chat list. The known top-right coordinate is
   used only while the main page remains active.
 - Search-page verification accepts either the dedicated WeChat search activity
   or a text input located in the top bar. Bottom chat inputs cannot satisfy
   this check.
-- Search results are tried in visual order and every candidate must open a
-  WeChat chat activity with a title matching the requested receiver. Message
-  input is not touched until that verification passes.
+- Search results are tried in match-confidence order and every candidate must
+  open a WeChat chat activity with a title matching the requested receiver.
+  Message input is not touched until that verification passes.
 - On devices with an empty accessibility tree, that successful strict title
   check is retained for the current navigation only. The input guard verifies
   the package and chat-compatible activity without repeating unstable OCR or
@@ -179,6 +185,9 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 - `503` from `/readyz` means Appium or the configured Android device is not
   ready.
 - `504 appium_timeout` means the UI did not become ready before the deadline.
+- `navigation_path` reports whether a successful request reused an open chat,
+  selected a visible recent chat, or used search. It does not expose message
+  content.
 - Tests and automated smoke checks must use fakes and must not send real
   messages. A real send requires explicit human approval.
 

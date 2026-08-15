@@ -169,6 +169,7 @@ def send_target(target, lane_index):
                     "ordinal": target["ordinal"],
                     "memberships": target["memberships"],
                     "attempts": attempt,
+                    "navigation_path": payload.get("navigation_path", "unknown"),
                     "elapsed_seconds": round(time.monotonic() - started, 3),
                 }
             if isinstance(payload, dict) and isinstance(payload.get("error"), str):
