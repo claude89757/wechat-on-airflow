@@ -124,6 +124,11 @@ Configure the endpoint and device in Airflow Variables:
 - `WECHAT_SEND_RETRY_DELAY_SECONDS`
 - `WECHAT_SEND_FALLBACK_MAX_ITEMS`
 
+Venue availability sends may append a booking mini-program scheme as the last
+line of the same message. Airflow records the last attachment in
+`WECHAT_BOOKING_LINK_LAST_SENT` and will not repeat that mini-program in the
+same chat for two hours.
+
 Variable values are sensitive runtime data and are never included in source
 control. Venue DAGs publish raw observations to the Web subscription service,
 persist their WeChat detection cache, and then attempt WeChat. Failed chat

@@ -8,6 +8,13 @@ from typing import Any, cast
 
 import requests
 
+from wechat_airflow.notifications.booking_links import (
+    BOOKING_LINK_LAST_SENT_VAR,
+    BookingLinkPlan,
+    plan_booking_link,
+    restore_sent,
+)
+
 JsonDict = dict[str, Any]
 
 WECHAT_SEND_API_URL_VAR = "WECHAT_SEND_API_URL"
@@ -264,11 +271,70 @@ def _record_failed_send(
     return entry
 
 
+def _load_booking_link_cache() -> object:
+    cache = _get_variable(BOOKING_LINK_LAST_SENT_VAR, default={}, deserialize_json=True)
+    if isinstance(cache, dict):
+        return cache
+    return {}
+
+
+def _save_booking_link_cache(cache: object) -> None:
+    _set_variable(BOOKING_LINK_LAST_SENT_VAR, cache, serialize_json=True)
+
+
+def _plan_outbound_booking_link(
+    chatroom: str,
+    message: str,
+    booking_venue_id: str | None,
+) -> BookingLinkPlan:
+    try:
+        return plan_booking_link(
+            message,
+            receiver=chatroom,
+            venue_id=booking_venue_id,
+            cache=_load_booking_link_cache(),
+            now=datetime.now(),
+        )
+    except Exception as exc:
+        print(f"[WECHAT_BOOKING_LINK] plan failed: {exc}")
+        return BookingLinkPlan(
+            message=message,
+            cache=None,
+            program_id=None,
+            previous_timestamp=None,
+        )
+
+
+def _commit_booking_link_plan(plan: BookingLinkPlan) -> None:
+    if plan.cache is None:
+        return
+    try:
+        _save_booking_link_cache(plan.cache)
+    except Exception as exc:
+        print(f"[WECHAT_BOOKING_LINK] claim failed: {exc}")
+
+
+def _release_booking_link_plan(chatroom: str, plan: BookingLinkPlan) -> None:
+    if plan.cache is None or plan.program_id is None:
+        return
+    try:
+        restored = restore_sent(
+            _load_booking_link_cache(),
+            chatroom,
+            plan.program_id,
+            plan.previous_timestamp,
+        )
+        _save_booking_link_cache(restored)
+    except Exception as exc:
+        print(f"[WECHAT_BOOKING_LINK] release failed: {exc}")
+
+
 def send_wechat_text_to_chatrooms_best_effort(
     chatrooms: object,
     message: str,
     device_name: str | None = None,
     source: str = "unknown",
+    booking_venue_id: str | None = None,
 ) -> list[JsonDict]:
     """Send each chat independently and persist failures without raising."""
     results: list[JsonDict] = []
@@ -277,16 +343,20 @@ def send_wechat_text_to_chatrooms_best_effort(
     print(f"[WECHAT_SEND_FALLBACK] target_chatrooms={chatroom_list}, source={normalized_source}")
 
     for chatroom in chatroom_list:
+        plan = _plan_outbound_booking_link(chatroom, message, booking_venue_id)
+        outbound = plan.message
+        _commit_booking_link_plan(plan)
         try:
-            result = send_wechat_text(chatroom, [message], device_name=device_name)
+            result = send_wechat_text(chatroom, [outbound], device_name=device_name)
             results.append({"success": True, "receiver": chatroom, "result": result})
         except Exception as exc:
+            _release_booking_link_plan(chatroom, plan)
             print(
                 f"[WECHAT_SEND_FALLBACK] send failed receiver={chatroom}, "
                 f"source={normalized_source}, error={exc}"
             )
             try:
-                _record_failed_send(chatroom, message, normalized_source, exc)
+                _record_failed_send(chatroom, outbound, normalized_source, exc)
             except Exception as fallback_exc:
                 print(
                     f"[WECHAT_SEND_FALLBACK] persistence failed receiver={chatroom}, "

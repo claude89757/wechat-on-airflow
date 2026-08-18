@@ -216,6 +216,7 @@ def run_check_dashahe_free_courts() -> dict[str, object]:
                 list(WECHAT_CHATROOMS),
                 "\n".join(pending_messages),
                 source=DAG_ID,
+                booking_venue_id=VENUE_ID,
             )
         print(
             f"[NSWTT] inspection complete ready_dates={len(dates)}, "

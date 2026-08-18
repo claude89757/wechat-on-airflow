@@ -480,6 +480,7 @@ class VenueDomainTest(unittest.TestCase):
         self.assertIn("12:00-13:00", send.call_args.args[1])
         self.assertNotIn("10:00-11:00", send.call_args.args[1])
         self.assertEqual(send.call_args.kwargs["source"], "大湾区网球场巡检")
+        self.assertEqual(send.call_args.kwargs["booking_venue_id"], "gba")
         self.assertIn("【大湾区网球场1号场】", send.call_args.args[1])
 
     def test_szw_upstream_failure_is_published_and_fails_the_task(self):

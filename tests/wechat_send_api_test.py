@@ -270,6 +270,102 @@ class WeChatSendApiTest(unittest.TestCase):
         mock_send.assert_called_once_with("A", ["hello"], device_name=None)
         mock_record.assert_called_once()
 
+    def test_best_effort_attaches_booking_link_once_then_shares_cooldown(self):
+        variables = {
+            "WECHAT_BOOKING_LINK_LAST_SENT": {},
+            "WECHAT_SEND_FALLBACK_OUTBOX": [],
+            "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
+        }
+
+        def get_variable(key, default=None, deserialize_json=False):
+            return variables.get(key, default)
+
+        def set_variable(key, value, serialize_json=False):
+            variables[key] = value
+
+        class Evening(wechat_send_api.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 18, 18, 5, tzinfo=tz)
+
+        with (
+            patch("wechat_airflow.notifications.wechat.datetime", Evening),
+            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
+            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
+            patch(
+                "wechat_airflow.notifications.wechat.send_wechat_text",
+                return_value={"success": True, "sent_count": 1},
+            ) as mock_send,
+        ):
+            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["Zacks_A"],
+                "【深圳湾1号场】星期二(08-18)空场: 18:00-19:00",
+                source="深圳湾网球场巡检",
+                booking_venue_id="szw",
+            )
+            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["Zacks_A"],
+                "【大湾区网球场1号场】星期二(08-18)空场: 18:00-19:00",
+                source="大湾区网球场巡检",
+                booking_venue_id="gba",
+            )
+
+        first_message = mock_send.call_args_list[0].args[1][0]
+        second_message = mock_send.call_args_list[1].args[1][0]
+        self.assertTrue(first_message.endswith("#小程序://未来荟/XL8wsbG5boBuZSl"))
+        self.assertNotIn("#小程序://", second_message)
+
+    def test_best_effort_releases_booking_link_claim_after_send_failure(self):
+        variables = {
+            "WECHAT_BOOKING_LINK_LAST_SENT": {},
+            "WECHAT_SEND_FALLBACK_OUTBOX": [],
+            "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
+        }
+
+        def get_variable(key, default=None, deserialize_json=False):
+            return variables.get(key, default)
+
+        def set_variable(key, value, serialize_json=False):
+            variables[key] = value
+
+        class Evening(wechat_send_api.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 18, 18, 5, tzinfo=tz)
+
+        with (
+            patch("wechat_airflow.notifications.wechat.datetime", Evening),
+            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
+            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
+            patch(
+                "wechat_airflow.notifications.wechat._utc_now",
+                return_value="2026-08-18T10:05:00+00:00",
+            ),
+            patch(
+                "wechat_airflow.notifications.wechat.send_wechat_text",
+                side_effect=[
+                    wechat_send_api.WeChatSendApiError("sender unavailable"),
+                    {"success": True, "sent_count": 1},
+                ],
+            ) as mock_send,
+        ):
+            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["Zacks_A"],
+                "slot-a",
+                source="深圳湾网球场巡检",
+                booking_venue_id="szw",
+            )
+            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["Zacks_A"],
+                "slot-b",
+                source="大湾区网球场巡检",
+                booking_venue_id="gba",
+            )
+
+        self.assertTrue(
+            mock_send.call_args_list[1].args[1][0].endswith("#小程序://未来荟/XL8wsbG5boBuZSl")
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

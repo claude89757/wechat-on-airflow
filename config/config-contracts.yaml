@@ -98,6 +98,13 @@ variables:
     required_by: [wechat_delivery]
     sensitive: false
     default: 210
+  WECHAT_BOOKING_LINK_LAST_SENT:
+    type: json_object
+    required_by: [wechat_delivery]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: {}
   WEBAPP_OBSERVATION_API_URL:
     type: url
     required_by: [webapp_observation]

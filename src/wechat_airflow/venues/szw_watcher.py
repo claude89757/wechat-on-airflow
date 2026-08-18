@@ -502,6 +502,7 @@ def check_and_notify_for_day(day_offset: int, venue_key: str = "szw"):
                 chat_names_list,
                 all_in_one_msg,
                 source=venue.dag_id,
+                booking_venue_id=venue.venue_id,
             )
 
     run_end_time = time.time()

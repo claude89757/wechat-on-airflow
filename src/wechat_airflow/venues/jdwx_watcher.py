@@ -344,6 +344,7 @@ def run_check_tennis_courts():
                 chat_names_list,
                 all_in_one_msg,
                 source="深圳金地网球场巡检",
+                booking_venue_id="jdwx",
             )
 
     run_end_time = time.time()

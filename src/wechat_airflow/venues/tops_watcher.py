@@ -396,6 +396,7 @@ def enqueue_wechat_message(all_in_one_msg: str):
         chat_names_list,
         all_in_one_msg,
         source="TOPS科技园网球场巡检",
+        booking_venue_id="tops",
     )
 
 

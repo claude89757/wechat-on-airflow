@@ -415,6 +415,7 @@ def run_check_tennis_courts():
                 chat_names_list,
                 all_in_one_msg,
                 source="上越沙河网球场巡检",
+                booking_venue_id="sysh",
             )
 
     run_end_time = time.time()

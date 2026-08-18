@@ -211,6 +211,7 @@ def test_wechat_notifies_only_the_dashah_free_group_after_cache_write() -> None:
     assert send.call_args.args[0] == ["Zacks_大沙河限定免费"]
     assert "18:00-19:00" in send.call_args.args[1]
     assert send.call_args.kwargs["source"] == "大沙河免费场巡检"
+    assert send.call_args.kwargs["booking_venue_id"] == "dsh_free"
     assert stored
     assert publish.call_args.args[0] == "dsh_free"
     assert send.call_count == 1

@@ -868,6 +868,7 @@ def run_check_tennis_courts():
                     chat_list,
                     all_in_one_msg,
                     source="深圳市体育中心网球场巡检",
+                    booking_venue_id="tyzx",
                 )
                 print("📤 微信消息已交由 best-effort 旁路处理")
             else:

@@ -16,6 +16,7 @@ shared_contracts:
   wechat_delivery:
     modules:
       - wechat_airflow.notifications.wechat
+      - wechat_airflow.notifications.booking_links
     variables:
       - WECHAT_SEND_API_URL
       - WECHAT_SEND_DEVICE_NAME
@@ -24,11 +25,13 @@ shared_contracts:
       - WECHAT_SEND_RETRY_DELAY_SECONDS
       - WECHAT_SEND_FALLBACK_OUTBOX
       - WECHAT_SEND_FALLBACK_MAX_ITEMS
+      - WECHAT_BOOKING_LINK_LAST_SENT
     invariants:
       - failures_are_isolated_per_chat
       - webapp_observation_precedes_delivery
       - no_real_delivery_in_tests
       - device_busy_waits_then_retries
+      - booking_mini_program_footer_cools_down_per_chat_and_program
   webapp_observation:
     modules:
       - wechat_airflow.notifications.webapp

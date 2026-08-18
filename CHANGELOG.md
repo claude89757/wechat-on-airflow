@@ -9,6 +9,9 @@ and operational changes.
 
 - Notify `Zacks_大沙河限定免费` for Dashah River free-court availability after
   the Web observation and WeChat dedupe cache are written.
+- Append venue booking mini-program links to WeChat availability alerts, at most
+  once per chat and mini-program every two hours, with Shenzhen Bay and Greater
+  Bay Area sharing the 未来荟 card.
 
 ### Changed
 

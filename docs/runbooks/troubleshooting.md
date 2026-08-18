@@ -128,7 +128,9 @@ Stop manual retries. For subscriber email, inspect the D1
 `(subscription_id, event_key)` identity and notification outbox. For WeChat,
 verify that the Airflow venue cache was written before delivery and compare the
 message identity with its fallback outbox. Check for overlapping DAG runs and
-preserve evidence before changing either cache.
+preserve evidence before changing either cache. A repeated booking mini-program
+card in the same chat within two hours is a cooldown-cache miss, not a new
+slot; Shenzhen Bay and Greater Bay Area share the 未来荟 program.
 
 ## Phone Reboot Failure
 

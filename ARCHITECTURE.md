@@ -37,6 +37,11 @@ different hour window: weekdays 18:00-21:00 and weekends 12:00-21:00. The bookin
 query ends at 21:00 so a closed 21:00-22:00 hour cannot appear as a free slot.
 Shenzhen Bay WeChat remains weekdays 18:00-22:00 and weekends 16:00-22:00.
 
+WeChat availability alerts append the venue booking mini-program as the last
+line of the same send, at most once per chat and mini-program every two hours.
+Shenzhen Bay and Greater Bay Area share the 未来荟 program, so the second venue
+does not repeat that card. Slot dedupe caches stay link-free.
+
 The Airflow WeChat deduplication cache is written before WeChat delivery.
 Its fallback outbox is a deduplicated incident record, not an automatic retry
 queue; blind replay could send stale or duplicate messages.
