@@ -8,6 +8,8 @@ from typing import Any
 
 from _ops import OpsError, airflow_remote, emit, run, ssh_command
 
+TARGET_MEMBERSHIP_PATTERN = re.compile(r"(?:general|tyzx|dsh_free):[1-9][0-9]*")
+
 
 def parse_remote_result(output: str) -> dict[str, Any]:
     for line in reversed(output.splitlines()):
@@ -252,10 +254,10 @@ def main() -> None:
     args = parser.parse_args()
     if not args.confirm_real_send:
         raise OpsError("real WeChat delivery requires --confirm-real-send")
-    if args.target_membership not in ("", "all") and not re.fullmatch(
-        r"(?:general|tyzx):[1-9][0-9]*", args.target_membership
+    if args.target_membership not in ("", "all") and not TARGET_MEMBERSHIP_PATTERN.fullmatch(
+        args.target_membership
     ):
-        raise OpsError("target membership must match general:N or tyzx:N")
+        raise OpsError("target membership must match general:N, tyzx:N, or dsh_free:N")
 
     remote = airflow_remote()
     result = run(

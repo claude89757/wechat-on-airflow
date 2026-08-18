@@ -34,7 +34,7 @@ on:
         default: false
         type: boolean
       probe_target_membership:
-        description: Optional redacted target selector such as tyzx:1
+        description: Optional redacted target selector such as tyzx:1 or dsh_free:1
         required: true
         default: all
         type: string

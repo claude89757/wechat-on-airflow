@@ -16,6 +16,8 @@ and operational changes.
   so Airflow retries do not double-send after a late HTTP timeout.
 - Filter Greater Bay Area WeChat alerts to weekday 18:00-22:00 and weekend
   12:00-22:00, while keeping the shared Zacks chatrooms used by Shenzhen Bay.
+- Accept `dsh_free:N` as a protected WeChat probe selector so the dedicated
+  Dashah free-court group can be smoke-tested without other Zacks chats.
 - Expose the Airflow 3 UI and API through a managed Cloudflare Tunnel at
   `airflow.claude89757.cc`, trust reverse-proxy headers, and bind the origin
   port to loopback only.
