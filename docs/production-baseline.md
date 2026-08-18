@@ -1,5 +1,50 @@
 # Production Baseline
 
+## GBA Close Time And WeChat Lock Queue On 2026-08-18
+
+Observation and health evidence below were collected on
+`f57e5b1aa94cb2a29414c3b9813e106257f288bf` for both Airflow and the
+Android-host WeChat sender. A later documentation-only commit may share this
+runtime while keeping Git HEAD aligned with production.
+
+Greater Bay Area booking queries now end at 21:00, and WeChat alerts are
+limited to weekday 18:00-21:00 and weekend 12:00-21:00 so a 21:00 venue close
+cannot appear as a 21:00-22:00 empty court. Shenzhen Bay windows are unchanged.
+The sender waits up to 150 seconds for the single-device lock. Airflow floors
+the send timeout at 210 seconds, retries `device_busy` with a 15-second pause,
+and gives Shenzhen Bay, Greater Bay Area, and Dashah free-court DAG runs a
+10-minute timeout so overlapping inspections queue instead of writing the
+fallback outbox.
+
+CI run `32145838468` passed. Sender apply left systemd enabled, active, and
+ready. Airflow apply restored DAG pause state, drained active tasks, preserved
+the WeChat outbox, and left six application containers healthy on image
+`wechat-on-airflow:3.3.0-f57e5b1`.
+
+A protected probe with `--target-membership dsh_free:1` sent one acceptance
+message in 51.6 seconds via `recent_visual` at `2026-08-18T14:14:35Z` and did
+not target other chats. The longer elapsed time followed the sender restart
+and does not indicate a failed send.
+
+The outbox still held 200 historical records. The newest failure remained
+`device_busy` at `2026-08-18T12:32:12Z`. After this deploy, no new WeChat
+fallback records accumulated through the observation window, including the
+probe. Those 200 records remain incident evidence and were not replayed.
+
+Post-deploy `make production-health` passed with ten unpaused DAGs, zero import
+errors, matching local HEAD, and three consecutive successful proxy runs at
+14:15, 14:20, and 14:25 UTC. Venue DAGs including `大沙河免费场巡检`,
+`大湾区网球场巡检`, and `深圳湾网球场巡检` also completed three natural
+post-deploy successes. The 21:00-22:00 Greater Bay Area exclusion is covered
+by unit tests; this deploy landed after the weekday WeChat window, so that
+filter was not observed on a live evening slot.
+
+Rollback remains the previous exact commits without replacing the Airflow 3
+database: Airflow and sender
+`7532025478085fd2026176cdfa7a9edfbf7ef48b` with image
+`wechat-on-airflow:3.3.0-7532025`. Free disk stayed just under the 8 GB
+fresh-start floor; incremental application deploys still succeeded.
+
 ## WeChat Reliability And Venue Routing On 2026-08-18
 
 Observation and health evidence below were collected on
