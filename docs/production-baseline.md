@@ -1,5 +1,41 @@
 # Production Baseline
 
+## WeChat Booking Mini-Program Footers On 2026-08-18
+
+Observation and health evidence below were collected on
+`cbc87d2b08cd1ca1879dee24380e3cf09d4c4aa8` for both Airflow and the
+Android-host WeChat sender. A later documentation-only commit may share this
+runtime while keeping Git HEAD aligned with production.
+
+WeChat availability alerts now append the venue booking mini-program as the
+last line of the same send, at most once per chat and mini-program every two
+hours. Shenzhen Bay and Greater Bay Area share 未来荟. Dashah River uses 南山文体通
+and Sports Center uses i深体. Slot dedupe caches remain link-free. A failed send
+releases the cooldown claim so a later venue can still attach the card.
+
+CI run `32152721908` passed. Sender apply left systemd enabled, active, and
+ready. Airflow apply restored DAG pause state, drained active tasks, preserved
+the WeChat outbox, and left six application containers healthy on image
+`wechat-on-airflow:3.3.0-cbc87d2`. No real WeChat probe was sent for this
+change.
+
+The outbox still held 200 historical records. The newest failure remained
+`device_busy` at `2026-08-18T12:32:12Z`. After this deploy, no new WeChat
+fallback records accumulated through the observation window. Those 200 records
+remain incident evidence and were not replayed.
+
+Post-deploy `make production-health` passed with ten unpaused DAGs, zero import
+errors, matching local HEAD, and three consecutive successful proxy runs at
+15:20, 15:25, and 15:30 UTC. Venue DAGs including `大沙河免费场巡检` and
+`深圳市体育中心网球场巡检` also completed three natural post-deploy successes.
+Whether a live evening slot actually carried a mini-program footer depends on
+new detections after apply; this window did not include an approved probe.
+
+Rollback remains the previous exact commits without replacing the Airflow 3
+database: Airflow and sender
+`64d8e0e9c2811a189514ed6f15665c3a112c0c73` with image
+`wechat-on-airflow:3.3.0-64d8e0e`.
+
 ## GBA Close Time And WeChat Lock Queue On 2026-08-18
 
 Observation and health evidence below were collected on
