@@ -1,5 +1,48 @@
 # Production Baseline
 
+## WeChat Reliability And Venue Routing On 2026-08-18
+
+Observation and health evidence below were collected on
+`a8380efdd5d82da47e2f56fb30ccac8f1d759335` for both Airflow and the
+Android-host WeChat sender. The runtime change landed in
+`548600daf7d11295bc92f3dec28e9bfe101b3d63`; the two follow-up commits only
+allowed the protected probe to select `dsh_free:N` and satisfied `ruff format`.
+A later documentation-only commit may share this runtime while keeping Git HEAD
+aligned with production.
+
+The sender now reuses a warm Appium session and honors an idempotency key so a
+late HTTP timeout cannot double-send. Greater Bay Area WeChat uses the same
+Zacks chatrooms as Shenzhen Bay, with weekday 18:00-22:00 and weekend
+12:00-22:00 windows. Dashah River free-court WeChat is limited to
+`Zacks_大沙河限定免费`. The first successful inspection created the empty
+`大沙河免费场` dedupe Variable; its value was not copied to a workstation.
+
+A protected probe with `--target-membership dsh_free:1` sent one acceptance
+message in 27.9 seconds via `recent_visual` and did not target other chats.
+CI run `32140297139` passed. Airflow apply restored DAG pause state, drained
+active tasks, preserved the WeChat outbox, and left six application containers
+healthy. Sender systemd remained enabled, active, and ready.
+
+The pre-change outbox still held 200 historical records. The newest failure was
+`device_busy` at `2026-08-18T12:32:12Z`, caused by concurrent venue DAGs waiting
+on the single device lock. After this deploy, no new WeChat fallback records
+accumulated through the observation window. Those 200 records remain incident
+evidence and were not replayed.
+
+Post-deploy `make production-health` passed with ten unpaused DAGs, zero import
+errors, matching local HEAD, and three consecutive successful proxy runs at
+13:15, 13:20, and 13:25 UTC. Venue DAGs including `大沙河免费场巡检` and
+`大湾区网球场巡检` also completed three natural post-deploy successes. One
+earlier health attempt failed only because the Cloudflare Tunnel public UI probe
+returned no status while origin and public health stayed HTTP 200; a later check
+and a workstation request both saw UI HTTP 200.
+
+Rollback remains the previous exact commits without replacing the Airflow 3
+database: Airflow `892872b5c6a18fd3556b568f67e892115061f5c4` with image
+`wechat-on-airflow:3.3.0-892872b`, and the sender `abdcaa7083d6ba742fb85c73eee483b30dbb5a19`.
+The identity-align deploy can also roll back to
+`548600daf7d11295bc92f3dec28e9bfe101b3d63` / `wechat-on-airflow:3.3.0-548600d`.
+
 ## Dashah Free-Court And Email Quota Release On 2026-08-16
 
 Commit `ea97edf8589b4fae8d2e19385c943d4665fa07eb` added the NSWTT-backed
