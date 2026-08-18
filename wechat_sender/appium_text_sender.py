@@ -45,6 +45,8 @@ class SendResult:
     receiver: str
     sent_count: int
     navigation_path: str = "unknown"
+    session_reused: bool = False
+    operator: Any = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -418,7 +420,7 @@ class TextWeChatOperator:
             "fullReset": False,
             "forceAppLaunch": force_app_launch,
             "autoGrantPermissions": True,
-            "newCommandTimeout": 120,
+            "newCommandTimeout": 300,
             "adbExecTimeout": 120000,
             "uiautomator2ServerInstallTimeout": 120000,
             "uiautomator2ServerLaunchTimeout": 120000,
@@ -1193,6 +1195,10 @@ def _validate_send_request(
     return normalized
 
 
+def _operator_can_send(operator: TextWeChatOperator, receiver: str) -> bool:
+    return operator.is_at_main_page() or operator.is_target_chat_open(receiver)
+
+
 def send_text_messages(
     appium_server_url: str,
     device_name: str,
@@ -1204,6 +1210,8 @@ def send_text_messages(
     restart_wait_seconds: float = 3.0,
     preflight_cleanup: Callable[[str, str], None] | None = None,
     sleeper: Callable[[float], None] = time.sleep,
+    existing_operator: TextWeChatOperator | None = None,
+    close_operator: bool = True,
 ) -> SendResult:
     normalized_messages = _validate_send_request(
         appium_server_url=appium_server_url,
@@ -1214,46 +1222,64 @@ def send_text_messages(
     normalized_receiver = receiver.strip()
 
     operator = None
+    session_reused = False
+    failed = True
     try:
-        if preflight_cleanup:
-            preflight_cleanup(appium_server_url, device_name)
-        operator = operator_factory(
-            appium_server_url=appium_server_url,
-            device_name=device_name,
-            force_app_launch=False,
-        )
-        sleeper(startup_wait_seconds)
-        if not operator.is_at_main_page() and not operator.is_target_chat_open(normalized_receiver):
-            operator.close()
-            operator = None
-            sleeper(close_wait_seconds)
+        if existing_operator is not None:
+            operator = existing_operator
+            session_reused = True
+            if not _operator_can_send(operator, normalized_receiver):
+                operator.return_to_chats()
+            if not _operator_can_send(operator, normalized_receiver):
+                try:
+                    operator.close()
+                except Exception:
+                    pass
+                operator = None
+                session_reused = False
+
+        if operator is None:
+            if preflight_cleanup:
+                preflight_cleanup(appium_server_url, device_name)
             operator = operator_factory(
                 appium_server_url=appium_server_url,
                 device_name=device_name,
-                force_app_launch=True,
+                force_app_launch=False,
             )
-            sleeper(restart_wait_seconds)
-            if not operator.is_at_main_page() and not operator.is_target_chat_open(
-                normalized_receiver
-            ):
-                operator.return_to_chats()
-            if not operator.is_at_main_page() and not operator.is_target_chat_open(
-                normalized_receiver
-            ):
-                raise DeviceNotReadyError("WeChat main page is not available")
+            sleeper(startup_wait_seconds)
+            if not _operator_can_send(operator, normalized_receiver):
+                operator.close()
+                operator = None
+                sleeper(close_wait_seconds)
+                operator = operator_factory(
+                    appium_server_url=appium_server_url,
+                    device_name=device_name,
+                    force_app_launch=True,
+                )
+                sleeper(restart_wait_seconds)
+                if not _operator_can_send(operator, normalized_receiver):
+                    operator.return_to_chats()
+                if not _operator_can_send(operator, normalized_receiver):
+                    raise DeviceNotReadyError("WeChat main page is not available")
 
         operator.send_message(receiver=normalized_receiver, messages=normalized_messages)
+        failed = False
         return SendResult(
             success=True,
             device_name=device_name,
             receiver=normalized_receiver,
             sent_count=len(normalized_messages),
             navigation_path=getattr(operator, "navigation_path", "unknown"),
+            session_reused=session_reused,
+            operator=None if close_operator else operator,
         )
     except WeChatSenderError:
         raise
     except Exception as exc:
         raise SendFailedError(str(exc)) from exc
     finally:
-        if operator:
-            operator.close()
+        if operator is not None and (close_operator or failed):
+            try:
+                operator.close()
+            except Exception:
+                pass

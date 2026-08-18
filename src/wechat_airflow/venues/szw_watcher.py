@@ -56,6 +56,8 @@ class CrlandVenue:
     booking_areas: tuple[CrlandBookingArea, ...]
     cache_key: str
     dag_id: str
+    weekday_wechat_hours: tuple[int, int] = (18, 22)
+    weekend_wechat_hours: tuple[int, int] = (16, 22)
 
 
 CRLAND_VENUES = {
@@ -88,11 +90,13 @@ CRLAND_VENUES = {
                 project_uuid=GBA_PROJECT_UUID,
                 field_area_uuid=GBA_FIELD_AREA_UUID,
                 start_time="09:00",
-                end_time="21:00",
+                end_time="22:00",
             ),
         ),
         cache_key="大湾区网球场",
         dag_id="大湾区网球场巡检",
+        weekday_wechat_hours=(18, 22),
+        weekend_wechat_hours=(12, 22),
     ),
 }
 
@@ -160,6 +164,18 @@ def find_available_slots(booked_slots: list[list[str]], time_range: dict) -> lis
         )
 
     return available
+
+
+def slot_in_wechat_window(
+    slot: list[str],
+    check_date: datetime.datetime,
+    venue: CrlandVenue,
+) -> bool:
+    hour_num = int(slot[0].split(":")[0])
+    start_hour, end_hour = (
+        venue.weekend_wechat_hours if check_date.weekday() >= 5 else venue.weekday_wechat_hours
+    )
+    return start_hour <= hour_num < end_hour
 
 
 def extract_time_hhmm(time_value: str) -> str:
@@ -412,16 +428,10 @@ def check_and_notify_for_day(day_offset: int, venue_key: str = "szw"):
             if free_slots:
                 filtered_slots = []
                 check_date = datetime.datetime.strptime(input_date, "%Y-%m-%d")
-                is_weekend = check_date.weekday() >= 5
 
                 for slot in free_slots:
-                    hour_num = int(slot[0].split(":")[0])
-                    if is_weekend:
-                        if 16 <= hour_num <= 21:  # 周末关注16点到21点的场地
-                            filtered_slots.append(slot)
-                    else:
-                        if 18 <= hour_num <= 21:  # 工作日关注18点到21点的场地
-                            filtered_slots.append(slot)
+                    if slot_in_wechat_window(slot, check_date, venue):
+                        filtered_slots.append(slot)
 
                 if filtered_slots:
                     up_for_send_data_list.append(

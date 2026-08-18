@@ -13,7 +13,8 @@ must not be committed to this repository.
 {
   "receiver": "chat name",
   "messages": ["first message", "second message"],
-  "device_name": "configured-device"
+  "device_name": "configured-device",
+  "idempotency_key": "optional-stable-key"
 }
 ```
 
@@ -25,7 +26,8 @@ Success:
   "device_name": "configured-device",
   "receiver": "chat name",
   "sent_count": 2,
-  "navigation_path": "recent_visual"
+  "navigation_path": "recent_visual",
+  "session_reused": false
 }
 ```
 
@@ -177,7 +179,14 @@ create stale or duplicate notifications. Resolve the sender fault, verify
   Green outgoing message bubbles are outside this bounded control region.
 - Visual recognition runs entirely on the Android host; screenshots and
   recognized message content are not logged or retained.
-- It cleans stale Appium sessions for the configured device before a send.
+- It reuses a warm Appium/WeChat session across requests in the single worker.
+  A send creates a session only when none is usable. Failed sends discard the
+  session; successful sends leave WeChat on the chat list for the next request.
+- Duplicate `idempotency_key` values replay the previous success for 10 minutes
+  without touching the phone. Airflow retries send the same key derived from
+  receiver, device, and message text.
+- It cleans stale Appium sessions for the configured device before creating a
+  new session. Reused sessions skip this cleanup.
 - Each send wakes the display, dismisses a non-secure keyguard, and collapses
   the notification shade before opening WeChat. It also sends one Android back
   action before launch to close Huawei USB-mode and similar system dialogs.
@@ -192,6 +201,7 @@ create stale or duplicate notifications. Resolve the sender fault, verify
 - `navigation_path` reports whether a successful request reused an open chat,
   selected a visible recent chat, or used search. It does not expose message
   content.
+- `session_reused` is true when the request used the warm Appium session.
 - Tests and automated smoke checks must use fakes and must not send real
   messages. A real send requires explicit human approval.
 

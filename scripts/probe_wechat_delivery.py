@@ -75,6 +75,7 @@ def chatrooms(name):
 configured = {
     "general": chatrooms("SZ_TENNIS_CHATROOMS"),
     "tyzx": chatrooms("SZ_TYZX_TENNIS_CHATROOMS"),
+    "dsh_free": ["Zacks_大沙河限定免费"],
 }
 targets = []
 by_receiver = {}

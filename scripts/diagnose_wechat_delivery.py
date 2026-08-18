@@ -77,6 +77,7 @@ def error_category(value):
 targets = {
     "general": chatrooms("SZ_TENNIS_CHATROOMS"),
     "tyzx": chatrooms("SZ_TYZX_TENNIS_CHATROOMS"),
+    "dsh_free": ["Zacks_大沙河限定免费"],
 }
 positions = {}
 for target_set, values in targets.items():

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from datetime import date
+from types import ModuleType
 from unittest.mock import Mock, patch
 
 import pytest
@@ -130,6 +132,8 @@ def test_inspection_skips_unreleased_date_before_publishing() -> None:
         ),
         patch.object(watcher, "NswttClient", return_value=client),
         patch.object(watcher, "publish_venue_observation") as publish,
+        patch.object(watcher, "_load_cache", return_value=[]),
+        patch.object(watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
     ):
         result = watcher.run_check_dashahe_free_courts()
 
@@ -142,3 +146,143 @@ def test_inspection_skips_unreleased_date_before_publishing() -> None:
         healthy=True,
         error=None,
     )
+    send.assert_not_called()
+
+
+def test_format_wechat_messages_uses_venue_and_weekday() -> None:
+    messages = watcher.format_wechat_messages(
+        [
+            {
+                "date": "2026-08-16",
+                "court_name": "1号场",
+                "start_time": "18:00",
+                "end_time": "19:00",
+            }
+        ]
+    )
+    assert messages == ["【大沙河免费场1号场】星期日(08-16)空场: 18:00-19:00"]
+
+
+def test_wechat_notifies_only_the_dashah_free_group_after_cache_write() -> None:
+    client = Mock()
+    today = date.today().isoformat()
+    client.calendar_list.return_value = {
+        "data": {
+            "list": [
+                {
+                    "slicedate": today,
+                    "status": 200,
+                    "openstatus": 200,
+                    "issale": 200,
+                }
+            ]
+        }
+    }
+    client.slice_list.return_value = {
+        "data": {
+            "placelist": [{"id": "p1", "placename": "1号场"}],
+            "slicelist": [
+                {
+                    "placeid": "p1",
+                    "starttime": "18:00",
+                    "endtime": "19:00",
+                    "status": 200,
+                    "finalunitpricey": 0,
+                }
+            ],
+        }
+    }
+    stored: list[list[str]] = []
+
+    with (
+        patch.object(
+            watcher, "_load_config_value", return_value={"app_version": "v", "cookie": "sid=x"}
+        ),
+        patch.object(watcher, "NswttClient", return_value=client),
+        patch.object(watcher, "publish_venue_observation") as publish,
+        patch.object(watcher, "_load_cache", return_value=[]),
+        patch.object(watcher, "_store_cache", side_effect=lambda cache: stored.append(list(cache))),
+        patch.object(watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+    ):
+        watcher.run_check_dashahe_free_courts()
+
+    assert publish.called
+    assert send.called
+    assert send.call_args.args[0] == ["Zacks_大沙河限定免费"]
+    assert "18:00-19:00" in send.call_args.args[1]
+    assert send.call_args.kwargs["source"] == "大沙河免费场巡检"
+    assert stored
+    assert publish.call_args.args[0] == "dsh_free"
+    assert send.call_count == 1
+
+
+def test_load_cache_creates_empty_variable_when_missing() -> None:
+    stored: list[object] = []
+    airflow = ModuleType("airflow")
+    sdk = ModuleType("airflow.sdk")
+
+    class FakeVariable:
+        @staticmethod
+        def get(_key, deserialize_json=False, default=None):
+            return default
+
+        @staticmethod
+        def set(key, value, description="", serialize_json=False):
+            stored.append(value)
+
+    sdk.Variable = FakeVariable
+    airflow.sdk = sdk
+
+    with patch.dict(sys.modules, {"airflow": airflow, "airflow.sdk": sdk}):
+        cache = watcher._load_cache()
+
+    assert cache == []
+    assert stored == [[]]
+
+
+def test_wechat_skips_already_cached_dashah_messages() -> None:
+    client = Mock()
+    today = date(2026, 8, 16)
+    message = "【大沙河免费场1号场】星期日(08-16)空场: 18:00-19:00"
+    client.calendar_list.return_value = {
+        "data": {
+            "list": [
+                {
+                    "slicedate": today.isoformat(),
+                    "status": 200,
+                    "openstatus": 200,
+                    "issale": 200,
+                }
+            ]
+        }
+    }
+    client.slice_list.return_value = {
+        "data": {
+            "placelist": [{"id": "p1", "placename": "1号场"}],
+            "slicelist": [
+                {
+                    "placeid": "p1",
+                    "starttime": "18:00",
+                    "endtime": "19:00",
+                    "status": 200,
+                    "finalunitpricey": 0,
+                }
+            ],
+        }
+    }
+
+    with (
+        patch.object(
+            watcher, "_load_config_value", return_value={"app_version": "v", "cookie": "sid=x"}
+        ),
+        patch.object(watcher, "NswttClient", return_value=client),
+        patch.object(watcher, "publish_venue_observation"),
+        patch.object(watcher, "_load_cache", return_value=[message]),
+        patch.object(watcher, "_store_cache") as store,
+        patch.object(watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+        patch.object(watcher, "ready_free_dates", return_value=[today.isoformat()]),
+    ):
+        watcher.run_check_dashahe_free_courts()
+
+    store.assert_not_called()
+    send.assert_not_called()

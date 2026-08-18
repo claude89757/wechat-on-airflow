@@ -15,6 +15,7 @@ class WebappNotificationTest(TestCase):
             "sysh_watcher.py": "run_check_tennis_courts",
             "tops_watcher.py": "run_check_tennis_courts",
             "tyzx_watcher.py": "run_check_tennis_courts",
+            "dashahe_free_watcher.py": "run_check_dashahe_free_courts",
         }
         watcher_root = Path(__file__).parents[1] / "src" / "wechat_airflow" / "venues"
 

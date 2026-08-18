@@ -30,6 +30,11 @@ The Dashah River adapter is calendar-gated because free courts are not released
 for every date. It publishes only zero-price availability from dates that are
 both on sale and backed by a non-empty free-court list. The Web application
 therefore never infers a free release from an ordinary empty calendar date.
+Best-effort WeChat for this venue goes only to `Zacks_大沙河限定免费`.
+
+Greater Bay Area WeChat uses the same Zacks chatrooms as Shenzhen Bay, with a
+different hour window: weekdays 18:00-22:00 and weekends 12:00-22:00. Shenzhen
+Bay WeChat remains weekdays 18:00-22:00 and weekends 16:00-22:00.
 
 The Airflow WeChat deduplication cache is written before WeChat delivery.
 Its fallback outbox is a deduplicated incident record, not an automatic retry

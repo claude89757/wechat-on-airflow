@@ -137,6 +137,9 @@ def send_wechat_text(
         "messages": _normalize_messages(messages),
         "device_name": resolved_device_name,
     }
+    payload["idempotency_key"] = hashlib.sha256(
+        "\0".join([normalized_receiver, resolved_device_name, *payload["messages"]]).encode()
+    ).hexdigest()
 
     timeout_seconds = _get_int_variable(WECHAT_SEND_TIMEOUT_SECONDS_VAR, 120)
     retry_count = max(_get_int_variable(WECHAT_SEND_RETRY_COUNT_VAR, 3), 1)

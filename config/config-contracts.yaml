@@ -142,6 +142,13 @@ variables:
     managed_by_application: true
     fresh_start_policy: preserve
     default: []
+  大沙河免费场:
+    type: json_list
+    required_by: [大沙河免费场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
   金地威新网球场:
     type: json_list
     required_by: [深圳金地网球场巡检]

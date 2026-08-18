@@ -338,6 +338,16 @@ class VenueDomainTest(unittest.TestCase):
             greater_bay_area.booking_areas[0].field_area_uuid,
             "cec42d973dee11f1b51c2273436a3e4e",
         )
+        self.assertEqual(
+            (
+                greater_bay_area.booking_areas[0].start_time,
+                greater_bay_area.booking_areas[0].end_time,
+            ),
+            ("09:00", "22:00"),
+        )
+        self.assertEqual(greater_bay_area.weekday_wechat_hours, (18, 22))
+        self.assertEqual(greater_bay_area.weekend_wechat_hours, (12, 22))
+        self.assertEqual(shenzhen_bay.weekend_wechat_hours, (16, 22))
 
     def test_szw_publishes_outdoor_and_covered_courts_as_one_observation(self):
         class NoonDateTime(datetime.datetime):
@@ -413,6 +423,58 @@ class VenueDomainTest(unittest.TestCase):
             healthy=True,
             error=None,
         )
+
+    def test_crland_wechat_windows_keep_szw_and_change_gba_weekend_start(self):
+        weekday = datetime.datetime(2026, 8, 17)
+        weekend = datetime.datetime(2026, 8, 16)
+        szw = szw_watcher.CRLAND_VENUES["szw"]
+        gba = szw_watcher.CRLAND_VENUES["gba"]
+
+        self.assertTrue(szw_watcher.slot_in_wechat_window(["18:00", "19:00"], weekday, szw))
+        self.assertTrue(szw_watcher.slot_in_wechat_window(["21:00", "22:00"], weekday, gba))
+        self.assertFalse(szw_watcher.slot_in_wechat_window(["12:00", "13:00"], weekday, gba))
+        self.assertFalse(szw_watcher.slot_in_wechat_window(["22:00", "23:00"], weekday, gba))
+        self.assertFalse(szw_watcher.slot_in_wechat_window(["12:00", "13:00"], weekend, szw))
+        self.assertTrue(szw_watcher.slot_in_wechat_window(["12:00", "13:00"], weekend, gba))
+        self.assertTrue(szw_watcher.slot_in_wechat_window(["16:00", "17:00"], weekend, szw))
+
+    def test_gba_wechat_uses_shared_zacks_chatrooms_with_gba_hours(self):
+        class WeekendNoon(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 16, 12, 0, tzinfo=tz)
+
+        variables = {
+            "SZ_TENNIS_CHATROOMS": "Zacks_A\nZacks_B",
+            "大湾区网球场": [],
+        }
+
+        def get_variable(key, default=None, deserialize_json=False):
+            return variables.get(key, default)
+
+        def set_variable(key, value, description=None, serialize_json=False):
+            variables[key] = value
+
+        with (
+            patch.object(szw_watcher.datetime, "datetime", WeekendNoon),
+            patch.object(
+                szw_watcher,
+                "get_free_tennis_court_infos_for_szw",
+                return_value={"1号场": [["10:00", "11:00"], ["12:00", "13:00"]]},
+            ),
+            patch.object(szw_watcher, "publish_venue_observation"),
+            patch.object(szw_watcher.Variable, "get", side_effect=get_variable),
+            patch.object(szw_watcher.Variable, "set", side_effect=set_variable),
+            patch.object(szw_watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+        ):
+            szw_watcher.check_and_notify_for_day(0, venue_key="gba")
+
+        send.assert_called_once()
+        self.assertEqual(send.call_args.args[0], ["Zacks_A", "Zacks_B"])
+        self.assertIn("12:00-13:00", send.call_args.args[1])
+        self.assertNotIn("10:00-11:00", send.call_args.args[1])
+        self.assertEqual(send.call_args.kwargs["source"], "大湾区网球场巡检")
+        self.assertIn("【大湾区网球场1号场】", send.call_args.args[1])
 
     def test_szw_upstream_failure_is_published_and_fails_the_task(self):
         class NoonDateTime(datetime.datetime):

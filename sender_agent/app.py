@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from threading import Lock
 from urllib.request import urlopen
@@ -17,18 +18,25 @@ from wechat_sender import (
     send_text_messages,
 )
 
+IDEMPOTENCY_TTL_SECONDS = 600
+IDEMPOTENCY_CACHE_LIMIT = 256
+
 APP_NAME = "wechat-sender-agent"
 DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
 DEVICE_LOCK_WAIT_SECONDS = 70
 
 app = FastAPI(title=APP_NAME)
 device_lock = Lock()
+_warm_operator = None
+_warm_appium_url = ""
+_recent_sends: dict[str, tuple[float, dict]] = {}
 
 
 class SendRequest(BaseModel):
     receiver: str = Field(min_length=1)
     messages: list[str] = Field(min_length=1)
     device_name: str = Field(min_length=1)
+    idempotency_key: str | None = Field(default=None, min_length=1)
 
     @field_validator("receiver", "device_name")
     @classmethod
@@ -106,6 +114,60 @@ def _device_readiness(device_name: str) -> tuple[bool, str | None]:
     return True, None
 
 
+def reset_runtime_state() -> None:
+    global _warm_operator, _warm_appium_url
+    _discard_warm_operator()
+    _recent_sends.clear()
+
+
+def _discard_warm_operator() -> None:
+    global _warm_operator, _warm_appium_url
+    operator = _warm_operator
+    _warm_operator = None
+    _warm_appium_url = ""
+    if operator is None:
+        return
+    try:
+        operator.close()
+    except Exception:
+        return
+
+
+def _cached_send(idempotency_key: str | None) -> dict | None:
+    if not idempotency_key:
+        return None
+    cached = _recent_sends.get(idempotency_key)
+    if cached is None:
+        return None
+    cached_at, payload = cached
+    if time.monotonic() - cached_at > IDEMPOTENCY_TTL_SECONDS:
+        _recent_sends.pop(idempotency_key, None)
+        return None
+    return payload
+
+
+def _remember_send(idempotency_key: str | None, payload: dict) -> None:
+    if not idempotency_key:
+        return
+    _recent_sends[idempotency_key] = (time.monotonic(), payload)
+    extra = len(_recent_sends) - IDEMPOTENCY_CACHE_LIMIT
+    if extra <= 0:
+        return
+    oldest = sorted(_recent_sends.items(), key=lambda item: item[1][0])[:extra]
+    for key, _value in oldest:
+        _recent_sends.pop(key, None)
+
+
+def _usable_warm_operator(device_name: str, appium_url: str):
+    operator = _warm_operator
+    if operator is None:
+        return None
+    if _warm_appium_url != appium_url or getattr(operator, "device_name", None) != device_name:
+        _discard_warm_operator()
+        return None
+    return operator
+
+
 @app.exception_handler(RequestValidationError)
 def validation_exception_handler(_request, _exc):
     return _json_error(400, "invalid_request", "request payload is invalid")
@@ -156,6 +218,7 @@ def readyz():
 
 @app.post("/v1/wechat/send")
 def send_wechat(request: SendRequest):
+    global _warm_operator, _warm_appium_url
     allowed_device_name = _allowed_device_name()
     if not allowed_device_name:
         return _json_error(
@@ -166,25 +229,48 @@ def send_wechat(request: SendRequest):
     if request.device_name != allowed_device_name:
         return _json_error(403, "device_not_allowed", "requested device is not allowed")
 
+    cached = _cached_send(request.idempotency_key)
+    if cached is not None:
+        return cached
+
     acquired = device_lock.acquire(timeout=DEVICE_LOCK_WAIT_SECONDS)
     if not acquired:
         return _json_error(409, "device_busy", "device queue wait timed out")
 
     try:
-        result = send_text_messages(
-            appium_server_url=_appium_url(),
-            device_name=request.device_name,
-            receiver=request.receiver,
-            messages=request.messages,
-            preflight_cleanup=cleanup_appium_device,
-        )
-        return {
+        cached = _cached_send(request.idempotency_key)
+        if cached is not None:
+            return cached
+
+        appium_url = _appium_url()
+        existing_operator = _usable_warm_operator(request.device_name, appium_url)
+        try:
+            result = send_text_messages(
+                appium_server_url=appium_url,
+                device_name=request.device_name,
+                receiver=request.receiver,
+                messages=request.messages,
+                existing_operator=existing_operator,
+                close_operator=False,
+                preflight_cleanup=None if existing_operator else cleanup_appium_device,
+                startup_wait_seconds=0 if existing_operator else 1.0,
+            )
+        except Exception:
+            _discard_warm_operator()
+            raise
+
+        _warm_operator = result.operator
+        _warm_appium_url = appium_url
+        payload = {
             "success": result.success,
             "device_name": result.device_name,
             "receiver": result.receiver,
             "sent_count": result.sent_count,
             "navigation_path": result.navigation_path,
+            "session_reused": result.session_reused,
         }
+        _remember_send(request.idempotency_key, payload)
+        return payload
     except InvalidSendRequestError as exc:
         return _json_error(400, exc.error_code, str(exc))
     except WeChatSenderError as exc:

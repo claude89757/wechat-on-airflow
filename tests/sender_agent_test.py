@@ -18,6 +18,7 @@ class SenderAgentTest(unittest.TestCase):
             clear=False,
         )
         self.env_patcher.start()
+        sender_app.reset_runtime_state()
         self.client = TestClient(sender_app.app)
 
     def tearDown(self):
@@ -51,6 +52,7 @@ class SenderAgentTest(unittest.TestCase):
                 "receiver": "文件传输助手",
                 "sent_count": 1,
                 "navigation_path": "recent_visual",
+                "session_reused": False,
             },
         )
         mock_send.assert_called_once()
@@ -58,6 +60,8 @@ class SenderAgentTest(unittest.TestCase):
             mock_send.call_args.kwargs["preflight_cleanup"],
             sender_app.cleanup_appium_device,
         )
+        self.assertIsNone(mock_send.call_args.kwargs["existing_operator"])
+        self.assertFalse(mock_send.call_args.kwargs["close_operator"])
 
     def test_defaults_to_local_appium_on_sender_host(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -271,6 +275,63 @@ class SenderAgentTest(unittest.TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["error"], "send_failed")
         self.assertIn("send button missing", response.json()["message"])
+
+    @patch("sender_agent.app.send_text_messages")
+    def test_reuses_warm_session_and_skips_preflight_cleanup(self, mock_send):
+        class WarmOperator:
+            device_name = "test-device"
+
+        warm_operator = WarmOperator()
+        sender_app._warm_operator = warm_operator
+        sender_app._warm_appium_url = "http://127.0.0.1:6002"
+        mock_send.return_value = SendResult(
+            success=True,
+            device_name="test-device",
+            receiver="文件传输助手",
+            sent_count=1,
+            navigation_path="already_open",
+            session_reused=True,
+            operator=warm_operator,
+        )
+
+        response = self.client.post(
+            "/v1/wechat/send",
+            json={
+                "receiver": "文件传输助手",
+                "messages": ["hello"],
+                "device_name": "test-device",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["session_reused"])
+        self.assertIs(mock_send.call_args.kwargs["existing_operator"], warm_operator)
+        self.assertIsNone(mock_send.call_args.kwargs["preflight_cleanup"])
+        self.assertEqual(mock_send.call_args.kwargs["startup_wait_seconds"], 0)
+
+    @patch("sender_agent.app.send_text_messages")
+    def test_idempotent_retry_does_not_send_again(self, mock_send):
+        mock_send.return_value = SendResult(
+            success=True,
+            device_name="test-device",
+            receiver="文件传输助手",
+            sent_count=1,
+            navigation_path="recent_accessibility",
+        )
+        payload = {
+            "receiver": "文件传输助手",
+            "messages": ["hello"],
+            "device_name": "test-device",
+            "idempotency_key": "venue-slot-1",
+        }
+
+        first = self.client.post("/v1/wechat/send", json=payload)
+        second = self.client.post("/v1/wechat/send", json=payload)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json(), first.json())
+        mock_send.assert_called_once()
 
 
 if __name__ == "__main__":

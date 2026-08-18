@@ -1,3 +1,4 @@
+import hashlib
 import unittest
 from unittest.mock import call, patch
 
@@ -28,6 +29,9 @@ class WeChatSendApiTest(unittest.TestCase):
         }
         return values.get(key, default)
 
+    def idempotency_key(self, receiver, messages, device_name="device-from-variable"):
+        return hashlib.sha256("\0".join([receiver, device_name, *messages]).encode()).hexdigest()
+
     @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_uses_airflow_variable_endpoint(self, mock_post):
         mock_post.return_value = FakeResponse({"success": True, "sent_count": 2})
@@ -44,6 +48,10 @@ class WeChatSendApiTest(unittest.TestCase):
                 "receiver": "文件传输助手",
                 "messages": ["hello", "world"],
                 "device_name": "device-from-variable",
+                "idempotency_key": self.idempotency_key(
+                    "文件传输助手",
+                    ["hello", "world"],
+                ),
             },
             timeout=30,
         )
@@ -58,6 +66,10 @@ class WeChatSendApiTest(unittest.TestCase):
             wechat_send_api.send_wechat_text("Zacks", ["hello"], device_name="explicit-device")
 
         self.assertEqual(mock_post.call_args.kwargs["json"]["device_name"], "explicit-device")
+        self.assertEqual(
+            mock_post.call_args.kwargs["json"]["idempotency_key"],
+            self.idempotency_key("Zacks", ["hello"], "explicit-device"),
+        )
 
     @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_raises_on_api_failure(self, mock_post):

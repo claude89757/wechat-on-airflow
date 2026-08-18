@@ -5,8 +5,17 @@ and operational changes.
 
 ## Unreleased
 
+### Added
+
+- Notify `Zacks_大沙河限定免费` for Dashah River free-court availability after
+  the Web observation and WeChat dedupe cache are written.
+
 ### Changed
 
+- Reuse a warm Appium session in the WeChat sender and honor an idempotency key
+  so Airflow retries do not double-send after a late HTTP timeout.
+- Filter Greater Bay Area WeChat alerts to weekday 18:00-22:00 and weekend
+  12:00-22:00, while keeping the shared Zacks chatrooms used by Shenzhen Bay.
 - Expose the Airflow 3 UI and API through a managed Cloudflare Tunnel at
   `airflow.claude89757.cc`, trust reverse-proxy headers, and bind the origin
   port to loopback only.

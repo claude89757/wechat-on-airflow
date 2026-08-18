@@ -145,7 +145,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect and notify Greater Bay Area tennis availability.
+    purpose: Detect and notify Greater Bay Area tennis availability to the shared Zacks WeChat chatrooms, using weekday 18:00-22:00 and weekend 12:00-22:00 windows.
     verification:
       - dag_imports
       - recent_runs_succeed
@@ -162,22 +162,28 @@ active_dags:
       - WEBAPP_OBSERVATION_API_TOKEN
       - WEBAPP_OBSERVATION_API_URL
       - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 大沙河免费场
     connections: []
     direct_modules:
       - wechat_airflow.venues.dashahe_free_watcher
       - wechat_airflow.venues.nswtt_client
       - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
     external_services:
       - nswtt_booking_api
       - zacks_tennis_webapp
+      - wechat_sender_api
     notifications:
       - webapp_observation
-    purpose: Detect released Dashah River free-court dates and publish free availability for subscriber email.
+      - wechat
+    purpose: Detect released Dashah River free-court dates, publish free availability for subscriber email, and notify the dedicated WeChat group.
     verification:
       - dag_imports
       - recent_runs_succeed
       - calendar_sale_status_precedes_free_court_detection
       - empty_place_list_never_creates_subscription_email
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
 
   - dag_id: 深圳金地网球场巡检
     file: dags/tennis_dags/sz_tennis/jdwx_watcher.py
@@ -375,6 +381,8 @@ active_services:
       - tests_never_send_real_messages
       - recent_chat_is_checked_before_search
       - visual_fallback_for_inaccessible_wechat_hierarchy
+      - warm_appium_session_is_reused
+      - send_requests_are_idempotent
     verification:
       - unit_tests
       - health_endpoint

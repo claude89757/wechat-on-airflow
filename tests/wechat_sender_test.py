@@ -48,6 +48,9 @@ class FakeOperator:
     def is_target_chat_open(self, _receiver):
         return False
 
+    def return_to_chats(self):
+        self.at_main_page = True
+
     def send_message(self, receiver, messages):
         self.sent.append((receiver, list(messages)))
 
@@ -165,6 +168,50 @@ class WeChatSenderTest(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(events[0], ("cleanup", "http://127.0.0.1:6002", "test-device"))
         self.assertEqual(events[1], ("operator", False))
+
+    def test_reuses_existing_operator_without_cleanup_or_close(self):
+        existing = FakeOperator("http://appium.test:6002", "test-device")
+        FakeOperator.created = []
+
+        def cleanup(*_args):
+            raise AssertionError("cleanup should not run")
+
+        result = send_text_messages(
+            appium_server_url="http://appium.test:6002",
+            device_name="test-device",
+            receiver="文件传输助手",
+            messages=["hello"],
+            operator_factory=FakeOperator,
+            existing_operator=existing,
+            close_operator=False,
+            preflight_cleanup=cleanup,
+            startup_wait_seconds=0,
+            restart_wait_seconds=0,
+        )
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.session_reused)
+        self.assertIs(result.operator, existing)
+        self.assertFalse(existing.closed)
+        self.assertEqual(FakeOperator.created, [])
+        self.assertEqual(existing.sent, [("文件传输助手", ["hello"])])
+
+    def test_failed_reused_operator_is_closed(self):
+        existing = FailingOperator("http://appium.test:6002", "test-device")
+
+        with self.assertRaises(SendFailedError):
+            send_text_messages(
+                appium_server_url="http://appium.test:6002",
+                device_name="test-device",
+                receiver="文件传输助手",
+                messages=["hello"],
+                existing_operator=existing,
+                close_operator=False,
+                startup_wait_seconds=0,
+                restart_wait_seconds=0,
+            )
+
+        self.assertTrue(existing.closed)
 
     def test_cleanup_deletes_device_sessions_and_stops_uiautomator2(self):
         http_calls = []
