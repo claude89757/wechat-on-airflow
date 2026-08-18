@@ -87,7 +87,7 @@ variables:
     type: positive_integer
     required_by: [wechat_delivery]
     sensitive: false
-    default: 3
+    default: 4
   WECHAT_SEND_RETRY_DELAY_SECONDS:
     type: non_negative_number
     required_by: [wechat_delivery]
@@ -97,7 +97,7 @@ variables:
     type: positive_integer
     required_by: [wechat_delivery]
     sensitive: false
-    default: 120
+    default: 210
   WEBAPP_OBSERVATION_API_URL:
     type: url
     required_by: [webapp_observation]

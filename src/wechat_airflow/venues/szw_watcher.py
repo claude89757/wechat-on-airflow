@@ -90,13 +90,13 @@ CRLAND_VENUES = {
                 project_uuid=GBA_PROJECT_UUID,
                 field_area_uuid=GBA_FIELD_AREA_UUID,
                 start_time="09:00",
-                end_time="22:00",
+                end_time="21:00",
             ),
         ),
         cache_key="大湾区网球场",
         dag_id="大湾区网球场巡检",
-        weekday_wechat_hours=(18, 22),
-        weekend_wechat_hours=(12, 22),
+        weekday_wechat_hours=(18, 21),
+        weekend_wechat_hours=(12, 21),
     ),
 }
 

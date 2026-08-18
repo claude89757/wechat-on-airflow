@@ -23,7 +23,7 @@ dag = DAG(
     description="南山文体通大沙河免费场巡检",
     schedule=timedelta(seconds=30),
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=1),
+    dagrun_timeout=timedelta(minutes=10),
     catchup=False,
     tags=["深圳", "免费场"],
 )

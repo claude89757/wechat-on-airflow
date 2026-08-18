@@ -28,6 +28,7 @@ shared_contracts:
       - failures_are_isolated_per_chat
       - webapp_observation_precedes_delivery
       - no_real_delivery_in_tests
+      - device_busy_waits_then_retries
   webapp_observation:
     modules:
       - wechat_airflow.notifications.webapp
@@ -145,7 +146,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect and notify Greater Bay Area tennis availability to the shared Zacks WeChat chatrooms, using weekday 18:00-22:00 and weekend 12:00-22:00 windows.
+    purpose: Detect and notify Greater Bay Area tennis availability to the shared Zacks WeChat chatrooms, using weekday 18:00-21:00 and weekend 12:00-21:00 windows.
     verification:
       - dag_imports
       - recent_runs_succeed

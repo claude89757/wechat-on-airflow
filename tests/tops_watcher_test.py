@@ -343,10 +343,10 @@ class VenueDomainTest(unittest.TestCase):
                 greater_bay_area.booking_areas[0].start_time,
                 greater_bay_area.booking_areas[0].end_time,
             ),
-            ("09:00", "22:00"),
+            ("09:00", "21:00"),
         )
-        self.assertEqual(greater_bay_area.weekday_wechat_hours, (18, 22))
-        self.assertEqual(greater_bay_area.weekend_wechat_hours, (12, 22))
+        self.assertEqual(greater_bay_area.weekday_wechat_hours, (18, 21))
+        self.assertEqual(greater_bay_area.weekend_wechat_hours, (12, 21))
         self.assertEqual(shenzhen_bay.weekend_wechat_hours, (16, 22))
 
     def test_szw_publishes_outdoor_and_covered_courts_as_one_observation(self):
@@ -431,12 +431,18 @@ class VenueDomainTest(unittest.TestCase):
         gba = szw_watcher.CRLAND_VENUES["gba"]
 
         self.assertTrue(szw_watcher.slot_in_wechat_window(["18:00", "19:00"], weekday, szw))
-        self.assertTrue(szw_watcher.slot_in_wechat_window(["21:00", "22:00"], weekday, gba))
+        self.assertTrue(szw_watcher.slot_in_wechat_window(["20:00", "21:00"], weekday, gba))
+        self.assertFalse(szw_watcher.slot_in_wechat_window(["21:00", "22:00"], weekday, gba))
         self.assertFalse(szw_watcher.slot_in_wechat_window(["12:00", "13:00"], weekday, gba))
         self.assertFalse(szw_watcher.slot_in_wechat_window(["22:00", "23:00"], weekday, gba))
         self.assertFalse(szw_watcher.slot_in_wechat_window(["12:00", "13:00"], weekend, szw))
         self.assertTrue(szw_watcher.slot_in_wechat_window(["12:00", "13:00"], weekend, gba))
+        self.assertFalse(szw_watcher.slot_in_wechat_window(["21:00", "22:00"], weekend, gba))
         self.assertTrue(szw_watcher.slot_in_wechat_window(["16:00", "17:00"], weekend, szw))
+        self.assertEqual(
+            szw_watcher.find_available_slots([], {"start_time": "09:00", "end_time": "21:00"}),
+            [["09:00", "21:00"]],
+        )
 
     def test_gba_wechat_uses_shared_zacks_chatrooms_with_gba_hours(self):
         class WeekendNoon(datetime.datetime):

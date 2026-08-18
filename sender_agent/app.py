@@ -23,7 +23,7 @@ IDEMPOTENCY_CACHE_LIMIT = 256
 
 APP_NAME = "wechat-sender-agent"
 DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
-DEVICE_LOCK_WAIT_SECONDS = 70
+DEVICE_LOCK_WAIT_SECONDS = 150
 
 app = FastAPI(title=APP_NAME)
 device_lock = Lock()

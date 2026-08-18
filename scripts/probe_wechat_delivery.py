@@ -123,8 +123,8 @@ lanes = [lane for lane in lanes if lane]
 
 api_url = str(variable("WECHAT_SEND_API_URL", "")).strip()
 device_name = str(variable("WECHAT_SEND_DEVICE_NAME", "")).strip()
-timeout_seconds = max(integer_variable("WECHAT_SEND_TIMEOUT_SECONDS", 120), 1)
-retry_count = max(integer_variable("WECHAT_SEND_RETRY_COUNT", 3), 1)
+timeout_seconds = max(integer_variable("WECHAT_SEND_TIMEOUT_SECONDS", 210), 210)
+retry_count = max(integer_variable("WECHAT_SEND_RETRY_COUNT", 4), 1)
 retry_delay_seconds = max(float_variable("WECHAT_SEND_RETRY_DELAY_SECONDS", 5.0), 0)
 if not api_url or not device_name:
     print(json.dumps({"ok": False, "error": "sender_configuration_missing"}, sort_keys=True))

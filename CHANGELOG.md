@@ -14,8 +14,12 @@ and operational changes.
 
 - Reuse a warm Appium session in the WeChat sender and honor an idempotency key
   so Airflow retries do not double-send after a late HTTP timeout.
-- Filter Greater Bay Area WeChat alerts to weekday 18:00-22:00 and weekend
-  12:00-22:00, while keeping the shared Zacks chatrooms used by Shenzhen Bay.
+- Filter Greater Bay Area WeChat alerts to weekday 18:00-21:00 and weekend
+  12:00-21:00, query the booking API only until 21:00, and keep the shared Zacks
+  chatrooms used by Shenzhen Bay.
+- Wait up to 150 seconds for the single WeChat device lock, floor Airflow send
+  timeouts at 210 seconds, and retry `device_busy` with a 15-second pause so
+  overlapping venue DAGs queue instead of immediately writing the fallback outbox.
 - Accept `dsh_free:N` as a protected WeChat probe selector so the dedicated
   Dashah free-court group can be smoke-tested without other Zacks chats.
 - Expose the Airflow 3 UI and API through a managed Cloudflare Tunnel at

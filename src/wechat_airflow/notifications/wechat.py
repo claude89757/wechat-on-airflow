@@ -17,10 +17,19 @@ WECHAT_SEND_RETRY_COUNT_VAR = "WECHAT_SEND_RETRY_COUNT"
 WECHAT_SEND_RETRY_DELAY_SECONDS_VAR = "WECHAT_SEND_RETRY_DELAY_SECONDS"
 WECHAT_SEND_FALLBACK_OUTBOX_VAR = "WECHAT_SEND_FALLBACK_OUTBOX"
 WECHAT_SEND_FALLBACK_MAX_ITEMS_VAR = "WECHAT_SEND_FALLBACK_MAX_ITEMS"
+MIN_SEND_TIMEOUT_SECONDS = 210
+DEFAULT_RETRY_COUNT = 4
+DEVICE_BUSY_ERROR = "device_busy"
+DEVICE_BUSY_RETRY_LIMIT = 4
+DEVICE_BUSY_RETRY_DELAY_SECONDS = 15.0
 
 
 class WeChatSendApiError(Exception):
     """Raised when the remote WeChat sender API rejects or fails a send."""
+
+    def __init__(self, message: str, error_code: str | None = None) -> None:
+        super().__init__(message)
+        self.error_code = error_code
 
 
 def _get_variable(
@@ -84,6 +93,10 @@ def _get_float_variable(key: str, default: float) -> float:
         return default
 
 
+def _is_device_busy_error(error: WeChatSendApiError) -> bool:
+    return error.error_code == DEVICE_BUSY_ERROR or DEVICE_BUSY_ERROR in str(error)
+
+
 def _request_once(api_url: str, payload: JsonDict, timeout_seconds: int) -> JsonDict:
     try:
         response = requests.post(api_url, json=payload, timeout=timeout_seconds)
@@ -108,7 +121,10 @@ def _request_once(api_url: str, payload: JsonDict, timeout_seconds: int) -> Json
     if response.status_code >= 400 or not result.get("success"):
         error = result.get("error") or f"http_{response.status_code}"
         message = result.get("message") or response_text[:200]
-        raise WeChatSendApiError(f"wechat send api failed: {error}: {message}")
+        raise WeChatSendApiError(
+            f"wechat send api failed: {error}: {message}",
+            error_code=str(error),
+        )
 
     return result
 
@@ -141,8 +157,11 @@ def send_wechat_text(
         "\0".join([normalized_receiver, resolved_device_name, *payload["messages"]]).encode()
     ).hexdigest()
 
-    timeout_seconds = _get_int_variable(WECHAT_SEND_TIMEOUT_SECONDS_VAR, 120)
-    retry_count = max(_get_int_variable(WECHAT_SEND_RETRY_COUNT_VAR, 3), 1)
+    timeout_seconds = max(
+        _get_int_variable(WECHAT_SEND_TIMEOUT_SECONDS_VAR, MIN_SEND_TIMEOUT_SECONDS),
+        MIN_SEND_TIMEOUT_SECONDS,
+    )
+    retry_count = max(_get_int_variable(WECHAT_SEND_RETRY_COUNT_VAR, DEFAULT_RETRY_COUNT), 1)
     retry_delay_seconds = max(_get_float_variable(WECHAT_SEND_RETRY_DELAY_SECONDS_VAR, 5.0), 0)
 
     print(
@@ -151,7 +170,9 @@ def send_wechat_text(
     )
 
     last_error: WeChatSendApiError | None = None
-    for attempt in range(1, retry_count + 1):
+    busy_attempts = 0
+    other_attempts = 0
+    while True:
         try:
             result = _request_once(api_url, payload, timeout_seconds)
             print(
@@ -161,10 +182,25 @@ def send_wechat_text(
             return result
         except WeChatSendApiError as exc:
             last_error = exc
-            if attempt >= retry_count:
-                break
-            print(f"[WECHAT_SEND_API] attempt {attempt}/{retry_count} failed: {exc}; retrying")
-            time.sleep(retry_delay_seconds)
+            if _is_device_busy_error(exc):
+                busy_attempts += 1
+                if busy_attempts >= DEVICE_BUSY_RETRY_LIMIT:
+                    break
+                delay_seconds = DEVICE_BUSY_RETRY_DELAY_SECONDS
+                print(
+                    f"[WECHAT_SEND_API] device busy attempt {busy_attempts}/"
+                    f"{DEVICE_BUSY_RETRY_LIMIT} failed: {exc}; waiting {delay_seconds}s"
+                )
+            else:
+                other_attempts += 1
+                if other_attempts >= retry_count:
+                    break
+                delay_seconds = retry_delay_seconds
+                print(
+                    f"[WECHAT_SEND_API] attempt {other_attempts}/{retry_count} failed: "
+                    f"{exc}; retrying"
+                )
+            time.sleep(delay_seconds)
 
     raise last_error or WeChatSendApiError("wechat send api failed")
 

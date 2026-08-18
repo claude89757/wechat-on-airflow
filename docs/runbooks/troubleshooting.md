@@ -70,9 +70,11 @@ then running `nswtt_config_sync` before the next deployment health check.
 ## WeChat Failure
 
 Check sender `/healthz`, `device_busy` responses, Appium availability, device
-state, and `WECHAT_SEND_FALLBACK_OUTBOX`. Email must continue independently.
-Confirm that Web observation publication completed before the WeChat attempt.
-Do not send a live test without approval.
+state, and `WECHAT_SEND_FALLBACK_OUTBOX`. A `device_busy` response means the
+sender waited for the in-process device lock and still timed out; Airflow waits
+and retries that error before recording the outbox. Email must continue
+independently. Confirm that Web observation publication completed before the
+WeChat attempt. Do not send a live test without approval.
 
 On the Android host, confirm `wechat-sender.service` is both enabled and active.
 If Appium is ready but port `7001` has no listener, deploy the exact pushed

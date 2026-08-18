@@ -23,7 +23,7 @@ class WeChatSendApiTest(unittest.TestCase):
         values = {
             "WECHAT_SEND_API_URL": "http://sender.example/v1/wechat/send",
             "WECHAT_SEND_DEVICE_NAME": "device-from-variable",
-            "WECHAT_SEND_TIMEOUT_SECONDS": "30",
+            "WECHAT_SEND_TIMEOUT_SECONDS": "400",
             "WECHAT_SEND_RETRY_COUNT": "1",
             "WECHAT_SEND_RETRY_DELAY_SECONDS": "0",
         }
@@ -53,7 +53,7 @@ class WeChatSendApiTest(unittest.TestCase):
                     ["hello", "world"],
                 ),
             },
-            timeout=30,
+            timeout=400,
         )
 
     @patch("wechat_airflow.notifications.wechat.requests.post")
@@ -74,8 +74,8 @@ class WeChatSendApiTest(unittest.TestCase):
     @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_raises_on_api_failure(self, mock_post):
         mock_post.return_value = FakeResponse(
-            {"success": False, "error": "device_busy", "message": "busy"},
-            status_code=409,
+            {"success": False, "error": "send_failed", "message": "send button missing"},
+            status_code=500,
         )
 
         with patch(
@@ -84,7 +84,8 @@ class WeChatSendApiTest(unittest.TestCase):
             with self.assertRaises(wechat_send_api.WeChatSendApiError) as error:
                 wechat_send_api.send_wechat_text("Zacks", ["hello"])
 
-        self.assertIn("device_busy", str(error.exception))
+        self.assertIn("send_failed", str(error.exception))
+        mock_post.assert_called_once()
 
     @patch("wechat_airflow.notifications.wechat.requests.post")
     def test_send_wechat_text_wraps_request_errors(self, mock_post):
@@ -97,6 +98,70 @@ class WeChatSendApiTest(unittest.TestCase):
                 wechat_send_api.send_wechat_text("Zacks", ["hello"])
 
         self.assertIn("request failed", str(error.exception))
+
+    @patch("wechat_airflow.notifications.wechat.requests.post")
+    def test_send_timeout_floors_below_the_device_queue_wait(self, mock_post):
+        mock_post.return_value = FakeResponse()
+
+        def getter(key, default=None, deserialize_json=False):
+            values = {
+                "WECHAT_SEND_API_URL": "http://sender.example/v1/wechat/send",
+                "WECHAT_SEND_DEVICE_NAME": "device-from-variable",
+                "WECHAT_SEND_TIMEOUT_SECONDS": "30",
+                "WECHAT_SEND_RETRY_COUNT": "1",
+                "WECHAT_SEND_RETRY_DELAY_SECONDS": "0",
+            }
+            return values.get(key, default)
+
+        with patch("wechat_airflow.notifications.wechat._get_variable", side_effect=getter):
+            wechat_send_api.send_wechat_text("Zacks", ["hello"])
+
+        self.assertEqual(
+            mock_post.call_args.kwargs["timeout"],
+            wechat_send_api.MIN_SEND_TIMEOUT_SECONDS,
+        )
+
+    @patch("wechat_airflow.notifications.wechat.time.sleep")
+    @patch("wechat_airflow.notifications.wechat.requests.post")
+    def test_device_busy_waits_then_succeeds(self, mock_post, mock_sleep):
+        mock_post.side_effect = [
+            FakeResponse(
+                {"success": False, "error": "device_busy", "message": "busy"},
+                status_code=409,
+            ),
+            FakeResponse({"success": True, "sent_count": 1}),
+        ]
+
+        with patch(
+            "wechat_airflow.notifications.wechat._get_variable", side_effect=self.variable_getter
+        ):
+            result = wechat_send_api.send_wechat_text("Zacks", ["hello"])
+
+        self.assertEqual(result["sent_count"], 1)
+        self.assertEqual(mock_post.call_count, 2)
+        mock_sleep.assert_called_once_with(wechat_send_api.DEVICE_BUSY_RETRY_DELAY_SECONDS)
+
+    @patch("wechat_airflow.notifications.wechat.time.sleep")
+    @patch("wechat_airflow.notifications.wechat.requests.post")
+    def test_device_busy_retries_before_raising(self, mock_post, mock_sleep):
+        mock_post.return_value = FakeResponse(
+            {"success": False, "error": "device_busy", "message": "busy"},
+            status_code=409,
+        )
+
+        with patch(
+            "wechat_airflow.notifications.wechat._get_variable", side_effect=self.variable_getter
+        ):
+            with self.assertRaises(wechat_send_api.WeChatSendApiError) as error:
+                wechat_send_api.send_wechat_text("Zacks", ["hello"])
+
+        self.assertEqual(error.exception.error_code, "device_busy")
+        self.assertEqual(mock_post.call_count, wechat_send_api.DEVICE_BUSY_RETRY_LIMIT)
+        self.assertEqual(
+            mock_sleep.call_args_list,
+            [call(wechat_send_api.DEVICE_BUSY_RETRY_DELAY_SECONDS)]
+            * (wechat_send_api.DEVICE_BUSY_RETRY_LIMIT - 1),
+        )
 
     @patch("wechat_airflow.notifications.wechat.send_wechat_text")
     def test_send_wechat_text_to_chatrooms_normalizes_lines(self, mock_send):
