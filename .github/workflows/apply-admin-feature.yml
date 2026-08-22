@@ -1,0 +1,92 @@
+name: Apply admin and email lifecycle feature
+
+on:
+  push:
+    branches:
+      - feat/admin-operations-email-lifecycle
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: apply-admin-email-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      contains(github.event.head_commit.message, '[apply-admin-feature]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/admin-operations-email-lifecycle
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Generate feature implementation
+        run: |
+          set -euo pipefail
+          python .feature/admin/write_backend_files.py
+          python .feature/admin/write_frontend_files.py
+          python .feature/admin/patch_backend.py
+          python .feature/admin/patch_ui.py
+      - name: Verify generated Web application
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+          npm run check:worker
+          npm run build
+          npm run cf:migrate:local
+      - name: Ensure production acceptance assets exist
+        run: |
+          set -euo pipefail
+          test -f webapp/migrations/0005_add_subscription_terms.sql
+          test -f webapp/migrations/0006_add_admin_email_lifecycle.sql
+          test -f .github/workflows/production-admin-acceptance.yml
+          test -f scripts/accept_webapp_admin.sh
+          grep -q '用户社区' webapp/src/Prototype.tsx
+          grep -q '管理后台' webapp/src/Prototype.tsx
+          grep -q 'claudexzt@gmail.com' webapp/migrations/0006_add_admin_email_lifecycle.sql
+      - name: Remove temporary generation assets
+        run: |
+          rm -rf .feature/admin
+          rm -f .github/workflows/apply-admin-feature.yml
+          rm -f .github/workflows/export-admin-feature-snapshot.yml
+          rm -f .github/workflows/export-webapp-deps.yml
+      - name: Commit generated implementation
+        env:
+          BRANCH: feat/admin-operations-email-lifecycle
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat(webapp): add admin operations and accurate email lifecycle"
+          git push origin "HEAD:$BRANCH"
+      - name: Report generation success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body \
+            "Admin/community/email lifecycle implementation generation succeeded. Run: $RUN_URL"
+      - name: Report generation failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body \
+            "Admin/community/email lifecycle implementation generation failed. Run: $RUN_URL"
