@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 COMMAND_RE = re.compile(
     r"^\s*/release\s+(preflight|apply)\s+([0-9a-fA-F]{40})(?:\s+sender=(true|false))?\s*$"
