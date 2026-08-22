@@ -53,9 +53,10 @@ jobs:
           MODE: ${{ steps.command.outputs.mode }}
           TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
           INCLUDE_SENDER: ${{ steps.command.outputs.include_sender }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
-            "Accepted production release command: mode=\`$MODE\`, commit=\`$TARGET_COMMIT\`, sender=\`$INCLUDE_SENDER\`. Existing release gates remain authoritative."
+            "Accepted production release command: mode=\`$MODE\`, commit=\`$TARGET_COMMIT\`, sender=\`$INCLUDE_SENDER\`. Run: $RUN_URL. Existing release gates remain authoritative."
 
   release:
     needs: parse
