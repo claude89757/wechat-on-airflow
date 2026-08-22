@@ -32,7 +32,9 @@ def parse_release_command(body: str) -> ReleaseCommand:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Parse a production release ChatOps command.")
+    parser = argparse.ArgumentParser(
+        description="Parse a production release ChatOps command."
+    )
     parser.add_argument("command")
     parser.add_argument("--format", choices=("json", "github-output"), default="json")
     args = parser.parse_args()
