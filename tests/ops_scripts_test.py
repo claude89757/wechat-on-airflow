@@ -815,6 +815,61 @@ class GithubOnlyDeliveryContractTest(unittest.TestCase):
             webapp_production_health.contains_email({"nested": [{"masked": "pe****@example.com"}]})
         )
 
+    def test_webapp_health_retries_only_during_commit_propagation(self):
+        healthy_checks = {
+            "health_http_ok": True,
+            "service_healthy": True,
+            "exact_deployment_commit": False,
+            "bootstrap_http_ok": True,
+            "expected_venue_count": True,
+            "bootstrap_contains_no_email": True,
+            "observation_requires_authentication": True,
+        }
+
+        self.assertTrue(
+            webapp_production_health.deployment_is_propagating({"checks": healthy_checks})
+        )
+        self.assertFalse(
+            webapp_production_health.deployment_is_propagating(
+                {"checks": {**healthy_checks, "bootstrap_http_ok": False}}
+            )
+        )
+        self.assertFalse(
+            webapp_production_health.deployment_is_propagating(
+                {"checks": {**healthy_checks, "exact_deployment_commit": True}}
+            )
+        )
+
+        stale = {"ok": False, "checks": healthy_checks}
+        ready = {
+            "ok": True,
+            "checks": {**healthy_checks, "exact_deployment_commit": True},
+        }
+        with (
+            patch.object(
+                webapp_production_health,
+                "inspect_production",
+                side_effect=[stale, ready],
+            ) as inspect,
+            patch.object(
+                webapp_production_health.time,
+                "monotonic",
+                side_effect=[0, 1],
+            ),
+            patch.object(webapp_production_health.time, "sleep") as sleep,
+        ):
+            result = webapp_production_health.wait_for_production(
+                base_url="https://example.invalid",
+                expected_commit="a" * 40,
+                expected_venue_count=7,
+                propagation_timeout_seconds=10,
+                retry_interval_seconds=5,
+            )
+
+        self.assertIs(result, ready)
+        self.assertEqual(inspect.call_count, 2)
+        sleep.assert_called_once_with(5)
+
     def test_application_preflights_do_not_require_local_database_backups(self):
         for name in ("deploy_check.py", "rollback_check.py"):
             source = (SCRIPTS_DIR / name).read_text(encoding="utf-8")
