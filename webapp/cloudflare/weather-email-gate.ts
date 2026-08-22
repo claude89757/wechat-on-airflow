@@ -63,6 +63,7 @@ function configuredNumber(
   fallback: number,
   valid: (candidate: number) => boolean,
 ): number {
+  if (value === undefined || value.trim() === "") return fallback;
   const candidate = Number(value);
   return Number.isFinite(candidate) && valid(candidate) ? candidate : fallback;
 }
@@ -98,8 +99,12 @@ function parsePrecipitation(payload: OpenMeteoResponse, forecastDate: string): n
   }
   const index = times.indexOf(forecastDate);
   if (index < 0) throw new Error("Open-Meteo response does not include the Shenzhen date");
-  const precipitationMm = Number(totals[index]);
-  if (!Number.isFinite(precipitationMm) || precipitationMm < 0) {
+  const precipitationMm = totals[index];
+  if (
+    typeof precipitationMm !== "number"
+    || !Number.isFinite(precipitationMm)
+    || precipitationMm < 0
+  ) {
     throw new Error("Open-Meteo precipitation total is invalid");
   }
   return precipitationMm;
