@@ -52,7 +52,7 @@ jobs:
       WECHAT_SENDER_SSH_PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
       WECHAT_SENDER_SSH_USER: ${{ secrets.WECHAT_SENDER_SSH_USER }}
     steps:
-      - uses: actions/checkout@3d342e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.target_commit }}
           fetch-depth: 0
