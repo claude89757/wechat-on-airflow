@@ -11,7 +11,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: production-ops-chatops
+  group: production-ops-chatops-${{ github.event.comment.id }}
   cancel-in-progress: false
 
 jobs:
@@ -70,14 +70,38 @@ jobs:
 
   diagnose:
     needs: parse
-    uses: ./.github/workflows/production-airflow.yml
-    with:
-      operation: webapp_observation_diagnose
-      target_commit: ${{ needs.parse.outputs.target_commit }}
-      request_id: ops-${{ github.run_id }}
-      confirm_real_send: false
-      probe_target_membership: all
-    secrets: inherit
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.parse.outputs.target_commit }}
+          fetch-depth: 0
+      - name: Validate exact main target
+        env:
+          TARGET_COMMIT: ${{ needs.parse.outputs.target_commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Diagnose Airflow to Web observations
+        run: bash scripts/diagnose_webapp_observation.sh
 
   report:
     if: always() && needs.parse.result != 'skipped'
