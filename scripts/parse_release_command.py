@@ -6,7 +6,10 @@ import re
 from dataclasses import asdict, dataclass
 
 COMMAND_RE = re.compile(
-    r"^\s*/release\s+(preflight|apply)\s+([0-9a-fA-F]{40})(?:\s+sender=(true|false))?\s*$"
+    r"^\s*/release\s+"
+    r"(preflight|apply)\s+"
+    r"([0-9a-fA-F]{40})"
+    r"(?:\s+sender=(true|false))?\s*$"
 )
 
 
@@ -20,14 +23,14 @@ class ReleaseCommand:
 def parse_release_command(body: str) -> ReleaseCommand:
     match = COMMAND_RE.fullmatch(body)
     if not match:
-        raise ValueError(
-            "expected: /release <preflight|apply> <40-char-sha> [sender=true|false]"
-        )
+        message = "expected: /release <preflight|apply> <40-char-sha> [sender=true|false]"
+        raise ValueError(message)
     mode, target_commit, sender = match.groups()
+    sender_enabled = sender == "true"
     return ReleaseCommand(
         mode=mode,
         target_commit=target_commit.lower(),
-        include_sender=sender == "true" if sender is not None else False,
+        include_sender=sender_enabled,
     )
 
 
@@ -36,7 +39,11 @@ def main() -> None:
         description="Parse a production release ChatOps command."
     )
     parser.add_argument("command")
-    parser.add_argument("--format", choices=("json", "github-output"), default="json")
+    parser.add_argument(
+        "--format",
+        choices=("json", "github-output"),
+        default="json",
+    )
     args = parser.parse_args()
 
     command = parse_release_command(args.command)
@@ -44,9 +51,10 @@ def main() -> None:
         print(json.dumps(asdict(command), separators=(",", ":")))
         return
 
+    sender = "true" if command.include_sender else "false"
     print(f"mode={command.mode}")
     print(f"target_commit={command.target_commit}")
-    print(f"include_sender={'true' if command.include_sender else 'false'}")
+    print(f"include_sender={sender}")
 
 
 if __name__ == "__main__":
