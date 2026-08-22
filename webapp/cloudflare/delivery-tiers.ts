@@ -10,8 +10,8 @@ export type DeliveryTierLimits = {
   priority: number;
 };
 
-const DEFAULT_STANDARD_DAILY_EMAIL_LIMIT = 3;
-const DEFAULT_PRIORITY_DAILY_EMAIL_LIMIT = 12;
+const DEFAULT_STANDARD_DAILY_EMAIL_LIMIT = 30;
+const DEFAULT_PRIORITY_DAILY_EMAIL_LIMIT = 100;
 
 function positiveInteger(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
