@@ -7,6 +7,8 @@ from uuid import uuid4
 
 
 class WebappDeliveryTiersMigrationTest(TestCase):
+    """Validate D1 schema and quota SQL against SQLite semantics."""
+
     def setUp(self) -> None:
         self.database = sqlite3.connect(":memory:")
         self.database.executescript(
