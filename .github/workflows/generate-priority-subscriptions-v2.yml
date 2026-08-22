@@ -1,0 +1,235 @@
+name: Generate priority subscription implementation
+
+on:
+  push:
+    branches:
+      - feat/priority-long-term-subscriptions-v2
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: generate-priority-subscriptions-v2
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    if: contains(github.event.head_commit.message, '[generate-priority-v2]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/priority-long-term-subscriptions-v2
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Restore feature source and patches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REF: feat/priority-long-term-subscriptions
+        run: |
+          set -euo pipefail
+          for path in \
+            webapp/cloudflare/subscription-terms.ts \
+            webapp/cloudflare/subscription-terms.test.ts \
+            webapp/src/dashboard-state.ts \
+            webapp/cloudflare/dashboard-state.test.ts \
+            webapp/migrations/0005_add_subscription_terms.sql \
+            scripts/create_priority_invite.sh \
+            .feature-bootstrap/patch_ui.py \
+            .feature-bootstrap/patch_css.py
+          do
+            mkdir -p "$(dirname "$path")"
+            gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$SOURCE_REF" --jq .content \
+              | tr -d '\n' | base64 -d > "$path"
+          done
+          for entry in \
+            patch_backend.py:413b29e41b694823a9b8f13246effab2f52ec5c6 \
+            patch_api.py:f23c033e94312d330c41a5b69cd34713437a0763
+          do
+            name="${entry%%:*}"
+            sha="${entry##*:}"
+            gh api "repos/$GITHUB_REPOSITORY/git/blobs/$sha" --jq .content \
+              | tr -d '\n' | base64 -d > ".feature-bootstrap/$name"
+          done
+      - name: Apply source transformations
+        run: |
+          set -euo pipefail
+          python .feature-bootstrap/patch_backend.py
+          python .feature-bootstrap/patch_api.py
+          python .feature-bootstrap/patch_ui.py
+          python .feature-bootstrap/patch_css.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('webapp/wrangler.jsonc')
+          text=p.read_text()
+          old='''    "STANDARD_DAILY_EMAIL_LIMIT": "30",\n    "PRIORITY_DAILY_EMAIL_LIMIT": "100"'''
+          new='''    "STANDARD_DAILY_EMAIL_LIMIT": "30",\n    "PRIORITY_DAILY_EMAIL_LIMIT": "100",\n    "STANDARD_ACTIVE_SUBSCRIPTION_LIMIT": "5",\n    "PRIORITY_ACTIVE_SUBSCRIPTION_LIMIT": "20"'''
+          if old not in text:
+              raise SystemExit('wrangler limits block not found')
+          p.write_text(text.replace(old,new,1))
+          PY
+      - name: Add protected invite ChatOps workflow
+        run: |
+          cat > .github/workflows/priority-invite-chatops.yml <<'YAML'
+          name: Priority Invite ChatOps
+          run-name: priority-invite/${{ github.event.comment.id }}
+
+          on:
+            issue_comment:
+              types: [created]
+
+          permissions:
+            checks: read
+            contents: read
+            issues: write
+
+          concurrency:
+            group: priority-invite-chatops
+            cancel-in-progress: false
+
+          jobs:
+            parse:
+              if: >-
+                github.event.issue.number == 39 &&
+                github.event.comment.user.login == github.repository_owner &&
+                startsWith(github.event.comment.body, '/invite ')
+              runs-on: ubuntu-latest
+              outputs:
+                target_commit: ${{ steps.command.outputs.target_commit }}
+              steps:
+                - name: Parse exact invite command
+                  id: command
+                  shell: bash
+                  env:
+                    INVITE_COMMAND: ${{ github.event.comment.body }}
+                  run: |
+                    set -euo pipefail
+                    pattern='^/invite create ([0-9A-Fa-f]{40})$'
+                    if [[ ! "$INVITE_COMMAND" =~ $pattern ]]; then
+                      echo 'Expected: /invite create <40-char-sha>' >&2
+                      exit 2
+                    fi
+                    echo "target_commit=${BASH_REMATCH[1],,}" >> "$GITHUB_OUTPUT"
+                - name: Wait for main CI verify
+                  env:
+                    GH_TOKEN: ${{ github.token }}
+                    TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+                  run: |
+                    set -euo pipefail
+                    deadline=$((SECONDS + 1800))
+                    while (( SECONDS < deadline )); do
+                      result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_COMMIT/check-runs" \
+                        --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+                      if [[ "$result" == $'completed\tsuccess' ]]; then exit 0; fi
+                      if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then exit 1; fi
+                      sleep 10
+                    done
+                    exit 1
+                - name: Acknowledge invite creation
+                  env:
+                    GH_TOKEN: ${{ github.token }}
+                    ISSUE_NUMBER: ${{ github.event.issue.number }}
+                    TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+                    RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  run: |
+                    gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+                      "Accepted protected priority invite creation for \`$TARGET_COMMIT\`. Run: $RUN_URL"
+
+            create:
+              needs: parse
+              runs-on: ubuntu-latest
+              environment: production
+              timeout-minutes: 10
+              env:
+                AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+                AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+                AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+                AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+              steps:
+                - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+                  with:
+                    ref: ${{ needs.parse.outputs.target_commit }}
+                    fetch-depth: 0
+                - name: Validate exact main target
+                  env:
+                    TARGET_COMMIT: ${{ needs.parse.outputs.target_commit }}
+                  run: |
+                    set -euo pipefail
+                    test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+                    git fetch --quiet origin main
+                    git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+                - name: Configure production SSH identity
+                  env:
+                    SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+                    SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+                  run: |
+                    umask 077
+                    mkdir -p ~/.ssh
+                    printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+                    printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+                - name: Create one protected priority invite
+                  run: bash scripts/create_priority_invite.sh
+                - name: Upload protected priority invite
+                  uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+                  with:
+                    name: priority-invite-${{ github.run_id }}
+                    path: .local/diagnostics/priority-invite.json
+                    if-no-files-found: error
+                    retention-days: 1
+
+            report:
+              if: always() && needs.parse.result != 'skipped'
+              needs: [parse, create]
+              runs-on: ubuntu-latest
+              steps:
+                - name: Report invite result
+                  env:
+                    GH_TOKEN: ${{ github.token }}
+                    ISSUE_NUMBER: ${{ github.event.issue.number }}
+                    TARGET_COMMIT: ${{ needs.parse.outputs.target_commit }}
+                    RESULT: ${{ needs.create.result }}
+                    RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  run: |
+                    gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+                      "Protected priority invite creation for \`$TARGET_COMMIT\`: \`$RESULT\`. Run: $RUN_URL"
+                    test "$RESULT" = success
+          YAML
+      - name: Verify Web application
+        working-directory: webapp
+        run: |
+          npm ci
+          npm test
+          npm run check:worker
+          npm run build
+      - name: Commit generated implementation
+        env:
+          BRANCH: feat/priority-long-term-subscriptions-v2
+        run: |
+          set -euo pipefail
+          rm -rf .feature-bootstrap
+          rm .github/workflows/generate-priority-subscriptions-v2.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat(webapp): add long-term priority subscriptions"
+          git push origin "HEAD:$BRANCH"
+      - name: Report generation success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "Clean priority subscription feature generation succeeded. Run: $RUN_URL"
+      - name: Report generation failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "Clean priority subscription feature generation failed. Run: $RUN_URL"
