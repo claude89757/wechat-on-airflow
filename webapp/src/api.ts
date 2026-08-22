@@ -31,6 +31,7 @@ export type Dashboard = {
     healthyVenues: number;
     totalVenues: number;
   };
+  deliveryTiers: { standard: number; priority: number };
   venues: VenueStatus[];
   identity: {
     verified: boolean;
@@ -60,6 +61,7 @@ export const FALLBACK_DASHBOARD: Dashboard = {
     healthyVenues: 7,
     totalVenues: 7,
   },
+  deliveryTiers: { standard: 30, priority: 100 },
   venues: [
     {
       id: "szw",
@@ -123,8 +125,8 @@ export const FALLBACK_DASHBOARD: Dashboard = {
     maskedEmail: null,
     remindersToday: 0,
     tier: "standard",
-    dailyLimit: 3,
-    remainingToday: 3,
+    dailyLimit: 30,
+    remainingToday: 30,
   },
   subscriptions: [],
 };
@@ -137,6 +139,7 @@ export const EMPTY_DASHBOARD: Dashboard = {
     healthyVenues: 0,
     totalVenues: 7,
   },
+  deliveryTiers: { standard: 30, priority: 100 },
   venues: FALLBACK_DASHBOARD.venues.map((venue) => ({
     ...venue,
     healthy: false,
@@ -149,8 +152,8 @@ export const EMPTY_DASHBOARD: Dashboard = {
     maskedEmail: null,
     remindersToday: 0,
     tier: "standard",
-    dailyLimit: 3,
-    remainingToday: 3,
+    dailyLimit: 30,
+    remainingToday: 30,
   },
   subscriptions: [],
 };

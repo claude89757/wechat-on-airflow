@@ -1067,3 +1067,49 @@
   color: #6f4c13;
   font-size: 18px;
 }
+
+
+.quota-rules {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(42, 112, 105, 0.12);
+  border-radius: 16px;
+  background: #f7fbfa;
+  color: #61736f;
+  font-size: 12px;
+  line-height: 1.55;
+  list-style: none;
+}
+
+.quota-rules li {
+  position: relative;
+  padding-left: 18px;
+}
+
+.quota-rules li::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--teal);
+  content: "✓";
+  font-weight: 800;
+}
+
+.quota-rules strong {
+  color: #244c47;
+}
+
+.invite-example {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #edf6f3;
+  color: #236b63;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}

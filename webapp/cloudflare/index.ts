@@ -16,6 +16,7 @@ import {
 } from "./domain";
 import {
   deliveryLimitForTier,
+  deliveryTierLimits,
   normalizeDeliveryTier,
   remainingDailyDeliveries,
   type DeliveryTier,
@@ -264,7 +265,8 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
       (results[5].results[0] as { tier?: string } | undefined)?.tier,
     )
     : "standard";
-  const identityDailyLimit = deliveryLimitForTier(env, identityTier);
+  const tierLimits = deliveryTierLimits(env);
+  const identityDailyLimit = tierLimits[identityTier];
 
   return json({
     generatedAt: nowIso,
@@ -274,6 +276,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
       healthyVenues: venues.filter((venue) => venue.healthy).length,
       totalVenues: venues.length,
     },
+    deliveryTiers: tierLimits,
     venues,
     identity: {
       verified: Boolean(identity),

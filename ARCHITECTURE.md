@@ -140,9 +140,10 @@ payload handling. Their exact modules are a bounded typing backlog in
 
 The Web application applies per-recipient frequency caps after the Shenzhen
 weather gate and before Tencent SES delivery. Standard recipients receive up to
-three digest emails per Shanghai calendar day; priority recipients receive up
-to twelve and are processed first when the global daily provider budget is
-constrained. Both values are Worker vars.
+30 digest emails per Shanghai calendar day; priority recipients receive up to
+100 and are processed first when the global daily provider budget is
+constrained. Both values are Worker vars and are returned to the Web client so
+visible quota copy matches backend enforcement.
 
 A D1 delivery claim reserves one per-user delivery before SES is called so
 overlapping scheduled and ingestion-triggered drains cannot race past the cap.
@@ -151,6 +152,7 @@ expire automatically. Over-cap outbox rows are marked `suppressed` and are not
 replayed later because the court slot can become stale.
 
 Priority status is keyed by normalized verified email. A protected internal API
-creates high-entropy, one-time, expiring invite codes and returns plaintext only
+creates short, memorable, one-time invite phrases from independently random
+word segments plus an ambiguity-free random suffix, and returns plaintext only
 once. D1 stores only an HMAC-SHA-256 code hash. Redemption requires a valid
 browser receipt and is rate-limited by both verified email and hashed IP.

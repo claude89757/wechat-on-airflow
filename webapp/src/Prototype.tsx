@@ -527,17 +527,18 @@ export default function Prototype() {
                       {dashboard.identity.tier === "priority" ? "优先用户" : "普通用户"}
                     </strong>
                     <small>
-                      今日已发送 {dashboard.identity.remindersToday}/{dashboard.identity.dailyLimit} 封
+                      今日 {dashboard.identity.remindersToday}/{dashboard.identity.dailyLimit} 封
+                      · 还可发送 {dashboard.identity.remainingToday} 封
                     </small>
                   </span>
                 </span>
-                {dashboard.identity.tier === "priority" ? (
-                  <span className="tier-enabled">优先队列已开启</span>
-                ) : (
-                  <button type="button" onClick={() => openPanel("priority")}>
-                    输入邀请码
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className={dashboard.identity.tier === "priority" ? "tier-enabled" : undefined}
+                  onClick={() => openPanel("priority")}
+                >
+                  {dashboard.identity.tier === "priority" ? "查看规则" : "输入邀请码"}
+                </button>
               </div>
             ) : null}
 
@@ -613,7 +614,7 @@ export default function Prototype() {
             ? "只设置提醒条件，不展示或代订场地。"
             : undefined
         }
-        snap={panel === "create" ? 0.86 : panel === "priority" ? 0.66 : 0.72}
+        snap={panel === "create" ? 0.86 : panel === "priority" ? 0.82 : 0.72}
       >
         {panel === "help" ? (
           <div className="help-content">
@@ -627,7 +628,17 @@ export default function Prototype() {
             </div>
             <div className="help-row">
               <span>3</span>
-              <div><strong>命中后发邮件</strong><p>只有出现符合条件的场地位才会通知，不会重复轰炸。</p></div>
+              <div><strong>命中后发邮件</strong><p>同一轮的多个场地和时段会合并为一封摘要邮件。</p></div>
+            </div>
+            <div className="help-row">
+              <span>4</span>
+              <div>
+                <strong>每日邮件额度</strong>
+                <p>
+                  普通用户每天最多 {dashboard.deliveryTiers.standard} 封，优先用户最多
+                  {dashboard.deliveryTiers.priority} 封；按深圳时间 00:00 重置。
+                </p>
+              </div>
             </div>
           </div>
         ) : null}
@@ -673,15 +684,22 @@ export default function Prototype() {
             <div className="tier-comparison">
               <article>
                 <span>普通用户</span>
-                <strong>默认 3 封/天</strong>
-                <p>适合日常关注；达到上限后，当天后续场地提醒不再补发。</p>
+                <strong>{dashboard.deliveryTiers.standard} 封/天</strong>
+                <p>邮箱验证后自动获得，适合日常关注场地空位。</p>
               </article>
               <article className="featured">
                 <span><StarIcon size={17} weight="fill" />优先用户</span>
-                <strong>默认 12 封/天</strong>
-                <p>更高提醒额度，并在系统全局邮件额度紧张时优先处理。</p>
+                <strong>{dashboard.deliveryTiers.priority} 封/天</strong>
+                <p>使用一次性趣味口令升级，全局邮件额度紧张时优先处理。</p>
               </article>
             </div>
+
+            <ul className="quota-rules">
+              <li><strong>每天重置：</strong>按深圳时间 00:00 重新计算。</li>
+              <li><strong>摘要计数：</strong>一封邮件可合并多个场地和时段，只计 1 封。</li>
+              <li><strong>达到上限：</strong>当天后续空位邮件不发送，也不会隔天补发旧空位。</li>
+              <li><strong>不计额度：</strong>邮箱验证码和微信消息不受档位限制。</li>
+            </ul>
 
             {receipt ? (
               dashboard.identity.tier === "priority" ? (
@@ -702,21 +720,22 @@ export default function Prototype() {
                       autoCapitalize="characters"
                       autoComplete="off"
                       spellCheck={false}
-                      maxLength={40}
-                      placeholder="ZACKS-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX"
+                      maxLength={32}
+                      placeholder="ACE-SUNNY-PANDA-7K9P2Q"
                       value={inviteCode}
                       onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
                     />
                   </label>
                   <p className="verification-note">
-                    邀请码仅可使用一次。验证成功后，优先档位会跟随此邮箱，
-                    更换浏览器重新验证邮箱后仍然有效。
+                    这是一个短而有趣的一次性口令，例如
+                    <code className="invite-example">ACE-SUNNY-PANDA-7K9P2Q</code>。
+                    不区分大小写，空格或连字符都可以；升级后优先档位会跟随此邮箱。
                   </p>
                   {formError ? <p className="form-error" role="alert">{formError}</p> : null}
                   <button
                     className="sheet-primary"
                     type="button"
-                    disabled={formBusy || inviteCode.replace(/[^A-Z0-9]/gi, "").length !== 33}
+                    disabled={formBusy || inviteCode.trim().length < 12}
                     onClick={() => void redeemInvite()}
                   >
                     {formBusy ? "正在验证…" : "验证邀请码并升级"}

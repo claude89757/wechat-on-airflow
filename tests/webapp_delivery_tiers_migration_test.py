@@ -128,7 +128,7 @@ class WebappDeliveryTiersMigrationTest(TestCase):
         day_start = "2026-08-21T16:00:00.000Z"
         delivery_day = "2026-08-22"
         email = "user@example.com"
-        for index in range(2):
+        for index in range(29):
             self.database.execute(
                 """
                 INSERT INTO notification_outbox
@@ -181,7 +181,7 @@ class WebappDeliveryTiersMigrationTest(TestCase):
                     email,
                     delivery_day,
                     now - 600_000,
-                    3,
+                    30,
                 ),
             )
             return result.rowcount

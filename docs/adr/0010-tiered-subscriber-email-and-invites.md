@@ -14,9 +14,10 @@ small priority cohort without introducing passwords or a full account system.
 ## Decision
 
 - Apply a per-recipient Shanghai-calendar-day cap to provider digest deliveries.
-- Start with 3 deliveries per day for standard users and 12 for priority users.
-  Both are configuration values and should be reviewed from delivery,
-  suppression, complaint, and engagement data.
+- Start with 30 deliveries per day for standard users and 100 for priority users.
+  Both are configuration values, are returned to the Web client for transparent
+  display, and should be reviewed from delivery, suppression, complaint, and
+  engagement data.
 - Keep aggregating all currently claimed slot rows for a recipient into one
   digest; the digest, not each slot, consumes one unit.
 - Suppress over-cap reminders instead of carrying them to the next day, because
@@ -29,10 +30,12 @@ small priority cohort without introducing passwords or a full account system.
 - Bind priority status to the normalized verified email. A successful upgrade
   remains active until an operator explicitly revokes it; invite expiry controls
   only the redemption window.
-- Provision one-time expiring invite codes through a separately authenticated
-  internal endpoint. Generate at least 128 bits of CSPRNG entropy, return
-  plaintext once, and store only an HMAC-SHA-256 hash protected by a Worker
-  secret.
+- Provision one-time expiring invite phrases through a separately authenticated
+  internal endpoint. Generate two independently random, human-readable word
+  segments plus a six-character ambiguity-free random suffix, return plaintext
+  once, and store only an HMAC-SHA-256 hash protected by a Worker secret. This
+  shorter code is not an authentication session; verified-email and hashed-IP
+  rate limits remain mandatory defenses against online guessing.
 - Require a valid verified-email receipt to redeem and rate-limit attempts by
   both verified identity and hashed IP.
 

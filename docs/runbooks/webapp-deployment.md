@@ -119,11 +119,13 @@ bounded drain unless the weather gate records them as intentionally
 Venue reminder email is frequency-capped per normalized recipient and Shanghai
 calendar day:
 
-- standard user: `STANDARD_DAILY_EMAIL_LIMIT=3`
-- priority user: `PRIORITY_DAILY_EMAIL_LIMIT=12`
+- standard user: `STANDARD_DAILY_EMAIL_LIMIT=30`
+- priority user: `PRIORITY_DAILY_EMAIL_LIMIT=100`
 
 One provider digest counts as one delivery even when it contains multiple
-court-slot rows. Verification codes do not count. Once a user reaches the cap,
+court-slot rows. The Web UI displays both tier limits, the current user's sent
+and remaining counts, the Shenzhen-midnight reset, and all exclusions.
+Verification codes do not count. Once a user reaches the cap,
 later venue reminder rows are marked `suppressed` and are not queued for the
 next day. Priority users are processed before standard users only when the
 global provider budget is constrained; this is not a delivery guarantee.
@@ -145,8 +147,10 @@ curl -X POST https://zacks.claude89757.cc/api/internal/priority-invites \
 ```
 
 Never paste returned codes into logs, issues, CI output, or repository files.
-Each code contains 140 bits of cryptographic randomness, expires, and can be
-redeemed once. A verified user redeems it from the Web UI. A successful priority
+Each code is a short memorable phrase such as
+`ACE-SUNNY-PANDA-7K9P2Q`: two CSPRNG-selected word segments plus a six-character
+ambiguity-free random suffix. It expires and can be redeemed once. A verified
+user redeems it from the Web UI. A successful priority
 upgrade remains attached to that normalized email until an operator sets
 `revoked_at`; the invite expiry controls only when the code may be redeemed.
 Already-priority identities return their current status without consuming
@@ -158,8 +162,8 @@ the Worker. Verify that:
 
 - bootstrap returns `tier`, `dailyLimit`, and `remainingToday` only for the
   currently verified identity;
-- the fourth standard digest in one Shanghai day is suppressed;
-- a priority identity can receive up to twelve digests;
+- the thirty-first standard digest in one Shanghai day is suppressed;
+- a priority identity can receive up to one hundred digests;
 - concurrent drains cannot exceed either cap;
 - verification email bypasses the tier cap;
 - invite creation rejects a missing or wrong admin token;
