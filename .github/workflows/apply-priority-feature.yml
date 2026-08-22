@@ -1,0 +1,75 @@
+name: Apply priority subscription feature
+
+on:
+  push:
+    branches:
+      - feat/priority-long-term-subscriptions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-priority-subscription-feature
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      contains(github.event.head_commit.message, '[apply-priority-feature]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/priority-long-term-subscriptions
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Restore backend patches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for entry in \
+            patch_backend.py:413b29e41b694823a9b8f13246effab2f52ec5c6 \
+            patch_api.py:f23c033e94312d330c41a5b69cd34713437a0763
+          do
+            name="${entry%%:*}"
+            sha="${entry##*:}"
+            gh api "repos/$GITHUB_REPOSITORY/git/blobs/$sha" --jq .content \
+              | tr -d '\n' | base64 -d > ".feature-bootstrap/$name"
+          done
+      - name: Apply generated source changes
+        run: |
+          set -euo pipefail
+          python .feature-bootstrap/patch_backend.py
+          python .feature-bootstrap/patch_api.py
+          python .feature-bootstrap/patch_ui.py
+          python .feature-bootstrap/patch_css.py
+          python .feature-bootstrap/patch_ops.py
+      - name: Verify Web application
+        working-directory: webapp
+        run: |
+          npm ci
+          npm test
+          npm run check:worker
+          npm run build
+      - name: Commit generated implementation
+        env:
+          BRANCH: feat/priority-long-term-subscriptions
+        run: |
+          set -euo pipefail
+          rm -rf .feature-bootstrap
+          rm .github/workflows/apply-priority-feature.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat(webapp): add long-term priority subscriptions"
+          git push origin "HEAD:$BRANCH"
