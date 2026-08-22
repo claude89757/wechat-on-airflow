@@ -1,0 +1,175 @@
+name: Current Main ChatOps
+run-name: current-main-chatops/${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  checks: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: current-main-chatops-${{ github.event.comment.id }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    if: >-
+      github.event.issue.number == 39 &&
+      github.event.comment.user.login == github.repository_owner &&
+      (
+        github.event.comment.body == '/release-current preflight' ||
+        github.event.comment.body == '/release-current apply' ||
+        github.event.comment.body == '/invite-current'
+      )
+    runs-on: ubuntu-latest
+    outputs:
+      command: ${{ steps.command.outputs.command }}
+      mode: ${{ steps.command.outputs.mode }}
+      target_commit: ${{ steps.command.outputs.target_commit }}
+    steps:
+      - name: Resolve exact current-main command
+        id: command
+        shell: bash
+        env:
+          CHATOPS_COMMAND: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$CHATOPS_COMMAND" in
+            '/release-current preflight')
+              command=release
+              mode=preflight
+              ;;
+            '/release-current apply')
+              command=release
+              mode=apply
+              ;;
+            '/invite-current')
+              command=invite
+              mode=invite
+              ;;
+            *)
+              exit 2
+              ;;
+          esac
+          target_commit="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
+          {
+            echo "command=$command"
+            echo "mode=$mode"
+            echo "target_commit=$target_commit"
+          } >> "$GITHUB_OUTPUT"
+      - name: Wait for current main CI verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1800))
+          while (( SECONDS < deadline )); do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_COMMIT/check-runs" \
+              --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+            if [[ "$result" == $'completed\tsuccess' ]]; then
+              exit 0
+            fi
+            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
+              echo "CI verify failed: $result" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for CI verify on $TARGET_COMMIT" >&2
+          exit 1
+      - name: Acknowledge accepted command
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMAND: ${{ steps.command.outputs.command }}
+          MODE: ${{ steps.command.outputs.mode }}
+          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Accepted current-main \`$COMMAND/$MODE\` for \`$TARGET_COMMIT\`. Run: $RUN_URL"
+
+  release:
+    if: needs.resolve.outputs.command == 'release'
+    needs: resolve
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: ${{ needs.resolve.outputs.mode }}
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      include_sender: false
+    secrets: inherit
+
+  invite:
+    if: needs.resolve.outputs.command == 'invite'
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.target_commit }}
+          fetch-depth: 0
+      - name: Validate exact current-main target
+        env:
+          TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          test "$(git rev-parse origin/main)" = "$TARGET_COMMIT"
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Create one protected priority invite
+        run: bash scripts/create_priority_invite.sh
+      - name: Upload protected priority invite
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: priority-invite-${{ github.run_id }}
+          path: .local/diagnostics/priority-invite.json
+          if-no-files-found: error
+          retention-days: 1
+
+  report:
+    if: always() && needs.resolve.result != 'skipped'
+    needs: [resolve, release, invite]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report current-main operation result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMAND: ${{ needs.resolve.outputs.command }}
+          MODE: ${{ needs.resolve.outputs.mode }}
+          TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          INVITE_RESULT: ${{ needs.invite.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$COMMAND" = release ]; then
+            result="$RELEASE_RESULT"
+          else
+            result="$INVITE_RESULT"
+          fi
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Current-main \`$COMMAND/$MODE\` for \`$TARGET_COMMIT\`: \`$result\`. Run: $RUN_URL"
+          test "$result" = success
