@@ -135,3 +135,22 @@ task IDs against that manifest.
 The venue and proxy adapters were moved without rewriting their dynamic API
 payload handling. Their exact modules are a bounded typing backlog in
 `pyproject.toml`; all other source modules remain under strict mypy checking.
+
+## Subscriber Delivery Tiers
+
+The Web application applies per-recipient frequency caps after the Shenzhen
+weather gate and before Tencent SES delivery. Standard recipients receive up to
+three digest emails per Shanghai calendar day; priority recipients receive up
+to twelve and are processed first when the global daily provider budget is
+constrained. Both values are Worker vars.
+
+A D1 delivery claim reserves one per-user delivery before SES is called so
+overlapping scheduled and ingestion-triggered drains cannot race past the cap.
+Successful sends finalize the claim; failures release it; stale reservations
+expire automatically. Over-cap outbox rows are marked `suppressed` and are not
+replayed later because the court slot can become stale.
+
+Priority status is keyed by normalized verified email. A protected internal API
+creates high-entropy, one-time, expiring invite codes and returns plaintext only
+once. D1 stores only an HMAC-SHA-256 code hash. Redemption requires a valid
+browser receipt and is rate-limited by both verified email and hashed IP.

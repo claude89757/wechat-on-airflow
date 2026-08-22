@@ -1,0 +1,47 @@
+# ADR 0010: Tiered Subscriber Email And Priority Invites
+
+- Status: Accepted
+- Date: 2026-08-22
+
+## Context
+
+The subscription Worker can generate many time-sensitive venue-reminder emails
+for one recipient in a day. A global Tencent SES budget protects the provider
+account but does not prevent one highly active subscriber from consuming a
+disproportionate share or receiving excessive mail. The product also needs a
+small priority cohort without introducing passwords or a full account system.
+
+## Decision
+
+- Apply a per-recipient Shanghai-calendar-day cap to provider digest deliveries.
+- Start with 3 deliveries per day for standard users and 12 for priority users.
+  Both are configuration values and should be reviewed from delivery,
+  suppression, complaint, and engagement data.
+- Keep aggregating all currently claimed slot rows for a recipient into one
+  digest; the digest, not each slot, consumes one unit.
+- Suppress over-cap reminders instead of carrying them to the next day, because
+  venue availability is time-sensitive and deferred mail can be misleading.
+- Exclude verification codes from the cap.
+- Resolve the tier at send time. Priority users are ordered first when the
+  existing global provider budget is constrained.
+- Use an atomic D1 delivery reservation to prevent overlapping Worker drains
+  from racing past a recipient's limit.
+- Bind priority status to the normalized verified email.
+- Provision one-time expiring invite codes through a separately authenticated
+  internal endpoint. Generate at least 128 bits of CSPRNG entropy, return
+  plaintext once, and store only an HMAC-SHA-256 hash protected by a Worker
+  secret.
+- Require a valid verified-email receipt to redeem and rate-limit attempts by
+  both verified identity and hashed IP.
+
+## Consequences
+
+- Email volume and message fatigue are bounded per recipient.
+- Priority users gain a larger cap and queue precedence without bypassing the
+  weather gate, verification requirements, or the global provider budget.
+- Over-cap events are intentionally lost; WeChat remains independent and is not
+  controlled by these email tiers.
+- Operations must apply a D1 migration and configure two additional Worker
+  secrets before deployment.
+- Invite codes are not recoverable from D1. Lost plaintext codes must be
+  replaced, not retrieved.

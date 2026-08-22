@@ -12,6 +12,8 @@ import {
   PlusCircleIcon,
   QuestionIcon,
   ShieldCheckIcon,
+  StarIcon,
+  KeyIcon,
   TennisBallIcon,
   TrashIcon,
   UsersThreeIcon,
@@ -27,6 +29,7 @@ import {
   loadReceipts,
   removeReceipt,
   requestVerificationCode,
+  redeemPriorityInvite,
   saveReceipt,
   type Dashboard,
   type VenueId,
@@ -37,7 +40,7 @@ import { LULU_LABELS, resolveLuluState } from "./lulu";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
 import { isTextEntry, useNativeKeyboardViewport } from "./nativeKeyboard";
 
-type Panel = "create" | "help" | "subscriptions" | null;
+type Panel = "create" | "help" | "subscriptions" | "priority" | null;
 
 const VENUE_ACCENTS: Record<VenueId, string> = {
   szw: "teal",
@@ -152,6 +155,9 @@ export default function Prototype() {
           verified: true,
           maskedEmail: receipt.maskedEmail,
           remindersToday: initialDashboard.identity.remindersToday,
+          tier: initialDashboard.identity.tier,
+          dailyLimit: initialDashboard.identity.dailyLimit,
+          remainingToday: initialDashboard.identity.remainingToday,
         }
       : initialDashboard.identity,
   }));
@@ -171,6 +177,7 @@ export default function Prototype() {
   const [startTime, setStartTime] = useState("18:00");
   const [endTime, setEndTime] = useState("22:00");
   const [durationDays, setDurationDays] = useState(7);
+  const [inviteCode, setInviteCode] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -192,6 +199,9 @@ export default function Prototype() {
               verified: true,
               maskedEmail: receipt.maskedEmail,
               remindersToday: unavailable.identity.remindersToday,
+              tier: unavailable.identity.tier,
+              dailyLimit: unavailable.identity.dailyLimit,
+              remainingToday: unavailable.identity.remainingToday,
             }
           : unavailable.identity,
       });
@@ -283,6 +293,7 @@ export default function Prototype() {
     setEmail("");
     setChallengeId("");
     setCode("");
+    setInviteCode("");
     setFormError("");
     setPanel("create");
   };
@@ -314,6 +325,26 @@ export default function Prototype() {
       setToast("邮箱验证成功");
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "验证码无效");
+    } finally {
+      setFormBusy(false);
+    }
+  };
+
+  const redeemInvite = async () => {
+    if (!receipt) {
+      setFormError("请先验证邮箱");
+      return;
+    }
+    setFormBusy(true);
+    setFormError("");
+    try {
+      await redeemPriorityInvite(receipt, inviteCode.trim());
+      setInviteCode("");
+      setPanel(null);
+      setToast("邀请码验证成功，已升级为优先用户");
+      await refresh();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "邀请码验证失败");
     } finally {
       setFormBusy(false);
     }
@@ -378,6 +409,7 @@ export default function Prototype() {
   const panelTitle = useMemo(() => {
     if (panel === "help") return "提醒如何工作";
     if (panel === "subscriptions") return "我的订阅";
+    if (panel === "priority") return "提醒档位";
     return receipt ? "创建订阅" : "验证邮箱";
   }, [panel, receipt]);
 
@@ -486,6 +518,29 @@ export default function Prototype() {
               ) : null}
             </div>
 
+            {activeIdentity ? (
+              <div className={`tier-row tier-${dashboard.identity.tier}`}>
+                <span className="tier-summary">
+                  <StarIcon size={20} weight="fill" />
+                  <span>
+                    <strong>
+                      {dashboard.identity.tier === "priority" ? "优先用户" : "普通用户"}
+                    </strong>
+                    <small>
+                      今日已发送 {dashboard.identity.remindersToday}/{dashboard.identity.dailyLimit} 封
+                    </small>
+                  </span>
+                </span>
+                {dashboard.identity.tier === "priority" ? (
+                  <span className="tier-enabled">优先队列已开启</span>
+                ) : (
+                  <button type="button" onClick={() => openPanel("priority")}>
+                    输入邀请码
+                  </button>
+                )}
+              </div>
+            ) : null}
+
             <button className="primary-button" type="button" onClick={() => openPanel("create")}>
               <PlusCircleIcon size={24} weight="bold" />
               创建订阅
@@ -558,7 +613,7 @@ export default function Prototype() {
             ? "只设置提醒条件，不展示或代订场地。"
             : undefined
         }
-        snap={panel === "create" ? 0.86 : 0.72}
+        snap={panel === "create" ? 0.86 : panel === "priority" ? 0.66 : 0.72}
       >
         {panel === "help" ? (
           <div className="help-content">
@@ -610,6 +665,72 @@ export default function Prototype() {
               </div>
             )}
             {formError ? <p className="form-error" role="alert">{formError}</p> : null}
+          </div>
+        ) : null}
+
+        {panel === "priority" ? (
+          <div className="priority-panel">
+            <div className="tier-comparison">
+              <article>
+                <span>普通用户</span>
+                <strong>3 封/天</strong>
+                <p>适合日常关注；达到上限后，当天后续场地提醒不再补发。</p>
+              </article>
+              <article className="featured">
+                <span><StarIcon size={17} weight="fill" />优先用户</span>
+                <strong>12 封/天</strong>
+                <p>更高提醒额度，并在系统全局邮件额度紧张时优先处理。</p>
+              </article>
+            </div>
+
+            {receipt ? (
+              dashboard.identity.tier === "priority" ? (
+                <div className="priority-active">
+                  <ShieldCheckIcon size={34} weight="fill" />
+                  <strong>优先提醒已开启</strong>
+                  <p>
+                    今日还可发送 {dashboard.identity.remainingToday} 封场地摘要邮件。
+                    验证码和微信消息不受此档位限制。
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <label className="field">
+                    <span>优先用户邀请码</span>
+                    <KeyboardInput
+                      type="text"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      spellCheck={false}
+                      maxLength={40}
+                      placeholder="ZACKS-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX"
+                      value={inviteCode}
+                      onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
+                    />
+                  </label>
+                  <p className="verification-note">
+                    邀请码仅可使用一次。验证成功后，优先档位会跟随此邮箱，
+                    更换浏览器重新验证邮箱后仍然有效。
+                  </p>
+                  {formError ? <p className="form-error" role="alert">{formError}</p> : null}
+                  <button
+                    className="sheet-primary"
+                    type="button"
+                    disabled={formBusy || inviteCode.replace(/[^A-Z0-9]/gi, "").length !== 33}
+                    onClick={() => void redeemInvite()}
+                  >
+                    {formBusy ? "正在验证…" : "验证邀请码并升级"}
+                  </button>
+                </>
+              )
+            ) : (
+              <div className="empty-state">
+                <KeyIcon size={38} weight="duotone" />
+                <strong>请先验证邮箱</strong>
+                <p>优先档位绑定到邮箱，验证后才能兑换邀请码。</p>
+                <button type="button" onClick={() => setPanel("create")}>去验证邮箱</button>
+              </div>
+            )}
           </div>
         ) : null}
 

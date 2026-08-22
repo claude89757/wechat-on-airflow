@@ -113,3 +113,52 @@ reserves provider capacity for verification codes. The cap does not weaken
 slot or subscription deduplication; rows remain in the D1 outbox until a later
 bounded drain unless the weather gate records them as intentionally
 `suppressed`.
+
+## Subscriber Delivery Tiers And Priority Invites
+
+Venue reminder email is frequency-capped per normalized recipient and Shanghai
+calendar day:
+
+- standard user: `STANDARD_DAILY_EMAIL_LIMIT=3`
+- priority user: `PRIORITY_DAILY_EMAIL_LIMIT=12`
+
+One provider digest counts as one delivery even when it contains multiple
+court-slot rows. Verification codes do not count. Once a user reaches the cap,
+later venue reminder rows are marked `suppressed` and are not queued for the
+next day. Priority users are processed before standard users only when the
+global provider budget is constrained; this is not a delivery guarantee.
+
+The Worker additionally requires these secrets:
+
+- `INVITE_CODE_PEPPER`: random secret used as the HMAC-SHA-256 key for invite
+  hashes and hashed redemption IPs.
+- `INVITE_ADMIN_TOKEN`: independent bearer token for invite creation.
+
+Generate one-time codes through the protected endpoint. The response is the
+only time plaintext codes are available:
+
+```text
+curl -X POST https://zacks.claude89757.cc/api/internal/priority-invites \
+  -H "Authorization: Bearer $INVITE_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"count":5,"expiresInDays":30,"note":"private beta"}'
+```
+
+Never paste returned codes into logs, issues, CI output, or repository files.
+Each code contains 140 bits of cryptographic randomness, expires, and can be
+redeemed once. A verified user redeems it from the Web UI. Redemption attempts
+are limited per verified email and hashed IP, and old attempt records are
+removed automatically.
+
+Apply D1 migration `0004_add_delivery_tiers_and_invites.sql` before deploying
+the Worker. Verify that:
+
+- bootstrap returns `tier`, `dailyLimit`, and `remainingToday` only for the
+  currently verified identity;
+- the fourth standard digest in one Shanghai day is suppressed;
+- a priority identity can receive up to twelve digests;
+- concurrent drains cannot exceed either cap;
+- verification email bypasses the tier cap;
+- invite creation rejects a missing or wrong admin token;
+- a valid code upgrades exactly one verified email and cannot be reused;
+- failed invite attempts do not log raw codes or recipient addresses.

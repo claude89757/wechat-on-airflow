@@ -14,6 +14,17 @@ import {
   type SlotObservation,
   type VenueId,
 } from "./domain";
+import {
+  deliveryLimitForTier,
+  normalizeDeliveryTier,
+  remainingDailyDeliveries,
+  type DeliveryTier,
+} from "./delivery-tiers";
+import {
+  generateInviteCode,
+  hashInviteCode,
+  normalizeInviteCode,
+} from "./invite-codes";
 import { sendTencentTemplateEmail } from "./tencent-ses";
 import { evaluateWeatherEmailGate } from "./weather-email-gate";
 
@@ -30,6 +41,10 @@ type WorkerSecrets = {
   WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM?: string;
   WEATHER_EMAIL_GATE_LATITUDE?: string;
   WEATHER_EMAIL_GATE_LONGITUDE?: string;
+  STANDARD_DAILY_EMAIL_LIMIT?: string;
+  PRIORITY_DAILY_EMAIL_LIMIT?: string;
+  INVITE_CODE_PEPPER: string;
+  INVITE_ADMIN_TOKEN: string;
 };
 
 type WorkerEnv = Env & WorkerSecrets;
@@ -67,6 +82,7 @@ type OutboxRow = {
   body: string;
   venue_id: VenueId;
   attempt_count: number;
+  tier: DeliveryTier;
 };
 
 const JSON_HEADERS = {
@@ -78,6 +94,11 @@ const RECEIPT_LIFETIME_MS = 180 * 86_400_000;
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
 const INSPECTION_FRESHNESS_MS = 10 * 60_000;
 const MAX_OUTBOX_BATCH_ROWS = 100;
+const DELIVERY_RESERVATION_LIFETIME_MS = 10 * 60_000;
+const INVITE_ATTEMPT_WINDOW_MS = 60 * 60_000;
+const INVITE_EMAIL_ATTEMPT_LIMIT = 10;
+const INVITE_IP_ATTEMPT_LIMIT = 30;
+const MAX_INVITES_PER_ADMIN_REQUEST = 25;
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: JSON_HEADERS });
@@ -202,6 +223,12 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
             AND status = 'sent'
             AND sent_at >= ?`,
       ).bind(identity.email, dayStart),
+      env.DB.prepare(
+        `SELECT tier
+           FROM user_delivery_tiers
+          WHERE email = ?
+            AND revoked_at IS NULL`,
+      ).bind(identity.email),
     );
   }
 
@@ -232,6 +259,12 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
       (results[4].results[0] as { count?: number } | undefined)?.count || 0,
     )
     : 0;
+  const identityTier = identity
+    ? normalizeDeliveryTier(
+      (results[5].results[0] as { tier?: string } | undefined)?.tier,
+    )
+    : "standard";
+  const identityDailyLimit = deliveryLimitForTier(env, identityTier);
 
   return json({
     generatedAt: nowIso,
@@ -246,6 +279,12 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
       verified: Boolean(identity),
       maskedEmail: identity?.maskedEmail ?? null,
       remindersToday: identityRemindersToday,
+      tier: identityTier,
+      dailyLimit: identityDailyLimit,
+      remainingToday: remainingDailyDeliveries(
+        identityRemindersToday,
+        identityDailyLimit,
+      ),
     },
     subscriptions: subscriptionRows.map((subscription) => ({
       id: subscription.id,
@@ -438,6 +477,189 @@ async function cancelSubscription(
   return json({ success: true });
 }
 
+async function recordInviteAttempt(
+  env: WorkerEnv,
+  email: string,
+  ipHash: string,
+  success: boolean,
+  now: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO priority_invite_attempts
+       (id, email, ip_hash, success, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).bind(crypto.randomUUID(), email, ipHash, success ? 1 : 0, now).run();
+}
+
+async function redeemPriorityInvite(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const identity = await getIdentity(request, env);
+  if (!identity) return errorResponse(new Error("请先验证邮箱"), 401);
+
+  const payload = await readJson(request);
+  const code = normalizeInviteCode(
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>).code
+      : null,
+  );
+  const now = Date.now();
+  const since = now - INVITE_ATTEMPT_WINDOW_MS;
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const ipHash = await sha256Hex(`${ip}:${env.INVITE_CODE_PEPPER}`);
+  const limits = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+         FROM priority_invite_attempts
+        WHERE email = ?
+          AND created_at >= ?`,
+    ).bind(identity.email, since),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+         FROM priority_invite_attempts
+        WHERE ip_hash = ?
+          AND created_at >= ?`,
+    ).bind(ipHash, since),
+  ]);
+  const emailAttempts = Number(
+    (limits[0].results[0] as { count?: number } | undefined)?.count || 0,
+  );
+  const ipAttempts = Number(
+    (limits[1].results[0] as { count?: number } | undefined)?.count || 0,
+  );
+  if (
+    emailAttempts >= INVITE_EMAIL_ATTEMPT_LIMIT
+    || ipAttempts >= INVITE_IP_ATTEMPT_LIMIT
+  ) {
+    return errorResponse(new Error("邀请码验证过于频繁，请稍后再试"), 429);
+  }
+
+  const codeHash = await hashInviteCode(code, env.INVITE_CODE_PEPPER);
+  const redemptionId = crypto.randomUUID();
+  const result = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE priority_invite_codes
+          SET redeemed_by = ?, redeemed_at = ?, redemption_id = ?
+        WHERE code_hash = ?
+          AND active = 1
+          AND redeemed_by IS NULL
+          AND expires_at > ?`,
+    ).bind(identity.email, now, redemptionId, codeHash, now),
+    env.DB.prepare(
+      `INSERT INTO user_delivery_tiers
+         (email, tier, source_invite_id, created_at, updated_at, revoked_at)
+       SELECT ?, 'priority', id, ?, ?, NULL
+         FROM priority_invite_codes
+        WHERE redemption_id = ?
+          AND redeemed_by = ?
+       ON CONFLICT(email) DO UPDATE SET
+         tier = 'priority',
+         source_invite_id = excluded.source_invite_id,
+         updated_at = excluded.updated_at,
+         revoked_at = NULL`,
+    ).bind(identity.email, now, now, redemptionId, identity.email),
+  ]);
+  const redeemed = Number(result[0].meta.changes || 0) === 1
+    && Number(result[1].meta.changes || 0) >= 1;
+  await recordInviteAttempt(env, identity.email, ipHash, redeemed, now);
+  if (!redeemed) {
+    return errorResponse(new Error("邀请码无效、已过期或已被使用"), 400);
+  }
+
+  const tier: DeliveryTier = "priority";
+  const dailyLimit = deliveryLimitForTier(env, tier);
+  const dayStart = shanghaiDayStart(new Date(now));
+  const sent = await env.DB.prepare(
+    `SELECT COUNT(DISTINCT message_id) AS count
+       FROM notification_outbox
+      WHERE email = ?
+        AND status = 'sent'
+        AND sent_at >= ?`,
+  ).bind(identity.email, dayStart).first<{ count: number }>();
+  const remindersToday = Number(sent?.count || 0);
+  console.log(JSON.stringify({
+    event: "priority_invite_redeemed",
+    tier,
+    dailyLimit,
+  }));
+  return json({
+    success: true,
+    tier,
+    dailyLimit,
+    remindersToday,
+    remainingToday: remainingDailyDeliveries(remindersToday, dailyLimit),
+  });
+}
+
+function positiveIntegerInput(
+  value: unknown,
+  fallback: number,
+  maximum: number,
+): number {
+  const candidate = Number(value);
+  return Number.isInteger(candidate) && candidate > 0
+    ? Math.min(candidate, maximum)
+    : fallback;
+}
+
+async function createPriorityInvites(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const token = requestToken(request);
+  if (
+    !token
+    || !env.INVITE_ADMIN_TOKEN
+    || !constantTimeEqual(token, env.INVITE_ADMIN_TOKEN)
+  ) {
+    return errorResponse(new Error("未授权"), 401);
+  }
+  const payload = await readJson(request);
+  const candidate = payload && typeof payload === "object"
+    ? payload as Record<string, unknown>
+    : {};
+  const count = positiveIntegerInput(
+    candidate.count,
+    1,
+    MAX_INVITES_PER_ADMIN_REQUEST,
+  );
+  const expiresInDays = positiveIntegerInput(candidate.expiresInDays, 30, 90);
+  const note = candidate.note ? String(candidate.note).slice(0, 120) : null;
+  const now = Date.now();
+  const expiresAt = now + expiresInDays * 86_400_000;
+  const codes: string[] = [];
+  const inserts: D1PreparedStatement[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const code = generateInviteCode();
+    codes.push(code);
+    inserts.push(
+      env.DB.prepare(
+        `INSERT INTO priority_invite_codes
+           (id, code_hash, expires_at, active, note, created_at)
+         VALUES (?, ?, ?, 1, ?, ?)`,
+      ).bind(
+        crypto.randomUUID(),
+        await hashInviteCode(code, env.INVITE_CODE_PEPPER),
+        expiresAt,
+        note,
+        now,
+      ),
+    );
+  }
+  await env.DB.batch(inserts);
+  console.log(JSON.stringify({
+    event: "priority_invites_created",
+    count,
+    expiresAt: new Date(expiresAt).toISOString(),
+  }));
+  return json({
+    codes,
+    count,
+    expiresAt: new Date(expiresAt).toISOString(),
+  }, 201);
+}
+
 async function authorizeAirflow(request: Request, env: WorkerEnv): Promise<boolean> {
   const token = requestToken(request);
   return Boolean(token) && constantTimeEqual(token || "", env.AIRFLOW_PUSH_TOKEN);
@@ -608,11 +830,28 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
   const now = Date.now();
   const pending = (
     await env.DB.prepare(
-      `SELECT id, email, subject, body, venue_id, attempt_count
-         FROM notification_outbox
-        WHERE status IN ('pending', 'retry', 'processing')
-          AND next_attempt_at <= ?
-        ORDER BY created_at
+      `SELECT
+         outbox.id,
+         outbox.email,
+         outbox.subject,
+         outbox.body,
+         outbox.venue_id,
+         outbox.attempt_count,
+         CASE
+           WHEN tiers.tier = 'priority' AND tiers.revoked_at IS NULL
+             THEN 'priority'
+           ELSE 'standard'
+         END AS tier
+         FROM notification_outbox outbox
+         LEFT JOIN user_delivery_tiers tiers ON tiers.email = outbox.email
+        WHERE outbox.status IN ('pending', 'retry', 'processing')
+          AND outbox.next_attempt_at <= ?
+        ORDER BY
+          CASE
+            WHEN tiers.tier = 'priority' AND tiers.revoked_at IS NULL THEN 0
+            ELSE 1
+          END,
+          outbox.created_at
         LIMIT ?`,
     ).bind(now, MAX_OUTBOX_BATCH_ROWS).all<OutboxRow>()
   ).results;
@@ -673,18 +912,17 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
     return;
   }
 
-  const selectedEmails = Array.from(new Set(pending.map((item) => item.email)))
-    .slice(0, remainingDeliveries);
-  const selectedEmailSet = new Set(selectedEmails);
   const grouped = new Map<string, OutboxRow[]>();
   for (const item of pending) {
-    if (!selectedEmailSet.has(item.email)) continue;
     const rows = grouped.get(item.email) || [];
     rows.push(item);
     grouped.set(item.email, rows);
   }
 
+  let deliveredGroups = 0;
+  const deliveryDay = new Date(now + 8 * 3_600_000).toISOString().slice(0, 10);
   for (const rows of grouped.values()) {
+    if (deliveredGroups >= remainingDeliveries) break;
     const claimed: OutboxRow[] = [];
     for (const item of rows) {
       const attempt = item.attempt_count + 1;
@@ -698,6 +936,64 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
       if (lease.meta.changes) claimed.push(item);
     }
     if (!claimed.length) continue;
+
+    const tier = claimed[0].tier;
+    const dailyLimit = deliveryLimitForTier(env, tier);
+    const deliveryClaimId = crypto.randomUUID();
+    const reservation = await env.DB.prepare(
+      `INSERT INTO email_delivery_claims
+         (id, email, delivery_day, status, message_id, created_at, updated_at)
+       SELECT ?, ?, ?, 'reserved', NULL, ?, ?
+        WHERE (
+          SELECT COUNT(DISTINCT message_id)
+            FROM notification_outbox
+           WHERE email = ?
+             AND status = 'sent'
+             AND sent_at >= ?
+        ) + (
+          SELECT COUNT(*)
+            FROM email_delivery_claims
+           WHERE email = ?
+             AND delivery_day = ?
+             AND status = 'reserved'
+             AND updated_at >= ?
+        ) < ?`,
+    ).bind(
+      deliveryClaimId,
+      claimed[0].email,
+      deliveryDay,
+      now,
+      now,
+      claimed[0].email,
+      dayStart,
+      claimed[0].email,
+      deliveryDay,
+      now - DELIVERY_RESERVATION_LIFETIME_MS,
+      dailyLimit,
+    ).run();
+    if (!reservation.meta.changes) {
+      const reason = [
+        "daily_tier_limit",
+        deliveryDay,
+        `tier=${tier}`,
+        `limit=${dailyLimit}`,
+      ].join(":");
+      await env.DB.batch(claimed.map((item) =>
+        env.DB.prepare(
+          `UPDATE notification_outbox
+              SET status = 'suppressed', next_attempt_at = ?, last_error = ?
+            WHERE id = ?
+              AND status = 'processing'`,
+        ).bind(now, reason, item.id)
+      ));
+      console.log(JSON.stringify({
+        event: "notification_daily_tier_suppressed",
+        tier,
+        dailyLimit,
+        itemCount: claimed.length,
+      }));
+      continue;
+    }
 
     try {
       const digest = formatNotificationDigest(claimed.map((item) => item.body));
@@ -721,11 +1017,22 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
           "UPDATE venue_status SET last_notification_at = ?, updated_at = ? WHERE venue_id = ?",
         ).bind(sentAt, sentAt, venueId));
       }
+      updates.push(env.DB.prepare(
+        `UPDATE email_delivery_claims
+            SET status = 'sent', message_id = ?, updated_at = ?
+          WHERE id = ? AND status = 'reserved'`,
+      ).bind(deliveryId, Date.now(), deliveryClaimId));
       await env.DB.batch(updates);
-      console.log(JSON.stringify({ event: "notification_digest_sent", itemCount: claimed.length }));
+      deliveredGroups += 1;
+      console.log(JSON.stringify({
+        event: "notification_digest_sent",
+        tier,
+        dailyLimit,
+        itemCount: claimed.length,
+      }));
     } catch (error) {
       const reason = error instanceof Error ? error.message.slice(0, 300) : "unknown";
-      const updates = claimed.map((item) => {
+      const updates: D1PreparedStatement[] = claimed.map((item) => {
         const attempt = item.attempt_count + 1;
         const nextStatus = attempt >= 5 ? "failed" : "retry";
         return env.DB.prepare(
@@ -734,6 +1041,11 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
             WHERE id = ?`,
         ).bind(nextStatus, now + retryDelayMs(attempt), reason, item.id);
       });
+      updates.push(env.DB.prepare(
+        `UPDATE email_delivery_claims
+            SET status = 'released', updated_at = ?
+          WHERE id = ? AND status = 'reserved'`,
+      ).bind(Date.now(), deliveryClaimId));
       await env.DB.batch(updates);
       console.error(JSON.stringify({
         event: "notification_digest_failed",
@@ -766,6 +1078,23 @@ async function cleanup(env: WorkerEnv): Promise<void> {
         WHERE (status = 'sent' AND sent_at < ?)
            OR (status = 'suppressed' AND created_at < ?)`,
     ).bind(ninetyDaysAgo, ninetyDaysAgo),
+    env.DB.prepare(
+      `UPDATE email_delivery_claims
+          SET status = 'released', updated_at = ?
+        WHERE status = 'reserved'
+          AND updated_at < ?`,
+    ).bind(now, now - DELIVERY_RESERVATION_LIFETIME_MS),
+    env.DB.prepare(
+      "DELETE FROM email_delivery_claims WHERE created_at < ?",
+    ).bind(now - 30 * 86_400_000),
+    env.DB.prepare(
+      "DELETE FROM priority_invite_attempts WHERE created_at < ?",
+    ).bind(now - 7 * 86_400_000),
+    env.DB.prepare(
+      `DELETE FROM priority_invite_codes
+        WHERE expires_at < ?
+          AND redeemed_at IS NULL`,
+    ).bind(now - 90 * 86_400_000),
   ]);
 }
 
@@ -805,6 +1134,15 @@ async function handleRequest(
     }
     if (request.method === "POST" && url.pathname === "/api/subscriptions") {
       return await createSubscription(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/api/priority/redeem") {
+      return await redeemPriorityInvite(request, env);
+    }
+    if (
+      request.method === "POST"
+      && url.pathname === "/api/internal/priority-invites"
+    ) {
+      return await createPriorityInvites(request, env);
     }
     const cancellation = url.pathname.match(/^\/api\/subscriptions\/([0-9a-f-]{36})$/i);
     if (request.method === "DELETE" && cancellation) {
