@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -55,10 +56,31 @@ def fetch_check_runs(repository: str, commit: str, token: str) -> Any:
         raise OpsError("GitHub check-runs API returned invalid JSON") from exc
 
 
+def wait_for_required_check(
+    repository: str,
+    commit: str,
+    token: str,
+    name: str,
+    wait_seconds: float,
+    poll_seconds: float,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        check = required_check_result(fetch_check_runs(repository, commit, token), name)
+        if check["status"] == "completed" or wait_seconds <= 0:
+            return check
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return check
+        time.sleep(min(poll_seconds, remaining))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate an exact GitHub release candidate.")
     parser.add_argument("--target-commit", required=True)
     parser.add_argument("--required-check", default="verify")
+    parser.add_argument("--wait-seconds", type=float, default=0)
+    parser.add_argument("--poll-seconds", type=float, default=10)
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
 
@@ -70,6 +92,10 @@ def main() -> None:
         raise OpsError("GITHUB_REPOSITORY must be owner/name")
     if not token:
         raise OpsError("GITHUB_TOKEN is required")
+    if args.wait_seconds < 0:
+        raise OpsError("wait seconds must not be negative")
+    if args.poll_seconds <= 0:
+        raise OpsError("poll seconds must be positive")
 
     run(["git", "fetch", "--quiet", "origin", "main"])
     on_main = (
@@ -79,8 +105,13 @@ def main() -> None:
         ).returncode
         == 0
     )
-    check = required_check_result(
-        fetch_check_runs(repository, args.target_commit, token), args.required_check
+    check = wait_for_required_check(
+        repository,
+        args.target_commit,
+        token,
+        args.required_check,
+        args.wait_seconds,
+        args.poll_seconds,
     )
     checks = {
         "target_commit_on_main": on_main,
