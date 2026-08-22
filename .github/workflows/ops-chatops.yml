@@ -1,0 +1,97 @@
+name: Production Ops ChatOps
+run-name: ops-chatops/${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  checks: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-ops-chatops
+  cancel-in-progress: false
+
+jobs:
+  parse:
+    if: >-
+      github.event.issue.number == 39 &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, '/ops ')
+    runs-on: ubuntu-latest
+    outputs:
+      target_commit: ${{ steps.command.outputs.target_commit }}
+    steps:
+      - name: Parse exact ops command
+        id: command
+        shell: bash
+        env:
+          OPS_COMMAND: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          pattern='^/ops webapp-observation-diagnose ([0-9A-Fa-f]{40})$'
+          if [[ ! "$OPS_COMMAND" =~ $pattern ]]; then
+            echo 'Expected: /ops webapp-observation-diagnose <40-char-sha>' >&2
+            exit 2
+          fi
+          target_commit="${BASH_REMATCH[1],,}"
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+      - name: Wait for main CI verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1800))
+          while (( SECONDS < deadline )); do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_COMMIT/check-runs" \
+              --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+            if [[ "$result" == $'completed\tsuccess' ]]; then
+              exit 0
+            fi
+            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
+              echo "CI verify failed: $result" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          exit 1
+      - name: Acknowledge diagnosis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Accepted read-only Web observation diagnosis for \`$TARGET_COMMIT\`. Run: $RUN_URL"
+
+  diagnose:
+    needs: parse
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: webapp_observation_diagnose
+      target_commit: ${{ needs.parse.outputs.target_commit }}
+      request_id: ops-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  report:
+    if: always() && needs.parse.result != 'skipped'
+    needs: [parse, diagnose]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report diagnosis result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TARGET_COMMIT: ${{ needs.parse.outputs.target_commit }}
+          RESULT: ${{ needs.diagnose.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Web observation diagnosis for \`$TARGET_COMMIT\`: \`$RESULT\`. Run: $RUN_URL"
+          test "$RESULT" = success
