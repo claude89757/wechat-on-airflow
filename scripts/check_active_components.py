@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -17,8 +19,11 @@ SENDER_SERVICE_FILE = ROOT / "deploy" / "systemd" / "wechat-sender.service"
 SENDER_INSTALL_SCRIPT = ROOT / "scripts" / "install_wechat_sender.sh"
 PRODUCTION_WORKFLOWS = {
     "production-airflow.yml",
+    "production-release.yml",
+    "production-webapp.yml",
     "production-wechat-sender.yml",
 }
+PINNED_ACTION_PATTERN = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 DAG_MAX_LINES = 120
 FORBIDDEN_DAG_IMPORT_ROOTS = {"httpx", "paramiko", "requests", "socket", "urllib3"}
 
@@ -97,8 +102,11 @@ def main() -> None:
     contracts = yaml.safe_load(CONTRACTS.read_text(encoding="utf-8"))
     runtime_target = yaml.safe_load(RUNTIME_TARGET.read_text(encoding="utf-8"))
     production = manifest.get("production", {})
-    if production.get("deployment_policy") != "exact_local_head" or "deployed_commit" in production:
-        fail("production deployment identity must be verified dynamically against local HEAD")
+    if (
+        production.get("deployment_policy") != "exact_release_commit"
+        or "deployed_commit" in production
+    ):
+        fail("production deployment identity must come from the exact GitHub release commit")
     active_dags = manifest.get("active_dags")
     if not isinstance(active_dags, list) or not active_dags:
         fail("active_dags must be a non-empty list")
@@ -284,10 +292,15 @@ def main() -> None:
         fail("WeChat sender installer must deploy an exact Git commit")
     operations = runtime_target.get("production_operations", {})
     if (
-        operations.get("github_environment") != "production"
+        operations.get("control_plane") != "github_actions"
+        or operations.get("workstation_authentication") != "github_only"
+        or operations.get("github_environment") != "production"
         or operations.get("authentication") != "ssh_public_key"
+        or operations.get("cloudflare_authentication") != "api_token"
         or operations.get("airflow_workflow") != "production-airflow.yml"
         or operations.get("sender_workflow") != "production-wechat-sender.yml"
+        or operations.get("webapp_workflow") != "production-webapp.yml"
+        or operations.get("release_workflow") != "production-release.yml"
         or operations.get("airflow_operations")
         != [
             "health",
@@ -311,6 +324,7 @@ def main() -> None:
             "dry_run",
             "apply",
         ]
+        or operations.get("webapp_operations") != ["health", "deploy_preflight", "deploy_apply"]
     ):
         fail("production operations must be GitHub Environment controlled")
     expected_github_secrets = {
@@ -326,6 +340,8 @@ def main() -> None:
         "WECHAT_SENDER_SSH_USER",
         "WECHAT_SENDER_SSH_PRIVATE_KEY",
         "WECHAT_SENDER_SSH_KNOWN_HOSTS",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
     }
     if set(operations.get("github_environment_secrets", [])) != expected_github_secrets:
         fail("GitHub production Environment secret contract is incomplete")
@@ -336,6 +352,24 @@ def main() -> None:
     )
     if missing_workflows:
         fail("production operation workflows are missing: " + ", ".join(missing_workflows))
+    for workflow_path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        for line in workflow_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("uses:"):
+                continue
+            reference = stripped.removeprefix("uses:").strip().split(" #", 1)[0]
+            if reference.startswith("./"):
+                continue
+            if not PINNED_ACTION_PATTERN.fullmatch(reference):
+                fail(f"{workflow_path.relative_to(ROOT)} uses an unpinned action: {reference}")
+    webapp_package = json.loads((ROOT / "webapp" / "package.json").read_text(encoding="utf-8"))
+    unsupported_local_production_scripts = {
+        name
+        for name in webapp_package.get("scripts", {})
+        if name in {"cf:deploy", "cf:migrate:remote"}
+    }
+    if unsupported_local_production_scripts:
+        fail("Web production deployment must be available only through GitHub workflows")
     cleanup_target = runtime_target.get("maintenance", {}).get("airflow_metadata_cleanup", {})
     if (
         cleanup_target.get("command") != "scripts/airflow_db_cleanup.py"

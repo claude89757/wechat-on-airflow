@@ -25,6 +25,7 @@ type WorkerSecrets = {
   VERIFICATION_PEPPER: string;
   AIRFLOW_PUSH_TOKEN: string;
   NOTIFICATION_DAILY_SEND_LIMIT: string;
+  DEPLOYMENT_COMMIT?: string;
 };
 
 type WorkerEnv = Env & WorkerSecrets;
@@ -83,6 +84,18 @@ function errorResponse(error: unknown, status = 400): Response {
     { error: error instanceof Error ? error.message : "请求处理失败" },
     status,
   );
+}
+
+export function deploymentHealth(deploymentCommit?: string) {
+  return {
+    ok: true,
+    service: "zacks-tennis-alerts",
+    deploymentCommit:
+      typeof deploymentCommit === "string" &&
+      /^[0-9a-f]{40}$/.test(deploymentCommit)
+        ? deploymentCommit
+        : "unknown",
+  };
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -744,7 +757,7 @@ async function handleRequest(
   const url = new URL(request.url);
   try {
     if (request.method === "GET" && url.pathname === "/api/healthz") {
-      return json({ ok: true, service: "zacks-tennis-alerts" });
+      return json(deploymentHealth(env.DEPLOYMENT_COMMIT));
     }
     if (request.method === "GET" && url.pathname === "/api/bootstrap") {
       return await bootstrap(request, env);

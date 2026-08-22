@@ -2,13 +2,15 @@
 
 ## Airflow 3 Application Rollback
 
-1. Stop affected application services.
-2. Check out the previously recorded pushed Airflow 3 commit.
-3. Resolve and validate its Compose configuration using the host Secret
-   directory and the previously recorded image.
-4. Load or build its pinned image.
-5. Start the affected services.
-6. Run the production health check and compare with the pre-deploy record.
+1. Select the previously verified full release SHA from GitHub deployment
+   history.
+2. Dispatch `production-release.yml` in `preflight` mode for that SHA.
+3. Review D1 compatibility before including the Web component. D1 migrations
+   are forward-only and are not automatically reverted.
+4. Dispatch the same SHA in `apply` mode.
+5. The component workflows restore application code and images without
+   replacing Airflow PostgreSQL, Redis, logs, D1, or Worker runtime secrets.
+6. Require exact-SHA health checks and compare with the pre-deploy GitHub run.
 
 Do not replace the Airflow 3 database for an application-only rollback.
 
@@ -39,4 +41,5 @@ The encrypted Airflow 2 database backup remains a last-resort recovery input if
 the preserved bind-mounted database is damaged. Restoring or replacing a
 production database remains a separate, explicitly approved operation.
 
-Run `make rollback-check` before any production change.
+`make rollback-check` is a credential-free local source/Compose check. The
+GitHub release preflight is the authoritative production rollback gate.

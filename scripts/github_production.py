@@ -11,6 +11,7 @@ from _ops import REPO_ROOT, OpsError, run
 WORKFLOWS = {
     "airflow": "production-airflow.yml",
     "sender": "production-wechat-sender.yml",
+    "webapp": "production-webapp.yml",
 }
 
 
@@ -110,7 +111,7 @@ def main() -> None:
         ["git", "rev-parse", "--verify", f"{args.target_commit}^{{commit}}"]
     ).stdout.strip()
     operation = args.operation
-    if args.component == "airflow" and operation == "deploy":
+    if args.component in {"airflow", "webapp"} and operation == "deploy":
         operation = "deploy_apply" if args.apply else "deploy_preflight"
     if args.component == "sender" and operation == "deploy":
         operation = "apply" if args.apply else "dry_run"
@@ -136,6 +137,7 @@ def main() -> None:
             "dry_run",
             "apply",
         },
+        "webapp": {"health", "deploy_preflight", "deploy_apply"},
     }
     if operation not in allowed[args.component]:
         raise OpsError(f"unsupported {args.component} operation: {operation}")

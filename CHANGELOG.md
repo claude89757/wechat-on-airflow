@@ -7,6 +7,8 @@ and operational changes.
 
 ### Added
 
+- Add protected GitHub workflows for Cloudflare Worker/D1 deployment, exact-SHA
+  Web health checks, and one release gate spanning Web, Airflow, and the sender.
 - Notify `Zacks_大沙河限定免费` for Dashah River free-court availability after
   the Web observation and WeChat dedupe cache are written.
 - Append venue booking mini-program links to WeChat availability alerts, at most
@@ -15,6 +17,11 @@ and operational changes.
 
 ### Changed
 
+- Make GitHub the only production delivery control plane: workstations keep
+  only GitHub authentication, CI owns the release gate, and production health
+  compares against an explicit workflow target SHA instead of local `HEAD`.
+- Remove local Wrangler production commands and the unrelated workstation
+  database-backup requirement from reversible application preflights.
 - Reuse a warm Appium session in the WeChat sender and honor an idempotency key
   so Airflow retries do not double-send after a late HTTP timeout.
 - Filter Greater Bay Area WeChat alerts to weekday 18:00-21:00 and weekend

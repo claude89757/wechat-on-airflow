@@ -63,17 +63,19 @@ proven.
 5. **Repair:** make the smallest complete change within the repository
    ownership boundaries. Update contracts, runbooks, ADRs, and baseline facts
    when behavior or operations change.
-6. **Verify locally:** run focused checks while iterating, then run
-   `make verify`. Also run `make deploy-check` and `make rollback-check` for
-   production changes.
+6. **Verify locally:** run focused credential-free checks while iterating, then
+   run `make verify`. Local checks are development evidence, not production
+   authority.
 7. **Publish code:** confirm the diff contains no secrets or generated noise,
-   commit intentionally, push the exact commit, and require CI to pass.
+   commit intentionally, push the exact commit, and require GitHub `CI / verify`
+   to pass.
 8. **Deploy:** select the component path in
-   [release-paths.md](references/release-paths.md). Use dry-run preflight before
-   apply and deploy only the exact full commit SHA.
-9. **Verify production:** run `make production-health`, component health probes,
-   contract checks, and browser checks as applicable. Compare against the
-   baseline.
+   [release-paths.md](references/release-paths.md). Dispatch the protected GitHub
+   preflight before apply and deploy only the exact full commit SHA. Never use
+   local Wrangler, SSH, server credentials, or a workstation environment file.
+9. **Verify production:** use the protected component health workflows with the
+   explicit release SHA, contract checks, and browser checks as applicable.
+   Compare against the baseline.
 10. **Observe:** wait for the schedule-cycle count declared in
     `config/runtime-target.yaml`. Prefer natural DAG runs; do not manufacture
     production notifications.
@@ -122,11 +124,12 @@ make db-cleanup-check
 ```
 
 Do not replace structured scripts with improvised remote shell sequences.
-Authenticate the workstation with GitHub and dispatch production operations
-through the protected workflows. Runtime credentials must come from GitHub
-Environment secrets, Airflow Variables, Cloudflare Worker Secrets, Docker
-Secrets, or systemd credentials; the repository and developer workstation
-must not contain production secret files.
+Authenticate the workstation only with GitHub and dispatch production
+operations through the protected workflows. Deployment credentials must come
+from the GitHub `production` Environment. Runtime credentials must come from
+Airflow Variables, Cloudflare Worker Secrets, Docker Secrets, or systemd
+credentials; the repository and developer workstation must not contain
+production secret files.
 
 ## Finish Only With Evidence
 

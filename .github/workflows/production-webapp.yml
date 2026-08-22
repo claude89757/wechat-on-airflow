@@ -1,0 +1,112 @@
+name: Production Web Application
+run-name: production/webapp/${{ inputs.operation }}/${{ inputs.request_id }}
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        required: true
+        type: string
+      target_commit:
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Protected operation
+        required: true
+        type: choice
+        options:
+          - health
+          - deploy_preflight
+          - deploy_apply
+      target_commit:
+        description: Exact commit SHA on main
+        required: true
+        type: string
+      request_id:
+        description: Unique request correlation ID
+        required: false
+        default: manual
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-webapp
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - name: Validate exact target
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        if: inputs.operation != 'health'
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install health-check dependencies
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Install Web application dependencies
+        if: inputs.operation != 'health'
+        working-directory: webapp
+        run: npm ci
+      - name: Validate Cloudflare deployment identity
+        if: inputs.operation != 'health'
+        run: |
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+      - name: Execute protected operation
+        working-directory: webapp
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          case "$OPERATION" in
+            health)
+              PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
+                --expected-commit "$TARGET_COMMIT" --format json
+              ;;
+            deploy_preflight)
+              npm run build
+              npx wrangler deploy --dry-run \
+                --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
+              npx wrangler d1 migrations list zacks-tennis-alerts --remote
+              ;;
+            deploy_apply)
+              npm run build
+              npx wrangler d1 migrations apply zacks-tennis-alerts --remote
+              npx wrangler deploy \
+                --message "GitHub release $TARGET_COMMIT" \
+                --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
+              PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
+                --expected-commit "$TARGET_COMMIT" --format json
+              ;;
+            *)
+              exit 2
+              ;;
+          esac

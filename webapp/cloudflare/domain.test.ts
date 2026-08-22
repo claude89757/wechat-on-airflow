@@ -10,8 +10,20 @@ import {
   validateSlotObservation,
   validateSubscriptionInput,
 } from "./domain";
+import { deploymentHealth } from "./index";
 
 describe("subscription domain", () => {
+  it("reports only an exact deployed commit in health metadata", () => {
+    const commit = "a".repeat(40);
+
+    expect(deploymentHealth(commit)).toEqual({
+      ok: true,
+      service: "zacks-tennis-alerts",
+      deploymentCommit: commit,
+    });
+    expect(deploymentHealth("main").deploymentCommit).toBe("unknown");
+  });
+
   it("normalizes and masks a verified email", () => {
     expect(normalizeEmail("  Person@Example.com ")).toBe("person@example.com");
     expect(maskEmail("person@example.com")).toBe("pe****@example.com");

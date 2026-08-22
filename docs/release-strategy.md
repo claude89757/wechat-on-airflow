@@ -29,12 +29,14 @@ metadata schema changes require explicit human approval before production apply.
 ## Release Gate
 
 1. Update tests, contracts, documentation, and changelog together.
-2. Run `make verify`, `make deploy-check`, and `make rollback-check`.
-3. Push the exact commit and require CI to pass.
-4. Build and record the immutable image identifier.
-5. Deploy only after the production health and strategy-specific storage floor
-   in `config/runtime-target.yaml` pass.
-6. Run post-deploy health checks across multiple complete schedule cycles.
+2. Run local checks without production credentials, then push a pull request.
+3. Require the GitHub `CI / verify` check for the exact commit to pass.
+4. Dispatch `production-release.yml` in `preflight` mode. The gate rejects a
+   commit outside `main` or without the successful required check.
+5. Dispatch the same SHA in `apply` mode through the protected `production`
+   Environment. GitHub deploys D1/Worker, Airflow, and optionally the sender.
+6. Require each component to report the exact release SHA and pass its read-only
+   probes. Observe multiple complete schedule cycles.
 7. Tag the verified commit after the production observation window succeeds.
 
 Rollback restores the previous application commit when the metadata schema is

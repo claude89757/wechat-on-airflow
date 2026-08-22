@@ -8,7 +8,8 @@ COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
 
 .PHONY: setup local-secrets webapp-setup webapp-check format lint typecheck test test-dags compose-config sender-config \
 	smoke verify deploy deploy-recovery deploy-check production-health rollback-check db-cleanup-check \
-	phone-diagnose wechat-delivery-diagnose wechat-delivery-probe wechat-quiesce airflow-resume image sender-image sender-deploy sender-health sender-diagnose sender-screenshot sender-recover
+	phone-diagnose wechat-delivery-diagnose wechat-delivery-probe wechat-quiesce airflow-resume image sender-image sender-deploy sender-health sender-diagnose sender-screenshot sender-recover \
+	webapp-deploy webapp-health
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -69,6 +70,12 @@ deploy-check: local-secrets
 
 production-health:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow health
+
+webapp-deploy:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py webapp deploy $(DEPLOY_ARGS)
+
+webapp-health:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py webapp health
 
 rollback-check: local-secrets
 	PYTHONPATH=src $(BIN)/python scripts/rollback_check.py --dry-run

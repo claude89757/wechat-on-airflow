@@ -20,6 +20,7 @@ import deploy_airflow  # noqa: E402
 import deploy_wechat_sender  # noqa: E402
 import diagnose_wechat_delivery  # noqa: E402
 import diagnose_zacks_phone  # noqa: E402
+import github_release_gate  # noqa: E402
 import prepare_fresh_start_config  # noqa: E402
 import probe_wechat_delivery  # noqa: E402
 import production_health  # noqa: E402
@@ -27,6 +28,7 @@ import quiesce_wechat_delivery  # noqa: E402
 import resume_airflow_scheduling  # noqa: E402
 import sync_nswtt_config  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
+import webapp_production_health  # noqa: E402
 
 
 class RemoteSshAuthenticationContractTest(unittest.TestCase):
@@ -601,12 +603,18 @@ class ProductionHealthParsingTest(unittest.TestCase):
 
         self.assertEqual(counts, {"venue": 3, "proxy": 1, "import_only": 0})
 
-    def test_deployment_commit_must_match_exact_local_head(self):
+    def test_deployment_commit_must_match_exact_release_commit(self):
         commit = "a" * 40
 
         self.assertTrue(production_health.deployment_commit_matches(commit, commit))
         self.assertFalse(production_health.deployment_commit_matches(commit, "b" * 40))
         self.assertFalse(production_health.deployment_commit_matches("main", "main"))
+
+    def test_production_health_does_not_derive_expected_commit_from_local_head(self):
+        source = (SCRIPTS_DIR / "production_health.py").read_text(encoding="utf-8")
+
+        self.assertIn('parser.add_argument("--expected-commit", required=True)', source)
+        self.assertNotIn('run(["git", "rev-parse", "HEAD"])', source)
 
     def test_fallback_outboxes_distinguish_recent_and_historical_failures(self):
         now = datetime(2026, 7, 19, 1, 0, tzinfo=UTC)
@@ -761,6 +769,57 @@ class FreshStartConfigurationTest(unittest.TestCase):
         self.assertEqual(report["missing_names"], ["C"])
         self.assertEqual(report["mismatched_names"], ["B"])
         self.assertNotIn("secret", str(report))
+
+
+class GithubOnlyDeliveryContractTest(unittest.TestCase):
+    def test_release_gate_uses_latest_required_check_run(self):
+        result = github_release_gate.required_check_result(
+            {
+                "check_runs": [
+                    {
+                        "id": 10,
+                        "name": "verify",
+                        "status": "completed",
+                        "conclusion": "success",
+                    },
+                    {
+                        "id": 11,
+                        "name": "verify",
+                        "status": "completed",
+                        "conclusion": "failure",
+                    },
+                ]
+            },
+            "verify",
+        )
+
+        self.assertTrue(result["present"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["conclusion"], "failure")
+
+    def test_release_gate_rejects_a_missing_required_check(self):
+        result = github_release_gate.required_check_result({"check_runs": []}, "verify")
+
+        self.assertEqual(
+            result,
+            {"present": False, "status": None, "conclusion": None, "ok": False},
+        )
+
+    def test_webapp_health_detects_public_email_leakage(self):
+        self.assertTrue(
+            webapp_production_health.contains_email(
+                {"nested": [{"recipient": "person@example.com"}]}
+            )
+        )
+        self.assertFalse(
+            webapp_production_health.contains_email({"nested": [{"masked": "pe****@example.com"}]})
+        )
+
+    def test_application_preflights_do_not_require_local_database_backups(self):
+        for name in ("deploy_check.py", "rollback_check.py"):
+            source = (SCRIPTS_DIR / name).read_text(encoding="utf-8")
+            self.assertNotIn("airflow-production-backups", source, name)
+            self.assertNotIn("latest_successful_backup", source, name)
 
 
 if __name__ == "__main__":

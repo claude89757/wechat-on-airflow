@@ -16,9 +16,7 @@
     "build": "tsc && vite build && node scripts/prepare-sites-build.mjs",
     "cf:dev": "npm run build && wrangler dev",
     "cf:types": "wrangler types worker-configuration.d.ts",
-    "cf:migrate:local": "wrangler d1 migrations apply zacks-tennis-alerts --local",
-    "cf:migrate:remote": "wrangler d1 migrations apply zacks-tennis-alerts --remote",
-    "cf:deploy": "npm run build && wrangler deploy"
+    "cf:migrate:local": "wrangler d1 migrations apply zacks-tennis-alerts --local"
   },
   "dependencies": {
     "@fontsource/roboto": "5.2.10",

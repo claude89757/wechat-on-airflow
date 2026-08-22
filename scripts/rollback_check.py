@@ -5,7 +5,7 @@ import argparse
 import os
 from pathlib import Path
 
-from _ops import REPO_ROOT, OpsError, docker_compose_command, emit, latest_successful_backup, run
+from _ops import REPO_ROOT, OpsError, docker_compose_command, emit, run
 
 
 def main() -> None:
@@ -14,16 +14,10 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.add_argument(
-        "--backup-dir",
-        type=Path,
-        default=Path.home() / "airflow-production-backups",
-    )
     args = parser.parse_args()
 
     head = run(["git", "rev-parse", "HEAD"]).stdout.strip()
     previous = run(["git", "rev-parse", "HEAD^"], check=False)
-    backup = latest_successful_backup(args.backup_dir)
     compose_command = docker_compose_command()
     compose = run(
         [
@@ -46,7 +40,6 @@ def main() -> None:
     )
     checks = {
         "previous_commit_exists": previous.returncode == 0,
-        "encrypted_database_backup": backup is not None,
         "compose_valid": compose.returncode == 0,
         "sender_compose_valid": sender_compose.returncode == 0,
         "restore_runbook_exists": Path("docs/runbooks/rollback.md").is_file(),
@@ -56,7 +49,6 @@ def main() -> None:
         "dry_run": args.dry_run,
         "current_commit": head,
         "previous_commit": previous.stdout.strip() if previous.returncode == 0 else None,
-        "backup_file": str(backup) if backup else None,
         "checks": checks,
     }
     emit(payload, args.format)

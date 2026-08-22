@@ -1,0 +1,115 @@
+name: Production Release
+run-name: production/release/${{ inputs.mode }}/${{ inputs.target_commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run reversible preflight or apply the release
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - apply
+      target_commit:
+        description: Exact commit SHA on main with a successful CI verify check
+        required: true
+        type: string
+      include_sender:
+        description: Deploy the Android-host WeChat sender from the same commit
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  checks: read
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Require exact main commit and successful CI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          PYTHONPATH=scripts python scripts/github_release_gate.py \
+            --target-commit "${{ inputs.target_commit }}" \
+            --required-check verify --format json
+
+  webapp:
+    needs: gate
+    uses: ./.github/workflows/production-webapp.yml
+    with:
+      operation: ${{ inputs.mode == 'apply' && 'deploy_apply' || 'deploy_preflight' }}
+      target_commit: ${{ inputs.target_commit }}
+      request_id: release-${{ github.run_id }}
+    secrets: inherit
+
+  airflow:
+    needs: webapp
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: ${{ inputs.mode == 'apply' && 'deploy_apply' || 'deploy_preflight' }}
+      target_commit: ${{ inputs.target_commit }}
+      request_id: release-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  sender:
+    if: inputs.include_sender
+    needs: airflow
+    uses: ./.github/workflows/production-wechat-sender.yml
+    with:
+      operation: ${{ inputs.mode == 'apply' && 'apply' || 'dry_run' }}
+      target_commit: ${{ inputs.target_commit }}
+      request_id: release-${{ github.run_id }}
+    secrets: inherit
+
+  record:
+    if: always()
+    needs: [gate, webapp, airflow, sender]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Record release result
+        env:
+          MODE: ${{ inputs.mode }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          GATE_RESULT: ${{ needs.gate.result }}
+          WEBAPP_RESULT: ${{ needs.webapp.result }}
+          AIRFLOW_RESULT: ${{ needs.airflow.result }}
+          SENDER_RESULT: ${{ needs.sender.result }}
+        run: |
+          {
+            echo "## Production release"
+            echo
+            echo "- Mode: \`$MODE\`"
+            echo "- Commit: \`$TARGET_COMMIT\`"
+            echo "- Gate: \`$GATE_RESULT\`"
+            echo "- Web application: \`$WEBAPP_RESULT\`"
+            echo "- Airflow: \`$AIRFLOW_RESULT\`"
+            echo "- WeChat sender: \`$SENDER_RESULT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$GATE_RESULT" = success
+          test "$WEBAPP_RESULT" = success
+          test "$AIRFLOW_RESULT" = success
+          case "$SENDER_RESULT" in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac

@@ -267,8 +267,9 @@ The fresh Airflow 3 cutover completed on 2026-07-17. Production runs Airflow
 3.3.0. The initial stabilized cutover used application commit
 `85c50ae8ccd6845ec9f6c7c628c2b4711259fa7b`; its CI, local verification,
 image-bundled DagBag check, and deployment preflight passed. Current deployment
-identity is verified dynamically by `make production-health` against the local
-Git HEAD rather than duplicated as mutable state in the component manifest.
+identity is now verified by protected GitHub health workflows against their
+explicit full release SHA rather than a workstation checkout or mutable state
+in the component manifest.
 
 Historical Airflow 2 metadata was not migrated. The complete Airflow 2
 database, logs, environment file, commit, image, and encrypted backup remain

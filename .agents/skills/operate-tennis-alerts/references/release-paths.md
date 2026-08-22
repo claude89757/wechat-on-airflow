@@ -7,11 +7,11 @@ applying production changes.
 ## Common Gate
 
 1. Record pre-change health and current deployed identities.
-2. Run `make verify`, `make deploy-check`, and `make rollback-check`.
-3. Review the diff for secrets and unrelated changes.
-4. Commit and push the exact intended state.
-5. Require GitHub CI success.
-6. Use the full pushed SHA in every production apply.
+2. Run credential-free local checks and review the diff for secrets.
+3. Commit and push the exact intended state through a pull request.
+4. Require the GitHub `CI / verify` check to succeed for the exact SHA.
+5. Dispatch `production-release.yml` in `preflight` mode.
+6. Use the same full SHA in every production apply and health operation.
 
 For a named release, update `CHANGELOG.md` and the semantic version in the
 release commit. Create the immutable Git tag only after the production
@@ -35,17 +35,15 @@ Observe the natural schedule-cycle count in `config/runtime-target.yaml`.
 
 ## Cloudflare Web Application
 
-Run the web checks included by `make verify`. Apply D1 migrations only when a
-new migration exists and review it before remote apply. Deploy with:
-
-```text
-cd webapp && npm run cf:deploy
-```
+Run the web checks included by `CI / verify`. The protected
+`production-webapp.yml` workflow lists unapplied D1 migrations during preflight
+and applies them before Worker deployment. Never use local Wrangler credentials
+for a production migration or deploy.
 
 Verify:
 
 - `/api/healthz` reports healthy;
-- unauthenticated `/api/bootstrap` exposes six venues and no email address;
+- unauthenticated `/api/bootstrap` exposes seven venues and no email address;
 - unauthenticated observation writes return HTTP 401;
 - natural venue runs refresh inspection timestamps;
 - mobile subscription creation and keyboard behavior pass browser checks.
@@ -90,9 +88,9 @@ browser configuration.
 
 ## Rollback
 
-For application rollback, restore the previously recorded pushed commit and
-pinned image without replacing the Airflow 3 database. Run
-`make rollback-check` before apply and `make production-health` afterward.
+For application rollback, dispatch the previously recorded pushed commit
+through GitHub preflight and apply without replacing the Airflow 3 database.
+Require component health to report that exact rollback SHA afterward.
 
 Database restore, Airflow major-version migration, and metadata deletion are
 separate high-risk operations that require explicit approval.

@@ -2,6 +2,25 @@ name: Production Airflow
 run-name: production/airflow/${{ inputs.operation }}/${{ inputs.request_id }}
 
 on:
+  workflow_call:
+    inputs:
+      operation:
+        required: true
+        type: string
+      target_commit:
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
+      confirm_real_send:
+        required: false
+        default: false
+        type: boolean
+      probe_target_membership:
+        required: false
+        default: all
+        type: string
   workflow_dispatch:
     inputs:
       operation:
@@ -26,7 +45,8 @@ on:
         type: string
       request_id:
         description: Unique request correlation ID
-        required: true
+        required: false
+        default: manual
         type: string
       confirm_real_send:
         description: Explicit approval for a real WeChat acceptance message
@@ -57,11 +77,18 @@ jobs:
       AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
       AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: main
+          ref: ${{ inputs.target_commit }}
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - name: Validate exact target
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Install operations dependencies
@@ -75,10 +102,6 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Validate exact target
-        run: |
-          git cat-file -e "${{ inputs.target_commit }}^{commit}"
-          git merge-base --is-ancestor "${{ inputs.target_commit }}" origin/main
       - name: Execute protected operation
         env:
           OPERATION: ${{ inputs.operation }}
@@ -89,17 +112,22 @@ jobs:
         run: |
           case "$OPERATION" in
             health)
-              PYTHONPATH=src python scripts/production_health.py --format json
+              PYTHONPATH=src python scripts/production_health.py \
+                --expected-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_preflight)
               PYTHONPATH=src python scripts/deploy_airflow.py --target-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_apply)
               PYTHONPATH=src python scripts/deploy_airflow.py --apply --target-commit "$TARGET_COMMIT" --format json
+              PYTHONPATH=src python scripts/production_health.py \
+                --expected-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_recovery)
               PYTHONPATH=src python scripts/deploy_airflow.py --apply --recover-active-tasks \
                 --target-commit "$TARGET_COMMIT" --format json
+              PYTHONPATH=src python scripts/production_health.py \
+                --expected-commit "$TARGET_COMMIT" --format json
               ;;
             db_cleanup_check)
               PYTHONPATH=src python scripts/airflow_db_cleanup.py --format json

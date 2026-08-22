@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -27,6 +28,7 @@ MARKERS = (
     "managed_services",
     "ingress",
 )
+COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
 def parse_sections(output: str) -> dict[str, str]:
@@ -142,8 +144,12 @@ def classify_fallback_outboxes(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only production Airflow health check.")
+    parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
+
+    if not COMMIT_PATTERN.fullmatch(args.expected_commit):
+        raise OpsError("expected commit must be a full SHA-1")
 
     remote = airflow_remote()
     manifest = yaml.safe_load(
@@ -155,7 +161,7 @@ def main() -> None:
     runtime_target = yaml.safe_load(
         (REPO_ROOT / "config" / "runtime-target.yaml").read_text(encoding="utf-8")
     )
-    expected_commit = run(["git", "rev-parse", "HEAD"]).stdout.strip()
+    expected_commit = args.expected_commit
     active_dags = manifest["active_dags"]
     dag_ids = [component["dag_id"] for component in active_dags]
     dag_source_paths = [
@@ -757,8 +763,8 @@ PY
     if not deployment_commit_matches(expected_commit, deployed_commit):
         add_issue(
             "deployed_commit",
-            f"deployed {deployed_commit}, expected local HEAD {expected_commit}",
-            "deploy the exact pushed local HEAD with make deploy",
+            f"deployed {deployed_commit}, expected release commit {expected_commit}",
+            "deploy the exact GitHub release commit through the protected workflow",
         )
     if airflow_version != target_airflow:
         add_issue(

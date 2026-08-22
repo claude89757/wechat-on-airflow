@@ -1,5 +1,33 @@
 # Architecture
 
+## Delivery Control Plane
+
+```mermaid
+flowchart LR
+    Dev["Developer or coding agent"] -->|"GitHub identity only"| PR["Protected GitHub pull request"]
+    PR --> CI["CI / verify"]
+    CI --> Release["Production Release workflow"]
+    Release -->|"Environment deployment token"| CF["Cloudflare Worker and D1"]
+    Release -->|"Environment SSH identity"| Airflow["Airflow host"]
+    Release -->|"Environment SSH identity"| Sender["Android sender host"]
+    CF --> Evidence["GitHub deployment evidence"]
+    Airflow --> Evidence
+    Sender --> Evidence
+```
+
+GitHub is the only development-to-production control plane. A developer
+workstation may authenticate to GitHub but does not hold Cloudflare, SSH,
+Airflow, database, email, or device credentials. `CI / verify` is authoritative
+for an exact commit. The protected `production` Environment releases scoped
+deployment identities only to approved workflows. Component runtime secrets
+remain in Airflow Variables, Cloudflare Worker Secrets, root-owned host Secret
+files, and systemd credentials; they are never downloaded through GitHub.
+
+Cloudflare, Airflow, and sender health checks compare the deployed identity with
+the workflow's explicit full target SHA, never with a workstation checkout.
+Application rollback uses a previously verified release SHA. Database restore
+and metadata deletion remain separate high-risk operations.
+
 ## Production Data Flow
 
 ```mermaid

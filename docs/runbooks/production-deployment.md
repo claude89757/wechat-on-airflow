@@ -5,48 +5,37 @@ fresh start. The one-time Airflow 2 cutover is in `airflow-upgrade.md`.
 
 ## Preconditions
 
-```bash
-make verify
-make deploy
-make deploy-check
-make rollback-check
-make production-health
-```
+The exact release commit must be on protected `main` with a successful GitHub
+`CI / verify` check. Dispatch `production-release.yml` in `preflight` mode and
+record any known production issue before apply. Application rollback requires a
+previous pushed release commit and valid Compose configuration; it does not
+require a database backup because application deployment preserves all data
+volumes.
 
-The pre-deploy health command may report known production issues, but its output
-must be recorded and understood. The worktree must be clean, the exact commit
-must be pushed, CI must pass, and rollback inputs must be available.
-
-The commands authenticate through `gh` and dispatch the protected GitHub
-workflow. They do not connect with workstation-held production credentials.
+The GitHub UI is the authoritative entry point. `make deploy`,
+`make webapp-deploy`, `make sender-deploy`, and component health targets are
+optional `gh` dispatchers. They use only GitHub workstation authentication and
+never connect with workstation-held production credentials.
 
 ## Deploy
 
-1. Record pre-deploy health, current commit, image ID, and configuration names.
-2. Run the default read-only deployment preflight:
-
-   ```bash
-   make deploy DEPLOY_ARGS="--target-commit <full-sha>"
-   ```
-
-3. Apply the exact pushed commit:
-
-   ```bash
-   make deploy DEPLOY_ARGS="--apply --target-commit <full-sha>"
-   ```
-
-   The command builds a commit-tagged image, changes only Airflow application
+1. Record pre-deploy component health and the current release identities.
+2. Dispatch `production-release.yml` with `mode=preflight`, the full target SHA,
+   and the intended sender selection.
+3. After preflight succeeds, dispatch the same SHA with `mode=apply`.
+4. The release first applies D1 migrations and the Worker, then Airflow, then the
+   sender when selected. Each component runs its own post-apply health check.
+5. Airflow deployment builds a commit-tagged image, changes only application
    services, preserves each DAG's pause state, drains active tasks before
    replacing workers, and waits for service health checks. If startup fails it
    restores the previous commit, image configuration, and DAG pause state. It
    batches pause-state changes through the supported Airflow CLI and does not
    recreate PostgreSQL, Redis, or log volumes.
-4. Run `make production-health`.
-5. Compare the Execution API route probe, DAG source readability,
-   registration, import errors, exact local/production commit match, outbox
+6. Compare the Execution API route probe, DAG source readability,
+   registration, import errors, exact release/production commit match, outbox
    counts, and service health.
-6. Observe the cycle count in `config/runtime-target.yaml`.
-7. Record the deployed commit and evidence in the production baseline.
+7. Observe the cycle count in `config/runtime-target.yaml`.
+8. Record the deployed commit and GitHub run in the production baseline.
 
 Application deployments must retain the configured Airflow 3 database, Redis,
 and log volume names. They must never mount the preserved Airflow 2 paths.
@@ -66,15 +55,9 @@ must run with proxy headers enabled and publish `127.0.0.1:8080:8080`; the
 tunnel origin is `http://127.0.0.1:8080`. Tunnel credentials and the Cloudflare
 account certificate stay outside the repository with root-only permissions.
 
-After any ingress or Airflow base URL change, verify:
-
-```bash
-systemctl is-enabled cloudflared.service
-systemctl is-active cloudflared.service
-curl --fail https://airflow.claude89757.cc/api/v2/monitor/health
-curl --fail https://airflow.claude89757.cc/
-make production-health
-```
+After any ingress or Airflow base URL change, dispatch the Airflow `health`
+operation with the exact deployed SHA. The protected workflow checks the host
+service state, loopback origin, public health endpoint, and public root.
 
 The production health check also requires the private Execution API probe to
 return its expected unauthenticated response and the active DAGs to complete
@@ -82,8 +65,9 @@ their declared successful run history.
 
 ## WeChat Sender
 
-The sender is deployed independently through its protected workflow, so it can
-be repaired without restarting Airflow:
+The sender can be deployed independently through its protected workflow, so it
+can be repaired without restarting Airflow. Dispatch `dry_run`, then `apply`,
+with the same exact commit. Optional `gh`-only wrappers are:
 
 ```bash
 make sender-deploy DEPLOY_ARGS="--target-commit <full-sha>"
@@ -121,7 +105,7 @@ Airflow infrastructure secrets are source files under
 with primary group `0`, so this is the minimum shared permission required by
 Compose's bind-mounted file Secrets. Compose mounts only the declared Secret
 files, and Airflow loads them through supported command-backed configuration.
-Do not create a repository environment file. Recreating containers must go
+Do not create a repository or workstation environment file. Recreating containers must go
 through the protected GitHub workflow so the exact image, public base URL,
 internal Execution API URL, and Secret directory are applied together.
 

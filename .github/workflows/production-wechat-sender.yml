@@ -2,6 +2,17 @@ name: Production WeChat Sender
 run-name: production/sender/${{ inputs.operation }}/${{ inputs.request_id }}
 
 on:
+  workflow_call:
+    inputs:
+      operation:
+        required: true
+        type: string
+      target_commit:
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       operation:
@@ -21,7 +32,8 @@ on:
         type: string
       request_id:
         description: Unique request correlation ID
-        required: true
+        required: false
+        default: manual
         type: string
 
 permissions:
@@ -41,11 +53,18 @@ jobs:
       WECHAT_SENDER_SSH_PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
       WECHAT_SENDER_SSH_USER: ${{ secrets.WECHAT_SENDER_SSH_USER }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: main
+          ref: ${{ inputs.target_commit }}
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - name: Validate exact target
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Install operations dependencies
@@ -94,7 +113,7 @@ jobs:
             --output .local/diagnostics/wechat-ui.png
       - name: Upload protected UI evidence
         if: inputs.operation == 'ui_screenshot'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wechat-sender-ui-${{ inputs.request_id }}
           path: .local/diagnostics/wechat-ui.png

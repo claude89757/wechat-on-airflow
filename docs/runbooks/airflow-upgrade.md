@@ -26,7 +26,8 @@ undeclared historical state. Airflow outboxes are never replayed.
 
 ## Preconditions
 
-1. `make verify`, `make deploy-check`, and `make rollback-check` pass.
+1. GitHub `CI / verify` and `production-release.yml` preflight pass for the exact
+   target SHA.
 2. The exact commit and Airflow image are pushed or transferred and identified.
 3. The encrypted Airflow 2 backup remains verified.
 4. Root storage has at least the floor in `config/runtime-target.yaml`.

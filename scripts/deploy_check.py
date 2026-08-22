@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 
-from _ops import REPO_ROOT, OpsError, docker_compose_command, emit, latest_successful_backup, run
+from _ops import REPO_ROOT, OpsError, docker_compose_command, emit, run
 
 
 def main() -> None:
@@ -14,11 +13,6 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.add_argument(
-        "--backup-dir",
-        type=Path,
-        default=Path.home() / "airflow-production-backups",
-    )
     args = parser.parse_args()
 
     status = run(["git", "status", "--porcelain"]).stdout.strip()
@@ -56,14 +50,12 @@ def main() -> None:
         ],
         check=False,
     )
-    backup = latest_successful_backup(args.backup_dir)
     checks = {
         "clean_worktree": not status,
         "has_upstream": bool(upstream),
         "commit_is_pushed": pushed,
         "compose_valid": compose.returncode == 0,
         "sender_compose_valid": sender_compose.returncode == 0,
-        "encrypted_database_backup": backup is not None,
     }
     payload = {
         "ok": all(checks.values()),
@@ -72,7 +64,6 @@ def main() -> None:
         "branch": branch,
         "upstream": upstream,
         "checks": checks,
-        "backup_file": str(backup) if backup else None,
     }
     emit(payload, args.format)
     if not payload["ok"]:

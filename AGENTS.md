@@ -83,19 +83,24 @@ make production-health
 make rollback-check
 make db-cleanup-check
 make sender-image
+make webapp-deploy
+make webapp-health
 ```
 
-`make verify` is the required local gate before committing. It includes the
-Airflow 3 image build and DagBag contract check.
+`make verify` is the required local development gate before committing. The
+authoritative release gate is the GitHub `CI / verify` check for the exact
+release commit; it includes the Airflow 3 image build and DagBag contract check.
 
-`make deploy` is read-only by default. Use
+`make deploy`, `make webapp-deploy`, and `make sender-deploy` are optional
+GitHub-only workstation dispatchers and are read-only by default. Use
 `make deploy DEPLOY_ARGS="--apply --target-commit <full-sha>"` only after the
 documented gates pass. Apply mode pauses active DAGs, drains task instances,
 replaces only application containers, and restores the original DAG pause state.
 
 The production WeChat sender uses `wechat-sender.service` on the Android host.
-Deploy it with `scripts/install_wechat_sender.sh --target-commit <full-sha>`;
-add `--apply` only after preflight. Docker Compose is an alternate development
+Deploy it through `production-wechat-sender.yml` or the unified
+`production-release.yml`; direct host installation is an implementation detail,
+not a workstation release path. Docker Compose is an alternate development
 runtime, not the production process manager.
 
 Airflow metadata cleanup is a deployment-manager command, not a DAG. Run
@@ -117,8 +122,8 @@ Before and after a production change:
 make production-health
 ```
 
-The health check fails when the production commit differs from local Git HEAD.
-Run it from the exact pushed commit intended to own production.
+The health workflow requires an explicit full release SHA and fails when the
+deployed commit differs. Local `HEAD` is never production identity.
 
 Never print Variable values, Connection credentials, GitHub Environment
 secrets, email addresses, API tokens, database passwords, device login
