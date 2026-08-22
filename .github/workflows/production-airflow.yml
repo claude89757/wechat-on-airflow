@@ -69,6 +69,7 @@ concurrency:
 jobs:
   operate:
     runs-on: ubuntu-latest
+    environment: production
     timeout-minutes: 45
     env:
       AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
