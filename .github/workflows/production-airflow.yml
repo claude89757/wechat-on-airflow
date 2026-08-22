@@ -70,7 +70,6 @@ jobs:
   operate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: production
     env:
       AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
       AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
