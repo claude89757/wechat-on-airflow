@@ -1,6 +1,7 @@
 export const VENUE_IDS = ["szw", "gba", "dsh_free", "sysh", "tops", "tyzx", "jdwx"] as const;
 
 export type VenueId = (typeof VENUE_IDS)[number];
+export type DeliveryTier = "standard" | "priority";
 
 export type VenueStatus = {
   id: VenueId;
@@ -30,11 +31,15 @@ export type Dashboard = {
     healthyVenues: number;
     totalVenues: number;
   };
+  deliveryTiers: { standard: number; priority: number };
   venues: VenueStatus[];
   identity: {
     verified: boolean;
     maskedEmail: string | null;
     remindersToday: number;
+    tier: DeliveryTier;
+    dailyLimit: number;
+    remainingToday: number;
   };
   subscriptions: Subscription[];
 };
@@ -56,6 +61,7 @@ export const FALLBACK_DASHBOARD: Dashboard = {
     healthyVenues: 7,
     totalVenues: 7,
   },
+  deliveryTiers: { standard: 30, priority: 100 },
   venues: [
     {
       id: "szw",
@@ -114,7 +120,14 @@ export const FALLBACK_DASHBOARD: Dashboard = {
       lastNotificationAt: null,
     },
   ],
-  identity: { verified: false, maskedEmail: null, remindersToday: 0 },
+  identity: {
+    verified: false,
+    maskedEmail: null,
+    remindersToday: 0,
+    tier: "standard",
+    dailyLimit: 30,
+    remainingToday: 30,
+  },
   subscriptions: [],
 };
 
@@ -126,6 +139,7 @@ export const EMPTY_DASHBOARD: Dashboard = {
     healthyVenues: 0,
     totalVenues: 7,
   },
+  deliveryTiers: { standard: 30, priority: 100 },
   venues: FALLBACK_DASHBOARD.venues.map((venue) => ({
     ...venue,
     healthy: false,
@@ -133,7 +147,14 @@ export const EMPTY_DASHBOARD: Dashboard = {
     lastInspectionAt: null,
     lastNotificationAt: null,
   })),
-  identity: { verified: false, maskedEmail: null, remindersToday: 0 },
+  identity: {
+    verified: false,
+    maskedEmail: null,
+    remindersToday: 0,
+    tier: "standard",
+    dailyLimit: 30,
+    remainingToday: 30,
+  },
   subscriptions: [],
 };
 
@@ -257,6 +278,27 @@ export async function cancelSubscription(
   return jsonRequest(
     `/api/subscriptions/${encodeURIComponent(subscriptionId)}`,
     { method: "DELETE" },
+    receipt,
+  );
+}
+
+export async function redeemPriorityInvite(
+  receipt: VerificationReceipt,
+  code: string,
+): Promise<{
+  success: boolean;
+  alreadyPriority?: boolean;
+  tier: DeliveryTier;
+  dailyLimit: number;
+  remindersToday: number;
+  remainingToday: number;
+}> {
+  return jsonRequest(
+    "/api/priority/redeem",
+    {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    },
     receipt,
   );
 }
