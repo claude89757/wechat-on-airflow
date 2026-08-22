@@ -34,6 +34,7 @@ on:
           - deploy_recovery
           - db_cleanup_check
           - phone_diagnose
+          - webapp_observation_diagnose
           - wechat_delivery_diagnose
           - wechat_delivery_probe
           - wechat_quiesce
@@ -134,6 +135,9 @@ jobs:
               ;;
             phone_diagnose)
               PYTHONPATH=src python scripts/diagnose_zacks_phone.py --format json
+              ;;
+            webapp_observation_diagnose)
+              PYTHONPATH=scripts python scripts/diagnose_webapp_observation.py --format json
               ;;
             wechat_delivery_diagnose)
               PYTHONPATH=scripts python scripts/diagnose_wechat_delivery.py --format json
