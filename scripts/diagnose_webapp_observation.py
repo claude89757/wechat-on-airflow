@@ -74,7 +74,7 @@ def main() -> None:
     args = parser.parse_args()
 
     remote = airflow_remote()
-    script = r'''set -eu
+    script = r"""set -eu
 cd "$1"
 compose() {
   if docker compose version >/dev/null 2>&1; then
@@ -150,7 +150,7 @@ for candidate in airflow-worker worker airflow-scheduler scheduler "$service"; d
     ' || true
   fi
 done
-'''
+"""
 
     result = run(
         ssh_command(remote) + ["bash", "-s", "--", remote["repository_path"]],
