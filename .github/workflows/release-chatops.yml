@@ -1,0 +1,90 @@
+name: Release ChatOps
+run-name: release-chatops/${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  checks: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: release-chatops
+  cancel-in-progress: false
+
+jobs:
+  parse:
+    if: >-
+      github.event.issue.number == 39 &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, '/release ')
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.command.outputs.mode }}
+      target_commit: ${{ steps.command.outputs.target_commit }}
+      include_sender: ${{ steps.command.outputs.include_sender }}
+    steps:
+      - name: Parse exact release command
+        id: command
+        shell: bash
+        env:
+          RELEASE_COMMAND: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          pattern='^/release (preflight|apply) ([0-9A-Fa-f]{40})( sender=(true|false))?$'
+          if [[ ! "$RELEASE_COMMAND" =~ $pattern ]]; then
+            echo 'Expected: /release <preflight|apply> <40-char-sha> [sender=true|false]' >&2
+            exit 2
+          fi
+          mode="${BASH_REMATCH[1]}"
+          target_commit="${BASH_REMATCH[2],,}"
+          include_sender="${BASH_REMATCH[4]:-false}"
+          {
+            echo "mode=$mode"
+            echo "target_commit=$target_commit"
+            echo "include_sender=$include_sender"
+          } >> "$GITHUB_OUTPUT"
+      - name: Acknowledge accepted command
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          MODE: ${{ steps.command.outputs.mode }}
+          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+          INCLUDE_SENDER: ${{ steps.command.outputs.include_sender }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Accepted production release command: mode=\`$MODE\`, commit=\`$TARGET_COMMIT\`, sender=\`$INCLUDE_SENDER\`. Existing release gates remain authoritative."
+
+  release:
+    needs: parse
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: ${{ needs.parse.outputs.mode }}
+      target_commit: ${{ needs.parse.outputs.target_commit }}
+      include_sender: ${{ needs.parse.outputs.include_sender == 'true' }}
+    secrets: inherit
+
+  report:
+    if: always() && needs.parse.result != 'skipped'
+    needs: [parse, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report release result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          MODE: ${{ needs.parse.outputs.mode }}
+          TARGET_COMMIT: ${{ needs.parse.outputs.target_commit }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$RELEASE_RESULT" = "success" ]; then
+            status="✅ succeeded"
+          else
+            status="❌ $RELEASE_RESULT"
+          fi
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Production release \`$MODE\` for \`$TARGET_COMMIT\`: $status. Run: $RUN_URL"
+          test "$RELEASE_RESULT" = success

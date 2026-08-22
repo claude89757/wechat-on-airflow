@@ -2,6 +2,20 @@ name: Production Release
 run-name: production/release/${{ inputs.mode }}/${{ inputs.target_commit }}
 
 on:
+  workflow_call:
+    inputs:
+      mode:
+        description: Run reversible preflight or apply the release
+        required: true
+        type: string
+      target_commit:
+        description: Exact commit SHA on main with a successful CI verify check
+        required: true
+        type: string
+      include_sender:
+        description: Deploy the Android-host WeChat sender from the same commit
+        required: true
+        type: boolean
   workflow_dispatch:
     inputs:
       mode:
@@ -42,6 +56,14 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Validate release mode
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "$MODE" in
+            preflight|apply) ;;
+            *) echo "Unsupported release mode: $MODE" >&2; exit 2 ;;
+          esac
       - name: Require exact main commit and successful CI
         env:
           GITHUB_TOKEN: ${{ github.token }}
