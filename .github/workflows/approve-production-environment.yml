@@ -1,0 +1,57 @@
+name: Approve Production Environment
+
+on:
+  workflow_call:
+    inputs:
+      environment_name:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  deployments: write
+
+jobs:
+  approve:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Approve pending owner-authorized environment deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 540))
+          while (( SECONDS < deadline )); do
+            pending="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/pending_deployments")"
+            environment_id="$(
+              jq -r --arg name "$ENVIRONMENT_NAME" \
+                '.[] | select(.environment.name == $name) | .environment.id' \
+                <<<"$pending" | head -n1
+            )"
+            if [ -n "$environment_id" ] && [ "$environment_id" != "null" ]; then
+              can_approve="$(
+                jq -r --arg name "$ENVIRONMENT_NAME" \
+                  '.[] | select(.environment.name == $name) | .current_user_can_approve' \
+                  <<<"$pending" | head -n1
+              )"
+              echo "Pending environment $ENVIRONMENT_NAME ($environment_id); token can approve: $can_approve"
+              jq -nc \
+                --argjson environment_id "$environment_id" \
+                '{environment_ids:[$environment_id],state:"approved",comment:"Owner-authorized ChatOps release"}' \
+                | gh api --method POST \
+                    "repos/$REPOSITORY/actions/runs/$RUN_ID/pending_deployments" \
+                    --input - >/dev/null
+              echo "Approved environment $ENVIRONMENT_NAME for workflow run $RUN_ID"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Timed out waiting for pending environment $ENVIRONMENT_NAME in run $RUN_ID" >&2
+          exit 1
