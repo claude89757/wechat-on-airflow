@@ -47,7 +47,6 @@ jobs:
   operate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production
     env:
       WECHAT_SENDER_SSH_HOST: ${{ secrets.WECHAT_SENDER_SSH_HOST }}
       WECHAT_SENDER_SSH_PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
