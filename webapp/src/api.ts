@@ -284,6 +284,7 @@ export async function redeemPriorityInvite(
   code: string,
 ): Promise<{
   success: boolean;
+  alreadyPriority?: boolean;
   tier: DeliveryTier;
   dailyLimit: number;
   remindersToday: number;

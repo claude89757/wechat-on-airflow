@@ -498,13 +498,40 @@ async function redeemPriorityInvite(
   const identity = await getIdentity(request, env);
   if (!identity) return errorResponse(new Error("请先验证邮箱"), 401);
 
-  const payload = await readJson(request);
-  const code = normalizeInviteCode(
-    payload && typeof payload === "object"
-      ? (payload as Record<string, unknown>).code
-      : null,
-  );
   const now = Date.now();
+  const existingPriority = await env.DB.prepare(
+    `SELECT tier
+       FROM user_delivery_tiers
+      WHERE email = ?
+        AND tier = 'priority'
+        AND revoked_at IS NULL`,
+  ).bind(identity.email).first<{ tier: string }>();
+  if (existingPriority) {
+    const tier: DeliveryTier = "priority";
+    const dailyLimit = deliveryLimitForTier(env, tier);
+    const dayStart = shanghaiDayStart(new Date(now));
+    const sent = await env.DB.prepare(
+      `SELECT COUNT(DISTINCT message_id) AS count
+         FROM notification_outbox
+        WHERE email = ?
+          AND status = 'sent'
+          AND sent_at >= ?`,
+    ).bind(identity.email, dayStart).first<{ count: number }>();
+    const remindersToday = Number(sent?.count || 0);
+    return json({
+      success: true,
+      alreadyPriority: true,
+      tier,
+      dailyLimit,
+      remindersToday,
+      remainingToday: remainingDailyDeliveries(remindersToday, dailyLimit),
+    });
+  }
+
+  const payload = await readJson(request);
+  const rawCode = payload && typeof payload === "object"
+    ? (payload as Record<string, unknown>).code
+    : null;
   const since = now - INVITE_ATTEMPT_WINDOW_MS;
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   const ipHash = await sha256Hex(`${ip}:${env.INVITE_CODE_PEPPER}`);
@@ -535,6 +562,13 @@ async function redeemPriorityInvite(
     return errorResponse(new Error("邀请码验证过于频繁，请稍后再试"), 429);
   }
 
+  let code: string;
+  try {
+    code = normalizeInviteCode(rawCode);
+  } catch (error) {
+    await recordInviteAttempt(env, identity.email, ipHash, false, now);
+    throw error;
+  }
   const codeHash = await hashInviteCode(code, env.INVITE_CODE_PEPPER);
   const redemptionId = crypto.randomUUID();
   const result = await env.DB.batch([

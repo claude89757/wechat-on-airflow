@@ -26,7 +26,9 @@ small priority cohort without introducing passwords or a full account system.
   existing global provider budget is constrained.
 - Use an atomic D1 delivery reservation to prevent overlapping Worker drains
   from racing past a recipient's limit.
-- Bind priority status to the normalized verified email.
+- Bind priority status to the normalized verified email. A successful upgrade
+  remains active until an operator explicitly revokes it; invite expiry controls
+  only the redemption window.
 - Provision one-time expiring invite codes through a separately authenticated
   internal endpoint. Generate at least 128 bits of CSPRNG entropy, return
   plaintext once, and store only an HMAC-SHA-256 hash protected by a Worker

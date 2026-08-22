@@ -673,12 +673,12 @@ export default function Prototype() {
             <div className="tier-comparison">
               <article>
                 <span>普通用户</span>
-                <strong>3 封/天</strong>
+                <strong>默认 3 封/天</strong>
                 <p>适合日常关注；达到上限后，当天后续场地提醒不再补发。</p>
               </article>
               <article className="featured">
                 <span><StarIcon size={17} weight="fill" />优先用户</span>
-                <strong>12 封/天</strong>
+                <strong>默认 12 封/天</strong>
                 <p>更高提醒额度，并在系统全局邮件额度紧张时优先处理。</p>
               </article>
             </div>

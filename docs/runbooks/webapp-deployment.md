@@ -146,9 +146,12 @@ curl -X POST https://zacks.claude89757.cc/api/internal/priority-invites \
 
 Never paste returned codes into logs, issues, CI output, or repository files.
 Each code contains 140 bits of cryptographic randomness, expires, and can be
-redeemed once. A verified user redeems it from the Web UI. Redemption attempts
-are limited per verified email and hashed IP, and old attempt records are
-removed automatically.
+redeemed once. A verified user redeems it from the Web UI. A successful priority
+upgrade remains attached to that normalized email until an operator sets
+`revoked_at`; the invite expiry controls only when the code may be redeemed.
+Already-priority identities return their current status without consuming
+another code. Redemption attempts, including malformed codes, are limited per
+verified email and hashed IP, and old attempt records are removed automatically.
 
 Apply D1 migration `0004_add_delivery_tiers_and_invites.sql` before deploying
 the Worker. Verify that:
