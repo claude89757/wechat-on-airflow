@@ -33,13 +33,20 @@ def _public_bootstrap(api_url: str) -> dict[str, Any]:
     bootstrap_url = urlunsplit((parts.scheme, parts.netloc, "/api/bootstrap", "", ""))
     request = urllib.request.Request(
         bootstrap_url,
-        headers={"Accept": "application/json", "User-Agent": "zacks-production-diagnose/1"},
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "zacks-production-diagnose/1",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
-        return {"ok": False, "error_type": type(exc).__name__, "error": str(exc)[:200]}
+        return {
+            "ok": False,
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:200],
+        }
 
     venues = payload.get("venues") if isinstance(payload, dict) else None
     if not isinstance(venues, list):
@@ -150,11 +157,20 @@ done
         input_text=script,
     )
     remote_probe = _extract_json_line(result.stdout)
-    log_text = result.stdout.split("__WEBAPP_LOGS__\n", 1)[1] if "__WEBAPP_LOGS__\n" in result.stdout else ""
-    log_lines = [line.strip() for line in log_text.splitlines() if "[WEBAPP]" in line]
+    if "__WEBAPP_LOGS__\n" in result.stdout:
+        log_text = result.stdout.split("__WEBAPP_LOGS__\n", 1)[1]
+    else:
+        log_text = ""
+    log_lines = [
+        line.strip() for line in log_text.splitlines() if "[WEBAPP]" in line
+    ]
     published = [line for line in log_lines if "observation published" in line]
-    failed = [line for line in log_lines if "observation publishing failed" in line]
-    skipped = [line for line in log_lines if "observation publishing skipped" in line]
+    failed = [
+        line for line in log_lines if "observation publishing failed" in line
+    ]
+    skipped = [
+        line for line in log_lines if "observation publishing skipped" in line
+    ]
 
     public = _public_bootstrap(str(remote_probe.get("api_url") or ""))
     remote_probe.pop("api_url", None)
