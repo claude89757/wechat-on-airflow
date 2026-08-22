@@ -1,0 +1,31 @@
+name: Export admin feature snapshot
+
+on:
+  push:
+    branches:
+      - feat/admin-operations-email-lifecycle
+
+permissions:
+  contents: read
+
+concurrency:
+  group: export-admin-feature-snapshot
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Package repository
+        run: tar --exclude=.git -czf /tmp/wechat-on-airflow.tar.gz .
+      - name: Upload repository snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: admin-feature-snapshot-${{ github.sha }}
+          path: /tmp/wechat-on-airflow.tar.gz
+          if-no-files-found: error
+          retention-days: 1
