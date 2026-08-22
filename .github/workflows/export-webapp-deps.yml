@@ -1,0 +1,38 @@
+name: Export webapp dependencies
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: export-webapp-deps-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install dependencies
+        working-directory: webapp
+        run: npm ci
+      - name: Package dependencies
+        working-directory: webapp
+        run: tar -czf /tmp/webapp-node-modules.tar.gz node_modules
+      - name: Upload dependencies
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: webapp-node-modules-${{ github.sha }}
+          path: /tmp/webapp-node-modules.tar.gz
+          if-no-files-found: error
+          retention-days: 1
