@@ -6,7 +6,8 @@ ssh_target="${AIRFLOW_SSH_USER:?AIRFLOW_SSH_USER is required}@${AIRFLOW_SSH_HOST
 ssh_port="${AIRFLOW_SSH_PORT:?AIRFLOW_SSH_PORT is required}"
 
 ssh -o BatchMode=yes -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
-  -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -p "$ssh_port" "$ssh_target" \
+  -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ServerAliveInterval=10 \
+  -o ServerAliveCountMax=3 -p "$ssh_port" "$ssh_target" \
   bash -s -- "$repo_path" <<'REMOTE'
 set -euo pipefail
 cd "$1"
@@ -50,7 +51,7 @@ if url and token:
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "zacks-airflow-diagnose/1",
+            "User-Agent": "zacks-airflow-diagnose/2",
         },
         method="POST",
     )
@@ -68,12 +69,13 @@ if url and token:
 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 PY
 printf '%s\n' '__WEBAPP_LOGS__'
-for candidate in airflow-worker worker airflow-scheduler scheduler "$service"; do
+for candidate in airflow-worker worker; do
   if compose ps --services --status running | grep -qx "$candidate"; then
-    compose exec -T "$candidate" sh -lc '
-      find /opt/airflow/logs -type f -mmin -30 -print0 2>/dev/null \
+    timeout 8s compose exec -T "$candidate" sh -lc '
+      find /opt/airflow/logs -type f -mmin -10 -size -2M -print0 2>/dev/null \
+        | head -z -n 80 \
         | xargs -0 -r grep -hF "[WEBAPP]" 2>/dev/null \
-        | tail -n 120
+        | tail -n 80
     ' || true
   fi
 done
@@ -86,7 +88,7 @@ import urllib.request
 
 request = urllib.request.Request(
     "https://zacks.claude89757.cc/api/bootstrap",
-    headers={"Accept": "application/json", "User-Agent": "zacks-production-diagnose/1"},
+    headers={"Accept": "application/json", "User-Agent": "zacks-production-diagnose/2"},
 )
 with urllib.request.urlopen(request, timeout=10) as response:
     payload = json.loads(response.read().decode("utf-8"))
