@@ -44,9 +44,7 @@ class WebappDeliveryTiersMigrationTest(TestCase):
     def test_migration_creates_tier_invite_and_delivery_claim_tables(self) -> None:
         tables = {
             row[0]
-            for row in self.database.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in self.database.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         self.assertTrue(
             {
