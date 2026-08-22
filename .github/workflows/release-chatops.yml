@@ -11,7 +11,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: release-chatops-v2
+  group: release-chatops-v3
   cancel-in-progress: false
 
 jobs:
