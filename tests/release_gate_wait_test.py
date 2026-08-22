@@ -32,7 +32,11 @@ def test_release_gate_waits_for_running_check() -> None:
         ]
     }
     with (
-        patch.object(github_release_gate, "fetch_check_runs", side_effect=[running, ready]) as fetch,
+        patch.object(
+            github_release_gate,
+            "fetch_check_runs",
+            side_effect=[running, ready],
+        ) as fetch,
         patch.object(github_release_gate.time, "monotonic", side_effect=[0, 1]),
         patch.object(github_release_gate.time, "sleep") as sleep,
     ):
