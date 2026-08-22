@@ -15,6 +15,7 @@ import {
   type VenueId,
 } from "./domain";
 import { sendTencentTemplateEmail } from "./tencent-ses";
+import { evaluateWeatherEmailGate } from "./weather-email-gate";
 
 type WorkerSecrets = {
   TENCENT_SECRET_ID: string;
@@ -25,6 +26,10 @@ type WorkerSecrets = {
   VERIFICATION_PEPPER: string;
   AIRFLOW_PUSH_TOKEN: string;
   NOTIFICATION_DAILY_SEND_LIMIT: string;
+  WEATHER_EMAIL_GATE_ENABLED?: string;
+  WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM?: string;
+  WEATHER_EMAIL_GATE_LATITUDE?: string;
+  WEATHER_EMAIL_GATE_LONGITUDE?: string;
 };
 
 type WorkerEnv = Env & WorkerSecrets;
@@ -601,6 +606,57 @@ function retryDelayMs(attempt: number): number {
 
 async function drainOutbox(env: WorkerEnv): Promise<void> {
   const now = Date.now();
+  const pending = (
+    await env.DB.prepare(
+      `SELECT id, email, subject, body, venue_id, attempt_count
+         FROM notification_outbox
+        WHERE status IN ('pending', 'retry', 'processing')
+          AND next_attempt_at <= ?
+        ORDER BY created_at
+        LIMIT ?`,
+    ).bind(now, MAX_OUTBOX_BATCH_ROWS).all<OutboxRow>()
+  ).results;
+  if (!pending.length) return;
+
+  const weather = await evaluateWeatherEmailGate(env);
+  if (!weather.sendEmail) {
+    const suppressionReason = [
+      "weather_suppressed",
+      weather.forecastDate || "unknown-date",
+      `${weather.precipitationMm ?? "unknown"}mm`,
+      `threshold=${weather.thresholdMm}mm`,
+    ].join(":");
+    const results = await env.DB.batch(pending.map((item) =>
+      env.DB.prepare(
+        `UPDATE notification_outbox
+            SET status = 'suppressed', next_attempt_at = ?, last_error = ?
+          WHERE id = ?
+            AND status IN ('pending', 'retry', 'processing')
+            AND next_attempt_at <= ?`,
+      ).bind(now, suppressionReason, item.id, now)
+    ));
+    const itemCount = results.reduce(
+      (count, result) => count + Number(result.meta.changes || 0),
+      0,
+    );
+    console.log(JSON.stringify({
+      event: "notification_weather_suppressed",
+      forecastDate: weather.forecastDate,
+      precipitationMm: weather.precipitationMm,
+      thresholdMm: weather.thresholdMm,
+      itemCount,
+    }));
+    return;
+  }
+  if (weather.reason === "weather_unavailable") {
+    console.warn(JSON.stringify({
+      event: "notification_weather_gate_fail_open",
+      forecastDate: weather.forecastDate,
+      thresholdMm: weather.thresholdMm,
+      reason: weather.error,
+    }));
+  }
+
   const dayStart = shanghaiDayStart(new Date(now));
   const configuredLimit = Number(env.NOTIFICATION_DAILY_SEND_LIMIT);
   const dailyLimit = Number.isInteger(configuredLimit) && configuredLimit > 0
@@ -616,16 +672,6 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
     console.log(JSON.stringify({ event: "notification_daily_budget_reserved", dailyLimit }));
     return;
   }
-  const pending = (
-    await env.DB.prepare(
-      `SELECT id, email, subject, body, venue_id, attempt_count
-         FROM notification_outbox
-        WHERE status IN ('pending', 'retry', 'processing')
-          AND next_attempt_at <= ?
-        ORDER BY created_at
-        LIMIT ?`,
-    ).bind(now, MAX_OUTBOX_BATCH_ROWS).all<OutboxRow>()
-  ).results;
 
   const selectedEmails = Array.from(new Set(pending.map((item) => item.email)))
     .slice(0, remainingDeliveries);
@@ -716,8 +762,10 @@ async function cleanup(env: WorkerEnv): Promise<void> {
       "DELETE FROM observed_slots WHERE last_observed_at < ?",
     ).bind(ninetyDaysAgo),
     env.DB.prepare(
-      "DELETE FROM notification_outbox WHERE status = 'sent' AND sent_at < ?",
-    ).bind(ninetyDaysAgo),
+      `DELETE FROM notification_outbox
+        WHERE (status = 'sent' AND sent_at < ?)
+           OR (status = 'suppressed' AND created_at < ?)`,
+    ).bind(ninetyDaysAgo, ninetyDaysAgo),
   ]);
 }
 
