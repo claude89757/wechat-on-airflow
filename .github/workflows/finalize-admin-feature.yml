@@ -1,0 +1,253 @@
+name: Finalize admin feature
+
+on:
+  push:
+    branches:
+      - feat/admin-operations-email-lifecycle
+
+permissions:
+  actions: write
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-admin-feature
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: contains(github.event.head_commit.message, '[finalize-admin-feature]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/admin-operations-email-lifecycle
+          fetch-depth: 0
+      - name: Verify implementation is present
+        run: |
+          set -euo pipefail
+          test -f webapp/migrations/0005_admin_email_lifecycle.sql
+          test -f webapp/cloudflare/email-status.ts
+          test -f webapp/cloudflare/invite-encryption.ts
+          test -f webapp/cloudflare/subscription-terms.ts
+          test -f webapp/src/dashboard-state.ts
+          test -f docs/adr/0011-admin-community-email-lifecycle.md
+          grep -Fq 'listCommunityUsers' webapp/cloudflare/index.ts
+          grep -Fq 'listAdminInvites' webapp/cloudflare/index.ts
+          grep -Fq 'reconcileTencentDeliveryStatuses' webapp/cloudflare/index.ts
+          grep -Fq 'queueExpiryReminders' webapp/cloudflare/index.ts
+          grep -Fq '用户社区' webapp/src/Prototype.tsx
+          grep -Fq '管理后台' webapp/src/Prototype.tsx
+          grep -Fq 'claudexzt@gmail.com' webapp/migrations/0005_admin_email_lifecycle.sql
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+          cd webapp
+          npm ci
+      - name: Verify Python and Web application
+        run: |
+          set -euo pipefail
+          ruff check .
+          ruff format --check .
+          mypy
+          PYTHONPATH=src pytest -m 'not airflow'
+          cd webapp
+          npm test
+          npm run check:worker
+          npm run build
+          npm run test:sites
+          rm -rf .wrangler/state
+          npx wrangler d1 migrations apply zacks-tennis-alerts --local
+      - name: Remove temporary transfer and finalizer workflows
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/export-admin-feature-snapshot.yml
+          rm -f .github/workflows/export-webapp-deps.yml
+          rm -f .github/workflows/finalize-admin-feature.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: remove temporary feature transfer workflows'
+            git push origin HEAD:feat/admin-operations-email-lifecycle
+          fi
+      - name: Wait for authoritative pull request CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          target="$(git rev-parse HEAD)"
+          deadline=$((SECONDS + 3600))
+          while (( SECONDS < deadline )); do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$target/check-runs" --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+            if [[ "$result" == $'completed\tsuccess' ]]; then exit 0; fi
+            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
+              echo "CI verify failed: $result" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo 'Timed out waiting for PR CI' >&2
+          exit 1
+      - name: Mark ready, update description, and merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/pr-body.md <<'EOF'
+          ## Delivered
+          - D1-backed administrator role for `claudexzt@gmail.com`
+          - invite creation, encrypted viewing, enable/disable/delete, redemption email/status
+          - detailed administrator user/login/subscription/email operations data
+          - verified-user community directory with masked email and coarse activity data
+          - Tencent provider-status reconciliation: submitted, pending, delivered, failed
+          - one-day fixed-subscription expiry reminders through Tencent SES
+          - priority 30/90/180-day and renewable long-term subscriptions
+          - accurate Web loading/unknown/stale states and visible community/admin entries
+
+          ## Verification
+          - Ruff, formatting, mypy and Python tests
+          - Web unit tests, Worker type check, production build and Sites tests
+          - fresh local D1 migration 0001-0005
+          - authoritative repository CI verify
+
+          Cloudflare Email Routing / free verified-destination Email Workers were not used for arbitrary-recipient verification email; ADR 0011 records the official-platform decision to retain Tencent SES.
+          EOF
+          gh pr edit 56 --repo "$GITHUB_REPOSITORY" --title 'feat(webapp): add admin operations and accurate email lifecycle' --body-file /tmp/pr-body.md
+          gh pr ready 56 --repo "$GITHUB_REPOSITORY" || true
+          gh pr merge 56 --repo "$GITHUB_REPOSITORY" --squash --delete-branch
+      - name: Resolve merged main commit and wait for main CI
+        id: merged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sleep 5
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          deadline=$((SECONDS + 3600))
+          while (( SECONDS < deadline )); do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+            if [[ "$result" == $'completed\tsuccess' ]]; then exit 0; fi
+            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
+              echo "Main CI verify failed: $result" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          exit 1
+      - name: Run production preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.merged.outputs.sha }}
+        run: |
+          set -euo pipefail
+          before="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow production-release.yml --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+          gh workflow run production-release.yml --repo "$GITHUB_REPOSITORY" --ref main -f mode=preflight -f target_commit="$TARGET_COMMIT" -f include_sender=false
+          deadline=$((SECONDS + 900))
+          run_id=''
+          while (( SECONDS < deadline )); do
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow production-release.yml --event workflow_dispatch --branch main --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha == \"$TARGET_COMMIT\" and .databaseId != $before) | .databaseId" | head -1)"
+            [[ -n "$run_id" ]] && break
+            sleep 5
+          done
+          test -n "$run_id"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+      - name: Run production apply
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.merged.outputs.sha }}
+        run: |
+          set -euo pipefail
+          before="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow production-release.yml --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+          gh workflow run production-release.yml --repo "$GITHUB_REPOSITORY" --ref main -f mode=apply -f target_commit="$TARGET_COMMIT" -f include_sender=false
+          deadline=$((SECONDS + 900))
+          run_id=''
+          while (( SECONDS < deadline )); do
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow production-release.yml --event workflow_dispatch --branch main --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha == \"$TARGET_COMMIT\" and .databaseId != $before) | .databaseId" | head -1)"
+            [[ -n "$run_id" ]] && break
+            sleep 5
+          done
+          test -n "$run_id"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+      - name: Validate production Web application
+        env:
+          TARGET_COMMIT: ${{ steps.merged.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p .local/acceptance
+          curl -fsS https://zacks.claude89757.cc/api/healthz > .local/acceptance/healthz.json
+          curl -fsS https://zacks.claude89757.cc/api/bootstrap > .local/acceptance/bootstrap.json
+          curl -fsS https://zacks.claude89757.cc/ > .local/acceptance/index.html
+          community_status="$(curl -sS -o .local/acceptance/community-unauth.json -w '%{http_code}' https://zacks.claude89757.cc/api/community/users)"
+          admin_status="$(curl -sS -o .local/acceptance/admin-unauth.json -w '%{http_code}' https://zacks.claude89757.cc/api/admin/users)"
+          test "$community_status" = 401
+          test "$admin_status" = 401
+          asset="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path('.local/acceptance/index.html').read_text()
+          match = re.search(r'<script[^>]+src="([^"]+)"', html)
+          print(match.group(1) if match else '')
+          PY
+          )"
+          test -n "$asset"
+          curl -fsS "https://zacks.claude89757.cc$asset" > .local/acceptance/app.js
+          grep -Fq '用户社区' .local/acceptance/app.js
+          grep -Fq '管理后台' .local/acceptance/app.js
+          grep -Fq '确认送达' .local/acceptance/app.js
+          python - "$TARGET_COMMIT" "$community_status" "$admin_status" <<'PY'
+          import json, sys
+          from pathlib import Path
+          target, community, admin = sys.argv[1:]
+          health = json.loads(Path('.local/acceptance/healthz.json').read_text())
+          bootstrap = json.loads(Path('.local/acceptance/bootstrap.json').read_text())
+          deployed = health.get('deploymentCommit') or health.get('deployed_commit') or health.get('commit')
+          if deployed and deployed != target:
+              raise SystemExit(f'deployment commit mismatch: {deployed} != {target}')
+          required = {'deliveryTiers', 'subscriptionTerms', 'subscriptionLimits'}
+          missing = required.difference(bootstrap)
+          if missing:
+              raise SystemExit(f'missing bootstrap keys: {sorted(missing)}')
+          result = {
+              'targetCommit': target,
+              'health': health,
+              'metrics': bootstrap.get('metrics'),
+              'deliveryTiers': bootstrap.get('deliveryTiers'),
+              'subscriptionTerms': bootstrap.get('subscriptionTerms'),
+              'subscriptionLimits': bootstrap.get('subscriptionLimits'),
+              'communityUnauthenticatedStatus': int(community),
+              'adminUnauthenticatedStatus': int(admin),
+              'bundleContainsCommunityEntry': True,
+              'bundleContainsAdminEntry': True,
+              'bundleContainsConfirmedDeliveryCopy': True,
+          }
+          Path('.local/acceptance/result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+      - name: Upload production acceptance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: admin-feature-production-acceptance-${{ steps.merged.outputs.sha }}
+          path: .local/acceptance
+          if-no-files-found: error
+          retention-days: 7
+      - name: Report completion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.merged.outputs.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "Admin/community/email lifecycle release completed for \`$TARGET_COMMIT\`. Production acceptance artifact is attached to $RUN_URL"
