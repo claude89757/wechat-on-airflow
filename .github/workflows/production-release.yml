@@ -41,7 +41,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-release
+  group: production-release-v2
   cancel-in-progress: false
 
 jobs:
