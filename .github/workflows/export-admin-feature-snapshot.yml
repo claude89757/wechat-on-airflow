@@ -4,12 +4,15 @@ on:
   push:
     branches:
       - feat/admin-operations-email-lifecycle
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: export-admin-feature-snapshot
+  group: export-admin-feature-snapshot-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
