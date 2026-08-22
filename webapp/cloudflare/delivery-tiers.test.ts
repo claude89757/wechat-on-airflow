@@ -40,4 +40,10 @@ describe("subscriber email delivery tiers", () => {
     expect(remainingDailyDeliveries(9, 3)).toBe(0);
     expect(deliveryTierRank("priority")).toBeLessThan(deliveryTierRank("standard"));
   });
+
+  it("closes the quota exactly at the configured boundary", () => {
+    expect(remainingDailyDeliveries(3, 3)).toBe(0);
+    expect(remainingDailyDeliveries(12, 12)).toBe(0);
+    expect(remainingDailyDeliveries(-1, 3)).toBe(3);
+  });
 });
