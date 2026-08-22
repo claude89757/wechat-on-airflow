@@ -11,7 +11,7 @@ const ENABLED_ENV = {
   WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM: "2.5",
 };
 
-function weatherResponse(precipitationMm: number): Response {
+function weatherResponse(precipitationMm: number | null): Response {
   return Response.json({
     daily: {
       time: ["2026-08-22"],
@@ -106,6 +106,17 @@ describe("Shenzhen weather email gate", () => {
 
   it("fails open when Open-Meteo returns malformed precipitation data", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ daily: {} }));
+    const decision = await evaluateWeatherEmailGate(
+      ENABLED_ENV,
+      { fetchImpl: fetchMock, now: NOW, bypassCache: true },
+    );
+
+    expect(decision.sendEmail).toBe(true);
+    expect(decision.reason).toBe("weather_unavailable");
+  });
+
+  it("fails open when Open-Meteo returns a null precipitation total", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(weatherResponse(null));
     const decision = await evaluateWeatherEmailGate(
       ENABLED_ENV,
       { fetchImpl: fetchMock, now: NOW, bypassCache: true },
