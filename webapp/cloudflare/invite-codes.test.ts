@@ -7,13 +7,14 @@ import {
   normalizeInviteCode,
 } from "./invite-codes";
 
-const VALID_CODE = "ZACKS-2345678-9ABCDEFG-HJKLMNP-QRSTUVW";
+const VALID_CODE = "ZACKS-2345678-9ABCDEF-HJKLMNP-QRSTUVW";
+const NORMALIZED_VALID_CODE = "ZACKS23456789ABCDEFHJKLMNPQRSTUVW";
 
 describe("priority invite codes", () => {
   it("normalizes case, spaces, and separators", () => {
-    expect(normalizeInviteCode(" zacks 2345678 9abcdefg h j k l m n p q r s t u v w "))
-      .toBe("ZACKS23456789ABCDEFGHJKLMNPQRSTUVW");
-    expect(formatInviteCode("ZACKS23456789ABCDEFGHJKLMNPQRSTUVW")).toBe(VALID_CODE);
+    expect(normalizeInviteCode(" zacks 2345678 9abcdef h j k l m n p q r s t u v w "))
+      .toBe(NORMALIZED_VALID_CODE);
+    expect(formatInviteCode(NORMALIZED_VALID_CODE)).toBe(VALID_CODE);
   });
 
   it("generates a 140-bit human-readable code", () => {
@@ -25,7 +26,7 @@ describe("priority invite codes", () => {
   it("hashes normalized codes deterministically with a pepper", async () => {
     const first = await hashInviteCode(VALID_CODE, "test-pepper");
     const second = await hashInviteCode(
-      "zacks23456789abcdefghjklmnpqrstuvw",
+      NORMALIZED_VALID_CODE.toLowerCase(),
       "test-pepper",
     );
     expect(first).toBe(second);
