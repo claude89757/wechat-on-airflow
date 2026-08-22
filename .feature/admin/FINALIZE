@@ -1,0 +1,1 @@
+Generate if needed, run Web/Worker/D1 verification, merge only after full CI, then deploy and execute protected production acceptance.
