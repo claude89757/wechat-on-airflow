@@ -47,7 +47,7 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -70,7 +70,10 @@ jobs:
         run: |
           PYTHONPATH=scripts python scripts/github_release_gate.py \
             --target-commit "${{ inputs.target_commit }}" \
-            --required-check verify --format json
+            --required-check verify \
+            --wait-seconds 1200 \
+            --poll-seconds 10 \
+            --format json
 
   webapp:
     needs: gate
