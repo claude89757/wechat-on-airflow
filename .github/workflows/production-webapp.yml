@@ -37,7 +37,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-webapp
+  group: production-webapp-v2
   cancel-in-progress: false
 
 jobs:
