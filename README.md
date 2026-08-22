@@ -1,120 +1,162 @@
-# wechat-on-airflow
+# 🎾 WeChat-on-Airflow
 
-Production Apache Airflow workflows that monitor Shenzhen tennis venue
-availability, publish observations for verified-email Web subscriptions, and
-send best-effort WeChat notifications. The repository also contains the
-mobile-first Cloudflare Worker application that owns subscriber email.
+> 深圳网球场地空场提醒平台：基于 Apache Airflow 3 自动巡检多个深圳网球场的可订状态，向邮箱订阅用户推送空闲场次，并同步发送 best-effort 的微信群提醒。
 
-Production completed a fresh-start migration from Airflow 2.10.5 to Airflow
-3.3.0. Historical metadata was intentionally not migrated; configuration and
-notification continuity caches were verified in the new runtime, while the
-Airflow 2 database remains preserved for rollback.
+[中文](./README.md) · [English](./README.en.md)
 
-## Runtime
+[![CI](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml/badge.svg)](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
+[![Airflow 3.3](https://img.shields.io/badge/Airflow-3.3.0-017CEE)](https://airflow.apache.org/)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020)](https://workers.cloudflare.com/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
-- Apache Airflow 3.3.0 on Python 3.12
-- CeleryExecutor
-- PostgreSQL 17
-- Redis broker
-- FAB Auth Manager
-- API Server, Scheduler, DAG Processor, Worker, and Triggerer
-- Cloudflare Tunnel ingress at `https://airflow.claude89757.cc`
-- Cloudflare Worker web application at `https://zacks.claude89757.cc`
-- independent, repository-managed WeChat sender on the Android device host
+## ✨ 功能特性
 
-Supported development and production target:
+- **多场馆自动巡检**：7 个深圳场馆巡检 DAG（深圳湾 15s 高频、大湾区、大沙河免费场、金地、上越沙河、TOPS、体育中心）+ HTTPS 代理巡检 + 每日设备维护
+- **邮箱订阅推送**：Cloudflare Worker Web 应用全权负责邮箱验证、订阅匹配、事件去重与失败重试（Tencent SES 投递）
+- **微信群提醒**：Android 设备宿主上的独立 WeChat Sender（systemd + Appium），best-effort 投递，失败按群隔离记录，不影响邮件链路
+- **代码即契约**：`config/` 下的机器可读组件/配置/运行时契约；DAG 仅做调度编排，业务实现全部位于 `src/` 包
+- **精确发布**：GitHub Actions 是唯一控制面，按精确 commit 部署，部署后自动健康校验
+- **完整质量门禁**：`make verify` 覆盖 lint、类型检查、单元测试、Web 构建、镜像构建与 DagBag 契约检查
 
-| Component | Version |
-| --- | --- |
-| Airflow | 3.3.0 |
-| Python | 3.12 |
-| PostgreSQL | 17 |
-| Celery provider | 3.21.0 |
-| FAB provider | 3.7.1 |
-| Standard provider | 1.15.0 |
+## 🏗️ 系统架构
 
-## Development
+```mermaid
+flowchart TB
+    subgraph control["GitHub 控制面"]
+        CI["CI / verify 质量门禁"]
+        Release["Production Release 精确 commit 部署"]
+        CI --> Release
+    end
 
-Python 3.12 and Docker Compose v2 are required.
+    subgraph sources["外部数据源"]
+        SZ["深圳湾 / 大湾区订场 API"]
+        NSWTT["NSWTT 大沙河免费场"]
+        VENUES["金地 / 上越沙河 / TOPS / 体育中心"]
+        PROXY["公共代理源 + GitHub 代理仓库"]
+    end
 
-```bash
-make setup
-make verify
+    subgraph airflow["Apache Airflow 3.3（CeleryExecutor）"]
+        Scheduler["Scheduler + DAG Processor"]
+        Worker["Celery Worker（场馆适配器）"]
+        Triggerer["Triggerer"]
+        DB[("PostgreSQL 17 元数据库")]
+        Redis[("Redis Broker")]
+        ApiSrv["API Server（Cloudflare Tunnel 入口）"]
+        Scheduler --> DB
+        Scheduler --> Redis
+        Redis --> Worker
+        Worker --> DB
+        Triggerer --> ApiSrv
+    end
+
+    subgraph cf["Cloudflare 平台"]
+        WebApp["Cloudflare Worker 订阅 Web 应用"]
+        D1[("D1 订阅 / 去重 / 邮件 Outbox")]
+        SES["Tencent SES 订阅邮件"]
+        WebApp --> D1
+        WebApp --> SES
+        SES -. 失败重试 .-> D1
+    end
+
+    subgraph android["Android 设备宿主"]
+        Sender["WeChat Sender（systemd + Appium）"]
+        Chat["微信群"]
+        Sender --> Chat
+    end
+
+    Browser["手机浏览器"] --> WebApp
+
+    SZ --> Worker
+    NSWTT --> Worker
+    VENUES --> Worker
+    PROXY --> Worker
+
+    Worker -->|"① 发布原始场次观测"| WebApp
+    Worker -->|"② 去重后 best-effort 投递"| Sender
+
+    Release -->|"部署"| WebApp
+    Release -->|"部署"| ApiSrv
+    Release -->|"部署"| Sender
 ```
 
-`make verify` includes static checks, unit tests, configuration validation, the
-pinned Airflow image build, the web application build, and a DagBag contract
-check inside Airflow 3. The
-DagBag check verifies DAG IDs, source files, task IDs, and import errors against
-the active component manifest; the static manifest check also verifies each DAG
-schedule. Tests and smoke checks do not send real email or WeChat messages.
+**核心数据流原则：**
 
-Production DAG files are intentionally thin. Venue, proxy, and device
-maintenance implementations are installed from `src/wechat_airflow/`.
+1. Airflow **先**向 Web 应用发布原始场次观测（发布失败不影响巡检 DAG），**再**尝试微信投递；
+2. Web 应用是**唯一邮件投递方**：邮箱验证、订阅匹配、去重与重试全部由它负责（D1 Outbox）；
+3. 微信投递为 best-effort：先去重缓存后投递，失败按群隔离记录到回退 Outbox，**绝不自动重放**。
 
-The web application is under `webapp/`. It uses React, Cloudflare Workers, D1,
-and Tencent SES. It does not list available courts or book a court. Users
-verify an email once per browser, then create alert rules for selected venues,
-daily time ranges, and a 7–14 day validity period.
+更多细节见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
-## Configuration
+## 🧱 技术栈
 
-Run `make local-secrets` to generate ignored, development-only Docker Secret
-files inside a mode-`700` directory. The development files are mode `644`
-because Linux Compose bind mounts preserve source ownership while the
-containers use different non-root UIDs; the enclosing directory limits host
-access. Production settings are managed by the protected GitHub environment,
-Airflow Variables, Cloudflare Worker Secrets, host Docker Secrets, and systemd
-credentials. Airflow Variable names and their schemas are documented in:
+| 组件 | 用途 |
+| --- | --- |
+| Apache Airflow 3.3.0（CeleryExecutor） | 调度与任务编排 |
+| Python 3.12 | 运行语言 |
+| PostgreSQL 17 | Airflow 元数据库 |
+| Redis | Celery broker |
+| Cloudflare Workers + D1 | 订阅 Web 应用、去重与邮件 Outbox |
+| Tencent SES | 订阅邮件投递 |
+| Android + Appium（systemd） | 微信群消息发送端 |
+| Cloudflare Tunnel | Airflow 公网入口 |
 
-- `config/active-components.yaml`
-- `config/config-contracts.yaml`
+在线服务：Airflow 控制台 `https://airflow.claude89757.cc` · 订阅站点 `https://zacks.claude89757.cc`
 
-Neither file contains production values. Airflow has no fixed email recipient
-lists and does not send venue email directly.
+## 📁 项目结构
 
-Airflow publishes raw venue observations to the Worker before attempting
-best-effort WeChat delivery. The publisher is bounded and cannot fail a venue
-DAG. Its endpoint and token are protected Airflow Variables. The Worker is the
-only email-delivery owner: it verifies addresses, matches active subscriptions,
-deduplicates events, and retries delivery through its D1 outbox.
+```
+├── dags/                       # 生产 DAG（仅调度编排，单文件 <120 行）
+│   └── tennis_dags/
+│       ├── sz_tennis/          # 深圳场馆巡检：深圳湾 / 大湾区 / 大沙河 / 金地 / 上越沙河 / TOPS / 体育中心
+│       ├── proxy_tools/        # HTTPS 代理巡检（每 5 分钟）
+│       └── zacks_phone_reboot_dag.py  # 每日设备维护
+├── src/wechat_airflow/         # 业务实现包
+│   ├── venues/                 # 场馆 API 适配、解析与过滤
+│   ├── notifications/          # Web 观测发布 + 微信投递
+│   ├── proxy_tools/            # 代理列表刷新
+│   └── maintenance/            # Android 设备维护
+├── webapp/                     # Cloudflare Worker + React 订阅应用（唯一邮件投递方）
+├── config/                     # 机器可读契约：组件 / 配置 / 运行时目标
+├── scripts/                    # 幂等的开发与运维命令
+├── docker/                     # 可复现的 Airflow 镜像定义
+├── docs/                       # 架构、runbook、ADR、发布策略
+└── tests/                      # 单元 / 契约 / DAG 导入 / 冒烟测试
+```
 
-Production Airflow is exposed through an outbound-only Cloudflare Tunnel. The
-API server trusts proxy headers and binds host port 8080 to loopback only.
-Public access uses the hostname root, and the private Execution API uses the
-matching `/execution/` route.
+## 🚀 快速开始
 
-The synchronous WeChat sender runs as a dedicated systemd service on the
-Android host; see `docs/wechat-sender-service.md`. Its public send endpoint has
-no token by design. Docker Compose remains an alternate development runtime.
+需要 Python 3.12 与 Docker Compose v2：
 
-## Operations
+```bash
+make setup            # 创建 venv、安装依赖与 webapp 依赖
+make local-secrets    # 生成本地开发用 Docker Secret（仅开发环境）
+make verify           # 本地质量门禁：lint + 类型检查 + 单测 + 构建 + DagBag 契约检查
+```
 
-Read `AGENTS.md` first. Production procedures are maintained under
-`docs/runbooks/`. The Airflow 3 cutover uses a fresh metadata database and
-migrates configuration and continuity caches only. The Airflow 2 database
-remains intact for rollback. Database restore, destructive cleanup, secret
-rotation, and real notification tests require explicit human approval.
+> 测试与冒烟检查**绝不会**发送真实的邮件或微信消息。
 
-Metadata cleanup is not an Airflow DAG because Airflow 3 task subprocesses do
-not receive direct metadata database access. `make db-cleanup-check` performs a
-read-only production dry run; deletion requires a separately approved,
-date-confirmed apply command.
+## 📖 文档
 
-The repository is designed for coding-agent maintenance. Machine-readable
-component, configuration, and runtime contracts are under `config/`; chat
-history is not an operational dependency.
+| 文档 | 说明 |
+| --- | --- |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 系统架构与所有权边界 |
+| [AGENTS.md](./AGENTS.md) | 仓库总览与运维须知（建议先读） |
+| [docs/runbooks/](./docs/runbooks/) | 生产 runbook：部署 / 回滚 / 排障 / 升级 |
+| [config/](./config/) | 组件、配置与运行时契约 |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 贡献指南 |
+| [SECURITY.md](./SECURITY.md) | 安全策略 |
 
-Cloudflare deployment and operational checks are documented in
-`docs/runbooks/webapp-deployment.md`.
+## 🗄️ 配置
 
-## Contributing
+生产配置由受保护的 GitHub Environment、Airflow Variables、Cloudflare Worker Secrets 与主机 Docker Secrets 管理；Airflow Variable 名称与结构见 `config/active-components.yaml` 与 `config/config-contracts.yaml`（均不含真实值）。
 
-See `CONTRIBUTING.md`, `SECURITY.md`, and `CODE_OF_CONDUCT.md`. CI runs the same
-static, unit, manifest, Compose, image-build, and DAG-import gates used locally.
-Versioning, the support matrix, release gates, and rollback expectations are in
-`docs/release-strategy.md`.
+Airflow 不持有固定收件人列表，也不直接发送场馆邮件。
 
-## License
+## 🤝 贡献
 
-Apache License 2.0. See `LICENSE`.
+见 [CONTRIBUTING.md](./CONTRIBUTING.md)、[SECURITY.md](./SECURITY.md) 与 [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md)。发布策略、支持矩阵与回滚预期见 [docs/release-strategy.md](./docs/release-strategy.md)。
+
+## 📄 License
+
+Apache License 2.0。见 [LICENSE](./LICENSE)。
