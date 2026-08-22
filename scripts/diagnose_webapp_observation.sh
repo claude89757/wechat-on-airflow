@@ -51,7 +51,7 @@ if url and token:
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "zacks-airflow-diagnose/2",
+            "User-Agent": "zacks-airflow-diagnose/3",
         },
         method="POST",
     )
@@ -64,6 +64,8 @@ if url and token:
         result["probe_error_type"] = type(exc).__name__
         result["probe_error"] = str(exc)[:200]
     else:
+        pass
+    if "status" in locals():
         result["auth_probe_status"] = status
         result["auth_probe_ok"] = status == 400
 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -88,7 +90,7 @@ import urllib.request
 
 request = urllib.request.Request(
     "https://zacks.claude89757.cc/api/bootstrap",
-    headers={"Accept": "application/json", "User-Agent": "zacks-production-diagnose/2"},
+    headers={"Accept": "application/json", "User-Agent": "zacks-production-diagnose/3"},
 )
 with urllib.request.urlopen(request, timeout=10) as response:
     payload = json.loads(response.read().decode("utf-8"))
