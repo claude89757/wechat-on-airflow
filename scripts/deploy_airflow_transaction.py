@@ -119,9 +119,7 @@ def deploy_with_health(
         relay(restore_health)
 
     restore_ok = bool(
-        restore.returncode == 0
-        and restore_health is not None
-        and restore_health.returncode == 0
+        restore.returncode == 0 and restore_health is not None and restore_health.returncode == 0
     )
     return (
         {
