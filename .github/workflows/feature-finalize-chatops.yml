@@ -1,0 +1,155 @@
+name: Feature Finalize ChatOps
+run-name: feature-finalize/${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: feature-finalize-admin-email-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  finalize-admin:
+    if: >-
+      github.event.issue.number == 39 &&
+      github.event.comment.user.login == github.repository_owner &&
+      github.event.comment.body == '/ops finalize-admin-feature'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/admin-operations-email-lifecycle
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Restore proven subscription UI transformer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .feature-bootstrap
+          gh api "repos/$GITHUB_REPOSITORY/contents/.feature-bootstrap/patch_ui.py?ref=feat/priority-long-term-subscriptions" --jq .content | tr -d '\n' | base64 -d > .feature-bootstrap/patch_ui.py
+      - name: Generate final feature source
+        run: bash .feature/admin/finalize_v5.sh
+      - name: Validate requested surface
+        run: |
+          set -euo pipefail
+          grep -q 'claudexzt@gmail.com' webapp/migrations/0006_add_admin_email_lifecycle.sql
+          grep -q '/api/community/users' webapp/cloudflare/index.ts
+          grep -q '/api/admin/users' webapp/cloudflare/index.ts
+          grep -q '/api/admin/invites' webapp/cloudflare/index.ts
+          grep -q 'GetSendEmailStatus' webapp/cloudflare/tencent-ses.ts
+          grep -q 'subscription_expiry' webapp/cloudflare/index.ts
+          grep -q '用户社区' webapp/src/Prototype.tsx
+          grep -q '管理后台' webapp/src/Prototype.tsx
+          grep -q 'CommunityPanel' webapp/src/Prototype.tsx
+          grep -q 'AdminPanel' webapp/src/Prototype.tsx
+          grep -q '确认送达' webapp/src/Prototype.tsx
+          grep -q '发送失败' webapp/src/Prototype.tsx
+          test -f .github/workflows/production-admin-acceptance.yml
+          test -f .github/workflows/deploy-admin-email-lifecycle.yml
+      - name: Remove temporary generation assets
+        run: |
+          set -euo pipefail
+          rm -rf .feature/admin .feature-bootstrap
+          rm -f .github/workflows/apply-admin-feature.yml
+          rm -f .github/workflows/finalize-admin-feature.yml
+          rm -f .github/workflows/finalize-admin-feature-v2.yml
+          rm -f .github/workflows/finalize-admin-feature-v3.yml
+          rm -f .github/workflows/finalize-admin-feature-v4.yml
+          rm -f .github/workflows/finalize-admin-feature-v5.yml
+          rm -f .github/workflows/export-admin-feature-snapshot.yml
+          rm -f .github/workflows/export-webapp-deps.yml
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+      - name: Lint final tree
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Type check
+        run: mypy
+      - name: Python unit tests
+        run: PYTHONPATH=src pytest -m 'not airflow'
+      - name: Install Web dependencies
+        working-directory: webapp
+        run: npm ci
+      - name: Verify Web application
+        run: make webapp-check
+      - name: Validate active components
+        run: PYTHONPATH=src python scripts/check_active_components.py
+      - name: Validate Compose
+        run: make compose-config
+      - name: Build Airflow image
+        run: make image
+      - name: Build WeChat sender image
+        run: make sender-image
+      - name: Airflow 3 DAG imports
+        run: make test-dags
+      - name: Verify local D1 migrations
+        working-directory: webapp
+        run: npm run cf:migrate:local
+      - name: Commit verified implementation
+        id: commit
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'feat(webapp): add admin operations and accurate email lifecycle'
+          git push origin HEAD:feat/admin-operations-email-lifecycle
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Wait for standard PR verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 3600))
+          while (( SECONDS < deadline )); do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_COMMIT/check-runs" --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+            if [[ "$result" == $'completed\tsuccess' ]]; then exit 0; fi
+            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
+              echo "PR verify failed: $result" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo 'Timed out waiting for PR verify' >&2
+          exit 1
+      - name: Ready and merge PR 56
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr ready 56 --repo "$GITHUB_REPOSITORY" || true
+          gh pr edit 56 --repo "$GITHUB_REPOSITORY" --title 'feat(webapp): add admin operations and accurate email lifecycle' --body 'Verified implementation of administrator operations, privacy-safe community users, Tencent delivery reconciliation, expiry reminders, long-term priority subscriptions, quota UX, and protected production acceptance. Cloudflare Email Routing was evaluated but is not suitable for arbitrary user-entered verification recipients, so verification email remains on Tencent SES.'
+          gh pr merge 56 --repo "$GITHUB_REPOSITORY" --squash --delete-branch --subject 'feat(webapp): add admin operations and accurate email lifecycle' --body 'Final tree and standard PR CI passed. Production Web deployment and protected acceptance follow automatically.'
+      - name: Report success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "Admin/community/email lifecycle finalization succeeded. Verified branch commit: \`$SHA\`. PR #56 merged; production deployment follows automatically. Run: $RUN_URL"
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "Admin/community/email lifecycle finalization failed before merge. Run: $RUN_URL"
