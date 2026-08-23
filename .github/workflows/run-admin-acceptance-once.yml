@@ -1,0 +1,33 @@
+name: Run admin acceptance once
+run-name: ops/admin-acceptance/${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - ops/admin-acceptance-4bf200f
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  accept:
+    uses: ./.github/workflows/production-admin-acceptance.yml
+    with:
+      target_commit: 4bf200f2048c1b0ca0e02cf4c3da4b23631fa202
+    secrets: inherit
+
+  report:
+    if: always()
+    needs: [accept]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report admin acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.accept.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body \
+            "Admin production acceptance for \`4bf200f2048c1b0ca0e02cf4c3da4b23631fa202\`: \`$RESULT\`. Run: $RUN_URL"
+          test "$RESULT" = success
