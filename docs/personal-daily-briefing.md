@@ -28,7 +28,7 @@
 | `DAILY_BRIEFING_OPENAI_API_KEY` | 启用时 | 空 | OpenAI API 密钥；敏感值 |
 | `DAILY_BRIEFING_WECHAT_RECEIVER` | 启用时 | 空 | 微信联系人或群聊名称；敏感值，例如 `Tt` |
 | `DAILY_BRIEFING_OPENAI_API_URL` | 否 | Responses API 地址 | 通常无需修改 |
-| `DAILY_BRIEFING_MODEL` | 否 | `gpt-5.6` | 用于联网检索与摘要的模型 |
+| `DAILY_BRIEFING_MODEL` | 否 | `gpt-5.6-terra` | 用于联网检索与摘要的平衡型模型 |
 | `DAILY_BRIEFING_TOPICS` | 否 | 预置主题列表 | JSON 字符串数组；可覆盖默认关注范围 |
 | `DAILY_BRIEFING_LOOKBACK_HOURS` | 否 | `48` | 检索时间窗口 |
 | `DAILY_BRIEFING_REQUEST_TIMEOUT_SECONDS` | 否 | `300` | OpenAI 请求超时 |
