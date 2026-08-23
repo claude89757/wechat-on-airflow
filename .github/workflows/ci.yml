@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   verify:
+    # This is the required release check; runtime drift must fail before deployment.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
