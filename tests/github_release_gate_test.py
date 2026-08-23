@@ -12,8 +12,26 @@ import github_release_gate  # noqa: E402
 def test_waits_for_in_progress_verify_then_succeeds():
     payloads = iter(
         [
-            {"check_runs": [{"id": 1, "name": "verify", "status": "in_progress", "conclusion": None}]},
-            {"check_runs": [{"id": 1, "name": "verify", "status": "completed", "conclusion": "success"}]},
+            {
+                "check_runs": [
+                    {
+                        "id": 1,
+                        "name": "verify",
+                        "status": "in_progress",
+                        "conclusion": None,
+                    }
+                ]
+            },
+            {
+                "check_runs": [
+                    {
+                        "id": 1,
+                        "name": "verify",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ]
+            },
         ]
     )
     sleeps: list[float] = []
@@ -40,7 +58,16 @@ def test_waits_when_verify_is_not_visible_yet():
     payloads = iter(
         [
             {"check_runs": []},
-            {"check_runs": [{"id": 7, "name": "verify", "status": "completed", "conclusion": "success"}]},
+            {
+                "check_runs": [
+                    {
+                        "id": 7,
+                        "name": "verify",
+                        "status": "completed",
+                        "conclusion": "success",
+                    }
+                ]
+            },
         ]
     )
     clock = iter([0.0, 0.0, 1.0])
@@ -74,7 +101,12 @@ def test_terminal_failed_verify_fails_without_sleeping():
         poll_seconds=5,
         fetcher=lambda *_: {
             "check_runs": [
-                {"id": 2, "name": "verify", "status": "completed", "conclusion": "failure"}
+                {
+                    "id": 2,
+                    "name": "verify",
+                    "status": "completed",
+                    "conclusion": "failure",
+                }
             ]
         },
         monotonic=lambda: 0.0,
@@ -99,7 +131,14 @@ def test_wait_is_bounded_when_verify_never_completes():
         wait_seconds=10,
         poll_seconds=5,
         fetcher=lambda *_: {
-            "check_runs": [{"id": 3, "name": "verify", "status": "queued", "conclusion": None}]
+            "check_runs": [
+                {
+                    "id": 3,
+                    "name": "verify",
+                    "status": "queued",
+                    "conclusion": None,
+                }
+            ]
         },
         monotonic=lambda: next(times),
         sleeper=sleeps.append,
