@@ -1,2 +1,2 @@
 Generate the complete administrator, community, Tencent delivery lifecycle, expiry-reminder, long-term subscription, deployment, and acceptance implementation. Merge only after all branch checks pass.
-Trigger v5 verification for production release.
+Trigger registered finalizer for production release.
