@@ -176,3 +176,60 @@ variables:
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve
+  DAILY_BRIEFING_ENABLED:
+    type: string
+    required_by: [personal_daily_briefing]
+    sensitive: false
+    default: "false"
+  DAILY_BRIEFING_OPENAI_API_KEY:
+    type: string
+    required_by: [personal_daily_briefing]
+    sensitive: true
+    default: ""
+  DAILY_BRIEFING_OPENAI_API_URL:
+    type: url
+    required_by: [personal_daily_briefing]
+    sensitive: false
+    default: https://api.openai.com/v1/responses
+  DAILY_BRIEFING_MODEL:
+    type: string
+    required_by: [personal_daily_briefing]
+    sensitive: false
+    default: gpt-5.6
+  DAILY_BRIEFING_WECHAT_RECEIVER:
+    type: string
+    required_by: [personal_daily_briefing]
+    sensitive: true
+    default: ""
+  DAILY_BRIEFING_TOPICS:
+    type: json_list
+    required_by: [personal_daily_briefing]
+    sensitive: false
+    default:
+      - AI 与开发者工具
+      - 开源与产品项目
+      - 韩国留学与生活
+      - 网球与 CourtVoice
+      - 与用户决策直接相关的国内外重大事件
+  DAILY_BRIEFING_LOOKBACK_HOURS:
+    type: positive_integer
+    required_by: [personal_daily_briefing]
+    sensitive: false
+    default: 48
+  DAILY_BRIEFING_REQUEST_TIMEOUT_SECONDS:
+    type: positive_integer
+    required_by: [personal_daily_briefing]
+    sensitive: false
+    default: 300
+  DAILY_BRIEFING_MAX_ITEMS:
+    type: positive_integer
+    required_by: [personal_daily_briefing]
+    sensitive: false
+    default: 8
+  DAILY_BRIEFING_STATE:
+    type: json_object
+    required_by: [personal_daily_briefing]
+    sensitive: true
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: {}

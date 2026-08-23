@@ -372,6 +372,45 @@ active_dags:
       - device_config_contract
       - latest_run_succeeds
 
+  - dag_id: personal_daily_briefing
+    file: dags/briefing_dags/personal_daily_briefing.py
+    schedule: "0 9 * * *"
+    tasks:
+      - generate_and_send
+    variables:
+      - DAILY_BRIEFING_ENABLED
+      - DAILY_BRIEFING_OPENAI_API_KEY
+      - DAILY_BRIEFING_OPENAI_API_URL
+      - DAILY_BRIEFING_MODEL
+      - DAILY_BRIEFING_WECHAT_RECEIVER
+      - DAILY_BRIEFING_TOPICS
+      - DAILY_BRIEFING_LOOKBACK_HOURS
+      - DAILY_BRIEFING_REQUEST_TIMEOUT_SECONDS
+      - DAILY_BRIEFING_MAX_ITEMS
+      - DAILY_BRIEFING_STATE
+      - WECHAT_SEND_API_URL
+      - WECHAT_SEND_DEVICE_NAME
+      - WECHAT_SEND_TIMEOUT_SECONDS
+      - WECHAT_SEND_RETRY_COUNT
+      - WECHAT_SEND_RETRY_DELAY_SECONDS
+    connections: []
+    direct_modules:
+      - wechat_airflow.briefings.daily_briefing
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - openai_responses_api
+      - openai_web_search
+      - wechat_sender_api
+    notifications:
+      - wechat
+    purpose: Generate a source-linked personal briefing for the previous 48 hours and deliver it to one configured WeChat contact each morning.
+    verification:
+      - dag_imports
+      - disabled_by_default
+      - no_real_delivery_in_tests
+      - same_day_delivery_is_idempotent
+      - generated_draft_is_reused_after_delivery_failure
+
 excluded_stale_components:
   - dag_id: airflow_db_cleanup
     file: dags/tool_dags/db_cleanup.py
