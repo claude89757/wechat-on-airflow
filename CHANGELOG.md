@@ -5,6 +5,13 @@ and operational changes.
 
 ## Unreleased
 
+## [0.2.1] - 2026-08-23
+
+### Fixed
+
+- Prevent the mobile dashboard from entering its drag or rubber-band state when
+  the pointer moves from the top-right More trigger into the opened menu.
+
 ## [0.2.0] - 2026-08-23
 
 ### Added
