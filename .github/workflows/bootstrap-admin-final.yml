@@ -23,11 +23,11 @@ jobs:
         with:
           ref: feat/admin-operations-email-lifecycle-final
           fetch-depth: 0
-      - name: Restore verified generators
+      - name: Restore verified generators and deploy workflow
         run: |
           set -euo pipefail
           git fetch origin feat/admin-operations-email-lifecycle feat/priority-long-term-subscriptions
-          git checkout origin/feat/admin-operations-email-lifecycle -- .feature/admin
+          git checkout origin/feat/admin-operations-email-lifecycle -- .feature/admin .github/workflows/deploy-admin-email-lifecycle.yml
           mkdir -p .feature-bootstrap
           git show origin/feat/priority-long-term-subscriptions:.feature-bootstrap/patch_ui.py > .feature-bootstrap/patch_ui.py
       - name: Generate final business tree
