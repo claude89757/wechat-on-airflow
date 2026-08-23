@@ -1,44 +1,132 @@
 # Production Deployment
 
-This runbook covers reversible application deployments after the Airflow 3
-fresh start. The one-time Airflow 2 cutover is in `airflow-upgrade.md`.
+This runbook covers reversible component deployments after the Airflow 3 fresh
+start. The one-time Airflow 2 cutover is in `airflow-upgrade.md`.
 
 ## Preconditions
 
 The exact release commit must be on protected `main` with a successful GitHub
-`CI / verify` check. Dispatch `production-release.yml` in `preflight` mode and
-record any known production issue before apply. Application rollback requires a
-previous pushed release commit and valid Compose configuration; it does not
-require a database backup because application deployment preserves all data
-volumes.
+`CI / verify` check. GitHub is the authoritative control plane; workstations
+keep only GitHub authentication and never hold production Cloudflare or SSH
+credentials.
 
-The GitHub UI is the authoritative entry point. `make deploy`,
-`make webapp-deploy`, `make sender-deploy`, and component health targets are
-optional `gh` dispatchers. They use only GitHub workstation authentication and
-never connect with workstation-held production credentials.
+Before release:
 
-## Deploy
+1. record current Web, Airflow, and sender identities and health;
+2. review the diff for secrets and confirm version/changelog consistency;
+3. merge through a pull request and use the full merge SHA;
+4. identify whether the release changes Web, Airflow, sender, or only the
+   control plane.
 
-1. Record pre-deploy component health and the current release identities.
-2. Dispatch `production-release.yml` with `mode=preflight`, the full target SHA,
-   and the intended sender selection.
-3. After preflight succeeds, dispatch the same SHA with `mode=apply`.
-4. The release first applies D1 migrations and the Worker, then Airflow, then the
-   sender when selected. Each component runs its own post-apply health check.
-5. Airflow deployment builds a commit-tagged image, changes only application
-   services, preserves each DAG's pause state, drains active tasks before
-   replacing workers, and waits for service health checks. If startup fails it
-   restores the previous commit, image configuration, and DAG pause state. It
-   batches pause-state changes through the supported Airflow CLI and does not
-   recreate PostgreSQL, Redis, or log volumes.
-6. Compare the Execution API route probe, DAG source readability,
-   registration, import errors, exact release/production commit match, outbox
-   counts, and service health.
-7. Observe the cycle count in `config/runtime-target.yaml`.
-8. Record the deployed commit and GitHub run in the production baseline.
+Only `.github/workflows/ops-chatops.yml` listens to owner comments on issue 39.
+Do not add another `issue_comment` listener for release, tag, or operations
+commands.
 
-Application deployments must retain the configured Airflow 3 database, Redis,
-and log volume names. They must never mount the preserved Airflow 2 paths.
+## Routine Named Release
+
+Use one command:
+
+```text
+/release ship <version> <full-sha> scope=auto sender=false
+```
+
+The workflow performs these steps in order:
+
+1. validate `pyproject.toml`, runtime package version, and the matching
+   `CHANGELOG.md` section before any production mutation;
+2. require the exact-SHA `CI / verify` check through the common release gate;
+3. compare the target with the previous semantic release and resolve the
+   component scope;
+4. apply only the required components through the protected `production`
+   Environment;
+5. run each deployed component's exact-commit health checks;
+6. create the immutable Git tag and GitHub Release only after deployment
+   succeeds;
+7. publish one authoritative result comment and one Action summary.
+
+`scope=auto` is preferred. A manual scope may broaden the plan, but the planner
+rejects any scope that omits a detected runtime component. Sender deployment is
+never implied: when sender code is in scope the command must include
+`sender=true`.
+
+Control-only releases—workflows, release tooling, documentation, tests, and
+version-only metadata—run the full conservative CI suite but deploy no runtime.
+Web-only releases no longer restart Airflow. The release summary records
+component identities independently rather than requiring a repository-wide SHA
+that forces unrelated replacements.
+
+## Advanced and Recovery Commands
+
+Use these only when a separate dry run, staged incident recovery, or a resumed
+tag operation is required:
+
+```text
+/release preflight <full-sha> scope=auto sender=false
+/release apply <full-sha> scope=auto sender=false
+/release tag <version> <full-sha>
+```
+
+A separate preflight is recommended for unusual D1 migrations, Airflow runtime
+or metadata changes, and rollback rehearsals. Routine low-risk releases do not
+need it because Web apply runs its own build/dry-run/migration listing and the
+Airflow transaction runs its own preflight before replacement.
+
+The production release gate is the only CI waiter. It fails immediately for an
+older target with no CI record, polls only an existing queued or in-progress
+check, and rejects unsuccessful checks. ChatOps must not duplicate that wait.
+
+## Component Deployment Order
+
+When multiple components are in scope, deployment remains ordered:
+
+1. Web application and D1 migrations;
+2. Airflow application services;
+3. WeChat sender when explicitly approved.
+
+A skipped component is recorded as skipped, not treated as a failure. Unknown
+or unclassified runtime paths conservatively expand to all components.
+
+## Airflow Transaction
+
+Airflow apply builds a commit-tagged image, drains active task instances,
+preserves each DAG's pause state, replaces only application services, and
+retains PostgreSQL, Redis, log, and other stateful volumes. It batches
+pause-state changes through the supported Airflow CLI.
+
+Deployment and full production health are one transaction. If new containers
+start but any complete health check fails, the workflow restores the prior
+commit, image configuration, and DAG pause state, verifies the restored version,
+and fails the attempted release. Deployment failure and restore failure are
+reported separately.
+
+The health gate checks, among other contracts:
+
+- exact Airflow component commit and supported Airflow version;
+- service and container health;
+- private Execution API route behavior;
+- DAG source readability, registration, pause state, and import errors;
+- required Variables without exposing values;
+- declared recent successful schedule cycles;
+- managed Cloudflare Tunnel and sender readiness;
+- outbox evidence without automatic replay.
+
+Observe the cycle count in `config/runtime-target.yaml` after changes that affect
+DAG behavior.
+
+## Web Application
+
+Web apply performs:
+
+1. deterministic production build;
+2. Wrangler deploy dry-run with the target deployment commit;
+3. remote D1 migration listing;
+4. D1 migration apply;
+5. Worker deployment;
+6. exact-commit `/api/healthz` verification.
+
+Never use workstation Wrangler credentials for a production migration or
+deployment. For a Web-only release, Airflow remains on its existing healthy
+component commit.
 
 ## Cloudflare Tunnel
 
@@ -55,59 +143,54 @@ must run with proxy headers enabled and publish `127.0.0.1:8080:8080`; the
 tunnel origin is `http://127.0.0.1:8080`. Tunnel credentials and the Cloudflare
 account certificate stay outside the repository with root-only permissions.
 
-After any ingress or Airflow base URL change, dispatch the Airflow `health`
-operation with the exact deployed SHA. The protected workflow checks the host
-service state, loopback origin, public health endpoint, and public root.
-
-The production health check also requires the private Execution API probe to
-return its expected unauthenticated response and the active DAGs to complete
-their declared successful run history.
-
 ## WeChat Sender
 
-The sender can be deployed independently through its protected workflow, so it
-can be repaired without restarting Airflow. Dispatch `dry_run`, then `apply`,
-with the same exact commit. Optional `gh`-only wrappers are:
+The sender can be repaired independently without restarting Airflow. Sender
+scope requires explicit `sender=true`. Apply deploys the exact commit to the
+Android host, runs one unprivileged worker, enables automatic startup, and waits
+for both `/healthz` and `/readyz`.
 
-```bash
-make sender-deploy DEPLOY_ARGS="--target-commit <full-sha>"
-make sender-deploy DEPLOY_ARGS="--apply --target-commit <full-sha>"
-make sender-health
-```
-
-Use root-owned files under `/etc/wechat-sender/credentials` with directory mode
-`700` and file mode `600` for the device and loopback Appium endpoint. Apply
-mode deploys an exact commit, runs one unprivileged worker, retries transient
-Git fetch failures for standalone installs, enables automatic startup, and waits
-for `GET /readyz`. The protected workflow transfers the verified `origin/main`
-history as a Git bundle over its pinned SSH connection, so the Android host does
-not need direct GitHub access during a deployment. Also verify `GET /healthz`;
-do not call the send endpoint as a smoke test. Historical fallback records are
-not replayed automatically. Docker Compose is retained only as a development
-or alternate-host runtime.
-
-`make sender-diagnose` also returns a sanitized UI structure snapshot for
-device incidents: current activity, control geometry, resource IDs, and known
-navigation roles. It deliberately reports only whether other text is present,
-never chat names or message content.
-
-For an incident where WeChat exposes no usable accessibility tree, run
-`make sender-screenshot`. The protected workflow captures one read-only device
-screenshot, stores it as a GitHub artifact for one day, and downloads it under
-the ignored `.local/diagnostics/` directory. Treat the image as sensitive
-operational evidence: do not commit it or paste it into logs.
+The protected workflow transfers verified history over the pinned SSH
+connection, so the Android host does not need direct GitHub access. Do not call
+the send endpoint as a smoke test. A real message probe requires a separate,
+explicit owner-approved `/ops wechat-contact-probe` command. Historical fallback
+records are never replayed automatically.
 
 ## Runtime Secrets
 
 Airflow infrastructure secrets are source files under
-`/etc/wechat-on-airflow/secrets`, owned by `root:root` with directory mode
-`750` and file mode `640`. Airflow and PostgreSQL run as distinct non-root UIDs
-with primary group `0`, so this is the minimum shared permission required by
-Compose's bind-mounted file Secrets. Compose mounts only the declared Secret
-files, and Airflow loads them through supported command-backed configuration.
-Do not create a repository or workstation environment file. Recreating containers must go
-through the protected GitHub workflow so the exact image, public base URL,
-internal Execution API URL, and Secret directory are applied together.
+`/etc/wechat-on-airflow/secrets`, owned by `root:root` with directory mode `750`
+and file mode `640`. Airflow and PostgreSQL run as distinct non-root UIDs with
+primary group `0`, so this is the minimum shared permission required by
+Compose's bind-mounted file Secrets.
+
+Do not create repository or workstation environment files. Recreating
+containers must go through the protected GitHub workflow so the exact image,
+public base URL, internal Execution API URL, and Secret directory are applied
+together.
+
+## Rollback
+
+The scope planner compares a forward candidate with its preceding semantic
+release. It must not be used to infer which parts of an arbitrary historical
+commit should be restored.
+
+For a component-only rollback, dispatch the matching protected reusable workflow
+with the prior recorded component commit:
+
+- `production-webapp.yml` with `operation=deploy_apply` for Web;
+- `production-airflow.yml` with `operation=deploy_apply` for Airflow application
+  services;
+- `production-wechat-sender.yml` with `operation=apply` for the sender, after
+  explicit real-host approval.
+
+Each workflow preserves its normal preflight and exact-commit health checks. Use
+the full production release path only for a reviewed repository-wide rollback
+whose detected scope intentionally includes all relevant components. This does
+not replace the Airflow 3 metadata database.
+
+Database restore, Airflow major-version migration, and metadata deletion are
+separate high-risk operations requiring explicit approval.
 
 ## Metadata Cleanup
 
@@ -118,8 +201,7 @@ agent check is read-only:
 make db-cleanup-check
 ```
 
-Do not schedule apply mode. After explicit human approval for a specific
-cutoff, use:
+Do not schedule apply mode. After explicit approval for a specific cutoff, use:
 
 ```bash
 PYTHONPATH=src .venv/bin/python scripts/airflow_db_cleanup.py \
@@ -127,5 +209,5 @@ PYTHONPATH=src .venv/bin/python scripts/airflow_db_cleanup.py \
 ```
 
 Apply mode requires a clean pushed commit, an exact production commit match,
-and a verified encrypted database backup. It deletes records and cannot be
-used as a smoke test.
+and a verified encrypted database backup. It deletes records and cannot be used
+as a smoke test.

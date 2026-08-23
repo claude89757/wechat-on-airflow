@@ -5,6 +5,32 @@ and operational changes.
 
 ## Unreleased
 
+## [0.2.2] - 2026-08-23
+
+### Changed
+
+- Route owner-approved release, tag, and production-operations comments through
+  one `Production Control` workflow so one command produces one authoritative
+  Action run and one final report.
+- Add `/release ship <version> <sha>` to validate the named release, deploy the
+  required components, verify production health, and create the immutable tag
+  and GitHub Release in one run.
+- Plan CI and production deployment scopes from changed files. Web-only patches
+  no longer rebuild or replace Airflow, control-only releases deploy no runtime,
+  and stale pull-request CI runs are cancelled automatically.
+- Make Web apply mode run its own build, Wrangler dry-run, and migration listing
+  before mutation, so routine low-risk releases do not need a separate preflight
+  workflow run.
+
+### Fixed
+
+- Remove overlapping `issue_comment` listeners that made `/release tag` look
+  like a failed production release even when the dedicated tag workflow passed.
+- Remove the duplicate 30-minute CI wait from ChatOps; the exact-SHA production
+  gate remains the only authority for queued, successful, failed, or missing CI.
+- Reject a manually narrowed release scope when it omits a detected runtime
+  component, and require explicit `sender=true` approval for sender deployment.
+
 ## [0.2.1] - 2026-08-23
 
 ### Fixed

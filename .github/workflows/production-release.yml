@@ -12,9 +12,15 @@ on:
         description: Exact commit SHA on main with a successful CI verify check
         required: true
         type: string
+      scope:
+        description: Component scope; auto is derived from changes since the previous release
+        required: false
+        default: auto
+        type: string
       include_sender:
-        description: Deploy the Android-host WeChat sender from the same commit
-        required: true
+        description: Explicit approval for an in-scope Android-host sender deployment
+        required: false
+        default: false
         type: boolean
   workflow_dispatch:
     inputs:
@@ -30,10 +36,22 @@ on:
         description: Exact commit SHA on main with a successful CI verify check
         required: true
         type: string
-      include_sender:
-        description: Deploy the Android-host WeChat sender from the same commit
+      scope:
+        description: Component scope
         required: true
-        default: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - all
+          - webapp
+          - airflow
+          - sender
+          - control
+      include_sender:
+        description: Explicit approval for an in-scope Android-host sender deployment
+        required: true
+        default: false
         type: boolean
 
 permissions:
@@ -41,18 +59,26 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-release-v2
+  group: production-release-v3
   cancel-in-progress: false
 
 jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    outputs:
+      base_commit: ${{ steps.plan.outputs.base_commit }}
+      resolved_scope: ${{ steps.plan.outputs.resolved_scope }}
+      deploy_webapp: ${{ steps.plan.outputs.deploy_webapp }}
+      deploy_airflow: ${{ steps.plan.outputs.deploy_airflow }}
+      deploy_sender: ${{ steps.plan.outputs.deploy_sender }}
+      changed_count: ${{ steps.plan.outputs.changed_count }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.target_commit }}
           fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -75,8 +101,34 @@ jobs:
             --missing-check-wait-seconds 0 \
             --poll-seconds 10 \
             --format json
+      - name: Plan component-scoped release
+        id: plan
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          SCOPE: ${{ inputs.scope }}
+          INCLUDE_SENDER: ${{ inputs.include_sender }}
+        run: |
+          set -euo pipefail
+          args=(
+            --target-commit "$TARGET_COMMIT"
+            --scope "$SCOPE"
+            --github-output "$GITHUB_OUTPUT"
+            --format json
+          )
+          if [ "$INCLUDE_SENDER" = true ]; then
+            args+=(--include-sender)
+          fi
+          python scripts/release_plan.py "${args[@]}" | tee /tmp/release-plan.json
+          {
+            echo "## Release plan"
+            echo
+            echo '```json'
+            cat /tmp/release-plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   webapp:
+    if: needs.gate.outputs.deploy_webapp == 'true'
     needs: gate
     uses: ./.github/workflows/production-webapp.yml
     with:
@@ -86,7 +138,12 @@ jobs:
     secrets: inherit
 
   airflow:
-    needs: webapp
+    if: >-
+      always() &&
+      needs.gate.result == 'success' &&
+      needs.gate.outputs.deploy_airflow == 'true' &&
+      (needs.webapp.result == 'success' || needs.webapp.result == 'skipped')
+    needs: [gate, webapp]
     uses: ./.github/workflows/production-airflow.yml
     with:
       operation: ${{ inputs.mode == 'apply' && 'deploy_apply' || 'deploy_preflight' }}
@@ -97,8 +154,13 @@ jobs:
     secrets: inherit
 
   sender:
-    if: inputs.include_sender
-    needs: airflow
+    if: >-
+      always() &&
+      needs.gate.result == 'success' &&
+      needs.gate.outputs.deploy_sender == 'true' &&
+      (needs.webapp.result == 'success' || needs.webapp.result == 'skipped') &&
+      (needs.airflow.result == 'success' || needs.airflow.result == 'skipped')
+    needs: [gate, webapp, airflow]
     uses: ./.github/workflows/production-wechat-sender.yml
     with:
       operation: ${{ inputs.mode == 'apply' && 'apply' || 'dry_run' }}
@@ -117,25 +179,40 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
+          BASE_COMMIT: ${{ needs.gate.outputs.base_commit }}
+          RESOLVED_SCOPE: ${{ needs.gate.outputs.resolved_scope }}
           GATE_RESULT: ${{ needs.gate.result }}
+          WEBAPP_PLANNED: ${{ needs.gate.outputs.deploy_webapp }}
+          AIRFLOW_PLANNED: ${{ needs.gate.outputs.deploy_airflow }}
+          SENDER_PLANNED: ${{ needs.gate.outputs.deploy_sender }}
           WEBAPP_RESULT: ${{ needs.webapp.result }}
           AIRFLOW_RESULT: ${{ needs.airflow.result }}
           SENDER_RESULT: ${{ needs.sender.result }}
         run: |
+          set -euo pipefail
           {
             echo "## Production release"
             echo
             echo "- Mode: \`$MODE\`"
-            echo "- Commit: \`$TARGET_COMMIT\`"
+            echo "- Target: \`$TARGET_COMMIT\`"
+            echo "- Diff base: \`$BASE_COMMIT\`"
+            echo "- Resolved scope: \`$RESOLVED_SCOPE\`"
             echo "- Gate: \`$GATE_RESULT\`"
-            echo "- Web application: \`$WEBAPP_RESULT\`"
-            echo "- Airflow: \`$AIRFLOW_RESULT\`"
-            echo "- WeChat sender: \`$SENDER_RESULT\`"
+            echo "- Web application: planned=\`$WEBAPP_PLANNED\`, result=\`$WEBAPP_RESULT\`"
+            echo "- Airflow: planned=\`$AIRFLOW_PLANNED\`, result=\`$AIRFLOW_RESULT\`"
+            echo "- WeChat sender: planned=\`$SENDER_PLANNED\`, result=\`$SENDER_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
           test "$GATE_RESULT" = success
-          test "$WEBAPP_RESULT" = success
-          test "$AIRFLOW_RESULT" = success
-          case "$SENDER_RESULT" in
-            success|skipped) ;;
-            *) exit 1 ;;
-          esac
+          check_component() {
+            planned="$1"
+            result="$2"
+            if [ "$planned" = true ]; then
+              test "$result" = success
+            else
+              test "$result" = skipped
+            fi
+          }
+          check_component "$WEBAPP_PLANNED" "$WEBAPP_RESULT"
+          check_component "$AIRFLOW_PLANNED" "$AIRFLOW_RESULT"
+          check_component "$SENDER_PLANNED" "$SENDER_RESULT"

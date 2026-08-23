@@ -1,5 +1,5 @@
-name: Production Ops ChatOps
-run-name: ops-chatops/${{ github.event.comment.id }}
+name: Production Control
+run-name: control/${{ github.event.comment.id }}
 
 on:
   issue_comment:
@@ -12,179 +12,235 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: production-ops-chatops
+  group: production-control-${{ github.event.comment.id }}
   cancel-in-progress: false
 
 jobs:
-  parse:
+  route:
     if: >-
       github.event.issue.number == 39 &&
       github.event.comment.user.login == github.repository_owner &&
-      startsWith(github.event.comment.body, '/ops webapp-observation-diagnose ')
+      (startsWith(github.event.comment.body, '/release ') ||
+       startsWith(github.event.comment.body, '/ops '))
     runs-on: ubuntu-latest
     outputs:
+      action: ${{ steps.command.outputs.action }}
+      mode: ${{ steps.command.outputs.mode }}
+      version: ${{ steps.command.outputs.version }}
       target_commit: ${{ steps.command.outputs.target_commit }}
+      scope: ${{ steps.command.outputs.scope }}
+      include_sender: ${{ steps.command.outputs.include_sender }}
+      target_selector: ${{ steps.command.outputs.target_selector }}
     steps:
-      - name: Parse exact ops command
+      - name: Parse exact production command
         id: command
-        shell: bash
         env:
-          OPS_COMMAND: ${{ github.event.comment.body }}
+          BODY: ${{ github.event.comment.body }}
         run: |
-          set -euo pipefail
-          pattern='^/ops webapp-observation-diagnose ([0-9A-Fa-f]{40})$'
-          if [[ ! "$OPS_COMMAND" =~ $pattern ]]; then
-            echo 'Expected: /ops webapp-observation-diagnose <40-char-sha>' >&2
-            exit 2
-          fi
-          target_commit="${BASH_REMATCH[1],,}"
-          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
-      - name: Wait for main CI verify
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
-        run: |
-          set -euo pipefail
-          deadline=$((SECONDS + 1800))
-          while (( SECONDS < deadline )); do
-            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_COMMIT/check-runs" \
-              --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
-            if [[ "$result" == $'completed\tsuccess' ]]; then
-              exit 0
-            fi
-            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
-              echo "CI verify failed: $result" >&2
-              exit 1
-            fi
-            sleep 10
-          done
-          exit 1
-      - name: Acknowledge diagnosis
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          import shlex
+          from pathlib import Path
+
+          body = os.environ["BODY"].strip()
+          tokens = shlex.split(body)
+          sha = re.compile(r"^[0-9a-fA-F]{40}$")
+          version = re.compile(r"^\d+\.\d+\.\d+$")
+          scopes = {"auto", "all", "webapp", "airflow", "sender", "control"}
+          outputs = {
+              "action": "",
+              "mode": "",
+              "version": "",
+              "target_commit": "",
+              "scope": "auto",
+              "include_sender": "false",
+              "target_selector": "all",
+          }
+
+          def fail(message: str) -> None:
+              raise SystemExit(message)
+
+          def parse_options(values: list[str]) -> None:
+              seen: set[str] = set()
+              for value in values:
+                  if "=" not in value:
+                      fail(f"invalid option: {value}")
+                  key, raw = value.split("=", 1)
+                  if key in seen:
+                      fail(f"duplicate option: {key}")
+                  seen.add(key)
+                  if key == "scope" and raw in scopes:
+                      outputs["scope"] = raw
+                  elif key == "sender" and raw in {"true", "false"}:
+                      outputs["include_sender"] = raw
+                  else:
+                      fail(f"invalid option: {value}")
+
+          if len(tokens) >= 2 and tokens[0] == "/release":
+              command = tokens[1]
+              if command in {"preflight", "apply"}:
+                  if len(tokens) < 3 or not sha.fullmatch(tokens[2]):
+                      fail("release preflight/apply requires a full 40-character SHA")
+                  outputs["action"] = "release"
+                  outputs["mode"] = command
+                  outputs["target_commit"] = tokens[2].lower()
+                  parse_options(tokens[3:])
+              elif command == "ship":
+                  if len(tokens) < 4 or not version.fullmatch(tokens[2]) or not sha.fullmatch(tokens[3]):
+                      fail("release ship requires a semantic version and full 40-character SHA")
+                  outputs["action"] = "ship"
+                  outputs["version"] = tokens[2]
+                  outputs["target_commit"] = tokens[3].lower()
+                  parse_options(tokens[4:])
+              elif command == "tag":
+                  if len(tokens) != 4 or not version.fullmatch(tokens[2]) or not sha.fullmatch(tokens[3]):
+                      fail("release tag requires a semantic version and full 40-character SHA")
+                  outputs["action"] = "tag"
+                  outputs["version"] = tokens[2]
+                  outputs["target_commit"] = tokens[3].lower()
+              else:
+                  fail(f"unknown release command: {command}")
+          elif tokens[:2] == ["/ops", "webapp-observation-diagnose"]:
+              if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
+                  fail("webapp observation diagnosis requires a full 40-character SHA")
+              outputs["action"] = "webapp_observation_diagnose"
+              outputs["target_commit"] = tokens[2].lower()
+          elif tokens[:2] == ["/ops", "wechat-contact-probe"]:
+              if len(tokens) != 4 or not sha.fullmatch(tokens[2]):
+                  fail("WeChat contact probe requires a full 40-character SHA and simple contact name")
+              if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", tokens[3]):
+                  fail("contact name must contain only letters, numbers, dot, underscore, or hyphen")
+              outputs["action"] = "wechat_contact_probe"
+              outputs["target_commit"] = tokens[2].lower()
+              outputs["target_selector"] = f"direct:{tokens[3]}"
+          else:
+              fail("unsupported production command")
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as handle:
+              for key, value in outputs.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+      - name: Explain invalid command
+        if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
-            "Accepted read-only Web observation diagnosis for \`$TARGET_COMMIT\`. Run: $RUN_URL"
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - <<EOF
+          Production command was rejected before any operation ran.
 
-  diagnose:
-    needs: parse
+          Supported forms:
+          - \`/release ship <version> <40-char-sha> [scope=auto|all|webapp|airflow|sender|control] [sender=true|false]\`
+          - \`/release preflight <40-char-sha> [scope=...] [sender=true|false]\`
+          - \`/release apply <40-char-sha> [scope=...] [sender=true|false]\`
+          - \`/release tag <version> <40-char-sha>\`
+          - \`/ops webapp-observation-diagnose <40-char-sha>\`
+          - \`/ops wechat-contact-probe <40-char-sha> <simple-contact-name>\`
+
+          Run: $RUN_URL
+          EOF
+
+  release:
+    if: needs.route.outputs.action == 'release'
+    needs: route
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: ${{ needs.route.outputs.mode }}
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      scope: ${{ needs.route.outputs.scope }}
+      include_sender: ${{ needs.route.outputs.include_sender == 'true' }}
+    secrets: inherit
+
+  ship:
+    if: needs.route.outputs.action == 'ship'
+    needs: route
+    uses: ./.github/workflows/production-ship.yml
+    with:
+      version: ${{ needs.route.outputs.version }}
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      scope: ${{ needs.route.outputs.scope }}
+      include_sender: ${{ needs.route.outputs.include_sender == 'true' }}
+    secrets: inherit
+
+  tag:
+    if: needs.route.outputs.action == 'tag'
+    needs: route
+    uses: ./.github/workflows/release-tag-chatops.yml
+    with:
+      version: ${{ needs.route.outputs.version }}
+      target_commit: ${{ needs.route.outputs.target_commit }}
+    secrets: inherit
+
+  webapp_observation_diagnose:
+    if: needs.route.outputs.action == 'webapp_observation_diagnose'
+    needs: route
     uses: ./.github/workflows/production-airflow.yml
     with:
       operation: webapp_observation_diagnose
-      target_commit: ${{ needs.parse.outputs.target_commit }}
+      target_commit: ${{ needs.route.outputs.target_commit }}
       request_id: ops-${{ github.run_id }}
       confirm_real_send: false
       probe_target_membership: all
     secrets: inherit
 
-  report:
-    if: always() && needs.parse.result != 'skipped'
-    needs: [parse, diagnose]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Report diagnosis result
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          TARGET_COMMIT: ${{ needs.parse.outputs.target_commit }}
-          RESULT: ${{ needs.diagnose.result }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
-            "Web observation diagnosis for \`$TARGET_COMMIT\`: \`$RESULT\`. Run: $RUN_URL"
-          test "$RESULT" = success
-
-  parse_wechat_contact_probe:
-    if: >-
-      github.event.issue.number == 39 &&
-      github.event.comment.user.login == github.repository_owner &&
-      startsWith(github.event.comment.body, '/ops wechat-contact-probe ')
-    runs-on: ubuntu-latest
-    outputs:
-      target_commit: ${{ steps.command.outputs.target_commit }}
-      target_selector: ${{ steps.command.outputs.target_selector }}
-    steps:
-      - name: Parse exact contact probe command
-        id: command
-        shell: bash
-        env:
-          OPS_COMMAND: ${{ github.event.comment.body }}
-        run: |
-          set -euo pipefail
-          pattern='^/ops wechat-contact-probe ([0-9A-Fa-f]{40}) ([A-Za-z0-9_.-]{1,64})$'
-          if [[ ! "$OPS_COMMAND" =~ $pattern ]]; then
-            echo 'Expected: /ops wechat-contact-probe <40-char-sha> <simple-chat-name>' >&2
-            exit 2
-          fi
-          target_commit="${BASH_REMATCH[1],,}"
-          receiver="${BASH_REMATCH[2]}"
-          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
-          echo "target_selector=direct:$receiver" >> "$GITHUB_OUTPUT"
-      - name: Wait for main CI verify
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
-        run: |
-          set -euo pipefail
-          deadline=$((SECONDS + 1800))
-          while (( SECONDS < deadline )); do
-            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_COMMIT/check-runs" \
-              --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
-            if [[ "$result" == $'completed\tsuccess' ]]; then
-              exit 0
-            fi
-            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
-              echo "CI verify failed: $result" >&2
-              exit 1
-            fi
-            sleep 10
-          done
-          exit 1
-      - name: Acknowledge approved real send
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
-            "Accepted owner-approved one-contact WeChat delivery probe for \`$TARGET_COMMIT\`. Run: $RUN_URL"
-
   wechat_contact_probe:
-    needs: parse_wechat_contact_probe
+    if: needs.route.outputs.action == 'wechat_contact_probe'
+    needs: route
     uses: ./.github/workflows/production-airflow.yml
     with:
       operation: wechat_delivery_probe
-      target_commit: ${{ needs.parse_wechat_contact_probe.outputs.target_commit }}
+      target_commit: ${{ needs.route.outputs.target_commit }}
       request_id: contact-probe-${{ github.run_id }}
       confirm_real_send: true
-      probe_target_membership: ${{ needs.parse_wechat_contact_probe.outputs.target_selector }}
+      probe_target_membership: ${{ needs.route.outputs.target_selector }}
     secrets: inherit
 
-  report_wechat_contact_probe:
-    if: always() && needs.parse_wechat_contact_probe.result != 'skipped'
-    needs: [parse_wechat_contact_probe, wechat_contact_probe]
+  report:
+    if: always() && needs.route.result == 'success'
+    needs:
+      - route
+      - release
+      - ship
+      - tag
+      - webapp_observation_diagnose
+      - wechat_contact_probe
     runs-on: ubuntu-latest
     steps:
-      - name: Report contact probe result
+      - name: Publish one authoritative result
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          TARGET_COMMIT: ${{ needs.parse_wechat_contact_probe.outputs.target_commit }}
-          RESULT: ${{ needs.wechat_contact_probe.result }}
+          ACTION: ${{ needs.route.outputs.action }}
+          MODE: ${{ needs.route.outputs.mode }}
+          VERSION: ${{ needs.route.outputs.version }}
+          TARGET_COMMIT: ${{ needs.route.outputs.target_commit }}
+          SCOPE: ${{ needs.route.outputs.scope }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          SHIP_RESULT: ${{ needs.ship.result }}
+          TAG_RESULT: ${{ needs.tag.result }}
+          WEB_DIAG_RESULT: ${{ needs.webapp_observation_diagnose.result }}
+          WECHAT_PROBE_RESULT: ${{ needs.wechat_contact_probe.result }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
+          case "$ACTION" in
+            release) result="$RELEASE_RESULT"; label="release $MODE" ;;
+            ship) result="$SHIP_RESULT"; label="ship $VERSION" ;;
+            tag) result="$TAG_RESULT"; label="tag $VERSION" ;;
+            webapp_observation_diagnose) result="$WEB_DIAG_RESULT"; label="Web observation diagnosis" ;;
+            wechat_contact_probe) result="$WECHAT_PROBE_RESULT"; label="one-contact WeChat probe" ;;
+            *) echo "Unknown routed action: $ACTION" >&2; exit 2 ;;
+          esac
+          if [ "$result" = success ]; then
+            marker="✅"
+          else
+            marker="❌"
+          fi
           gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
-            "One-contact WeChat delivery probe for \`$TARGET_COMMIT\`: \`$RESULT\`. Run: $RUN_URL"
-          test "$RESULT" = success
-
-  finalize-admin:
-    if: >-
-      github.event.issue.number == 39 &&
-      github.event.comment.user.login == github.repository_owner &&
-      github.event.comment.body == '/ops finalize-admin-feature'
-    uses: ./.github/workflows/feature-finalize-chatops.yml
-    secrets: inherit
+            "$marker Production control \`$label\`: \`$result\`; target=\`$TARGET_COMMIT\`; scope=\`$SCOPE\`. Run: $RUN_URL"
+          test "$result" = success
