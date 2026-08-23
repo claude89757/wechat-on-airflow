@@ -5,6 +5,8 @@ and operational changes.
 
 ## Unreleased
 
+## [0.2.0] - 2026-08-23
+
 ### Added
 
 - Add a header coffee-support sheet with the supplied WeChat QR and a
@@ -31,7 +33,6 @@ and operational changes.
 - Treat Airflow deploy plus full production health as one transaction: if the
   new containers start but the complete health gate fails, automatically
   restore the pre-deploy SHA, verify the restored version, and fail the release.
-
 - Restore the Airflow image and provider pins to the supported 3.3.0 runtime
   contract, and make CI reject Dockerfile, provider, Compose, or manifest
   version drift before deployment.
