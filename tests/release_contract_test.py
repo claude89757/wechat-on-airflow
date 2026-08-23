@@ -37,8 +37,7 @@ def test_release_contract_validates_versions_and_extracts_one_section(tmp_path: 
             str(notes),
         ],
         check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
 
