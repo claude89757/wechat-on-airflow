@@ -14,6 +14,7 @@ MANIFEST = ROOT / "config" / "active-components.yaml"
 CONTRACTS = ROOT / "config" / "config-contracts.yaml"
 RUNTIME_TARGET = ROOT / "config" / "runtime-target.yaml"
 AIRFLOW_DOCKERFILE = ROOT / "docker" / "airflow" / "Dockerfile"
+AIRFLOW_REQUIREMENTS = ROOT / "docker" / "airflow" / "requirements.txt"
 COMPOSE_FILE = ROOT / "docker-compose.yml"
 SENDER_SERVICE_FILE = ROOT / "deploy" / "systemd" / "wechat-sender.service"
 SENDER_INSTALL_SCRIPT = ROOT / "scripts" / "install_wechat_sender.sh"
@@ -51,6 +52,81 @@ def imported_modules(path: Path) -> set[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             modules.add(node.module)
     return modules
+
+
+def validate_airflow_runtime_contract(
+    *,
+    target: object,
+    production: object,
+    dockerfile: str,
+    airflow_requirements_text: str,
+    compose_image: object,
+) -> None:
+    if not isinstance(target, dict) or not isinstance(production, dict):
+        fail("Airflow runtime target version contract is incomplete")
+
+    airflow_version = str(target.get("airflow") or "")
+    python_version = str(target.get("python") or "")
+    base_image = str(target.get("base_image") or "")
+    providers = target.get("providers")
+    if (
+        not airflow_version
+        or not python_version
+        or not base_image
+        or not isinstance(providers, dict)
+        or not providers
+    ):
+        fail("Airflow runtime target version contract is incomplete")
+    if production.get("target_airflow") != airflow_version:
+        fail("active component target Airflow version must match the runtime target")
+    if production.get("python") != python_version:
+        fail("active component Python version must match the runtime target")
+
+    base_image_pattern = re.compile(
+        rf"apache/airflow:{re.escape(airflow_version)}-python"
+        rf"{re.escape(python_version)}@sha256:[0-9a-f]{{64}}"
+    )
+    if base_image_pattern.fullmatch(base_image) is None:
+        fail("Airflow base image must encode the declared Airflow and Python versions")
+
+    docker_instructions = {
+        line.strip()
+        for line in dockerfile.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    if f"FROM {base_image}" not in docker_instructions:
+        fail("Airflow Dockerfile base image must match the runtime target")
+    if f"ARG AIRFLOW_VERSION={airflow_version}" not in docker_instructions:
+        fail("Airflow Dockerfile version must match the runtime target")
+    if f"ARG PYTHON_VERSION={python_version}" not in docker_instructions:
+        fail("Airflow Dockerfile Python version must match the runtime target")
+
+    airflow_requirements = {
+        name: version
+        for raw_line in airflow_requirements_text.splitlines()
+        if (line := raw_line.strip()) and not line.startswith("#") and "==" in line
+        for name, version in [line.split("==", maxsplit=1)]
+    }
+    declared_provider_names = {str(name) for name in providers}
+    pinned_provider_names = {
+        name for name in airflow_requirements if name.startswith("apache-airflow-providers-")
+    }
+    if declared_provider_names != pinned_provider_names:
+        fail("Airflow provider requirement names must match the runtime target")
+    mismatched_providers = sorted(
+        name
+        for name, version in providers.items()
+        if airflow_requirements.get(str(name)) != str(version)
+    )
+    if mismatched_providers:
+        fail(
+            "Airflow provider requirements must match the runtime target: "
+            + ", ".join(mismatched_providers)
+        )
+
+    expected_compose_image = "${AIRFLOW_IMAGE_NAME:-wechat-on-airflow:" + airflow_version + "}"
+    if compose_image != expected_compose_image:
+        fail("Compose Airflow image default must match the runtime target")
 
 
 def dag_schedule_contract(path: Path) -> str:
@@ -201,10 +277,19 @@ def main() -> None:
 
     if runtime_target.get("target", {}).get("dag_distribution") != "image":
         fail("Airflow DAG distribution must be declared as image")
+    target = runtime_target.get("target", {})
     dockerfile = AIRFLOW_DOCKERFILE.read_text(encoding="utf-8")
+    airflow_requirements_text = AIRFLOW_REQUIREMENTS.read_text(encoding="utf-8")
+    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+    validate_airflow_runtime_contract(
+        target=target,
+        production=production,
+        dockerfile=dockerfile,
+        airflow_requirements_text=airflow_requirements_text,
+        compose_image=compose.get("x-airflow-common", {}).get("image"),
+    )
     if "dags /opt/airflow/dags" not in dockerfile:
         fail("Airflow image must copy dags/ into /opt/airflow/dags")
-    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
     airflow_volumes = compose.get("x-airflow-common", {}).get("volumes", [])
     if any("/opt/airflow/dags" in str(volume) for volume in airflow_volumes):
         fail("Airflow services must use image-bundled DAGs, not a host DAG mount")
@@ -220,7 +305,6 @@ def main() -> None:
         fail("Airflow API server must trust Cloudflare Tunnel proxy headers")
     if api_server.get("ports") != ["127.0.0.1:8080:8080"]:
         fail("Airflow API server must expose port 8080 on loopback only")
-    target = runtime_target.get("target", {})
     if target.get("execution_api_server_url") != ("http://airflow-api-server:8080/execution/"):
         fail("Airflow Execution API runtime target must use the internal root path")
     runtime_secrets = target.get("runtime_secrets", {})

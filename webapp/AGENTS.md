@@ -101,7 +101,7 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   `/Users/claude89757/.codex/generated_images/019f23e2-004c-7ad1-95da-89f91af664b8/call_O6d4HI0zEZasqx1VwEj1OmDc.png`.
 
 - Subscriber reminder email uses two delivery tiers: standard users receive at
-  most 30 digest deliveries per Shanghai calendar day; priority users receive
+  most 10 digest deliveries per Shanghai calendar day; priority users receive
   at most 100 and are ordered first when the global provider budget is
   constrained. Verification email is never capped. Over-cap venue reminders
   are suppressed, not deferred, because availability may become stale. The Web
@@ -109,5 +109,11 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   the Shanghai-day reset, digest counting, non-replay behavior, and exclusions.
 - Priority status belongs to the verified normalized email. Users redeem a
   short, memorable, one-time invite phrase such as `ACE-SUNNY-PANDA-7K9P2Q`;
-  the raw phrase is returned only at creation time and only its HMAC hash is
-  stored.
+  its HMAC hash is used for redemption and its recoverable copy is encrypted at
+  rest for authorized administration and idempotent claim retries.
+- The header coffee action opens the supplied WeChat payment QR. Its easter-egg
+  claim action must not exist in the DOM until the QR image has rendered for
+  five seconds. A verified-email receipt and a server-timed, single-use session
+  are required to generate one 30-day priority invite per email; hashed-IP and
+  session limits remain enforced. The personal QR has no payment callback, so
+  the product must never claim that payment was verified.

@@ -10,7 +10,7 @@ import {
 
 describe("subscriber email delivery tiers", () => {
   it("uses the configured product defaults", () => {
-    expect(deliveryTierLimits({})).toEqual({ standard: 30, priority: 100 });
+    expect(deliveryTierLimits({})).toEqual({ standard: 10, priority: 100 });
   });
 
   it("honors positive integer limits and never makes priority lower", () => {
@@ -36,14 +36,14 @@ describe("subscriber email delivery tiers", () => {
   });
 
   it("computes remaining quota and prioritizes priority users", () => {
-    expect(remainingDailyDeliveries(2, 30)).toBe(28);
-    expect(remainingDailyDeliveries(39, 30)).toBe(0);
+    expect(remainingDailyDeliveries(2, 10)).toBe(8);
+    expect(remainingDailyDeliveries(19, 10)).toBe(0);
     expect(deliveryTierRank("priority")).toBeLessThan(deliveryTierRank("standard"));
   });
 
   it("closes the quota exactly at the configured boundary", () => {
-    expect(remainingDailyDeliveries(30, 30)).toBe(0);
+    expect(remainingDailyDeliveries(10, 10)).toBe(0);
     expect(remainingDailyDeliveries(100, 100)).toBe(0);
-    expect(remainingDailyDeliveries(-1, 30)).toBe(30);
+    expect(remainingDailyDeliveries(-1, 10)).toBe(10);
   });
 });

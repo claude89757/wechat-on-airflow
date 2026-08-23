@@ -14,7 +14,7 @@ small priority cohort without introducing passwords or a full account system.
 ## Decision
 
 - Apply a per-recipient Shanghai-calendar-day cap to provider digest deliveries.
-- Start with 30 deliveries per day for standard users and 100 for priority users.
+- Initially start with 30 deliveries per day for standard users and 100 for priority users.
   Both are configuration values, are returned to the Web client for transparent
   display, and should be reviewed from delivery, suppression, complaint, and
   engagement data.
@@ -42,6 +42,17 @@ small priority cohort without introducing passwords or a full account system.
 - Require a valid verified-email receipt to redeem and rate-limit attempts by
   both verified identity and hashed IP.
 
+## Amendment (2026-08-23)
+
+- Reduce the standard-user cap from 30 to 10 digest deliveries per Shanghai
+  calendar day. The priority-user cap remains 100 deliveries per day.
+- Keep the cap configurable and continue returning the effective values to the
+  Web client. All other delivery, suppression, and invite semantics remain
+  unchanged.
+- The later administrator lifecycle stores a dedicated AES-GCM-encrypted copy
+  for authorized recovery while retaining the HMAC hash as the only redemption
+  lookup value. Plaintext is never stored directly.
+
 ## Consequences
 
 - Email volume and message fatigue are bounded per recipient.
@@ -52,5 +63,5 @@ small priority cohort without introducing passwords or a full account system.
 - Operations must apply the D1 migration before deployment; the existing Worker
   secret set is sufficient for initial rollout, while dedicated invite secrets
   remain a recommended hardening step.
-- Invite codes are not recoverable from D1. Lost plaintext codes must be
-  replaced, not retrieved.
+- Invite plaintext is never stored directly; authorized recovery decrypts the
+  dedicated ciphertext while redemption continues to use only the HMAC hash.
