@@ -5,8 +5,10 @@ import argparse
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 from _ops import OpsError, emit, run
@@ -55,10 +57,76 @@ def fetch_check_runs(repository: str, commit: str, token: str) -> Any:
         raise OpsError("GitHub check-runs API returned invalid JSON") from exc
 
 
+def wait_for_required_check(
+    repository: str,
+    commit: str,
+    token: str,
+    name: str,
+    *,
+    wait_seconds: float,
+    poll_seconds: float,
+    fetcher: Callable[[str, str, str], Any] = fetch_check_runs,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> tuple[dict[str, Any], bool]:
+    """Wait for a required GitHub check to finish.
+
+    A check may be absent for a short period after a push, or already present but
+    still queued/in progress. Those are normal CI states and must not be treated
+    as a failed release. A terminal non-success conclusion still fails
+    immediately, and the wait is bounded by ``wait_seconds``.
+    """
+    deadline = monotonic() + wait_seconds
+    while True:
+        check = required_check_result(fetcher(repository, commit, token), name)
+        if check["status"] == "completed":
+            return check, False
+        if monotonic() >= deadline:
+            return check, True
+        sleeper(poll_seconds)
+
+
+def release_payload(
+    *,
+    target_commit: str,
+    required_check: str,
+    on_main: bool,
+    check: dict[str, Any],
+    timed_out: bool,
+) -> dict[str, Any]:
+    checks = {
+        "target_commit_on_main": on_main,
+        "required_check_present": check["present"],
+        "required_check_completed": check["status"] == "completed",
+        "required_check_successful": check["ok"],
+    }
+    return {
+        "ok": all(checks.values()),
+        "target_commit": target_commit,
+        "required_check": required_check,
+        "check_status": check["status"],
+        "check_conclusion": check["conclusion"],
+        "timed_out_waiting_for_check": timed_out,
+        "checks": checks,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate an exact GitHub release candidate.")
     parser.add_argument("--target-commit", required=True)
     parser.add_argument("--required-check", default="verify")
+    parser.add_argument(
+        "--wait-seconds",
+        type=float,
+        default=3600,
+        help="Maximum time to wait for the required check to appear and complete.",
+    )
+    parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=10,
+        help="Polling interval while the required check is queued, in progress, or not yet visible.",
+    )
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
 
@@ -70,6 +138,10 @@ def main() -> None:
         raise OpsError("GITHUB_REPOSITORY must be owner/name")
     if not token:
         raise OpsError("GITHUB_TOKEN is required")
+    if args.wait_seconds < 0:
+        raise OpsError("wait seconds must be non-negative")
+    if args.poll_seconds <= 0:
+        raise OpsError("poll seconds must be positive")
 
     run(["git", "fetch", "--quiet", "origin", "main"])
     on_main = (
@@ -79,23 +151,27 @@ def main() -> None:
         ).returncode
         == 0
     )
-    check = required_check_result(
-        fetch_check_runs(repository, args.target_commit, token), args.required_check
+
+    if on_main:
+        check, timed_out = wait_for_required_check(
+            repository,
+            args.target_commit,
+            token,
+            args.required_check,
+            wait_seconds=args.wait_seconds,
+            poll_seconds=args.poll_seconds,
+        )
+    else:
+        check = required_check_result({}, args.required_check)
+        timed_out = False
+
+    payload = release_payload(
+        target_commit=args.target_commit,
+        required_check=args.required_check,
+        on_main=on_main,
+        check=check,
+        timed_out=timed_out,
     )
-    checks = {
-        "target_commit_on_main": on_main,
-        "required_check_present": check["present"],
-        "required_check_completed": check["status"] == "completed",
-        "required_check_successful": check["ok"],
-    }
-    payload = {
-        "ok": all(checks.values()),
-        "target_commit": args.target_commit,
-        "required_check": args.required_check,
-        "check_status": check["status"],
-        "check_conclusion": check["conclusion"],
-        "checks": checks,
-    }
     emit(payload, args.format)
     if not payload["ok"]:
         raise SystemExit(1)
