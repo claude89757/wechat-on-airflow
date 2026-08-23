@@ -195,7 +195,7 @@ variables:
     type: string
     required_by: [personal_daily_briefing]
     sensitive: false
-    default: gpt-5.6
+    default: gpt-5.6-terra
   DAILY_BRIEFING_WECHAT_RECEIVER:
     type: string
     required_by: [personal_daily_briefing]
@@ -206,6 +206,7 @@ variables:
     required_by: [personal_daily_briefing]
     sensitive: false
     default:
+      - 黄仁勋、Sam Altman、埃隆·马斯克
       - AI 与开发者工具
       - 开源与产品项目
       - 韩国留学与生活
