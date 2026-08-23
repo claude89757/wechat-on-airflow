@@ -1,6 +1,6 @@
-FROM apache/airflow:3.3.1-python3.12@sha256:b01a795dfbd113bbbfdf3ee169b8f27e9a0090ccef105f1a452b3594a11ed316
+FROM apache/airflow:3.3.0-python3.12@sha256:b572e9241d7b09b295c9ea97adeb7b3dfc932e2fbcdebec59256dad69061bb29
 
-ARG AIRFLOW_VERSION=3.3.1
+ARG AIRFLOW_VERSION=3.3.0
 ARG PYTHON_VERSION=3.12
 ARG CONSTRAINTS_URL=https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt
 
