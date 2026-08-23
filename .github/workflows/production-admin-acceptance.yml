@@ -1,0 +1,65 @@
+name: Production Admin Acceptance
+run-name: production/admin-acceptance/${{ inputs.target_commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Exact commit SHA on main
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      target_commit:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-admin-acceptance
+  cancel-in-progress: false
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - name: Validate exact main target
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install Web and browser dependencies
+        working-directory: webapp
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run production acceptance
+        env:
+          RUN_BROWSER_E2E: "true"
+        run: bash scripts/accept_webapp_admin.sh "${{ inputs.target_commit }}" .local/admin-acceptance
+      - name: Upload acceptance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-admin-acceptance-${{ github.run_id }}
+          path: .local/admin-acceptance
+          if-no-files-found: error
+          retention-days: 7

@@ -70,10 +70,22 @@ export function validateSubscriptionInput(value: unknown): SubscriptionInput {
     throw new Error("结束时间必须晚于开始时间");
   }
 
-  const durationDays = Number(candidate.durationDays);
-  if (!Number.isInteger(durationDays) || durationDays < 7 || durationDays > 14) {
+  const legacyDurationDays = Number(candidate.durationDays);
+  const hasExplicitTerm = typeof candidate.termCode === "string"
+    && candidate.termCode.trim().length > 0;
+  if (
+    !hasExplicitTerm
+    && (!Number.isInteger(legacyDurationDays)
+      || legacyDurationDays < 7
+      || legacyDurationDays > 14)
+  ) {
     throw new Error("订阅有效期必须为 7–14 天");
   }
+  const durationDays = Number.isInteger(legacyDurationDays)
+    && legacyDurationDays >= 7
+    && legacyDurationDays <= 14
+    ? legacyDurationDays
+    : 7;
 
   return { venueIds, startTime, endTime, durationDays };
 }
