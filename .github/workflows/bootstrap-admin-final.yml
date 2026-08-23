@@ -3,6 +3,8 @@ name: Bootstrap final admin feature tree
 on:
   push:
     branches: [feat/admin-operations-email-lifecycle-final]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -51,6 +53,7 @@ jobs:
         run: |
           rm -rf .feature/admin .feature-bootstrap
           rm -f .github/workflows/bootstrap-admin-final.yml
+          rm -f .bootstrap-admin-trigger
       - name: Commit final feature tree
         run: |
           set -euo pipefail
