@@ -93,11 +93,21 @@ wait.
 
 ## Rollback
 
-Rollback uses the prior known-good component commit and an explicit scope. For a
-repository-wide application rollback, use `scope=all sender=true`; for a Web-only
-rollback, use `scope=webapp`. The Airflow transaction preserves stateful volumes,
-restores the pre-deploy image/configuration on full-health failure, and reports
-deployment failure separately from recovery failure.
+The release planner compares a candidate with its preceding semantic release;
+it is designed for forward releases, not for selecting an arbitrary historical
+component during incident response. A component-only rollback therefore uses
+the matching protected reusable workflow directly with the prior recorded
+component commit:
+
+- `production-webapp.yml` for Web;
+- `production-airflow.yml` for Airflow application services;
+- `production-wechat-sender.yml` for the sender, with explicit approval.
+
+Use the full production release path only for a reviewed repository-wide
+rollback whose scope intentionally includes every detected component. The
+Airflow transaction preserves stateful volumes, restores the pre-deploy
+image/configuration on full-health failure, and reports deployment failure
+separately from recovery failure.
 
 Database restore, Airflow major-version migration, and metadata deletion remain
 separate high-risk operations requiring explicit approval.
