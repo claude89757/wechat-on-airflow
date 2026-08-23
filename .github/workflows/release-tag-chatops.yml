@@ -1,44 +1,50 @@
-name: Release Tag ChatOps
-run-name: release-tag/${{ github.event.comment.id }}
+name: Release Tag
+run-name: release-tag/${{ inputs.version }}/${{ inputs.target_commit }}
 
 on:
-  issue_comment:
-    types: [created]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      target_commit:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without a v prefix
+        required: true
+        type: string
+      target_commit:
+        description: Exact production commit SHA on main
+        required: true
+        type: string
 
 permissions:
   checks: read
   contents: write
-  issues: write
 
 concurrency:
-  group: release-tag
+  group: release-tag-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   tag:
-    if: >-
-      github.event.issue.number == 39 &&
-      github.event.comment.user.login == github.repository_owner &&
-      startsWith(github.event.comment.body, '/release tag ')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Parse immutable release tag command
-        id: command
+      - name: Validate immutable release inputs
         env:
-          BODY: ${{ github.event.comment.body }}
+          VERSION: ${{ inputs.version }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
         run: |
           set -euo pipefail
-          if [[ "$BODY" =~ ^/release\ tag\ ([0-9]+\.[0-9]+\.[0-9]+)\ ([0-9a-f]{40})$ ]]; then
-            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-            echo "target_commit=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
-          else
-            echo 'Expected: /release tag <semantic-version> <40-char-main-commit>' >&2
-            exit 2
-          fi
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ steps.command.outputs.target_commit }}
+          ref: ${{ inputs.target_commit }}
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -48,49 +54,22 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           PYTHONPATH=scripts python scripts/github_release_gate.py \
-            --target-commit "${{ steps.command.outputs.target_commit }}" \
+            --target-commit "${{ inputs.target_commit }}" \
             --required-check verify \
             --wait-seconds 0 \
             --missing-check-wait-seconds 0 \
             --poll-seconds 1 \
             --format json
       - name: Validate named release contract and prepare notes
-        env:
-          VERSION: ${{ steps.command.outputs.version }}
         run: |
-          python - <<'PY'
-          from __future__ import annotations
-
-          import os
-          import re
-          import tomllib
-          from pathlib import Path
-
-          version = os.environ["VERSION"]
-          root = Path.cwd()
-          project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-          package_source = (root / "src/wechat_airflow/__init__.py").read_text(encoding="utf-8")
-          changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-          package_match = re.search(r'^__version__ = "([^"]+)"$', package_source, re.MULTILINE)
-
-          if project["project"]["version"] != version:
-              raise SystemExit("pyproject version does not match requested tag")
-          if package_match is None or package_match.group(1) != version:
-              raise SystemExit("runtime package version does not match requested tag")
-
-          heading = f"## [{version}] - "
-          start = changelog.find(heading)
-          if start < 0:
-              raise SystemExit("changelog release section is missing")
-          next_heading = changelog.find("\n## [", start + len(heading))
-          section = changelog[start:next_heading if next_heading >= 0 else None].strip()
-          Path("/tmp/release-notes.md").write_text(section + "\n", encoding="utf-8")
-          PY
+          python scripts/release_contract.py \
+            --version "${{ inputs.version }}" \
+            --notes-output /tmp/release-notes.md
       - name: Create immutable tag and GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
-          VERSION: ${{ steps.command.outputs.version }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           remote_target="$(git ls-remote origin "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')"
@@ -117,20 +96,3 @@ jobs:
             --title "$VERSION" \
             --notes-file /tmp/release-notes.md \
             --verify-tag
-      - name: Report success
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
-          VERSION: ${{ steps.command.outputs.version }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue comment 39 --repo "$GITHUB_REPOSITORY" \
-            --body "Release \`$VERSION\` tagged at exact production commit \`$TARGET_COMMIT\` and published. Run: $RUN_URL"
-      - name: Report failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue comment 39 --repo "$GITHUB_REPOSITORY" \
-            --body "Release tag command failed before an immutable release was completed. Run: $RUN_URL"
