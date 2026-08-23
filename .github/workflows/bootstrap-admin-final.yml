@@ -1,0 +1,61 @@
+name: Bootstrap final admin feature tree
+
+on:
+  push:
+    branches: [feat/admin-operations-email-lifecycle-final]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-admin-final
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/admin-operations-email-lifecycle-final
+          fetch-depth: 0
+      - name: Restore verified generators
+        run: |
+          set -euo pipefail
+          git fetch origin feat/admin-operations-email-lifecycle feat/priority-long-term-subscriptions
+          git checkout origin/feat/admin-operations-email-lifecycle -- .feature/admin
+          mkdir -p .feature-bootstrap
+          git show origin/feat/priority-long-term-subscriptions:.feature-bootstrap/patch_ui.py > .feature-bootstrap/patch_ui.py
+      - name: Generate final business tree
+        run: bash .feature/admin/finalize_v5.sh
+      - name: Validate required feature surface
+        run: |
+          set -euo pipefail
+          grep -q 'claudexzt@gmail.com' webapp/migrations/0006_add_admin_email_lifecycle.sql
+          grep -q '/api/community/users' webapp/cloudflare/index.ts
+          grep -q '/api/admin/users' webapp/cloudflare/index.ts
+          grep -q '/api/admin/invites' webapp/cloudflare/index.ts
+          grep -q 'GetSendEmailStatus' webapp/cloudflare/tencent-ses.ts
+          grep -q 'subscription_expiry' webapp/cloudflare/index.ts
+          grep -q '用户社区' webapp/src/Prototype.tsx
+          grep -q '管理后台' webapp/src/Prototype.tsx
+          grep -q 'CommunityPanel' webapp/src/Prototype.tsx
+          grep -q 'AdminPanel' webapp/src/Prototype.tsx
+          grep -q '确认送达' webapp/src/Prototype.tsx
+          grep -q '发送失败' webapp/src/Prototype.tsx
+          test -f .github/workflows/production-admin-acceptance.yml
+          test -f .github/workflows/deploy-admin-email-lifecycle.yml
+      - name: Remove one-shot generation assets
+        run: |
+          rm -rf .feature/admin .feature-bootstrap
+          rm -f .github/workflows/bootstrap-admin-final.yml
+      - name: Commit final feature tree
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'feat(webapp): add admin operations and accurate email lifecycle'
+          git push origin HEAD:feat/admin-operations-email-lifecycle-final
