@@ -23,6 +23,8 @@ and operational changes.
 
 ### Changed
 
+- Reboot the Zacks WeChat sender phone every two days instead of daily, keeping
+  the 05:00 Asia/Shanghai slot.
 - Restore the Airflow image and provider pins to the supported 3.3.0 runtime
   contract, and make CI reject Dockerfile, provider, Compose, or manifest
   version drift before deployment.
