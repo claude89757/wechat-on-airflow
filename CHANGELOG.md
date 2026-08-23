@@ -7,6 +7,9 @@ and operational changes.
 
 ### Added
 
+- Add a header coffee-support sheet with the supplied WeChat QR and a
+  server-timed easter egg that issues one 30-day priority invite per verified
+  email after the QR has remained visible for five seconds.
 - Monitor 泛思博特福中福 tennis availability on the same PosPal booking API as
   TOPS, publish observations to the Web app, and send best-effort WeChat alerts
   to the shared Zacks chatrooms.
@@ -20,6 +23,8 @@ and operational changes.
 
 ### Changed
 
+- Reduce the standard subscriber reminder cap from 30 to 10 digest emails per
+  Shanghai calendar day; the priority cap remains 100.
 - Make GitHub the only production delivery control plane: workstations keep
   only GitHub authentication, CI owns the release gate, and production health
   compares against an explicit workflow target SHA instead of local `HEAD`.

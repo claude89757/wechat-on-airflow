@@ -26,6 +26,17 @@ import {
   normalizeInviteCode,
 } from "./invite-codes";
 import {
+  COFFEE_CLAIM_DELAY_MS,
+  COFFEE_IP_CLAIM_LIMIT,
+  COFFEE_IP_CLAIM_WINDOW_MS,
+  COFFEE_SESSION_EMAIL_LIMIT,
+  COFFEE_SESSION_IP_LIMIT,
+  COFFEE_SESSION_LIFETIME_MS,
+  COFFEE_SESSION_RATE_WINDOW_MS,
+  coffeeInviteExpiresAt,
+  coffeeSessionState,
+} from "./coffee-invites";
+import {
   getTencentEmailStatus,
   sendTencentTemplateEmail,
 } from "./tencent-ses";
@@ -106,6 +117,28 @@ type OutboxRow = {
   venue_id: VenueId;
   attempt_count: number;
   tier: DeliveryTier;
+};
+
+type CoffeeInviteClaimRow = {
+  email: string;
+  session_id: string;
+  invite_id: string;
+  claimed_at: number;
+  encrypted_code: string | null;
+  encryption_iv: string | null;
+  invite_expires_at: number | null;
+  invite_active: number | null;
+  redeemed_at: number | null;
+  deleted_at: number | null;
+};
+
+type CoffeeInviteSessionRow = {
+  id: string;
+  email: string;
+  shown_at: number;
+  claimable_at: number;
+  expires_at: number;
+  consumed_at: number | null;
 };
 
 const JSON_HEADERS = {
@@ -339,6 +372,77 @@ async function decryptInviteCode(
 
 function epochIso(value: number | null | undefined): string | null {
   return value ? new Date(value).toISOString() : null;
+}
+
+async function clientIpHash(request: Request, pepper: string): Promise<string> {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  return sha256Hex(`coffee-invite:${ip}:${pepper}`);
+}
+
+async function coffeeInviteClaimForEmail(
+  env: WorkerEnv,
+  email: string,
+): Promise<CoffeeInviteClaimRow | null> {
+  return env.DB.prepare(
+    `SELECT
+       claims.email,
+       claims.session_id,
+       claims.invite_id,
+       claims.claimed_at,
+       invites.encrypted_code,
+       invites.encryption_iv,
+       invites.expires_at AS invite_expires_at,
+       invites.active AS invite_active,
+       invites.redeemed_at,
+       invites.deleted_at
+       FROM coffee_invite_claims claims
+       LEFT JOIN priority_invite_codes invites ON invites.id = claims.invite_id
+      WHERE claims.email = ?`,
+  ).bind(email).first<CoffeeInviteClaimRow>();
+}
+
+async function coffeeInviteSession(
+  env: WorkerEnv,
+  email: string,
+  sessionId: string,
+): Promise<CoffeeInviteSessionRow | null> {
+  return env.DB.prepare(
+    `SELECT id, email, shown_at, claimable_at, expires_at, consumed_at
+       FROM coffee_invite_sessions
+      WHERE id = ? AND email = ?`,
+  ).bind(sessionId, email).first<CoffeeInviteSessionRow>();
+}
+
+async function coffeeInvitePayload(
+  env: WorkerEnv,
+  row: CoffeeInviteClaimRow,
+  reused: boolean,
+): Promise<Record<string, unknown>> {
+  const code = await decryptInviteCode(
+    row.encrypted_code,
+    row.encryption_iv,
+    env.INVITE_CODE_PEPPER,
+  );
+  if (!code || !row.invite_expires_at) {
+    throw new Error("彩蛋邀请码暂时无法读取，请稍后再试");
+  }
+  const now = Date.now();
+  const status = row.deleted_at
+    ? "deleted"
+    : row.redeemed_at
+      ? "redeemed"
+      : row.invite_expires_at <= now
+        ? "expired"
+        : row.invite_active
+          ? "available"
+          : "disabled";
+  return {
+    code,
+    expiresAt: new Date(row.invite_expires_at).toISOString(),
+    claimedAt: new Date(row.claimed_at).toISOString(),
+    reused,
+    status,
+  };
 }
 
 
@@ -770,6 +874,215 @@ async function cancelSubscription(
   ).bind(nowIso, subscriptionId, identity.email).run();
   if (!result.meta.changes) return errorResponse(new Error("订阅不存在"), 404);
   return json({ success: true });
+}
+
+async function startCoffeeInviteSession(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const identity = await getIdentity(request, env);
+  if (!identity) return errorResponse(new Error("请先验证邮箱"), 401);
+
+  const now = Date.now();
+  const ipHash = await clientIpHash(request, env.INVITE_CODE_PEPPER);
+  const since = now - COFFEE_SESSION_RATE_WINDOW_MS;
+  const sessionId = crypto.randomUUID();
+  const claimableAt = now + COFFEE_CLAIM_DELAY_MS;
+  const expiresAt = now + COFFEE_SESSION_LIFETIME_MS;
+  const inserted = await env.DB.prepare(
+    `INSERT INTO coffee_invite_sessions
+       (id, email, ip_hash, shown_at, claimable_at, expires_at, consumed_at, created_at)
+     SELECT ?, ?, ?, ?, ?, ?, NULL, ?
+      WHERE (
+        SELECT COUNT(*) FROM coffee_invite_sessions
+         WHERE email = ? AND created_at >= ?
+      ) < ?
+        AND (
+          SELECT COUNT(*) FROM coffee_invite_sessions
+           WHERE ip_hash = ? AND created_at >= ?
+        ) < ?`,
+  ).bind(
+    sessionId,
+    identity.email,
+    ipHash,
+    now,
+    claimableAt,
+    expiresAt,
+    now,
+    identity.email,
+    since,
+    COFFEE_SESSION_EMAIL_LIMIT,
+    ipHash,
+    since,
+    COFFEE_SESSION_IP_LIMIT,
+  ).run();
+  if (!inserted.meta.changes) {
+    return errorResponse(new Error("二维码打开过于频繁，请稍后再试"), 429);
+  }
+  return json({
+    claimToken: sessionId,
+    availableAt: new Date(claimableAt).toISOString(),
+    expiresAt: new Date(expiresAt).toISOString(),
+    alreadyClaimed: Boolean(await coffeeInviteClaimForEmail(env, identity.email)),
+  }, 201);
+}
+
+async function claimCoffeeInvite(
+  request: Request,
+  env: WorkerEnv,
+): Promise<Response> {
+  const identity = await getIdentity(request, env);
+  if (!identity) return errorResponse(new Error("请先验证邮箱"), 401);
+
+  const payload = await readJson(request);
+  const claimToken = payload && typeof payload === "object"
+    ? String((payload as Record<string, unknown>).claimToken || "").trim()
+    : "";
+  if (!/^[0-9a-f-]{36}$/i.test(claimToken)) {
+    return errorResponse(new Error("彩蛋领取凭证无效"), 400);
+  }
+
+  const now = Date.now();
+  const existingClaim = await coffeeInviteClaimForEmail(env, identity.email);
+  if (existingClaim) {
+    return json(await coffeeInvitePayload(env, existingClaim, true));
+  }
+  const session = await coffeeInviteSession(env, identity.email, claimToken);
+  if (!session) {
+    return errorResponse(new Error("彩蛋领取凭证无效，请重新打开二维码"), 404);
+  }
+  const state = coffeeSessionState({
+    claimableAt: session.claimable_at,
+    expiresAt: session.expires_at,
+    inviteId: null,
+  }, now);
+  if (state === "too_early") {
+    return errorResponse(new Error("请在二维码显示 5 秒后再确认"), 425);
+  }
+  if (state === "expired") {
+    return errorResponse(new Error("二维码停留时间过长，请重新打开后再试"), 410);
+  }
+
+  const ipHash = await clientIpHash(request, env.INVITE_CODE_PEPPER);
+  const recentIpClaims = await env.DB.prepare(
+    `SELECT COUNT(*) AS count
+       FROM coffee_invite_claims
+      WHERE ip_hash = ?
+        AND claimed_at >= ?`,
+  ).bind(ipHash, now - COFFEE_IP_CLAIM_WINDOW_MS).first<{ count: number }>();
+  if (Number(recentIpClaims?.count || 0) >= COFFEE_IP_CLAIM_LIMIT) {
+    return errorResponse(new Error("当前网络领取次数已达上限，请稍后再试"), 429);
+  }
+
+  const inviteId = crypto.randomUUID();
+  const code = generateInviteCode();
+  const encrypted = await encryptInviteCode(code, env.INVITE_CODE_PEPPER);
+  const codeHint = code.split("-").slice(0, 3).join("-");
+  const inviteExpiresAt = coffeeInviteExpiresAt(now);
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO priority_invite_codes
+         (id, code_hash, expires_at, active, note, created_at,
+          encrypted_code, encryption_iv, code_hint, updated_at, deleted_at)
+       SELECT ?, ?, ?, 1, 'coffee_reward', ?, ?, ?, ?, ?, NULL
+        WHERE EXISTS (
+          SELECT 1 FROM coffee_invite_sessions sessions
+           WHERE sessions.id = ?
+             AND sessions.email = ?
+             AND sessions.consumed_at IS NULL
+             AND sessions.claimable_at <= ?
+             AND sessions.expires_at > ?
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM coffee_invite_claims claims WHERE claims.email = ?
+          )
+          AND (
+            SELECT COUNT(*) FROM coffee_invite_claims claims
+             WHERE claims.ip_hash = ?
+               AND claims.claimed_at >= ?
+          ) < ?`,
+    ).bind(
+      inviteId,
+      await hashInviteCode(code, env.INVITE_CODE_PEPPER),
+      inviteExpiresAt,
+      now,
+      encrypted.encryptedCode,
+      encrypted.encryptionIv,
+      codeHint,
+      now,
+      claimToken,
+      identity.email,
+      now,
+      now,
+      identity.email,
+      ipHash,
+      now - COFFEE_IP_CLAIM_WINDOW_MS,
+      COFFEE_IP_CLAIM_LIMIT,
+    ),
+    env.DB.prepare(
+      `INSERT INTO coffee_invite_claims
+         (email, session_id, invite_id, ip_hash, claimed_at)
+       SELECT ?, ?, ?, ?, ?
+        WHERE EXISTS (SELECT 1 FROM priority_invite_codes WHERE id = ?)
+       ON CONFLICT(email) DO NOTHING`,
+    ).bind(
+      identity.email,
+      claimToken,
+      inviteId,
+      ipHash,
+      now,
+      inviteId,
+    ),
+    env.DB.prepare(
+      `UPDATE coffee_invite_sessions
+          SET consumed_at = ?
+        WHERE id = ?
+          AND email = ?
+          AND consumed_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM coffee_invite_claims claims
+             WHERE claims.email = ?
+               AND claims.session_id = ?
+               AND claims.invite_id = ?
+          )`,
+    ).bind(
+      now,
+      claimToken,
+      identity.email,
+      identity.email,
+      claimToken,
+      inviteId,
+    ),
+  ]);
+
+  const created = Number(results[0].meta.changes || 0) === 1
+    && Number(results[1].meta.changes || 0) === 1
+    && Number(results[2].meta.changes || 0) === 1;
+  const claimed = await coffeeInviteClaimForEmail(env, identity.email);
+  if (!claimed?.invite_id) {
+    const refreshedSession = await coffeeInviteSession(env, identity.email, claimToken);
+    if (!refreshedSession) {
+      return errorResponse(new Error("彩蛋领取凭证无效，请重新打开二维码"), 404);
+    }
+    const refreshedState = coffeeSessionState({
+      claimableAt: refreshedSession.claimable_at,
+      expiresAt: refreshedSession.expires_at,
+      inviteId: null,
+    }, Date.now());
+    if (refreshedState === "too_early") {
+      return errorResponse(new Error("请在二维码显示 5 秒后再确认"), 425);
+    }
+    if (refreshedState === "expired") {
+      return errorResponse(new Error("二维码停留时间过长，请重新打开后再试"), 410);
+    }
+    return errorResponse(new Error("彩蛋邀请码生成失败，请稍后再试"), 409);
+  }
+  console.log(JSON.stringify({
+    event: "coffee_invite_claimed",
+    created,
+    expiresInDays: 30,
+  }));
+  return json(await coffeeInvitePayload(env, claimed, !created), created ? 201 : 200);
 }
 
 async function recordInviteAttempt(
@@ -1950,6 +2263,8 @@ async function cleanup(env: WorkerEnv): Promise<void> {
       .bind(now - 30 * 86_400_000),
     env.DB.prepare("DELETE FROM priority_invite_attempts WHERE created_at < ?")
       .bind(now - 30 * 86_400_000),
+    env.DB.prepare("DELETE FROM coffee_invite_sessions WHERE created_at < ?")
+      .bind(now - 86_400_000),
     env.DB.prepare(
       `DELETE FROM priority_invite_codes
         WHERE expires_at < ? AND redeemed_at IS NULL AND deleted_at IS NOT NULL`,
@@ -1997,6 +2312,12 @@ async function handleRequest(
     }
     if (request.method === "POST" && url.pathname === "/api/subscriptions") {
       return await createSubscription(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/api/coffee/session") {
+      return await startCoffeeInviteSession(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/api/coffee/invite") {
+      return await claimCoffeeInvite(request, env);
     }
     if (request.method === "POST" && url.pathname === "/api/priority/redeem") {
       return await redeemPriorityInvite(request, env);
