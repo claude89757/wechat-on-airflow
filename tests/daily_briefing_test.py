@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
-
 from wechat_airflow.briefings import daily_briefing, openai_client
 
 
