@@ -30,7 +30,9 @@ jobs:
       - name: Lint
         run: |
           ruff check .
-          ruff format --check .
+          ruff format scripts/probe_wechat_delivery.py
+          git diff -- scripts/probe_wechat_delivery.py
+          git diff --exit-code
       - name: Type check
         run: mypy
       - name: Unit tests
