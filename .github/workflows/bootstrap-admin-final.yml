@@ -51,12 +51,14 @@ jobs:
           require_text webapp/src/Prototype.tsx '发送失败' 'failed-delivery UI'
           require_file .github/workflows/production-admin-acceptance.yml 'production acceptance workflow'
           require_file .github/workflows/deploy-admin-email-lifecycle.yml 'production deploy workflow'
-      - name: Remove one-shot generation assets
+      - name: Remove generation assets and workflow changes from runner commit
         run: |
+          set -euo pipefail
           rm -rf .feature/admin .feature-bootstrap
-          rm -f .github/workflows/bootstrap-admin-final.yml
           rm -f .bootstrap-admin-trigger
-      - name: Commit final feature tree
+          rm -f .github/workflows/production-admin-acceptance.yml
+          rm -f .github/workflows/deploy-admin-email-lifecycle.yml
+      - name: Commit final business tree
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
