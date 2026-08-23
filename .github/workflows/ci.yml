@@ -31,7 +31,7 @@ jobs:
       - name: Lint
         run: |
           ruff check .
-          ruff format --check .
+          ruff format --check --diff .
       - name: Type check
         run: mypy
       - name: Unit tests
