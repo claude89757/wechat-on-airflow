@@ -57,6 +57,24 @@ def fetch_check_runs(repository: str, commit: str, token: str) -> Any:
         raise OpsError("GitHub check-runs API returned invalid JSON") from exc
 
 
+def effective_missing_check_wait_seconds(
+    *,
+    target_commit: str,
+    main_head: str,
+    missing_check_wait_seconds: float,
+    main_head_missing_check_wait_seconds: float,
+) -> float:
+    """Return a short discovery grace only for the exact current main head.
+
+    Historical commits keep the normal fail-fast behavior when no CI record
+    exists. A just-merged main head may race GitHub's check-run registration, so
+    it can receive a small, separately bounded visibility grace.
+    """
+    if target_commit == main_head:
+        return max(missing_check_wait_seconds, main_head_missing_check_wait_seconds)
+    return missing_check_wait_seconds
+
+
 def wait_for_required_check(
     repository: str,
     commit: str,
@@ -100,6 +118,8 @@ def release_payload(
     target_commit: str,
     required_check: str,
     on_main: bool,
+    target_is_main_head: bool,
+    effective_missing_check_wait: float,
     check: dict[str, Any],
     timed_out: bool,
     missing_check_wait_expired: bool,
@@ -113,9 +133,11 @@ def release_payload(
     return {
         "ok": all(checks.values()),
         "target_commit": target_commit,
+        "target_is_main_head": target_is_main_head,
         "required_check": required_check,
         "check_status": check["status"],
         "check_conclusion": check["conclusion"],
+        "effective_missing_check_wait_seconds": effective_missing_check_wait,
         "timed_out_waiting_for_check": timed_out,
         "missing_check_wait_expired": missing_check_wait_expired,
         "checks": checks,
@@ -136,7 +158,13 @@ def main() -> None:
         "--missing-check-wait-seconds",
         type=float,
         default=0,
-        help="Optional short grace period for a required check that is not visible yet.",
+        help="Visibility grace for a missing required check on historical commits.",
+    )
+    parser.add_argument(
+        "--main-head-missing-check-wait-seconds",
+        type=float,
+        default=0,
+        help="Additional bounded visibility grace only when the target is the exact main head.",
     )
     parser.add_argument(
         "--poll-seconds",
@@ -159,16 +187,26 @@ def main() -> None:
         raise OpsError("wait seconds must be non-negative")
     if args.missing_check_wait_seconds < 0:
         raise OpsError("missing check wait seconds must be non-negative")
+    if args.main_head_missing_check_wait_seconds < 0:
+        raise OpsError("main-head missing check wait seconds must be non-negative")
     if args.poll_seconds <= 0:
         raise OpsError("poll seconds must be positive")
 
     run(["git", "fetch", "--quiet", "origin", "main"])
+    main_head = run(["git", "rev-parse", "origin/main"]).stdout.strip()
+    target_is_main_head = args.target_commit == main_head
     on_main = (
         run(
             ["git", "merge-base", "--is-ancestor", args.target_commit, "origin/main"],
             check=False,
         ).returncode
         == 0
+    )
+    effective_missing_check_wait = effective_missing_check_wait_seconds(
+        target_commit=args.target_commit,
+        main_head=main_head,
+        missing_check_wait_seconds=args.missing_check_wait_seconds,
+        main_head_missing_check_wait_seconds=args.main_head_missing_check_wait_seconds,
     )
 
     if on_main:
@@ -179,7 +217,7 @@ def main() -> None:
             args.required_check,
             wait_seconds=args.wait_seconds,
             poll_seconds=args.poll_seconds,
-            missing_check_wait_seconds=args.missing_check_wait_seconds,
+            missing_check_wait_seconds=effective_missing_check_wait,
         )
     else:
         check = required_check_result({}, args.required_check)
@@ -190,6 +228,8 @@ def main() -> None:
         target_commit=args.target_commit,
         required_check=args.required_check,
         on_main=on_main,
+        target_is_main_head=target_is_main_head,
+        effective_missing_check_wait=effective_missing_check_wait,
         check=check,
         timed_out=timed_out,
         missing_check_wait_expired=missing_check_wait_expired,
