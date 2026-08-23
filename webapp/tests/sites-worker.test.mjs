@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import worker from "../worker/index.js";
 
@@ -65,4 +65,22 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/client/index.html", import.meta.url));
   await access(new URL("../dist/server/index.js", import.meta.url));
   await access(new URL("../dist/.openai/hosting.json", import.meta.url));
+});
+
+test("packages the mobile v2 stylesheet as a narrow-screen enhancement", async () => {
+  const indexUrl = new URL("../dist/client/index.html", import.meta.url);
+  const stylesheetUrl = new URL("../dist/client/mobile-v2.css", import.meta.url);
+
+  await access(stylesheetUrl);
+
+  const [indexHtml, stylesheet] = await Promise.all([
+    readFile(indexUrl, "utf8"),
+    readFile(stylesheetUrl, "utf8"),
+  ]);
+
+  assert.match(indexHtml, /href="\/mobile-v2\.css"/);
+  assert.match(indexHtml, /media="\(max-width: 520px\)"/);
+  assert.match(stylesheet, /@media \(max-width: 520px\)/);
+  assert.match(stylesheet, /grid-template-areas:/);
+  assert.match(stylesheet, /prefers-reduced-motion: reduce/);
 });
