@@ -23,14 +23,23 @@ WEBAPP_RUNTIME_EXACT = {
     "webapp/vite.config.ts",
     "webapp/wrangler.jsonc",
     "webapp/.npmrc",
+    "webapp/scripts/prepare-sites-build.mjs",
 }
 WEBAPP_RUNTIME_PREFIXES = (
     "webapp/src/",
     "webapp/public/",
     "webapp/migrations/",
+    "webapp/cloudflare/",
     "webapp/worker/",
     "webapp/.openai/",
 )
+WEBAPP_CI_EXACT = {
+    "webapp/.gitignore",
+    "webapp/playwright.config.ts",
+    "webapp/mobile-runtime.lock.json",
+    "webapp/scripts/check-mobile-runtime.mjs",
+    "webapp/scripts/update-mobile-runtime-lock.mjs",
+}
 AIRFLOW_RUNTIME_EXACT = {
     "docker-compose.yml",
     "scripts/read_runtime_secret.py",
@@ -46,6 +55,7 @@ SENDER_RUNTIME_EXACT = {
     "docker-compose.sender.yml",
     "deploy/systemd/wechat-sender.service",
     "deploy/systemd/appium-6002.override.conf",
+    "scripts/install_wechat_sender.sh",
 }
 SENDER_RUNTIME_PREFIXES = (
     "sender_agent/",
@@ -199,11 +209,11 @@ def classify_file(
             ci.add("webapp")
         return runtime, ci, control, metadata, unknown
 
-    if starts_with_any(path, ("webapp/tests/", "webapp/qa/")) or path in {
-        "webapp/design-qa.md",
-        "webapp/AGENTS.md",
-        "webapp/mobile-runtime.lock.json",
-    }:
+    if (
+        path in WEBAPP_CI_EXACT
+        or starts_with_any(path, ("webapp/tests/", "webapp/qa/"))
+        or path in {"webapp/design-qa.md", "webapp/AGENTS.md"}
+    ):
         ci.add("webapp")
         return runtime, ci, control, True, unknown
 
@@ -274,9 +284,7 @@ def make_plan(base: str, target: str, scope: str, include_sender: bool) -> Plan:
     unknown_files: list[str] = []
 
     for path in changed:
-        file_runtime, file_ci, file_control, metadata, unknown = classify_file(
-            base, target, path
-        )
+        file_runtime, file_ci, file_control, metadata, unknown = classify_file(base, target, path)
         runtime.update(file_runtime)
         ci.update(file_ci)
         control = control or file_control
