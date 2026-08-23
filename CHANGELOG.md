@@ -23,6 +23,9 @@ and operational changes.
 
 ### Changed
 
+- Restore the Airflow image and provider pins to the supported 3.3.0 runtime
+  contract, and make CI reject Dockerfile, provider, Compose, or manifest
+  version drift before deployment.
 - Reduce the standard subscriber reminder cap from 30 to 10 digest emails per
   Shanghai calendar day; the priority cap remains 100.
 - Make GitHub the only production delivery control plane: workstations keep
