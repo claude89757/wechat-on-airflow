@@ -39,7 +39,7 @@ wrangler d1 execute zacks-tennis-alerts --remote --command \
 
 wrangler d1 execute zacks-tennis-alerts --remote --json --command \
   "SELECT email,role,revoked_at FROM user_roles WHERE email='claudexzt@gmail.com' AND role='admin';" \
-  > "../$output_dir/d1-admin.json"
+  > "$output_dir/d1-admin.json"
 
 base="https://zacks.claude89757.cc"
 curl -fsS "$base/api/healthz" > "$output_dir/health.json"
