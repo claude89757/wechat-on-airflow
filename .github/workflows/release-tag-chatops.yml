@@ -61,11 +61,12 @@ jobs:
           python - <<'PY'
           from __future__ import annotations
 
+          import os
           import re
           import tomllib
           from pathlib import Path
 
-          version = __import__("os").environ["VERSION"]
+          version = os.environ["VERSION"]
           root = Path.cwd()
           project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
           package_source = (root / "src/wechat_airflow/__init__.py").read_text(encoding="utf-8")
@@ -92,12 +93,24 @@ jobs:
           VERSION: ${{ steps.command.outputs.version }}
         run: |
           set -euo pipefail
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
-            echo "Release tag already exists and is immutable: $VERSION" >&2
+          remote_target="$(git ls-remote origin "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')"
+          if [[ -z "$remote_target" ]]; then
+            remote_target="$(git ls-remote origin "refs/tags/$VERSION" | awk 'NR == 1 { print $1 }')"
+          fi
+          if [[ -n "$remote_target" && "$remote_target" != "$TARGET_COMMIT" ]]; then
+            echo "Immutable release tag $VERSION already points to $remote_target" >&2
             exit 1
           fi
-          git tag -a "$VERSION" "$TARGET_COMMIT" -m "Release $VERSION"
-          git push origin "refs/tags/$VERSION"
+          if [[ -z "$remote_target" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$VERSION" "$TARGET_COMMIT" -m "Release $VERSION"
+            git push origin "refs/tags/$VERSION"
+          fi
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release already exists for immutable tag $VERSION"
+            exit 0
+          fi
           gh release create "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_COMMIT" \
