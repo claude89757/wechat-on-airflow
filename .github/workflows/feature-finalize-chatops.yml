@@ -4,6 +4,7 @@ run-name: feature-finalize/${{ github.event.comment.id }}
 on:
   issue_comment:
     types: [created]
+  workflow_call:
 
 permissions:
   checks: read

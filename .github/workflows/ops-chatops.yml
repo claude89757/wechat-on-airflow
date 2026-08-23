@@ -7,8 +7,9 @@ on:
 
 permissions:
   checks: read
-  contents: read
+  contents: write
   issues: write
+  pull-requests: write
 
 concurrency:
   group: production-ops-chatops
@@ -19,7 +20,7 @@ jobs:
     if: >-
       github.event.issue.number == 39 &&
       github.event.comment.user.login == github.repository_owner &&
-      startsWith(github.event.comment.body, '/ops ')
+      startsWith(github.event.comment.body, '/ops webapp-observation-diagnose ')
     runs-on: ubuntu-latest
     outputs:
       target_commit: ${{ steps.command.outputs.target_commit }}
@@ -95,3 +96,11 @@ jobs:
           gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
             "Web observation diagnosis for \`$TARGET_COMMIT\`: \`$RESULT\`. Run: $RUN_URL"
           test "$RESULT" = success
+
+  finalize-admin:
+    if: >-
+      github.event.issue.number == 39 &&
+      github.event.comment.user.login == github.repository_owner &&
+      github.event.comment.body == '/ops finalize-admin-feature'
+    uses: ./.github/workflows/feature-finalize-chatops.yml
+    secrets: inherit
