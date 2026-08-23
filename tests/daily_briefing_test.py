@@ -5,6 +5,7 @@ import unittest.mock
 import zoneinfo
 
 import pytest
+
 from wechat_airflow.briefings import daily_briefing, openai_client
 
 
