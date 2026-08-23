@@ -4,7 +4,8 @@ test("moving from More into its menu does not drag or rubber-band the page", asy
   await page.goto("/");
 
   const scroll = page.getByTestId("mobile-scroll");
-  const trigger = page.getByRole("button", { name: "更多功能", exact: true });
+  const trigger = page.locator(".more-button");
+  await expect(trigger).toHaveAttribute("aria-label", "更多功能");
   const triggerBox = await trigger.boundingBox();
   if (!triggerBox) throw new Error("More trigger has no bounding box");
 
