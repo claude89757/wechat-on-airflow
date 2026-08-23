@@ -12,6 +12,7 @@ from typing import Any
 from _ops import OpsError, emit, run
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+Runner = Callable[..., CompletedProcess[str]]
 
 
 def parse_payload(output: str) -> dict[str, Any]:
@@ -38,15 +39,11 @@ def command_summary(result: CompletedProcess[str]) -> dict[str, Any]:
 
 def relay(result: CompletedProcess[str]) -> None:
     if result.stdout:
-        print(result.stdout, end="" if result.stdout.endswith("
-") else "
-")
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
     if result.stderr:
         print(
             result.stderr,
-            end="" if result.stderr.endswith("
-") else "
-",
+            end="" if result.stderr.endswith("\n") else "\n",
             file=sys.stderr,
         )
 
@@ -81,7 +78,7 @@ def deploy_with_health(
     target_commit: str,
     *,
     recover_active_tasks: bool = False,
-    runner: Callable[..., CompletedProcess[str]] = run,
+    runner: Runner = run,
 ) -> tuple[dict[str, Any], int]:
     deployment = runner(
         deploy_command(target_commit, recover_active_tasks),
@@ -92,10 +89,9 @@ def deploy_with_health(
         raise OpsError("Airflow deployment failed before the full health gate")
 
     deployment_payload = parse_payload(deployment.stdout or "")
+    remote_payload = deployment_payload.get("remote")
     previous_commit = (
-        deployment_payload.get("remote", {}).get("previous_commit")
-        if isinstance(deployment_payload.get("remote"), dict)
-        else None
+        remote_payload.get("previous_commit") if isinstance(remote_payload, dict) else None
     )
     if not isinstance(previous_commit, str) or len(previous_commit) != 40:
         raise OpsError("Airflow deployment did not return a rollback commit")
