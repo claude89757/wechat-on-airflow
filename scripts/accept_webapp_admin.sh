@@ -88,12 +88,6 @@ summary = {
 print(json.dumps(summary, ensure_ascii=False))
 PY
 
-asset="$(python - "$output_dir/bootstrap.json" <<'PY'
-import json,sys
-data=json.load(open(sys.argv[1]))
-print(data.get('assetPath',''))
-PY
-)"
 html="$(curl -fsS "$base/")"
 script_path="$(printf '%s' "$html" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)"
 test -n "$script_path"
@@ -103,36 +97,37 @@ for phrase in '用户社区' '管理后台' '确认送达' '发送失败'; do
 done
 
 if [ "${RUN_BROWSER_E2E:-true}" = true ]; then
-  cat > "$output_dir/e2e.mjs" <<'JS'
-  import { chromium } from 'playwright';
-  import fs from 'node:fs';
-  const [base, token, out] = process.argv.slice(2);
-  const browser = await chromium.launch({headless:true});
-  const context = await browser.newContext({viewport:{width:390,height:844}});
-  const page = await context.newPage();
-  const errors=[];
-  page.on('console', msg => { if(msg.type()==='error') errors.push(msg.text()); });
-  await page.addInitScript(({token}) => {
-    localStorage.setItem('zacks-tennis-verified-emails-v1', JSON.stringify([{
-      token,
-      email:'claudexzt@gmail.com',
-      maskedEmail:'cl*******@gmail.com',
-      verifiedAt:new Date().toISOString(),
-    }]));
-  }, {token});
-  await page.goto(base, {waitUntil:'networkidle'});
-  await page.getByRole('button', {name:/用户社区/}).waitFor();
-  await page.getByRole('button', {name:/管理后台/}).waitFor();
-  await page.getByRole('button', {name:/用户社区/}).click();
-  await page.getByText('社区用户').waitFor();
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', {name:/管理后台/}).click();
-  await page.getByText('邀请码管理').waitFor();
-  await page.screenshot({path:`${out}/mobile.png`, fullPage:true});
-  fs.writeFileSync(`${out}/browser.json`, JSON.stringify({ok:errors.length===0,errors},null,2));
-  if(errors.length) throw new Error(errors.join('\n'));
-  await browser.close();
-  JS
+  e2e_script="$output_dir/e2e.mjs"
+  cat > "$e2e_script" <<'JS'
+import { chromium } from 'playwright';
+import fs from 'node:fs';
+const [base, token, out] = process.argv.slice(2);
+const browser = await chromium.launch({headless:true});
+const context = await browser.newContext({viewport:{width:390,height:844}});
+const page = await context.newPage();
+const errors=[];
+page.on('console', msg => { if(msg.type()==='error') errors.push(msg.text()); });
+await page.addInitScript(({token}) => {
+  localStorage.setItem('zacks-tennis-verified-emails-v1', JSON.stringify([{
+    token,
+    email:'claudexzt@gmail.com',
+    maskedEmail:'cl*******@gmail.com',
+    verifiedAt:new Date().toISOString(),
+  }]));
+}, {token});
+await page.goto(base, {waitUntil:'networkidle'});
+await page.getByRole('button', {name:/用户社区/}).waitFor();
+await page.getByRole('button', {name:/管理后台/}).waitFor();
+await page.getByRole('button', {name:/用户社区/}).click();
+await page.getByText('社区用户').waitFor();
+await page.keyboard.press('Escape');
+await page.getByRole('button', {name:/管理后台/}).click();
+await page.getByText('邀请码管理').waitFor();
+await page.screenshot({path:`${out}/mobile.png`, fullPage:true});
+fs.writeFileSync(`${out}/browser.json`, JSON.stringify({ok:errors.length===0,errors},null,2));
+if(errors.length) throw new Error(errors.join('\n'));
+await browser.close();
+JS
   node "$e2e_script" "$base" "$token" "$output_dir"
-rm -f "$e2e_script"
+  rm -f "$e2e_script"
 fi
