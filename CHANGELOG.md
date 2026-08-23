@@ -23,6 +23,15 @@ and operational changes.
 
 ### Changed
 
+- Move My Subscriptions, User Community, and Admin into an accessible header
+  More menu, and shorten the coffee entry to “☕ 支持作者” while retaining a
+  full accessible label and compact narrow-screen behavior.
+- Fail the production gate immediately when an older target SHA has no CI check
+  record, while continuing to poll checks that are queued or in progress.
+- Treat Airflow deploy plus full production health as one transaction: if the
+  new containers start but the complete health gate fails, automatically
+  restore the pre-deploy SHA, verify the restored version, and fail the release.
+
 - Restore the Airflow image and provider pins to the supported 3.3.0 runtime
   contract, and make CI reject Dockerfile, provider, Compose, or manifest
   version drift before deployment.

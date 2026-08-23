@@ -37,7 +37,7 @@ def test_waits_for_in_progress_verify_then_succeeds():
     sleeps: list[float] = []
     clock = iter([0.0, 0.0, 1.0])
 
-    check, timed_out = github_release_gate.wait_for_required_check(
+    check, timed_out, missing_expired = github_release_gate.wait_for_required_check(
         "owner/repo",
         "a" * 40,
         "token",
@@ -50,11 +50,34 @@ def test_waits_for_in_progress_verify_then_succeeds():
     )
 
     assert timed_out is False
+    assert missing_expired is False
     assert check["ok"] is True
     assert sleeps == [5]
 
 
-def test_waits_when_verify_is_not_visible_yet():
+def test_missing_verify_fails_immediately_by_default():
+    sleeps: list[float] = []
+    clock = iter([0.0, 0.0])
+
+    check, timed_out, missing_expired = github_release_gate.wait_for_required_check(
+        "owner/repo",
+        "a" * 40,
+        "token",
+        "verify",
+        wait_seconds=1800,
+        poll_seconds=10,
+        fetcher=lambda *_: {"check_runs": []},
+        monotonic=lambda: next(clock),
+        sleeper=sleeps.append,
+    )
+
+    assert check["present"] is False
+    assert timed_out is False
+    assert missing_expired is True
+    assert sleeps == []
+
+
+def test_optional_visibility_grace_allows_new_verify_to_appear():
     payloads = iter(
         [
             {"check_runs": []},
@@ -72,12 +95,13 @@ def test_waits_when_verify_is_not_visible_yet():
     )
     clock = iter([0.0, 0.0, 1.0])
 
-    check, timed_out = github_release_gate.wait_for_required_check(
+    check, timed_out, missing_expired = github_release_gate.wait_for_required_check(
         "owner/repo",
         "a" * 40,
         "token",
         "verify",
         wait_seconds=30,
+        missing_check_wait_seconds=10,
         poll_seconds=5,
         fetcher=lambda *_: next(payloads),
         monotonic=lambda: next(clock),
@@ -85,14 +109,16 @@ def test_waits_when_verify_is_not_visible_yet():
     )
 
     assert timed_out is False
+    assert missing_expired is False
     assert check["present"] is True
     assert check["ok"] is True
 
 
 def test_terminal_failed_verify_fails_without_sleeping():
     sleeps: list[float] = []
+    clock = iter([0.0, 0.0])
 
-    check, timed_out = github_release_gate.wait_for_required_check(
+    check, timed_out, missing_expired = github_release_gate.wait_for_required_check(
         "owner/repo",
         "a" * 40,
         "token",
@@ -109,21 +135,22 @@ def test_terminal_failed_verify_fails_without_sleeping():
                 }
             ]
         },
-        monotonic=lambda: 0.0,
+        monotonic=lambda: next(clock),
         sleeper=sleeps.append,
     )
 
     assert timed_out is False
+    assert missing_expired is False
     assert check["ok"] is False
     assert check["conclusion"] == "failure"
     assert sleeps == []
 
 
-def test_wait_is_bounded_when_verify_never_completes():
+def test_wait_is_bounded_when_existing_verify_never_completes():
     times = iter([0.0, 0.0, 10.0])
     sleeps: list[float] = []
 
-    check, timed_out = github_release_gate.wait_for_required_check(
+    check, timed_out, missing_expired = github_release_gate.wait_for_required_check(
         "owner/repo",
         "a" * 40,
         "token",
@@ -145,5 +172,6 @@ def test_wait_is_bounded_when_verify_never_completes():
     )
 
     assert timed_out is True
+    assert missing_expired is False
     assert check["status"] == "queued"
     assert sleeps == [5]

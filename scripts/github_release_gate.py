@@ -65,25 +65,34 @@ def wait_for_required_check(
     *,
     wait_seconds: float,
     poll_seconds: float,
+    missing_check_wait_seconds: float = 0,
     fetcher: Callable[[str, str, str], Any] = fetch_check_runs,
     monotonic: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
-) -> tuple[dict[str, Any], bool]:
-    """Wait for a required GitHub check to finish.
+) -> tuple[dict[str, Any], bool, bool]:
+    """Wait for an existing required check to finish.
 
-    A check may be absent for a short period after a push, or already present but
-    still queued/in progress. Those are normal CI states and must not be treated
-    as a failed release. A terminal non-success conclusion still fails
-    immediately, and the wait is bounded by ``wait_seconds``.
+    A queued or in-progress check can legitimately complete later, so it is
+    polled until the overall deadline. A missing check is different: it is no
+    evidence that the commit ever passed CI. By default it fails immediately;
+    callers may opt into a short visibility grace period for a just-created run.
     """
-    deadline = monotonic() + wait_seconds
+    started_at = monotonic()
+    deadline = started_at + wait_seconds
+    missing_deadline = started_at + min(wait_seconds, missing_check_wait_seconds)
+
     while True:
         check = required_check_result(fetcher(repository, commit, token), name)
+        now = monotonic()
         if check["status"] == "completed":
-            return check, False
-        if monotonic() >= deadline:
-            return check, True
-        sleeper(poll_seconds)
+            return check, False, False
+        if not check["present"] and now >= missing_deadline:
+            return check, False, True
+        if now >= deadline:
+            return check, True, False
+
+        next_deadline = missing_deadline if not check["present"] else deadline
+        sleeper(min(poll_seconds, max(0, next_deadline - now)))
 
 
 def release_payload(
@@ -93,6 +102,7 @@ def release_payload(
     on_main: bool,
     check: dict[str, Any],
     timed_out: bool,
+    missing_check_wait_expired: bool,
 ) -> dict[str, Any]:
     checks = {
         "target_commit_on_main": on_main,
@@ -107,6 +117,7 @@ def release_payload(
         "check_status": check["status"],
         "check_conclusion": check["conclusion"],
         "timed_out_waiting_for_check": timed_out,
+        "missing_check_wait_expired": missing_check_wait_expired,
         "checks": checks,
     }
 
@@ -119,13 +130,19 @@ def main() -> None:
         "--wait-seconds",
         type=float,
         default=3600,
-        help="Maximum time to wait for the required check to appear and complete.",
+        help="Maximum time to wait for an existing required check to complete.",
+    )
+    parser.add_argument(
+        "--missing-check-wait-seconds",
+        type=float,
+        default=0,
+        help="Optional short grace period for a required check that is not visible yet.",
     )
     parser.add_argument(
         "--poll-seconds",
         type=float,
         default=10,
-        help="Polling interval while the required check is queued, in progress, or not yet visible.",
+        help="Polling interval while the required check is queued or in progress.",
     )
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args()
@@ -140,6 +157,8 @@ def main() -> None:
         raise OpsError("GITHUB_TOKEN is required")
     if args.wait_seconds < 0:
         raise OpsError("wait seconds must be non-negative")
+    if args.missing_check_wait_seconds < 0:
+        raise OpsError("missing check wait seconds must be non-negative")
     if args.poll_seconds <= 0:
         raise OpsError("poll seconds must be positive")
 
@@ -153,17 +172,19 @@ def main() -> None:
     )
 
     if on_main:
-        check, timed_out = wait_for_required_check(
+        check, timed_out, missing_check_wait_expired = wait_for_required_check(
             repository,
             args.target_commit,
             token,
             args.required_check,
             wait_seconds=args.wait_seconds,
             poll_seconds=args.poll_seconds,
+            missing_check_wait_seconds=args.missing_check_wait_seconds,
         )
     else:
         check = required_check_result({}, args.required_check)
         timed_out = False
+        missing_check_wait_expired = False
 
     payload = release_payload(
         target_commit=args.target_commit,
@@ -171,6 +192,7 @@ def main() -> None:
         on_main=on_main,
         check=check,
         timed_out=timed_out,
+        missing_check_wait_expired=missing_check_wait_expired,
     )
     emit(payload, args.format)
     if not payload["ok"]:

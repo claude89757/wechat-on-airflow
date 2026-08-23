@@ -1,0 +1,26 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_footer_actions_move_into_accessible_header_menu():
+    source = (ROOT / "webapp/src/Prototype.tsx").read_text(encoding="utf-8")
+
+    assert 'aria-label="更多功能"' in source
+    assert '<DropdownMenu.Root>' in source
+    assert 'onSelect={() => openPanel("subscriptions")}' in source
+    assert 'onSelect={() => openPanel("community")}' in source
+    assert 'onSelect={() => openPanel("admin")}' in source
+    assert 'className="subscriptions-link"' not in source
+
+
+def test_coffee_entry_uses_compact_copy_and_keeps_full_accessible_name():
+    source = (ROOT / "webapp/src/Prototype.tsx").read_text(encoding="utf-8")
+    main = (ROOT / "webapp/src/main.tsx").read_text(encoding="utf-8")
+    styles = (ROOT / "webapp/src/header-menu.css").read_text(encoding="utf-8")
+
+    assert '<span aria-hidden="true">☕</span>' in source
+    assert '<span>支持作者</span>' in source
+    assert 'aria-label="请作者喝咖啡，支持项目维护"' in source
+    assert 'import "./header-menu.css";' in main
+    assert ".more-menu-item[data-highlighted]" in styles
