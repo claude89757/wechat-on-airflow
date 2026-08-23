@@ -30,7 +30,9 @@ jobs:
           if test -f scripts/_fix_release_hardening_patcher.py; then
             python scripts/_fix_release_hardening_patcher.py
           fi
+          python scripts/_prepare_release_hardening_changelog.py
           python scripts/_apply_release_hardening_patch.py
+          python scripts/_restore_release_hardening_changelog.py
           cat > .github/workflows/ci.yml <<'YAML'
           name: CI
 
