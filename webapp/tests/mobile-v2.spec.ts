@@ -24,6 +24,11 @@ test.describe("mobile v2 presentation", () => {
     expect(helpButton?.width ?? 0).toBeGreaterThanOrEqual(44);
     expect(helpButton?.height ?? 0).toBeGreaterThanOrEqual(44);
 
+    const coffeeButton = page.getByRole("button", { name: "请作者喝咖啡", exact: true });
+    await expect(coffeeButton).toBeVisible();
+    const coffeeButtonBox = await coffeeButton.boundingBox();
+    expect(coffeeButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
     const metrics = page.locator(".metric");
     await expect(metrics).toHaveCount(3);
     for (let index = 0; index < 3; index += 1) {
@@ -100,5 +105,135 @@ test.describe("mobile v2 presentation", () => {
     await expect(submitButton).toHaveCSS("position", "sticky");
     const submitBox = await submitButton.boundingBox();
     expect(submitBox?.height ?? 0).toBeGreaterThanOrEqual(52);
+  });
+
+  test("reveals the coffee invite only five seconds after the QR image loads", async ({ page }) => {
+    const fixedNow = new Date("2026-08-23T08:00:00.000Z");
+    await page.clock.install({ time: fixedNow });
+    await page.addInitScript(
+      ({ key }) => {
+        localStorage.setItem(
+          key,
+          JSON.stringify([
+            {
+              token: "coffee-test-token",
+              email: "coffee@example.com",
+              maskedEmail: "c***@example.com",
+              verifiedAt: new Date().toISOString(),
+            },
+          ]),
+        );
+      },
+      { key: RECEIPTS_KEY },
+    );
+
+    let sessionCalls = 0;
+    let claimCalls = 0;
+    await page.route("**/api/coffee/session", async (route) => {
+      sessionCalls += 1;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          claimToken: "coffee-claim-token",
+          availableAt: fixedNow.toISOString(),
+          expiresAt: "2026-08-23T08:10:00.000Z",
+          alreadyClaimed: false,
+        }),
+      });
+    });
+    await page.route("**/api/coffee/invite", async (route) => {
+      claimCalls += 1;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "ACE-LATTE-OTTER-7K9P2Q",
+          expiresAt: "2026-09-22T08:00:00.000Z",
+          claimedAt: fixedNow.toISOString(),
+          reused: false,
+          status: "available",
+        }),
+      });
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "请作者喝咖啡", exact: true }).click();
+
+    const qrImage = page.getByRole("img", { name: "微信支付收款二维码，收款人 Tt（**添）" });
+    await expect(qrImage).toBeVisible();
+    await expect.poll(() => qrImage.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    await page.clock.fastForward(32);
+    await expect.poll(() => sessionCalls).toBe(1);
+    await expect(page.getByText("收款码已显示，请完成支付，稍候片刻。")).toBeVisible();
+
+    const claimButton = page.getByRole("button", { name: "已请咖啡", exact: true });
+    await expect(claimButton).toHaveCount(0);
+    await page.clock.fastForward(4_999);
+    await expect(claimButton).toHaveCount(0);
+    await page.clock.fastForward(1);
+    await expect(claimButton).toBeVisible();
+
+    await claimButton.click();
+    await expect.poll(() => claimCalls).toBe(1);
+    await expect(page.getByText("彩蛋已解锁")).toBeVisible();
+    await expect(page.getByText("ACE-LATTE-OTTER-7K9P2Q", { exact: true })).toBeVisible();
+    await expect(page.getByText(/邀请码有效期 30 天/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "复制邀请码", exact: true })).toBeVisible();
+  });
+
+  test("waits locally and sends an unverified visitor to email verification", async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-08-23T08:00:00.000Z") });
+    let sessionCalls = 0;
+    await page.route("**/api/coffee/session", async (route) => {
+      sessionCalls += 1;
+      await route.abort();
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "请作者喝咖啡", exact: true }).click();
+    const qrImage = page.getByRole("img", { name: "微信支付收款二维码，收款人 Tt（**添）" });
+    await expect.poll(() => qrImage.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+    await page.clock.fastForward(32);
+
+    const claimButton = page.getByRole("button", { name: "已请咖啡", exact: true });
+    await page.clock.fastForward(4_999);
+    await expect(claimButton).toHaveCount(0);
+    await page.clock.fastForward(1);
+    await expect(claimButton).toBeVisible();
+    expect(sessionCalls).toBe(0);
+
+    await claimButton.click();
+    await expect(page.getByRole("dialog").getByText("验证邮箱", { exact: true })).toBeVisible();
+    expect(sessionCalls).toBe(0);
+  });
+
+  test("keeps both header actions inside a 320px viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.goto("/");
+
+    await expect(page.getByRole("button", { name: "请作者喝咖啡", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看帮助", exact: true })).toBeVisible();
+    const headerFits = await page.locator(".product-header").evaluate((header) => {
+      const viewportWidth = document.documentElement.clientWidth;
+      const bounds = [header, ...Array.from(header.children)].map((element) => element.getBoundingClientRect());
+      return document.documentElement.scrollWidth <= viewportWidth
+        && bounds.every((rect) => rect.left >= -0.5 && rect.right <= viewportWidth + 0.5);
+    });
+    expect(headerFits).toBe(true);
+
+    await page.getByRole("button", { name: "请作者喝咖啡", exact: true }).click();
+    const qrImage = page.getByRole("img", { name: "微信支付收款二维码，收款人 Tt（**添）" });
+    await expect(qrImage).toBeVisible();
+    const coffeePanelFits = await page.locator(".coffee-panel").evaluate((panel) => {
+      const viewportWidth = document.documentElement.clientWidth;
+      const selectors = [".coffee-panel", ".coffee-qr-frame", ".coffee-qr-image", ".coffee-waiting"];
+      return document.documentElement.scrollWidth <= viewportWidth
+        && selectors.every((selector) => {
+          const element = panel.closest(".bottom-sheet")?.querySelector(selector);
+          if (!element) return false;
+          const rect = element.getBoundingClientRect();
+          return rect.left >= -0.5 && rect.right <= viewportWidth + 0.5;
+        });
+    });
+    expect(coffeePanelFits).toBe(true);
   });
 });

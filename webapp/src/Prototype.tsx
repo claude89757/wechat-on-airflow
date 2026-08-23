@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelSubscription,
+  claimCoffeeInvite,
   createSubscription,
   EMPTY_DASHBOARD,
   FALLBACK_DASHBOARD,
@@ -31,6 +32,7 @@ import {
   requestVerificationCode,
   redeemPriorityInvite,
   saveReceipt,
+  startCoffeeInviteSession,
   type Dashboard,
   type SubscriptionTerm,
   type VenueId,
@@ -43,7 +45,12 @@ import { AdminPanel, CommunityPanel } from "./OperationsPanel";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
 import { isTextEntry, useNativeKeyboardViewport } from "./nativeKeyboard";
 
-type Panel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | null;
+type Panel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | "coffee" | null;
+
+type CoffeeInviteSession = Awaited<ReturnType<typeof startCoffeeInviteSession>>;
+type CoffeeInviteReward = Awaited<ReturnType<typeof claimCoffeeInvite>>;
+
+const COFFEE_REVEAL_DELAY_MS = 5_000;
 
 const VENUE_ACCENTS: Record<VenueId, string> = {
   szw: "teal",
@@ -129,6 +136,26 @@ function formatUpdatedAt(value: string): string {
   }).format(date);
 }
 
+function formatInviteExpiry(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "30 天内";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Shanghai",
+  }).format(date);
+}
+
+function waitForImagePaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+  });
+}
+
 function Metric({
   icon,
   value,
@@ -184,6 +211,31 @@ export default function Prototype() {
   const [endTime, setEndTime] = useState("22:00");
   const [subscriptionTerm, setSubscriptionTerm] = useState<SubscriptionTerm>("7d");
   const [inviteCode, setInviteCode] = useState("");
+  const [coffeeImageKey, setCoffeeImageKey] = useState(0);
+  const [coffeeImageLoaded, setCoffeeImageLoaded] = useState(false);
+  const [coffeeSessionBusy, setCoffeeSessionBusy] = useState(false);
+  const [coffeeClaimBusy, setCoffeeClaimBusy] = useState(false);
+  const [coffeeSession, setCoffeeSession] = useState<CoffeeInviteSession | null>(null);
+  const [coffeeRevealAt, setCoffeeRevealAt] = useState<number | null>(null);
+  const [coffeeClaimReady, setCoffeeClaimReady] = useState(false);
+  const [coffeeReward, setCoffeeReward] = useState<CoffeeInviteReward | null>(null);
+  const [coffeeError, setCoffeeError] = useState("");
+  const coffeeFlowId = useRef(0);
+  const coffeeImageHandledForFlow = useRef<number | null>(null);
+
+  const resetCoffeeFlow = useCallback(() => {
+    coffeeFlowId.current += 1;
+    coffeeImageHandledForFlow.current = null;
+    setCoffeeImageKey((current) => current + 1);
+    setCoffeeImageLoaded(false);
+    setCoffeeSessionBusy(false);
+    setCoffeeClaimBusy(false);
+    setCoffeeSession(null);
+    setCoffeeRevealAt(null);
+    setCoffeeClaimReady(false);
+    setCoffeeReward(null);
+    setCoffeeError("");
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -259,9 +311,40 @@ export default function Prototype() {
     return () => window.clearTimeout(timer);
   }, [challengeId, panel]);
 
+  useEffect(() => {
+    if (panel !== "coffee" || coffeeRevealAt === null) return;
+
+    const reveal = () => setCoffeeClaimReady(true);
+    const delay = Math.max(0, coffeeRevealAt - Date.now());
+    if (delay === 0) {
+      reveal();
+      return;
+    }
+
+    const timer = window.setTimeout(reveal, delay);
+    return () => window.clearTimeout(timer);
+  }, [coffeeRevealAt, panel]);
+
   const activeIdentity = dashboard.identity.verified
     ? dashboard.identity.maskedEmail
     : receipt?.maskedEmail;
+  const coffeeRewardAvailable = coffeeReward?.status === "available";
+  const coffeeRewardTitle = coffeeReward?.status === "redeemed"
+    ? "邀请码已兑换"
+    : coffeeReward?.status === "expired"
+      ? "邀请码已过期"
+      : coffeeReward?.status === "disabled" || coffeeReward?.status === "deleted"
+        ? "邀请码不可用"
+        : "彩蛋已解锁";
+  const coffeeRewardMessage = coffeeReward?.status === "redeemed"
+    ? "这个邀请码已经完成兑换，无需再次操作。"
+    : coffeeReward?.status === "expired"
+      ? "这是你此前领取的邀请码，但 30 天有效期已经结束。"
+      : coffeeReward?.status === "disabled" || coffeeReward?.status === "deleted"
+        ? "这是你此前领取的邀请码，但它目前不能兑换。"
+        : coffeeReward?.reused
+          ? "这是你此前领取且仍可使用的邀请码。"
+          : "谢谢你的咖啡，送你一个优先用户邀请码。";
   const availability = resolveDashboardAvailability({ hasSuccessfulDashboard, loading, refreshFailed });
   const statusLabel = availability === "loading" ? "正在读取服务状态"
     : availability === "unknown" ? "暂时无法读取状态"
@@ -284,7 +367,87 @@ export default function Prototype() {
   const openPanel = (nextPanel: Exclude<Panel, null>) => {
     keyboard.hide();
     setFormError("");
+    if (nextPanel === "coffee") resetCoffeeFlow();
     setPanel(nextPanel);
+  };
+
+  const handleCoffeeImageLoad = async (image: HTMLImageElement) => {
+    const flowId = coffeeFlowId.current;
+    if (coffeeImageHandledForFlow.current === flowId) return;
+    coffeeImageHandledForFlow.current = flowId;
+
+    try {
+      await image.decode();
+    } catch {
+      // A loaded image can still be paintable when decode() rejects on older engines.
+    }
+    await waitForImagePaint();
+    if (coffeeFlowId.current !== flowId || !image.isConnected) return;
+
+    const imagePaintedAt = Date.now();
+    setCoffeeImageLoaded(true);
+    if (!receipt) {
+      setCoffeeRevealAt(imagePaintedAt + COFFEE_REVEAL_DELAY_MS);
+      return;
+    }
+
+    setCoffeeSessionBusy(true);
+    setCoffeeError("");
+    try {
+      const session = await startCoffeeInviteSession(receipt);
+      if (coffeeFlowId.current !== flowId) return;
+
+      const serverAvailableAt = Date.parse(session.availableAt);
+      const revealAt = Math.max(
+        imagePaintedAt + COFFEE_REVEAL_DELAY_MS,
+        Number.isNaN(serverAvailableAt) ? 0 : serverAvailableAt,
+      );
+      setCoffeeSession(session);
+      setCoffeeRevealAt(revealAt);
+    } catch (error) {
+      if (coffeeFlowId.current !== flowId) return;
+      setCoffeeError(error instanceof Error ? error.message : "暂时无法准备彩蛋，请重试");
+    } finally {
+      if (coffeeFlowId.current === flowId) setCoffeeSessionBusy(false);
+    }
+  };
+
+  const claimCoffeeReward = async () => {
+    if (!receipt) {
+      resetCoffeeFlow();
+      setToast("请先验证邮箱，再回来领取彩蛋");
+      setPanel("create");
+      return;
+    }
+    if (!coffeeSession) {
+      setCoffeeError("领取会话已失效，请重新加载");
+      return;
+    }
+
+    const flowId = coffeeFlowId.current;
+    setCoffeeClaimBusy(true);
+    setCoffeeError("");
+    try {
+      const reward = await claimCoffeeInvite(receipt, coffeeSession.claimToken);
+      if (coffeeFlowId.current !== flowId) return;
+      setCoffeeReward(reward);
+    } catch (error) {
+      if (coffeeFlowId.current !== flowId) return;
+      setCoffeeError(error instanceof Error ? error.message : "彩蛋领取失败，请重试");
+    } finally {
+      if (coffeeFlowId.current === flowId) setCoffeeClaimBusy(false);
+    }
+  };
+
+  const copyCoffeeInvite = async () => {
+    if (!coffeeReward || coffeeReward.status !== "available") return;
+    setCoffeeError("");
+    try {
+      await navigator.clipboard.writeText(coffeeReward.code);
+      setToast("邀请码已复制");
+    } catch {
+      setCoffeeError("未能自动复制，请长按邀请码手动复制");
+    }
   };
 
   const switchReceipt = (next: VerificationReceipt) => {
@@ -421,6 +584,7 @@ export default function Prototype() {
     if (panel === "priority") return "提醒档位";
     if (panel === "community") return "用户社区";
     if (panel === "admin") return "管理后台";
+    if (panel === "coffee") return "请作者喝咖啡";
     return receipt ? "创建订阅" : "验证邮箱";
   }, [panel, receipt]);
 
@@ -438,15 +602,24 @@ export default function Prototype() {
                 <p>未来有位，邮件通知你</p>
               </div>
             </div>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="查看帮助"
-              title="查看帮助"
-              onClick={() => openPanel("help")}
-            >
-              <QuestionIcon size={23} weight="bold" />
-            </button>
+            <div className="header-actions">
+              <button
+                className="coffee-button"
+                type="button"
+                onClick={() => openPanel("coffee")}
+              >
+                请作者喝咖啡
+              </button>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="查看帮助"
+                title="查看帮助"
+                onClick={() => openPanel("help")}
+              >
+                <QuestionIcon size={23} weight="bold" />
+              </button>
+            </div>
           </header>
 
           <div className={`service-line service-${availability}`} aria-live="polite">
@@ -634,7 +807,10 @@ export default function Prototype() {
       <BottomSheet
         open={panel !== null}
         onOpenChange={(open) => {
-          if (!open) setPanel(null);
+          if (!open) {
+            if (panel === "coffee") resetCoffeeFlow();
+            setPanel(null);
+          }
         }}
         title={panelTitle}
         description={
@@ -642,8 +818,84 @@ export default function Prototype() {
             ? "只设置提醒条件，不展示或代订场地。"
             : undefined
         }
-        snap={panel === "create" ? 0.86 : panel === "priority" ? 0.82 : panel === "community" || panel === "admin" ? 0.94 : 0.72}
+        snap={panel === "coffee" || panel === "community" || panel === "admin"
+          ? 0.94
+          : panel === "create" ? 0.86 : panel === "priority" ? 0.82 : 0.72}
       >
+        {panel === "coffee" ? (
+          <div className="coffee-panel" data-testid="coffee-panel">
+            <p className="coffee-intro">
+              如果这个小工具帮到了你，可以用微信请作者喝杯咖啡。完全自愿，不影响普通提醒服务。
+            </p>
+            <div className="coffee-qr-frame">
+              <img
+                key={coffeeImageKey}
+                className="coffee-qr-image"
+                src="/assets/wechat-coffee-qr.jpeg"
+                alt="微信支付收款二维码，收款人 Tt（**添）"
+                decoding="async"
+                draggable={false}
+                onLoad={(event) => void handleCoffeeImageLoad(event.currentTarget)}
+                onError={() => setCoffeeError("收款码加载失败，请重试")}
+              />
+            </div>
+
+            {coffeeReward ? (
+              <section className="coffee-reward" aria-labelledby="coffee-reward-title">
+                <StarIcon size={34} weight="fill" aria-hidden="true" />
+                <div aria-live="polite">
+                  <strong id="coffee-reward-title">{coffeeRewardTitle}</strong>
+                  <p>{coffeeRewardMessage}</p>
+                </div>
+                <code className="coffee-invite-code">{coffeeReward.code}</code>
+                {coffeeRewardAvailable ? (
+                  <button className="coffee-copy-button" type="button" onClick={() => void copyCoffeeInvite()}>
+                    复制邀请码
+                  </button>
+                ) : null}
+                {coffeeReward.status === "available" ? (
+                  <p className="coffee-expiry">
+                    邀请码有效期 30 天，请在 <time dateTime={coffeeReward.expiresAt}>{formatInviteExpiry(coffeeReward.expiresAt)}</time> 前兑换。
+                  </p>
+                ) : coffeeReward.status === "expired" ? (
+                  <p className="coffee-expiry">
+                    该邀请码已于 <time dateTime={coffeeReward.expiresAt}>{formatInviteExpiry(coffeeReward.expiresAt)}</time> 过期。
+                  </p>
+                ) : null}
+                {coffeeError ? <p className="form-error" role="alert">{coffeeError}</p> : null}
+              </section>
+            ) : (
+              <>
+                <p className="coffee-waiting" role="status" aria-live="polite">
+                  {!coffeeImageLoaded
+                    ? "正在加载收款码…"
+                    : coffeeSessionBusy
+                      ? "收款码已显示，请完成支付…"
+                      : coffeeClaimReady
+                        ? "谢谢你的支持，可以继续了。"
+                        : coffeeError ? "" : "收款码已显示，请完成支付，稍候片刻。"}
+                </p>
+                {coffeeError ? <p className="form-error" role="alert">{coffeeError}</p> : null}
+                {coffeeError && !coffeeSession ? (
+                  <button className="coffee-retry-button" type="button" onClick={resetCoffeeFlow}>
+                    重新加载
+                  </button>
+                ) : null}
+                {coffeeClaimReady ? (
+                  <button
+                    className="sheet-primary coffee-claim-button"
+                    type="button"
+                    disabled={coffeeClaimBusy}
+                    onClick={() => void claimCoffeeReward()}
+                  >
+                    {coffeeClaimBusy ? "正在领取…" : "已请咖啡"}
+                  </button>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
+
         {panel === "help" ? (
           <div className="help-content">
             <div className="help-row">

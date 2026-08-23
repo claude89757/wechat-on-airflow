@@ -104,6 +104,21 @@ export type VerificationReceipt = {
   verifiedAt: string;
 };
 
+export type CoffeeInviteSession = {
+  claimToken: string;
+  availableAt: string;
+  expiresAt: string;
+  alreadyClaimed: boolean;
+};
+
+export type CoffeeInvite = {
+  code: string;
+  expiresAt: string;
+  claimedAt: string;
+  reused: boolean;
+  status: "available" | "redeemed" | "expired" | "disabled" | "deleted";
+};
+
 const RECEIPTS_KEY = "zacks-tennis-verified-emails-v1";
 
 const FALLBACK_VENUES: VenueStatus[] = [
@@ -125,7 +140,7 @@ const DEFAULT_TERMS: Dashboard["subscriptionTerms"] = {
 export const FALLBACK_DASHBOARD: Dashboard = {
   generatedAt: "2026-07-29T10:42:00+08:00",
   metrics: { activeSubscriptions: 128, remindersToday: 6, healthyVenues: 8, totalVenues: 8 },
-  deliveryTiers: { standard: 30, priority: 100 },
+  deliveryTiers: { standard: 10, priority: 100 },
   subscriptionTerms: DEFAULT_TERMS,
   subscriptionLimits: { standard: 5, priority: 20 },
   venues: FALLBACK_VENUES,
@@ -138,8 +153,8 @@ export const FALLBACK_DASHBOARD: Dashboard = {
     failedToday: 0,
     tier: "standard",
     isAdmin: false,
-    dailyLimit: 30,
-    remainingToday: 30,
+    dailyLimit: 10,
+    remainingToday: 10,
     activeSubscriptionLimit: 5,
     activeSubscriptionCount: 0,
     remainingSubscriptions: 5,
@@ -255,6 +270,22 @@ export async function cancelSubscription(
 ): Promise<{ success: boolean }> {
   return jsonRequest(`/api/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     method: "DELETE",
+  }, receipt);
+}
+
+export async function startCoffeeInviteSession(
+  receipt: VerificationReceipt,
+): Promise<CoffeeInviteSession> {
+  return jsonRequest("/api/coffee/session", { method: "POST" }, receipt);
+}
+
+export async function claimCoffeeInvite(
+  receipt: VerificationReceipt,
+  claimToken: string,
+): Promise<CoffeeInvite> {
+  return jsonRequest("/api/coffee/invite", {
+    method: "POST",
+    body: JSON.stringify({ claimToken }),
   }, receipt);
 }
 
