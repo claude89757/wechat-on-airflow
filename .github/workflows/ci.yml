@@ -29,9 +29,8 @@ jobs:
           python -m pip install -e '.[dev]'
       - name: Lint
         run: |
-          ruff check --fix tests/daily_briefing_test.py
-          git diff -- tests/daily_briefing_test.py
-          exit 1
+          ruff check .
+          ruff format --check .
       - name: Type check
         run: mypy
       - name: Unit tests
