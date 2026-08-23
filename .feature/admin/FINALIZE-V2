@@ -1,3 +1,4 @@
 Generate the complete administrator, community, Tencent delivery lifecycle, expiry-reminder, long-term subscription, deployment, and acceptance implementation. Merge only after all branch checks pass.
 Run the registered final tree generator and complete CI-equivalent verification.
 Trigger final v5 generation and verification.
+Run registered finalizer now.
