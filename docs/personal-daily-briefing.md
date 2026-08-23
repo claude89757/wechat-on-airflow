@@ -14,11 +14,12 @@
 
 默认主题覆盖：
 
-1. OpenAI、ChatGPT、Codex、Anthropic、Claude、Cursor、MCP、智能体开发与 AI 原生产品；
-2. `wechat-on-airflow`、agent-galaxy、pcapagent-studio、ioa-ssh-cli、netops-cli 等项目；
-3. 嘉泉大学、韩国 D-2 留学签证、首尔租房和嘉泉大学通勤；
-4. CourtVoice、网球语音/视频分析、ASR、Apple 平台和业余网球产品；
-5. 会直接影响用户学习、出行、财务、产品或工作的国内外重大事件。
+1. 黄仁勋/NVIDIA、Sam Altman/OpenAI、埃隆·马斯克/xAI/Tesla/SpaceX/X 的实质性动态；
+2. OpenAI、ChatGPT、Codex、Anthropic、Claude、Cursor、MCP、智能体开发与 AI 原生产品；
+3. `wechat-on-airflow`、agent-galaxy、pcapagent-studio、ioa-ssh-cli、netops-cli 等项目；
+4. 嘉泉大学、韩国 D-2 留学签证、首尔租房和嘉泉大学通勤；
+5. CourtVoice、网球语音/视频分析、ASR、Apple 平台和业余网球产品；
+6. 会直接影响用户学习、出行、财务、产品或工作的国内外重大事件。
 
 ## Airflow Variables
 
