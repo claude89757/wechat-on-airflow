@@ -55,6 +55,13 @@ def run_plan(repo: Path, *args: str, success: bool = True) -> subprocess.Complet
     return result
 
 
+def commit_change(repo: Path, path: str, content: str, message: str) -> str:
+    write(repo, path, content)
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", message)
+    return git(repo, "rev-parse", "HEAD")
+
+
 def test_web_change_with_version_metadata_resolves_to_webapp_only(tmp_path: Path):
     repo, _ = init_repo(tmp_path)
     write(repo, "webapp/src/app.ts", "new\n")
@@ -73,12 +80,41 @@ def test_web_change_with_version_metadata_resolves_to_webapp_only(tmp_path: Path
     assert payload["deploy_sender"] is False
 
 
+def test_cloudflare_worker_source_is_webapp_runtime_only(tmp_path: Path):
+    repo, _ = init_repo(tmp_path)
+    target = commit_change(
+        repo,
+        "webapp/cloudflare/domain.ts",
+        "export const changed = true;\n",
+        "worker runtime",
+    )
+
+    payload = json.loads(run_plan(repo, "--target-commit", target).stdout)
+
+    assert payload["runtime_components"] == ["webapp"]
+    assert payload["ci_components"] == ["webapp"]
+    assert payload["resolved_scope"] == "webapp"
+
+
+def test_web_test_tooling_runs_web_ci_without_runtime_deploy(tmp_path: Path):
+    repo, _ = init_repo(tmp_path)
+    target = commit_change(
+        repo,
+        "webapp/playwright.config.ts",
+        "export default {};\n",
+        "browser test config",
+    )
+
+    payload = json.loads(run_plan(repo, "--target-commit", target).stdout)
+
+    assert payload["runtime_components"] == []
+    assert payload["ci_components"] == ["webapp"]
+    assert payload["resolved_scope"] == "control"
+
+
 def test_control_plane_change_runs_all_ci_but_deploys_no_runtime(tmp_path: Path):
     repo, base = init_repo(tmp_path)
-    write(repo, ".github/workflows/ci.yml", "name: CI\n")
-    git(repo, "add", ".")
-    git(repo, "commit", "-qm", "pipeline")
-    target = git(repo, "rev-parse", "HEAD")
+    target = commit_change(repo, ".github/workflows/ci.yml", "name: CI\n", "pipeline")
 
     result = run_plan(
         repo,
@@ -96,19 +132,40 @@ def test_control_plane_change_runs_all_ci_but_deploys_no_runtime(tmp_path: Path)
 
 def test_sender_change_requires_explicit_sender_approval(tmp_path: Path):
     repo, _ = init_repo(tmp_path)
-    write(repo, "sender_agent/app.py", "changed = True\n")
-    git(repo, "add", ".")
-    git(repo, "commit", "-qm", "sender")
+    target = commit_change(repo, "sender_agent/app.py", "changed = True\n", "sender")
 
     result = run_plan(
         repo,
         "--target-commit",
-        git(repo, "rev-parse", "HEAD"),
+        target,
         success=False,
     )
 
     assert result.returncode == 2
     assert "rerun with sender=true" in result.stderr
+
+
+def test_sender_install_script_is_sender_runtime_and_can_be_approved(tmp_path: Path):
+    repo, _ = init_repo(tmp_path)
+    target = commit_change(
+        repo,
+        "scripts/install_wechat_sender.sh",
+        "#!/usr/bin/env bash\nset -eu\n",
+        "sender install",
+    )
+
+    payload = json.loads(
+        run_plan(
+            repo,
+            "--target-commit",
+            target,
+            "--include-sender",
+        ).stdout
+    )
+
+    assert payload["runtime_components"] == ["sender"]
+    assert payload["resolved_scope"] == "sender"
+    assert payload["deploy_sender"] is True
 
 
 def test_manual_scope_cannot_omit_detected_runtime_component(tmp_path: Path):
