@@ -4,22 +4,54 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify:
-    # This is the required release check; runtime drift must fail before deployment.
+    # This is the required exact-SHA release check.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
+      - name: Detect changed component surfaces
+        id: plan
+        env:
+          BASE_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          TARGET_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_COMMIT" =~ ^0+$ ]]; then
+            BASE_COMMIT="$(git rev-list --max-parents=0 "$TARGET_COMMIT" | tail -1)"
+          fi
+          python scripts/release_plan.py \
+            --base-commit "$BASE_COMMIT" \
+            --target-commit "$TARGET_COMMIT" \
+            --scope auto \
+            --github-output "$GITHUB_OUTPUT" \
+            --format json | tee /tmp/ci-plan.json
+          {
+            echo "## CI component plan"
+            echo
+            echo '```json'
+            cat /tmp/ci-plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.plan.outputs.ci_webapp == 'true'
         with:
           node-version: "24"
           cache: npm
@@ -34,26 +66,38 @@ jobs:
           ruff format --check --diff .
       - name: Type check
         run: mypy
-      - name: Unit tests
+      - name: Unit and workflow contract tests
         run: PYTHONPATH=src pytest -m 'not airflow'
-      - name: Install web application dependencies
+      - name: Install Web application dependencies
+        if: steps.plan.outputs.ci_webapp == 'true'
         working-directory: webapp
         run: npm ci
-      - name: Verify web application
+      - name: Verify Web application
+        if: steps.plan.outputs.ci_webapp == 'true'
         run: make webapp-check
       - name: Install Chromium for interaction regression
+        if: steps.plan.outputs.ci_webapp == 'true'
         working-directory: webapp
         run: npx playwright install --with-deps chromium
-      - name: Verify More menu pointer transfer
+      - name: Verify critical browser interactions
+        if: steps.plan.outputs.ci_webapp == 'true'
         working-directory: webapp
         run: npx playwright test tests/more-menu-scroll.spec.ts
       - name: Validate active components and runtime drift
+        if: steps.plan.outputs.ci_airflow == 'true'
         run: PYTHONPATH=src python scripts/check_active_components.py
-      - name: Validate Compose
+      - name: Validate Airflow and shared Compose
+        if: steps.plan.outputs.ci_airflow == 'true'
         run: make compose-config
+      - name: Validate sender Compose
+        if: steps.plan.outputs.ci_sender == 'true' && steps.plan.outputs.ci_airflow != 'true'
+        run: make sender-config
       - name: Build Airflow image
+        if: steps.plan.outputs.ci_airflow == 'true'
         run: make image
       - name: Build WeChat sender image
+        if: steps.plan.outputs.ci_sender == 'true'
         run: make sender-image
       - name: Airflow 3 DAG imports
+        if: steps.plan.outputs.ci_airflow == 'true'
         run: make test-dags
