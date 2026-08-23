@@ -1,14 +1,22 @@
 from __future__ import annotations
 
-from datetime import datetime
-from unittest.mock import MagicMock, patch
-from zoneinfo import ZoneInfo
+import datetime
+import unittest.mock
+import zoneinfo
 
 import pytest
+
 from wechat_airflow.briefings import daily_briefing, openai_client
 
 
-LOCAL_TIME = datetime(2026, 8, 24, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+LOCAL_TIME = datetime.datetime(
+    2026,
+    8,
+    24,
+    9,
+    0,
+    tzinfo=zoneinfo.ZoneInfo("Asia/Shanghai"),
+)
 
 
 def test_build_prompt_contains_exact_window_and_priorities() -> None:
@@ -83,9 +91,9 @@ def test_split_messages_preserves_all_content() -> None:
 
 def test_disabled_workflow_skips_without_external_calls() -> None:
     with (
-        patch.object(daily_briefing, "_get_variable", return_value="false"),
-        patch.object(daily_briefing, "generate_briefing") as generate,
-        patch.object(daily_briefing, "send_wechat_text") as send,
+        unittest.mock.patch.object(daily_briefing, "_get_variable", return_value="false"),
+        unittest.mock.patch.object(daily_briefing, "generate_briefing") as generate,
+        unittest.mock.patch.object(daily_briefing, "send_wechat_text") as send,
     ):
         result = daily_briefing.run_daily_briefing(now=LOCAL_TIME)
 
@@ -113,13 +121,17 @@ def test_workflow_generates_sends_and_persists_sent_state() -> None:
         return values.get(key, default)
 
     with (
-        patch.object(daily_briefing, "_get_variable", side_effect=get_variable),
-        patch.object(
+        unittest.mock.patch.object(
+            daily_briefing,
+            "_get_variable",
+            side_effect=get_variable,
+        ),
+        unittest.mock.patch.object(
             daily_briefing,
             "_set_variable",
             side_effect=lambda _key, value, serialize_json=False: saved_states.append(value),
         ),
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "generate_briefing",
             return_value=(
@@ -127,12 +139,12 @@ def test_workflow_generates_sends_and_persists_sent_state() -> None:
                 [daily_briefing.BriefingSource("官方来源", "https://example.com/news")],
             ),
         ) as generate,
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "send_wechat_text",
             return_value={"success": True, "sent_count": 1},
         ) as send,
-        patch.object(daily_briefing, "now_local", return_value=LOCAL_TIME),
+        unittest.mock.patch.object(daily_briefing, "now_local", return_value=LOCAL_TIME),
     ):
         result = daily_briefing.run_daily_briefing(now=LOCAL_TIME)
 
@@ -154,13 +166,13 @@ def test_same_day_sent_state_is_idempotent() -> None:
     }
 
     with (
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "_get_variable",
             side_effect=lambda key, default=None, deserialize_json=False: values.get(key, default),
         ),
-        patch.object(daily_briefing, "generate_briefing") as generate,
-        patch.object(daily_briefing, "send_wechat_text") as send,
+        unittest.mock.patch.object(daily_briefing, "generate_briefing") as generate,
+        unittest.mock.patch.object(daily_briefing, "send_wechat_text") as send,
     ):
         result = daily_briefing.run_daily_briefing(now=LOCAL_TIME)
 
@@ -186,23 +198,23 @@ def test_same_day_cached_draft_is_reused_without_new_search() -> None:
     saved_states: list[dict] = []
 
     with (
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "_get_variable",
             side_effect=lambda key, default=None, deserialize_json=False: values.get(key, default),
         ),
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "_set_variable",
             side_effect=lambda _key, value, serialize_json=False: saved_states.append(value),
         ),
-        patch.object(daily_briefing, "generate_briefing") as generate,
-        patch.object(
+        unittest.mock.patch.object(daily_briefing, "generate_briefing") as generate,
+        unittest.mock.patch.object(
             daily_briefing,
             "send_wechat_text",
             return_value={"success": True, "sent_count": 1},
         ) as send,
-        patch.object(daily_briefing, "now_local", return_value=LOCAL_TIME),
+        unittest.mock.patch.object(daily_briefing, "now_local", return_value=LOCAL_TIME),
     ):
         result = daily_briefing.run_daily_briefing(now=LOCAL_TIME)
 
@@ -224,23 +236,27 @@ def test_delivery_failure_keeps_cached_draft_for_retry() -> None:
     saved_states: list[dict] = []
 
     with (
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "_get_variable",
             side_effect=lambda key, default=None, deserialize_json=False: values.get(key, default),
         ),
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "_set_variable",
             side_effect=lambda _key, value, serialize_json=False: saved_states.append(value),
         ),
-        patch.object(
+        unittest.mock.patch.object(
             daily_briefing,
             "generate_briefing",
             return_value=("一句话判断：有更新。", []),
         ),
-        patch.object(daily_briefing, "send_wechat_text", side_effect=RuntimeError("offline")),
-        patch.object(daily_briefing, "now_local", return_value=LOCAL_TIME),
+        unittest.mock.patch.object(
+            daily_briefing,
+            "send_wechat_text",
+            side_effect=RuntimeError("offline"),
+        ),
+        unittest.mock.patch.object(daily_briefing, "now_local", return_value=LOCAL_TIME),
     ):
         with pytest.raises(RuntimeError, match="offline"):
             daily_briefing.run_daily_briefing(now=LOCAL_TIME)
@@ -251,7 +267,7 @@ def test_delivery_failure_keeps_cached_draft_for_retry() -> None:
 
 
 def test_generate_briefing_uses_web_search_and_bearer_auth() -> None:
-    response = MagicMock()
+    response = unittest.mock.MagicMock()
     response.status_code = 200
     response.json.return_value = {
         "output": [
@@ -262,7 +278,7 @@ def test_generate_briefing_uses_web_search_and_bearer_auth() -> None:
         ]
     }
 
-    with patch.object(openai_client.requests, "post", return_value=response) as post:
+    with unittest.mock.patch.object(openai_client.requests, "post", return_value=response) as post:
         body, sources = daily_briefing.generate_briefing(
             api_key="secret",
             api_url="https://api.example.test/responses",
