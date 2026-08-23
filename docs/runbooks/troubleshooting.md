@@ -114,7 +114,7 @@ incident outboxes and history, and then performs the normal deployment:
 make deploy-recovery DEPLOY_ARGS="--target-commit <pushed-full-sha>"
 ```
 
-The protected operation pauses all six WeChat-producing venue DAGs, freezes the
+The protected operation pauses all seven WeChat-producing venue DAGs, freezes the
 scheduler, worker, and triggerer, marks the current active task instances and
 DAG runs as failed, flushes the dedicated Celery Redis broker, and restarts
 Airflow.

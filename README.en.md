@@ -12,7 +12,7 @@
 
 ## ✨ Features
 
-- **Multi-venue polling**: 7 Shenzhen venue DAGs (Shenzhen Bay at 15s intervals, Greater Bay Area, Dashah River free courts, Jindi, Shangyue Shahe, TOPS, Sports Center) + HTTPS proxy watchers + daily device maintenance
+- **Multi-venue polling**: 8 Shenzhen venue DAGs (Shenzhen Bay at 15s intervals, Greater Bay Area, Dashah River free courts, Jindi, Shangyue Shahe, TOPS, Fansibote Fuzhongfu, Sports Center) + HTTPS proxy watchers + daily device maintenance
 - **Email subscriptions**: a Cloudflare Worker web app owns email verification, subscription matching, event deduplication, and retries (delivered via Tencent SES)
 - **WeChat alerts**: an independent sender on the Android device host (systemd + Appium) delivers best-effort messages; failures are isolated per chat and never block the email path
 - **Configuration as contract**: machine-readable component/config/runtime contracts under `config/`; DAGs only wire schedules while business logic lives in `src/`
@@ -32,7 +32,7 @@ flowchart TB
     subgraph sources["External Sources"]
         SZ["Shenzhen Bay / GBA booking API"]
         NSWTT["NSWTT Dashah River free courts"]
-        VENUES["Jindi / Shangyue Shahe / TOPS / Sports Center"]
+        VENUES["Jindi / Shangyue Shahe / TOPS / Fansibote Fuzhongfu / Sports Center"]
         PROXY["Public proxy sources + GitHub proxy repo"]
     end
 
@@ -108,7 +108,7 @@ Public endpoints: Airflow console `https://airflow.claude89757.cc` · subscripti
 ```
 ├── dags/                       # Production DAGs (wiring only, <120 lines each)
 │   └── tennis_dags/
-│       ├── sz_tennis/          # Shenzhen venue watchers (Shenzhen Bay / GBA / Dashah River / Jindi / Shangyue Shahe / TOPS / Sports Center)
+│       ├── sz_tennis/          # Shenzhen venue watchers (Shenzhen Bay / GBA / Dashah River / Jindi / Shangyue Shahe / TOPS / Fansibote Fuzhongfu / Sports Center)
 │       ├── proxy_tools/        # HTTPS proxy watchers (every 5 minutes)
 │       └── zacks_phone_reboot_dag.py  # Daily device maintenance
 ├── src/wechat_airflow/         # Business implementation package

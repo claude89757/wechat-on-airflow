@@ -60,7 +60,7 @@ D1 migration commands are intentionally unsupported.
 
 - `/api/healthz` returns `ok: true`.
 - `/api/healthz` reports the exact release commit.
-- `/api/bootstrap` returns seven venues and no email addresses.
+- `/api/bootstrap` returns eight venues and no email addresses.
 - An unauthenticated observation write returns HTTP 401.
 - Natural venue DAG runs publish fresh inspection timestamps.
 - Browser layout and the create-subscription flow pass mobile visual checks.

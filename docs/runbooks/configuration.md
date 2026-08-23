@@ -56,9 +56,18 @@ The adapter first selects calendar rows whose `status`, `openstatus`, and
 selected date. A calendar date with no free courts is a healthy empty result,
 not an email event. Only zero-price slices with `status=200` are published.
 
+## PosPal Venue Booking
+
+TOPS and 泛思博特福中福 query the same public PosPal appointment endpoint with a
+store ID and project UID that live in the adapter. They do not use a login
+token or visitor header, so no additional Airflow secret is required when the
+venue is added. WeChat alerts use the shared `SZ_TENNIS_CHATROOMS` list.
+Application-managed `TOPS_PROXY_CACHE`, `FSB_PROXY_CACHE`, and the venue
+dedupe caches are created on the first successful run.
+
 ## Web Subscription Publisher
 
-All seven venue DAGs require:
+All eight venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in
