@@ -171,17 +171,23 @@ together.
 
 ## Rollback
 
-Use the prior recorded component identity and an explicit scope:
+The scope planner compares a forward candidate with its preceding semantic
+release. It must not be used to infer which parts of an arbitrary historical
+commit should be restored.
 
-```text
-/release apply <prior-full-sha> scope=webapp sender=false
-/release apply <prior-full-sha> scope=all sender=true
-```
+For a component-only rollback, dispatch the matching protected reusable workflow
+with the prior recorded component commit:
 
-The first form rolls back only Web. The second is a repository-wide application
-rollback and does not replace the Airflow 3 database. Because the planner rejects
-narrow scopes that omit detected components, incident operators must review the
-resolved plan before apply.
+- `production-webapp.yml` with `operation=deploy_apply` for Web;
+- `production-airflow.yml` with `operation=deploy_apply` for Airflow application
+  services;
+- `production-wechat-sender.yml` with `operation=apply` for the sender, after
+  explicit real-host approval.
+
+Each workflow preserves its normal preflight and exact-commit health checks. Use
+the full production release path only for a reviewed repository-wide rollback
+whose detected scope intentionally includes all relevant components. This does
+not replace the Airflow 3 metadata database.
 
 Database restore, Airflow major-version migration, and metadata deletion are
 separate high-risk operations requiring explicit approval.
