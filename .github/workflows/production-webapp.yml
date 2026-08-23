@@ -99,6 +99,11 @@ jobs:
               ;;
             deploy_apply)
               npm run build
+              # Apply mode includes its own reversible checks so routine releases
+              # do not need a separate preflight workflow run.
+              npx wrangler deploy --dry-run \
+                --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
+              npx wrangler d1 migrations list zacks-tennis-alerts --remote
               npx wrangler d1 migrations apply zacks-tennis-alerts --remote
               npx wrangler deploy \
                 --message "GitHub release $TARGET_COMMIT" \
