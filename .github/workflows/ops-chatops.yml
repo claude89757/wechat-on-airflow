@@ -97,6 +97,90 @@ jobs:
             "Web observation diagnosis for \`$TARGET_COMMIT\`: \`$RESULT\`. Run: $RUN_URL"
           test "$RESULT" = success
 
+  parse_wechat_contact_probe:
+    if: >-
+      github.event.issue.number == 39 &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, '/ops wechat-contact-probe ')
+    runs-on: ubuntu-latest
+    outputs:
+      target_commit: ${{ steps.command.outputs.target_commit }}
+      target_selector: ${{ steps.command.outputs.target_selector }}
+    steps:
+      - name: Parse exact contact probe command
+        id: command
+        shell: bash
+        env:
+          OPS_COMMAND: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          pattern='^/ops wechat-contact-probe ([0-9A-Fa-f]{40}) ([A-Za-z0-9_.-]{1,64})$'
+          if [[ ! "$OPS_COMMAND" =~ $pattern ]]; then
+            echo 'Expected: /ops wechat-contact-probe <40-char-sha> <simple-chat-name>' >&2
+            exit 2
+          fi
+          target_commit="${BASH_REMATCH[1],,}"
+          receiver="${BASH_REMATCH[2]}"
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+          echo "target_selector=direct:$receiver" >> "$GITHUB_OUTPUT"
+      - name: Wait for main CI verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1800))
+          while (( SECONDS < deadline )); do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TARGET_COMMIT/check-runs" \
+              --jq '[.check_runs[] | select(.name == "verify")] | sort_by(.started_at) | last | [.status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+            if [[ "$result" == $'completed\tsuccess' ]]; then
+              exit 0
+            fi
+            if [[ "$result" == completed$'\t'* && "$result" != $'completed\tsuccess' ]]; then
+              echo "CI verify failed: $result" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          exit 1
+      - name: Acknowledge approved real send
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TARGET_COMMIT: ${{ steps.command.outputs.target_commit }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "Accepted owner-approved one-contact WeChat delivery probe for \`$TARGET_COMMIT\`. Run: $RUN_URL"
+
+  wechat_contact_probe:
+    needs: parse_wechat_contact_probe
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: wechat_delivery_probe
+      target_commit: ${{ needs.parse_wechat_contact_probe.outputs.target_commit }}
+      request_id: contact-probe-${{ github.run_id }}
+      confirm_real_send: true
+      probe_target_membership: ${{ needs.parse_wechat_contact_probe.outputs.target_selector }}
+    secrets: inherit
+
+  report_wechat_contact_probe:
+    if: always() && needs.parse_wechat_contact_probe.result != 'skipped'
+    needs: [parse_wechat_contact_probe, wechat_contact_probe]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report contact probe result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TARGET_COMMIT: ${{ needs.parse_wechat_contact_probe.outputs.target_commit }}
+          RESULT: ${{ needs.wechat_contact_probe.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
+            "One-contact WeChat delivery probe for \`$TARGET_COMMIT\`: \`$RESULT\`. Run: $RUN_URL"
+          test "$RESULT" = success
+
   finalize-admin:
     if: >-
       github.event.issue.number == 39 &&
