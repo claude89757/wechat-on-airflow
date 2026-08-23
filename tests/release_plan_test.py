@@ -14,7 +14,7 @@ def git(repo: Path, *args: str) -> str:
         ["git", *args],
         cwd=repo,
         check=True,
-        stdout=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     return result.stdout.strip()
@@ -47,8 +47,7 @@ def run_plan(repo: Path, *args: str, success: bool = True) -> subprocess.Complet
         [sys.executable, str(SCRIPT), *args],
         cwd=repo,
         check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     if success and result.returncode != 0:
