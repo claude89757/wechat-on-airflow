@@ -1,0 +1,649 @@
+/*
+ * Mobile UI v2
+ *
+ * A focused presentation layer for the production mobile web experience.
+ * It intentionally leaves the protected mobile runtime and application logic
+ * untouched while improving hierarchy, touch targets, form scanability, and
+ * narrow-screen resilience.
+ */
+
+@media (max-width: 520px) {
+  html:root {
+    --mobile-v2-page: #f3f6f6;
+    --mobile-v2-card: #ffffff;
+    --mobile-v2-line: #dfe7e7;
+    --mobile-v2-soft-teal: #eef9f7;
+    --mobile-v2-ink: #14201f;
+    --mobile-v2-muted: #667572;
+    --mobile-v2-shadow: 0 8px 24px rgba(20, 64, 60, 0.07);
+    --mobile-v2-focus: rgba(6, 155, 152, 0.28);
+  }
+
+  html body {
+    background: var(--mobile-v2-page);
+    color: var(--mobile-v2-ink);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html body .phone-stage,
+  html body .device-screen,
+  html body .app-screen {
+    background: var(--mobile-v2-page);
+  }
+
+  html body .dashboard-screen {
+    padding-right: 12px;
+    padding-left: 12px;
+    padding-bottom: max(30px, calc(env(safe-area-inset-bottom, 0px) + 22px));
+  }
+
+  html body .product-header {
+    min-height: 54px;
+    padding: 2px 4px 12px;
+  }
+
+  html body .brand-lockup {
+    gap: 11px;
+  }
+
+  html body .brand-mark {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
+    box-shadow: inset 0 -2px 0 rgba(75, 105, 0, 0.1);
+  }
+
+  html body .brand-lockup h1 {
+    font-size: 22px;
+    letter-spacing: -0.2px;
+  }
+
+  html body .brand-lockup p {
+    margin-top: 2px;
+    color: var(--mobile-v2-muted);
+    font-size: 12px;
+  }
+
+  html body .icon-button {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--mobile-v2-line);
+    background: rgba(255, 255, 255, 0.88);
+    box-shadow: 0 3px 12px rgba(20, 64, 60, 0.05);
+  }
+
+  html body .service-line {
+    min-height: 48px;
+    margin-bottom: 10px;
+    padding: 7px 8px 7px 11px;
+    border: 1px solid var(--mobile-v2-line);
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 4px 14px rgba(20, 64, 60, 0.035);
+  }
+
+  html body .service-line strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  html body .service-line > span:nth-of-type(2) {
+    max-width: 42%;
+    color: #7b8885;
+  }
+
+  html body .service-line button {
+    width: 40px;
+    height: 40px;
+    margin: -3px -3px -3px 0;
+    border-radius: 11px;
+  }
+
+  html body .service-line button:active {
+    background: #edf3f2;
+  }
+
+  html body .live-dot {
+    width: 8px;
+    height: 8px;
+    flex-basis: 8px;
+  }
+
+  html body .metric-band {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    min-height: 94px;
+    margin-top: 0;
+    overflow: visible;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  html body .metric {
+    min-height: 94px;
+    padding: 12px 4px 10px;
+    border: 1px solid var(--mobile-v2-line);
+    border-radius: 15px;
+    background: var(--mobile-v2-card);
+    box-shadow: 0 5px 18px rgba(20, 64, 60, 0.045);
+  }
+
+  html body .metric + .metric::before {
+    display: none;
+  }
+
+  html body .metric-icon {
+    height: 25px;
+  }
+
+  html body .metric strong {
+    margin-top: 4px;
+    font-size: 24px;
+    letter-spacing: -0.5px;
+  }
+
+  html body .metric span {
+    margin-top: 5px;
+    color: #52605e;
+    font-size: 10px;
+  }
+
+  html body .create-card {
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid #b8dfda;
+    border-radius: 19px;
+    background: var(--mobile-v2-card);
+    box-shadow: var(--mobile-v2-shadow);
+  }
+
+  html body .create-card-main {
+    grid-template-columns: 88px minmax(0, 1fr);
+    min-height: 104px;
+  }
+
+  html body .create-copy h2 {
+    font-size: 22px;
+    letter-spacing: -0.2px;
+  }
+
+  html body .feature-line {
+    gap: 6px;
+    margin-top: 9px;
+  }
+
+  html body .feature-line i {
+    display: none;
+  }
+
+  html body .feature-line span {
+    min-height: 26px;
+    gap: 3px;
+    padding: 4px 7px;
+    border-radius: 999px;
+    background: var(--mobile-v2-soft-teal);
+    color: #275d58;
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  html body .feature-line span svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  html body .create-copy > p {
+    margin-top: 8px;
+    color: var(--mobile-v2-muted);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  html body .identity-row {
+    min-height: 42px;
+    margin-top: 8px;
+    padding: 7px 9px;
+    border: 1px solid #e2eae9;
+    border-radius: 11px;
+    background: #f8fbfa;
+  }
+
+  html body .identity-row > span {
+    line-height: 1.35;
+  }
+
+  html body .identity-row button,
+  html body .sheet-identity button {
+    min-height: 36px;
+    padding: 0 2px 0 10px;
+  }
+
+  html body .create-card .tier-row {
+    margin: 9px 0 12px;
+    padding: 10px 11px;
+    border-radius: 12px;
+  }
+
+  html body .create-card .tier-summary {
+    gap: 8px;
+  }
+
+  html body .create-card .tier-summary strong {
+    font-size: 13px;
+  }
+
+  html body .create-card .tier-summary small {
+    max-width: 190px;
+    font-size: 10px;
+    line-height: 1.35;
+  }
+
+  html body .create-card .tier-row button {
+    min-height: 38px;
+    padding: 0 10px;
+  }
+
+  html body .primary-button,
+  html body .sheet-primary {
+    min-height: 52px;
+    border-radius: 14px;
+    box-shadow: 0 8px 18px rgba(6, 135, 132, 0.2);
+    touch-action: manipulation;
+  }
+
+  html body .primary-button {
+    margin-top: 3px;
+  }
+
+  html body .primary-button:active,
+  html body .sheet-primary:active {
+    transform: translateY(1px);
+  }
+
+  html body .venue-section {
+    margin-top: 14px;
+    padding: 14px 12px 6px;
+    border: 1px solid var(--mobile-v2-line);
+    border-radius: 19px;
+    background: var(--mobile-v2-card);
+    box-shadow: 0 6px 20px rgba(20, 64, 60, 0.045);
+  }
+
+  html body .section-heading {
+    padding: 0 2px 10px;
+  }
+
+  html body .section-heading h2 {
+    font-size: 18px;
+    letter-spacing: -0.1px;
+  }
+
+  html body .section-heading > span {
+    min-height: 28px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #f1f5f4;
+    color: #75827f;
+  }
+
+  html body .venue-list {
+    border-top-color: #e8eeee;
+  }
+
+  html body .venue-row {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon name health"
+      "icon mail mail";
+    min-height: 80px;
+    padding: 10px 0;
+    column-gap: 9px;
+    row-gap: 7px;
+  }
+
+  html body .venue-icon {
+    grid-area: icon;
+    align-self: center;
+    width: 36px;
+    height: 36px;
+  }
+
+  html body .venue-name {
+    grid-area: name;
+    align-self: center;
+  }
+
+  html body .venue-name h3 {
+    font-size: 14px;
+  }
+
+  html body .venue-name p {
+    margin-top: 3px;
+    font-size: 10px;
+  }
+
+  html body .venue-health {
+    grid-area: health;
+    min-height: auto;
+    align-self: center;
+    padding-left: 6px;
+    border-left: 0;
+    text-align: right;
+  }
+
+  html body .venue-health strong {
+    justify-content: flex-end;
+    font-size: 10px;
+  }
+
+  html body .venue-health span {
+    display: block;
+    margin-top: 3px;
+    font-size: 9px;
+  }
+
+  html body .venue-mail {
+    grid-area: mail;
+    display: flex;
+    min-height: 28px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: 9px;
+    background: #f5f8f8;
+  }
+
+  html body .venue-mail strong {
+    font-size: 10px;
+  }
+
+  html body .venue-mail span {
+    margin: 0;
+    font-size: 9px;
+  }
+
+  html body .subscriptions-link {
+    min-height: 56px;
+    margin-top: 10px;
+    padding: 0 14px;
+    border: 1px solid var(--mobile-v2-line);
+    border-radius: 15px;
+    background: var(--mobile-v2-card);
+    box-shadow: 0 5px 16px rgba(20, 64, 60, 0.04);
+  }
+
+  html body .subscriptions-link:active {
+    background: #f4f9f8;
+  }
+
+  html body .bottom-sheet {
+    border-radius: 24px 24px 0 0;
+    box-shadow: 0 -18px 50px rgba(13, 39, 37, 0.18);
+  }
+
+  html body .sheet-content {
+    padding-bottom: max(18px, calc(env(safe-area-inset-bottom, 0px) + 12px));
+    scroll-padding-bottom: max(104px, calc(env(safe-area-inset-bottom, 0px) + 88px));
+  }
+
+  html body .subscription-form,
+  html body .verification-form,
+  html body .help-content,
+  html body .subscription-list {
+    gap: 18px;
+  }
+
+  html body .sheet-identity {
+    min-height: 46px;
+    padding: 9px 11px;
+    border: 1px solid #d6e9dc;
+    border-radius: 12px;
+  }
+
+  html body .subscription-form fieldset {
+    padding: 13px;
+    border: 1px solid var(--mobile-v2-line);
+    border-radius: 15px;
+    background: #fbfcfc;
+  }
+
+  html body .subscription-form legend {
+    width: 100%;
+    margin-bottom: 11px;
+    padding: 0;
+    font-size: 14px;
+  }
+
+  html body .subscription-form legend span {
+    float: right;
+    padding-top: 2px;
+    font-size: 10px;
+  }
+
+  html body .venue-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  html body .venue-choices button {
+    width: 100%;
+    min-height: 46px;
+    justify-content: flex-start;
+    padding: 0 10px;
+    border-radius: 11px;
+    font-size: 12px;
+    line-height: 1.25;
+    text-align: left;
+  }
+
+  html body .day-choices {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  html body .day-choices button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+    padding: 0 4px;
+    border-radius: 11px;
+  }
+
+  html body .venue-choices button.selected,
+  html body .day-choices button.selected {
+    border-color: #4aafa8;
+    background: #e8f7f5;
+    box-shadow: inset 0 0 0 1px rgba(6, 155, 152, 0.12);
+  }
+
+  html body .time-range {
+    gap: 9px;
+  }
+
+  html body .time-range > span {
+    padding-bottom: 16px;
+  }
+
+  html body .time-range select,
+  html body .field input {
+    height: 50px;
+    border-radius: 11px;
+    border-color: #d7e1e0;
+    background: #ffffff;
+    font-size: 16px;
+  }
+
+  html body .field {
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  html body .receipt-history button {
+    min-height: 44px;
+    border-radius: 11px;
+  }
+
+  html body .verification-note {
+    margin-top: -6px;
+    padding: 10px 11px;
+    border-radius: 11px;
+    background: #f4f7f7;
+    font-size: 11px;
+  }
+
+  html body .form-error {
+    margin-top: -6px;
+    padding: 10px 11px;
+    border: 1px solid #f0c9c5;
+    border-radius: 11px;
+    background: #fff5f3;
+  }
+
+  html body .subscription-form .sheet-primary,
+  html body .verification-form .sheet-primary,
+  html body .priority-panel .sheet-primary {
+    position: sticky;
+    z-index: 3;
+    bottom: max(0px, env(safe-area-inset-bottom, 0px));
+    margin-top: 2px;
+    box-shadow:
+      0 -14px 22px rgba(255, 255, 255, 0.95),
+      0 8px 18px rgba(6, 135, 132, 0.2);
+  }
+
+  html body .subscription-list article {
+    padding: 13px;
+    border: 1px solid var(--mobile-v2-line);
+    border-radius: 14px;
+    background: #fbfcfc;
+  }
+
+  html body .subscription-list article > button {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+  }
+
+  html body .empty-state {
+    min-height: 230px;
+    padding: 20px;
+    border: 1px dashed #cfdcda;
+    border-radius: 16px;
+    background: #fafcfc;
+  }
+
+  html body .empty-state button {
+    min-height: 46px;
+    border-radius: 11px;
+  }
+
+  html body .help-row {
+    grid-template-columns: 34px 1fr;
+    gap: 11px;
+    padding: 11px;
+    border: 1px solid var(--mobile-v2-line);
+    border-radius: 14px;
+    background: #fbfcfc;
+  }
+
+  html body .help-row > span {
+    width: 32px;
+    height: 32px;
+  }
+
+  html body .tier-comparison {
+    gap: 8px;
+  }
+
+  html body .tier-comparison article {
+    min-height: 150px;
+    padding: 13px;
+    border-radius: 15px;
+  }
+
+  html body .quota-rules,
+  html body .priority-active {
+    border-radius: 15px;
+  }
+
+  html body .app-toast {
+    right: 12px;
+    bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
+    left: 12px;
+    padding: 13px 14px;
+    border-radius: 13px;
+    font-size: 13px;
+    box-shadow: 0 10px 28px rgba(13, 39, 37, 0.22);
+  }
+
+  html body .device-screen :is(button, input, select):focus-visible {
+    outline: 3px solid var(--mobile-v2-focus);
+    outline-offset: 2px;
+  }
+
+  html body .device-screen button {
+    touch-action: manipulation;
+  }
+}
+
+@media (max-width: 359px) {
+  html body .service-line > span:nth-of-type(2) {
+    display: none;
+  }
+
+  html body .metric-band {
+    gap: 6px;
+  }
+
+  html body .metric strong {
+    font-size: 22px;
+  }
+
+  html body .metric span {
+    font-size: 9px;
+  }
+
+  html body .create-card {
+    padding: 12px;
+  }
+
+  html body .create-card-main {
+    grid-template-columns: 78px minmax(0, 1fr);
+  }
+
+  html body .lulu-stage {
+    margin-left: -6px;
+  }
+
+  html body .feature-line {
+    gap: 4px;
+  }
+
+  html body .feature-line span {
+    padding-right: 5px;
+    padding-left: 5px;
+    font-size: 9px;
+  }
+
+  html body .venue-mail span {
+    display: none;
+  }
+
+  html body .tier-comparison {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) and (prefers-reduced-motion: reduce) {
+  html body .primary-button:active,
+  html body .sheet-primary:active {
+    transform: none;
+  }
+}
