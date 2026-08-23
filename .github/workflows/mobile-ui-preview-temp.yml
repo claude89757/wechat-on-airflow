@@ -1,0 +1,51 @@
+name: Mobile UI Preview (temporary)
+
+on:
+  pull_request:
+    paths:
+      - "webapp/**"
+      - ".github/workflows/mobile-ui-preview-temp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    if: github.event.pull_request.number == 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Install web application dependencies
+        working-directory: webapp
+        run: npm ci
+      - name: Install Chromium
+        working-directory: webapp
+        run: npx playwright install --with-deps chromium
+      - name: Capture mobile states
+        working-directory: webapp
+        run: |
+          mkdir -p qa/mobile-v2-ci
+          trap 'cp /tmp/mobile-v2-vite.log qa/mobile-v2-ci/vite.log || true' EXIT
+          npm run dev -- --host 127.0.0.1 --port 4174 >/tmp/mobile-v2-vite.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:4174/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:4174/ >/dev/null
+          MOBILE_UI_BASE_URL=http://127.0.0.1:4174 node scripts/capture-mobile-v2.mjs
+      - name: Upload mobile preview
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mobile-ui-v2-preview
+          path: webapp/qa/mobile-v2-ci
+          if-no-files-found: error
+          retention-days: 3
