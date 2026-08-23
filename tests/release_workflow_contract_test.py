@@ -22,3 +22,18 @@ def test_runtime_drift_gate_is_explicit_in_ci():
 
     assert "Validate active components and runtime drift" in workflow
     assert "scripts/check_active_components.py" in workflow
+
+
+def test_named_release_tag_is_owner_only_exact_and_immutable():
+    workflow = (ROOT / ".github/workflows/release-tag-chatops.yml").read_text(encoding="utf-8")
+
+    assert "github.event.issue.number == 39" in workflow
+    assert "github.event.comment.user.login == github.repository_owner" in workflow
+    assert "([0-9]+\\.[0-9]+\\.[0-9]+)" in workflow
+    assert "([0-9a-f]{40})" in workflow
+    assert "scripts/github_release_gate.py" in workflow
+    assert "--wait-seconds 0" in workflow
+    assert 'git ls-remote --exit-code --tags origin "refs/tags/$VERSION"' in workflow
+    assert 'git tag -a "$VERSION" "$TARGET_COMMIT"' in workflow
+    assert 'gh release create "$VERSION"' in workflow
+    assert "--verify-tag" in workflow
