@@ -27,6 +27,9 @@ jobs:
           HEAD_BRANCH: ${{ github.head_ref }}
         run: |
           set -euo pipefail
+          if test -f scripts/_fix_release_hardening_patcher.py; then
+            python scripts/_fix_release_hardening_patcher.py
+          fi
           python scripts/_apply_release_hardening_patch.py
           cat > .github/workflows/ci.yml <<'YAML'
           name: CI
