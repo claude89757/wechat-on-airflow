@@ -1,5 +1,25 @@
 # Production Baseline
 
+## Zacks Phone Reboot Every Two Days On 2026-08-23
+
+The `zacks_phone_daily_reboot` schedule changed from daily to every other day
+(cron `0 5 * * *` → `0 5 */2 * *`, Asia/Shanghai). The 05:00 slot and the
+stable DAG ID are preserved so run history and pause state are untouched; only
+the DAG description, the `config/active-components.yaml` schedule contract, and
+README/CHANGELOG labels changed.
+
+CI run `32632573625` (`verify`) passed on the exact merged commit
+`ee7fdda2411bca2bf6966760f7c603362f71e02a` (PR #71). Production deployed the
+same SHA: preflight run `32632839306` and apply run `32632870257` succeeded,
+and post-deploy health runs `32633085283` and `32633143219` passed with an
+exact commit match. The previous runtime was `616e6dd`.
+
+Observation pending: the scheduler must skip the old daily slot (no reboot run
+on 2026-08-24 05:00) and produce the next natural reboot run on
+2026-08-25 05:00 Asia/Shanghai, then continue on odd days of the month.
+Rollback remains the previous exact commit `616e6dd` without replacing the
+Airflow 3 database.
+
 ## WeChat Booking Mini-Program Footers On 2026-08-18
 
 Observation and health evidence below were collected on
