@@ -219,9 +219,17 @@ jobs:
           MODE: ${{ needs.route.outputs.mode }}
           VERSION: ${{ needs.route.outputs.version }}
           TARGET_COMMIT: ${{ needs.route.outputs.target_commit }}
-          SCOPE: ${{ needs.route.outputs.scope }}
+          REQUESTED_SCOPE: ${{ needs.route.outputs.scope }}
           RELEASE_RESULT: ${{ needs.release.result }}
+          RELEASE_RESOLVED_SCOPE: ${{ needs.release.outputs.resolved_scope }}
+          RELEASE_WEBAPP: ${{ needs.release.outputs.deploy_webapp }}
+          RELEASE_AIRFLOW: ${{ needs.release.outputs.deploy_airflow }}
+          RELEASE_SENDER: ${{ needs.release.outputs.deploy_sender }}
           SHIP_RESULT: ${{ needs.ship.result }}
+          SHIP_RESOLVED_SCOPE: ${{ needs.ship.outputs.resolved_scope }}
+          SHIP_WEBAPP: ${{ needs.ship.outputs.deploy_webapp }}
+          SHIP_AIRFLOW: ${{ needs.ship.outputs.deploy_airflow }}
+          SHIP_SENDER: ${{ needs.ship.outputs.deploy_sender }}
           TAG_RESULT: ${{ needs.tag.result }}
           WEB_DIAG_RESULT: ${{ needs.webapp_observation_diagnose.result }}
           WECHAT_PROBE_RESULT: ${{ needs.wechat_contact_probe.result }}
@@ -229,18 +237,72 @@ jobs:
         run: |
           set -euo pipefail
           case "$ACTION" in
-            release) result="$RELEASE_RESULT"; label="release $MODE" ;;
-            ship) result="$SHIP_RESULT"; label="ship $VERSION" ;;
-            tag) result="$TAG_RESULT"; label="tag $VERSION" ;;
-            webapp_observation_diagnose) result="$WEB_DIAG_RESULT"; label="Web observation diagnosis" ;;
-            wechat_contact_probe) result="$WECHAT_PROBE_RESULT"; label="one-contact WeChat probe" ;;
+            release)
+              result="$RELEASE_RESULT"
+              label="release $MODE"
+              resolved="$RELEASE_RESOLVED_SCOPE"
+              webapp="$RELEASE_WEBAPP"
+              airflow="$RELEASE_AIRFLOW"
+              sender="$RELEASE_SENDER"
+              ;;
+            ship)
+              result="$SHIP_RESULT"
+              label="ship $VERSION"
+              resolved="$SHIP_RESOLVED_SCOPE"
+              webapp="$SHIP_WEBAPP"
+              airflow="$SHIP_AIRFLOW"
+              sender="$SHIP_SENDER"
+              ;;
+            tag)
+              result="$TAG_RESULT"
+              label="tag $VERSION"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            webapp_observation_diagnose)
+              result="$WEB_DIAG_RESULT"
+              label="Web observation diagnosis"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            wechat_contact_probe)
+              result="$WECHAT_PROBE_RESULT"
+              label="one-contact WeChat probe"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
             *) echo "Unknown routed action: $ACTION" >&2; exit 2 ;;
           esac
+
           if [ "$result" = success ]; then
             marker="✅"
           else
             marker="❌"
           fi
+
+          if [ "$resolved" = n/a ]; then
+            components="n/a"
+          elif [ -z "$webapp$airflow$sender" ]; then
+            components="unknown"
+          else
+            selected=()
+            [ "$webapp" = true ] && selected+=(webapp)
+            [ "$airflow" = true ] && selected+=(airflow)
+            [ "$sender" = true ] && selected+=(sender)
+            if [ "${#selected[@]}" -eq 0 ]; then
+              components="none"
+            else
+              components="$(IFS=,; echo "${selected[*]}")"
+            fi
+          fi
+          resolved="${resolved:-unknown}"
+
           gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body \
-            "$marker Production control \`$label\`: \`$result\`; target=\`$TARGET_COMMIT\`; scope=\`$SCOPE\`. Run: $RUN_URL"
+            "$marker Production control \`$label\`: \`$result\`; target=\`$TARGET_COMMIT\`; requested_scope=\`$REQUESTED_SCOPE\`; resolved_scope=\`$resolved\`; components=\`$components\`. Run: $RUN_URL"
           test "$result" = success

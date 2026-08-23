@@ -5,6 +5,22 @@ and operational changes.
 
 ## Unreleased
 
+## [0.2.3] - 2026-08-23
+
+### Changed
+
+- Plan and validate release scope before waiting for CI, so a missing sender
+  approval or unsafe manually narrowed scope fails immediately instead of after
+  a potentially long queued check.
+- Expose requested scope, resolved scope, and the actual Web, Airflow, and sender
+  component operations in the one authoritative production-control report.
+
+### Fixed
+
+- Give only the exact current `main` head a short 60-second check-registration
+  grace, avoiding a race immediately after merge while historical SHAs with no
+  CI record continue to fail immediately.
+
 ## [0.2.2] - 2026-08-23
 
 ### Changed

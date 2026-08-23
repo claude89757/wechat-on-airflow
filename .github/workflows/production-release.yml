@@ -22,6 +22,22 @@ on:
         required: false
         default: false
         type: boolean
+    outputs:
+      base_commit:
+        description: Semantic release base used for component planning
+        value: ${{ jobs.gate.outputs.base_commit }}
+      resolved_scope:
+        description: Resolved component scope
+        value: ${{ jobs.gate.outputs.resolved_scope }}
+      deploy_webapp:
+        description: Whether Web deployment was planned
+        value: ${{ jobs.gate.outputs.deploy_webapp }}
+      deploy_airflow:
+        description: Whether Airflow deployment was planned
+        value: ${{ jobs.gate.outputs.deploy_airflow }}
+      deploy_sender:
+        description: Whether sender deployment was planned
+        value: ${{ jobs.gate.outputs.deploy_sender }}
   workflow_dispatch:
     inputs:
       mode:
@@ -90,17 +106,6 @@ jobs:
             preflight|apply) ;;
             *) echo "Unsupported release mode: $MODE" >&2; exit 2 ;;
           esac
-      - name: Require exact main commit and successful CI
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          PYTHONPATH=scripts python scripts/github_release_gate.py \
-            --target-commit "${{ inputs.target_commit }}" \
-            --required-check verify \
-            --wait-seconds 1800 \
-            --missing-check-wait-seconds 0 \
-            --poll-seconds 10 \
-            --format json
       - name: Plan component-scoped release
         id: plan
         env:
@@ -126,6 +131,18 @@ jobs:
             cat /tmp/release-plan.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Require exact main commit and successful CI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          PYTHONPATH=scripts python scripts/github_release_gate.py \
+            --target-commit "${{ inputs.target_commit }}" \
+            --required-check verify \
+            --wait-seconds 1800 \
+            --missing-check-wait-seconds 0 \
+            --main-head-missing-check-wait-seconds 60 \
+            --poll-seconds 10 \
+            --format json
 
   webapp:
     if: needs.gate.outputs.deploy_webapp == 'true'

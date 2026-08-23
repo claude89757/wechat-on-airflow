@@ -18,6 +18,19 @@ on:
         required: false
         default: false
         type: boolean
+    outputs:
+      resolved_scope:
+        description: Resolved component scope
+        value: ${{ jobs.deploy.outputs.resolved_scope }}
+      deploy_webapp:
+        description: Whether Web deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_webapp }}
+      deploy_airflow:
+        description: Whether Airflow deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_airflow }}
+      deploy_sender:
+        description: Whether sender deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_sender }}
   workflow_dispatch:
     inputs:
       version:
@@ -96,7 +109,11 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
-          SCOPE: ${{ inputs.scope }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          RESOLVED_SCOPE: ${{ needs.deploy.outputs.resolved_scope }}
+          WEBAPP_PLANNED: ${{ needs.deploy.outputs.deploy_webapp }}
+          AIRFLOW_PLANNED: ${{ needs.deploy.outputs.deploy_airflow }}
+          SENDER_PLANNED: ${{ needs.deploy.outputs.deploy_sender }}
           CONTRACT_RESULT: ${{ needs.contract.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
           TAG_RESULT: ${{ needs.tag.result }}
@@ -106,7 +123,9 @@ jobs:
             echo
             echo "- Version: \`$VERSION\`"
             echo "- Commit: \`$TARGET_COMMIT\`"
-            echo "- Requested scope: \`$SCOPE\`"
+            echo "- Requested scope: \`$REQUESTED_SCOPE\`"
+            echo "- Resolved scope: \`$RESOLVED_SCOPE\`"
+            echo "- Components: webapp=\`$WEBAPP_PLANNED\`, airflow=\`$AIRFLOW_PLANNED\`, sender=\`$SENDER_PLANNED\`"
             echo "- Release contract: \`$CONTRACT_RESULT\`"
             echo "- Deployment: \`$DEPLOY_RESULT\`"
             echo "- Immutable tag and GitHub Release: \`$TAG_RESULT\`"

@@ -114,6 +114,42 @@ def test_optional_visibility_grace_allows_new_verify_to_appear():
     assert check["ok"] is True
 
 
+def test_current_main_head_gets_discovery_grace_but_historical_commit_does_not():
+    main_head = "a" * 40
+    historical = "b" * 40
+
+    assert (
+        github_release_gate.effective_missing_check_wait_seconds(
+            target_commit=main_head,
+            main_head=main_head,
+            missing_check_wait_seconds=0,
+            main_head_missing_check_wait_seconds=60,
+        )
+        == 60
+    )
+    assert (
+        github_release_gate.effective_missing_check_wait_seconds(
+            target_commit=historical,
+            main_head=main_head,
+            missing_check_wait_seconds=0,
+            main_head_missing_check_wait_seconds=60,
+        )
+        == 0
+    )
+
+
+def test_explicit_historical_grace_is_preserved():
+    assert (
+        github_release_gate.effective_missing_check_wait_seconds(
+            target_commit="b" * 40,
+            main_head="a" * 40,
+            missing_check_wait_seconds=5,
+            main_head_missing_check_wait_seconds=60,
+        )
+        == 5
+    )
+
+
 def test_terminal_failed_verify_fails_without_sleeping():
     sleeps: list[float] = []
     clock = iter([0.0, 0.0])
