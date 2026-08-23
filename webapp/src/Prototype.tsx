@@ -1,3 +1,4 @@
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   ArrowsClockwiseIcon,
   BuildingApartmentIcon,
@@ -6,6 +7,7 @@ import {
   CheckCircleIcon,
   ClockIcon,
   CourtBasketballIcon,
+  DotsThreeIcon,
   EnvelopeSimpleIcon,
   ListBulletsIcon,
   MapPinIcon,
@@ -606,10 +608,61 @@ export default function Prototype() {
               <button
                 className="coffee-button"
                 type="button"
+                aria-label="请作者喝咖啡，支持项目维护"
+                title="请作者喝咖啡"
                 onClick={() => openPanel("coffee")}
               >
-                请作者喝咖啡
+                <span aria-hidden="true">☕</span>
+                <span>支持作者</span>
               </button>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    className="more-button"
+                    type="button"
+                    aria-label="更多功能"
+                  >
+                    <DotsThreeIcon size={22} weight="bold" aria-hidden="true" />
+                    <span>更多</span>
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="more-menu"
+                    align="end"
+                    sideOffset={8}
+                    collisionPadding={12}
+                  >
+                    <DropdownMenu.Label className="more-menu-label">更多功能</DropdownMenu.Label>
+                    <DropdownMenu.Item
+                      className="more-menu-item"
+                      onSelect={() => openPanel("subscriptions")}
+                    >
+                      <ListBulletsIcon size={20} weight="bold" aria-hidden="true" />
+                      <span>我的订阅</span>
+                    </DropdownMenu.Item>
+                    {receipt ? (
+                      <DropdownMenu.Item
+                        className="more-menu-item"
+                        onSelect={() => openPanel("community")}
+                      >
+                        <UsersThreeIcon size={20} weight="bold" aria-hidden="true" />
+                        <span>用户社区</span>
+                      </DropdownMenu.Item>
+                    ) : null}
+                    {receipt && dashboard.identity.isAdmin ? (
+                      <DropdownMenu.Item
+                        className="more-menu-item"
+                        onSelect={() => openPanel("admin")}
+                      >
+                        <ShieldCheckIcon size={20} weight="bold" aria-hidden="true" />
+                        <span>管理后台</span>
+                      </DropdownMenu.Item>
+                    ) : null}
+                    <DropdownMenu.Arrow className="more-menu-arrow" />
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
               <button
                 className="icon-button"
                 type="button"
@@ -778,29 +831,6 @@ export default function Prototype() {
             </div>
           </section>
 
-          <button
-            className="subscriptions-link"
-            type="button"
-            onClick={() => openPanel("subscriptions")}
-          >
-            <ListBulletsIcon size={24} weight="bold" />
-            <span>我的订阅</span>
-            <span aria-hidden="true">›</span>
-          </button>
-
-          {receipt ? (
-            <button className="subscriptions-link" type="button" onClick={() => openPanel("community")}>
-              <UsersThreeIcon size={24} weight="bold" />
-              <span>用户社区</span><span aria-hidden="true">›</span>
-            </button>
-          ) : null}
-
-          {receipt && dashboard.identity.isAdmin ? (
-            <button className="subscriptions-link admin-entry" type="button" onClick={() => openPanel("admin")}>
-              <ShieldCheckIcon size={24} weight="bold" />
-              <span>管理后台</span><span aria-hidden="true">›</span>
-            </button>
-          ) : null}
         </main>
       </MobileScroll>
 

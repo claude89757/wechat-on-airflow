@@ -72,6 +72,7 @@ jobs:
             --target-commit "${{ inputs.target_commit }}" \
             --required-check verify \
             --wait-seconds 1800 \
+            --missing-check-wait-seconds 0 \
             --poll-seconds 10 \
             --format json
 

@@ -1,0 +1,158 @@
+.coffee-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.more-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid #e2e7eb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #303746;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.more-button:hover,
+.more-button[data-state="open"] {
+  border-color: #cbd4dc;
+  background: #f4f7f8;
+}
+
+.more-button:focus-visible,
+.more-menu-item:focus-visible {
+  outline: 3px solid rgba(6, 155, 152, 0.24);
+  outline-offset: 2px;
+}
+
+.more-menu {
+  z-index: 300;
+  min-width: 196px;
+  padding: 6px;
+  border: 1px solid rgba(20, 25, 35, 0.1);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(20, 25, 35, 0.18), 0 4px 14px rgba(20, 25, 35, 0.08);
+  backdrop-filter: blur(16px);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+  animation: more-menu-in 140ms ease-out;
+}
+
+.more-menu-label {
+  padding: 7px 10px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.more-menu-item {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  user-select: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.more-menu-item svg {
+  flex: 0 0 auto;
+  color: var(--teal-dark);
+}
+
+.more-menu-item[data-highlighted] {
+  background: var(--surface-teal);
+  color: var(--teal-dark);
+}
+
+.more-menu-arrow {
+  fill: #ffffff;
+  filter: drop-shadow(0 -1px 0 rgba(20, 25, 35, 0.08));
+}
+
+@keyframes more-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 520px) {
+  .header-actions {
+    gap: 5px;
+  }
+
+  .coffee-button,
+  .more-button {
+    min-height: 44px;
+  }
+
+  .coffee-button {
+    padding-inline: 10px;
+  }
+
+  .more-button {
+    width: 44px;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .more-button > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+@media (max-width: 350px) {
+  .coffee-button {
+    width: 44px;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .coffee-button > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .more-menu {
+    animation: none;
+  }
+}

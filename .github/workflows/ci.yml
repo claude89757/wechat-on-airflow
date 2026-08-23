@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   verify:
+    # This is the required release check; runtime drift must fail before deployment.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -30,7 +31,7 @@ jobs:
       - name: Lint
         run: |
           ruff check .
-          ruff format --check .
+          ruff format --check --diff .
       - name: Type check
         run: mypy
       - name: Unit tests
@@ -40,7 +41,7 @@ jobs:
         run: npm ci
       - name: Verify web application
         run: make webapp-check
-      - name: Validate active component manifest
+      - name: Validate active components and runtime drift
         run: PYTHONPATH=src python scripts/check_active_components.py
       - name: Validate Compose
         run: make compose-config
