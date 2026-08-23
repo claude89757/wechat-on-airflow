@@ -22,6 +22,10 @@ DAILY_BRIEFING_STATE_VAR = "DAILY_BRIEFING_STATE"
 
 DEFAULT_TOPICS = [
     (
+        "核心人物动态：黄仁勋/NVIDIA、Sam Altman/OpenAI、埃隆·马斯克/"
+        "xAI、Tesla、SpaceX、X；只收录会影响 AI、商业、产品或投资判断的实质变化"
+    ),
+    (
         "AI 与开发者工具：OpenAI/ChatGPT/Codex、Anthropic/Claude、Cursor、MCP、"
         "智能体开发、AI 原生产品、账号访问、iOS 登录、退款及数据导出变化"
     ),
