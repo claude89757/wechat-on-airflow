@@ -1,7 +1,7 @@
 from zoneinfo import ZoneInfo
 
 TIMEZONE = ZoneInfo("Asia/Shanghai")
-DEFAULT_MODEL = "gpt-5.6"
+DEFAULT_MODEL = "gpt-5.6-terra"
 DEFAULT_RESPONSES_API_URL = "https://api.openai.com/v1/responses"
 DEFAULT_LOOKBACK_HOURS = 48
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
