@@ -11,13 +11,16 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import deploy_airflow_transaction  # noqa: E402
 
 
-def completed(returncode: int, payload: dict | None = None, stderr: str = ""):
-    stdout = f"{json.dumps(payload)}
-" if payload is not None else ""
+def completed(
+    returncode: int,
+    payload: dict[str, object] | None = None,
+    stderr: str = "",
+) -> subprocess.CompletedProcess[str]:
+    stdout = f"{json.dumps(payload)}\n" if payload is not None else ""
     return subprocess.CompletedProcess([], returncode, stdout, stderr)
 
 
-def deployment_payload(previous_commit: str) -> dict:
+def deployment_payload(previous_commit: str) -> dict[str, object]:
     return {
         "ok": True,
         "remote": {
