@@ -283,13 +283,11 @@ def main() -> None:
     args = parser.parse_args()
     if not args.confirm_real_send:
         raise OpsError("real WeChat delivery requires --confirm-real-send")
-    if (
-        args.target_membership not in ("", "all")
-        and not TARGET_MEMBERSHIP_PATTERN.fullmatch(args.target_membership)
+    if args.target_membership not in ("", "all") and not TARGET_MEMBERSHIP_PATTERN.fullmatch(
+        args.target_membership
     ):
         raise OpsError(
-            "target membership must match general:N, tyzx:N, dsh_free:N, "
-            "or direct:<chat-name>"
+            "target membership must match general:N, tyzx:N, dsh_free:N, or direct:<chat-name>"
         )
 
     remote = airflow_remote()
