@@ -24,20 +24,28 @@ def test_single_router_supports_mutually_exclusive_release_commands():
     assert "release-tag-chatops.yml" in workflow
     assert "Publish one authoritative result" in workflow
     assert "Wait for main CI verify" not in workflow
+    assert "RELEASE_RESOLVED_SCOPE" in workflow
+    assert "SHIP_RESOLVED_SCOPE" in workflow
+    assert "components=\\`$components\\`" in workflow
 
 
-def test_release_gate_fails_fast_when_ci_record_is_missing_and_plans_scope():
+def test_release_gate_plans_before_waiting_and_handles_ci_registration_race():
     workflow = (WORKFLOWS / "production-release.yml").read_text(encoding="utf-8")
 
     assert "--missing-check-wait-seconds 0" in workflow
+    assert "--main-head-missing-check-wait-seconds 60" in workflow
     assert "scripts/release_plan.py" in workflow
     assert "deploy_webapp" in workflow
     assert "deploy_airflow" in workflow
     assert "deploy_sender" in workflow
     assert "planned=\\`$WEBAPP_PLANNED\\`" in workflow
+    assert workflow.index("Plan component-scoped release") < workflow.index(
+        "Require exact main commit and successful CI"
+    )
+    assert "value: ${{ jobs.gate.outputs.resolved_scope }}" in workflow
 
 
-def test_one_command_ship_applies_then_tags_exact_commit():
+def test_one_command_ship_applies_then_tags_exact_commit_and_exports_plan():
     workflow = (WORKFLOWS / "production-ship.yml").read_text(encoding="utf-8")
 
     assert "scripts/release_contract.py" in workflow
@@ -45,6 +53,8 @@ def test_one_command_ship_applies_then_tags_exact_commit():
     assert "mode: apply" in workflow
     assert "release-tag-chatops.yml" in workflow
     assert workflow.index("production-release.yml") < workflow.index("release-tag-chatops.yml")
+    assert "value: ${{ jobs.deploy.outputs.resolved_scope }}" in workflow
+    assert "Components: webapp=" in workflow
 
 
 def test_airflow_apply_uses_transactional_health_and_restore_wrapper():
