@@ -5,7 +5,6 @@ import unittest.mock
 import zoneinfo
 
 import pytest
-
 from wechat_airflow.briefings import daily_briefing, openai_client
 
 
@@ -278,7 +277,11 @@ def test_generate_briefing_uses_web_search_and_bearer_auth() -> None:
         ]
     }
 
-    with unittest.mock.patch.object(openai_client.requests, "post", return_value=response) as post:
+    with unittest.mock.patch.object(
+        openai_client.requests,
+        "post",
+        return_value=response,
+    ) as post:
         body, sources = daily_briefing.generate_briefing(
             api_key="secret",
             api_url="https://api.example.test/responses",
