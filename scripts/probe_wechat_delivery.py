@@ -8,7 +8,9 @@ from typing import Any
 
 from _ops import OpsError, airflow_remote, emit, run, ssh_command
 
-TARGET_MEMBERSHIP_PATTERN = re.compile(r"(?:general|tyzx|dsh_free):[1-9][0-9]*")
+TARGET_MEMBERSHIP_PATTERN = re.compile(
+    r"(?:(?:general|tyzx|dsh_free):[1-9][0-9]*|direct:(?=\S)[^:\x00-\x1f\x7f]{1,64}(?<!\s))"
+)
 
 
 def parse_remote_result(output: str) -> dict[str, Any]:
@@ -74,40 +76,56 @@ def chatrooms(name):
     return [item.strip() for item in str(variable(name, "")).splitlines() if item.strip()]
 
 
-configured = {
-    "general": chatrooms("SZ_TENNIS_CHATROOMS"),
-    "tyzx": chatrooms("SZ_TYZX_TENNIS_CHATROOMS"),
-    "dsh_free": ["Zacks_大沙河限定免费"],
-}
-targets = []
-by_receiver = {}
-for target_set, receivers in configured.items():
-    for target_index, receiver in enumerate(receivers, start=1):
-        existing = by_receiver.get(receiver)
-        membership = {"target_set": target_set, "target_index": target_index}
-        if existing is not None:
-            existing["memberships"].append(membership)
-            continue
-        target = {
-            "receiver": receiver,
-            "memberships": [membership],
-            "ordinal": len(targets) + 1,
-        }
-        targets.append(target)
-        by_receiver[receiver] = target
-
 selector = os.environ.get("PROBE_TARGET_MEMBERSHIP", "").strip()
 if selector == "all":
     selector = ""
-if selector:
-    selected_set, selected_index = selector.split(":", 1)
-    selected_membership = {
-        "target_set": selected_set,
-        "target_index": int(selected_index),
-    }
+
+configured = {}
+targets = []
+direct_receiver = ""
+if selector.startswith("direct:"):
+    direct_receiver = selector.split(":", 1)[1].strip()
+    if not direct_receiver:
+        print(json.dumps({"ok": False, "error": "invalid_direct_receiver"}, sort_keys=True))
+        raise SystemExit(0)
     targets = [
-        target for target in targets if selected_membership in target["memberships"]
+        {
+            "receiver": direct_receiver,
+            "memberships": [{"target_set": "direct", "target_index": 1}],
+            "ordinal": 1,
+        }
     ]
+else:
+    configured = {
+        "general": chatrooms("SZ_TENNIS_CHATROOMS"),
+        "tyzx": chatrooms("SZ_TYZX_TENNIS_CHATROOMS"),
+        "dsh_free": ["Zacks_大沙河限定免费"],
+    }
+    by_receiver = {}
+    for target_set, receivers in configured.items():
+        for target_index, receiver in enumerate(receivers, start=1):
+            existing = by_receiver.get(receiver)
+            membership = {"target_set": target_set, "target_index": target_index}
+            if existing is not None:
+                existing["memberships"].append(membership)
+                continue
+            target = {
+                "receiver": receiver,
+                "memberships": [membership],
+                "ordinal": len(targets) + 1,
+            }
+            targets.append(target)
+            by_receiver[receiver] = target
+
+    if selector:
+        selected_set, selected_index = selector.split(":", 1)
+        selected_membership = {
+            "target_set": selected_set,
+            "target_index": int(selected_index),
+        }
+        targets = [
+            target for target in targets if selected_membership in target["memberships"]
+        ]
 
 if not targets:
     print(json.dumps({"ok": False, "error": "no_configured_targets"}, sort_keys=True))
@@ -132,7 +150,7 @@ if not api_url or not device_name:
 
 sent_at = datetime.now(UTC).replace(microsecond=0)
 message = (
-    "【系统验收】微信并发发送链路测试，发送时间："
+    "【系统验收】微信发送链路测试，发送时间："
     f"{sent_at.isoformat()}。无需回复。"
 )
 barrier = Barrier(len(lanes))
@@ -224,8 +242,16 @@ print(
         {
             "ok": success_count == len(targets),
             "real_send": True,
-            "message_kind": "concurrent_delivery_acceptance",
-            "target_selector": selector or None,
+            "message_kind": (
+                "direct_delivery_acceptance"
+                if direct_receiver
+                else "concurrent_delivery_acceptance"
+            ),
+            **(
+                {"target_selector": "direct"}
+                if direct_receiver
+                else {"target_selector": selector or None}
+            ),
             "sent_at": sent_at.isoformat(),
             "configured_target_counts": {
                 name: len(values) for name, values in configured.items()
@@ -246,7 +272,10 @@ PY
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Send one approved concurrent acceptance message to configured WeChat chats."
+        description=(
+            "Send one approved acceptance message to configured WeChat chats "
+            "or one explicitly selected contact."
+        )
     )
     parser.add_argument("--confirm-real-send", action="store_true")
     parser.add_argument("--target-membership", default="")
@@ -257,7 +286,9 @@ def main() -> None:
     if args.target_membership not in ("", "all") and not TARGET_MEMBERSHIP_PATTERN.fullmatch(
         args.target_membership
     ):
-        raise OpsError("target membership must match general:N, tyzx:N, or dsh_free:N")
+        raise OpsError(
+            "target membership must match general:N, tyzx:N, dsh_free:N, or direct:<chat-name>"
+        )
 
     remote = airflow_remote()
     result = run(
