@@ -1,0 +1,116 @@
+name: Production Ship
+run-name: production/ship/${{ inputs.version }}/${{ inputs.target_commit }}
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      target_commit:
+        required: true
+        type: string
+      scope:
+        required: false
+        default: auto
+        type: string
+      include_sender:
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without a v prefix
+        required: true
+        type: string
+      target_commit:
+        description: Exact commit SHA on main
+        required: true
+        type: string
+      scope:
+        description: Component scope
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - all
+          - webapp
+          - airflow
+          - sender
+          - control
+      include_sender:
+        description: Explicit approval for an in-scope sender deployment
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  checks: read
+  contents: write
+
+concurrency:
+  group: production-ship-v1
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Validate version before production mutation
+        run: python scripts/release_contract.py --version "${{ inputs.version }}"
+
+  deploy:
+    needs: contract
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: apply
+      target_commit: ${{ inputs.target_commit }}
+      scope: ${{ inputs.scope }}
+      include_sender: ${{ inputs.include_sender }}
+    secrets: inherit
+
+  tag:
+    needs: deploy
+    uses: ./.github/workflows/release-tag-chatops.yml
+    with:
+      version: ${{ inputs.version }}
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  record:
+    if: always()
+    needs: [contract, deploy, tag]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record ship result
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          SCOPE: ${{ inputs.scope }}
+          CONTRACT_RESULT: ${{ needs.contract.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          TAG_RESULT: ${{ needs.tag.result }}
+        run: |
+          {
+            echo "## Production ship"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Commit: \`$TARGET_COMMIT\`"
+            echo "- Requested scope: \`$SCOPE\`"
+            echo "- Release contract: \`$CONTRACT_RESULT\`"
+            echo "- Deployment: \`$DEPLOY_RESULT\`"
+            echo "- Immutable tag and GitHub Release: \`$TAG_RESULT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$CONTRACT_RESULT" = success
+          test "$DEPLOY_RESULT" = success
+          test "$TAG_RESULT" = success
