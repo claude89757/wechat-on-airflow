@@ -6,9 +6,9 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
 
 SEMVER_TAG = re.compile(r"^(?:v)?\d+\.\d+\.\d+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -105,8 +105,7 @@ def run_git(*args: str, check: bool = True) -> str:
     result = subprocess.run(
         ["git", *args],
         check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
     )
     if check and result.returncode != 0:
