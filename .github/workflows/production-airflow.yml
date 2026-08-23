@@ -120,15 +120,12 @@ jobs:
               PYTHONPATH=src python scripts/deploy_airflow.py --target-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_apply)
-              PYTHONPATH=src python scripts/deploy_airflow.py --apply --target-commit "$TARGET_COMMIT" --format json
-              PYTHONPATH=src python scripts/production_health.py \
-                --expected-commit "$TARGET_COMMIT" --format json
+              PYTHONPATH=src python scripts/deploy_airflow_transaction.py \
+                --target-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_recovery)
-              PYTHONPATH=src python scripts/deploy_airflow.py --apply --recover-active-tasks \
-                --target-commit "$TARGET_COMMIT" --format json
-              PYTHONPATH=src python scripts/production_health.py \
-                --expected-commit "$TARGET_COMMIT" --format json
+              PYTHONPATH=src python scripts/deploy_airflow_transaction.py \
+                --recover-active-tasks --target-commit "$TARGET_COMMIT" --format json
               ;;
             db_cleanup_check)
               PYTHONPATH=src python scripts/airflow_db_cleanup.py --format json
