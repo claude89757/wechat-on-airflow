@@ -50,3 +50,20 @@ jobs:
         run: make sender-image
       - name: Airflow 3 DAG imports
         run: make test-dags
+
+  one_time_wechat_tt_acceptance:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'opened' &&
+      github.actor == github.repository_owner &&
+      github.head_ref == 'agent/one-time-wechat-tt-acceptance-20260823' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    needs: verify
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: wechat_delivery_probe
+      target_commit: 78557fdeb87987bade4fc50364ab11d6fa9dd011
+      request_id: one-time-tt-${{ github.run_id }}
+      confirm_real_send: true
+      probe_target_membership: direct:Tt
+    secrets: inherit
