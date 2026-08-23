@@ -47,6 +47,17 @@ describe("subscription domain", () => {
     ).toEqual(["gba"]);
   });
 
+  it("accepts Fansibote Fuzhongfu subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["fsb"],
+        startTime: "18:00",
+        endTime: "22:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["fsb"]);
+  });
+
   it("accepts Dashah River free-court subscriptions", () => {
     expect(
       validateSubscriptionInput({

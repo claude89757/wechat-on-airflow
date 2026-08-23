@@ -4,6 +4,7 @@ export const VENUES = {
   dsh_free: "大沙河免费场",
   sysh: "上越沙河",
   tops: "TOPS 科技园",
+  fsb: "泛思博特福中福",
   tyzx: "深圳市体育中心",
   jdwx: "金地威新",
 } as const;

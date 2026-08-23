@@ -45,6 +45,12 @@ variables:
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve
+  FSB_PROXY_CACHE:
+    type: json_list
+    required_by: [泛思博特福中福网球场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
   TYZX_SUCCESSFUL_PROXIES_CACHE:
     type: json_list
     required_by: [深圳市体育中心网球场巡检]
@@ -59,6 +65,7 @@ variables:
       - 深圳金地网球场巡检
       - 上越沙河网球场巡检
       - TOPS科技园网球场巡检
+      - 泛思博特福中福网球场巡检
     sensitive: true
   SZ_TYZX_TENNIS_CHATROOMS:
     type: newline_separated_string
@@ -124,6 +131,13 @@ variables:
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve
+  泛思博特福中福网球场:
+    type: json_list
+    required_by: [泛思博特福中福网球场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
   上越沙河网球场:
     type: json_list
     required_by: [上越沙河网球场巡检]

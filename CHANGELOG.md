@@ -7,6 +7,9 @@ and operational changes.
 
 ### Added
 
+- Monitor 泛思博特福中福 tennis availability on the same PosPal booking API as
+  TOPS, publish observations to the Web app, and send best-effort WeChat alerts
+  to the shared Zacks chatrooms.
 - Add protected GitHub workflows for Cloudflare Worker/D1 deployment, exact-SHA
   Web health checks, and one release gate spanning Web, Airflow, and the sender.
 - Notify `Zacks_大沙河限定免费` for Dashah River free-court availability after

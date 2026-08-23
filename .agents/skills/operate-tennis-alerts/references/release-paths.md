@@ -43,7 +43,7 @@ for a production migration or deploy.
 Verify:
 
 - `/api/healthz` reports healthy;
-- unauthenticated `/api/bootstrap` exposes seven venues and no email address;
+- unauthenticated `/api/bootstrap` exposes eight venues and no email address;
 - unauthenticated observation writes return HTTP 401;
 - natural venue runs refresh inspection timestamps;
 - mobile subscription creation and keyboard behavior pass browser checks.
