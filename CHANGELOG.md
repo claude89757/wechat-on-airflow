@@ -25,6 +25,8 @@ and operational changes.
 
 ### Changed
 
+- Reboot the Zacks WeChat sender phone every two days instead of daily, keeping
+  the 05:00 Asia/Shanghai slot.
 - Move My Subscriptions, User Community, and Admin into an accessible header
   More menu, and shorten the coffee entry to “☕ 支持作者” while retaining a
   full accessible label and compact narrow-screen behavior.
