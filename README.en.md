@@ -110,7 +110,7 @@ Public endpoints: Airflow console `https://airflow.claude89757.cc` · subscripti
 │   └── tennis_dags/
 │       ├── sz_tennis/          # Shenzhen venue watchers (Shenzhen Bay / GBA / Dashah River / Jindi / Shangyue Shahe / TOPS / Fansibote Fuzhongfu / Sports Center)
 │       ├── proxy_tools/        # HTTPS proxy watchers (every 5 minutes)
-│       └── zacks_phone_reboot_dag.py  # Daily device maintenance
+│       └── zacks_phone_reboot_dag.py  # Device maintenance every two days
 ├── src/wechat_airflow/         # Business implementation package
 │   ├── venues/                 # Venue API adapters, parsing, filtering
 │   ├── notifications/          # Web observation publishing + WeChat delivery

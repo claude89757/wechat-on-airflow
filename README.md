@@ -110,7 +110,7 @@ flowchart TB
 │   └── tennis_dags/
 │       ├── sz_tennis/          # 深圳场馆巡检：深圳湾 / 大湾区 / 大沙河 / 金地 / 上越沙河 / TOPS / 泛思博特福中福 / 体育中心
 │       ├── proxy_tools/        # HTTPS 代理巡检（每 5 分钟）
-│       └── zacks_phone_reboot_dag.py  # 每日设备维护
+│       └── zacks_phone_reboot_dag.py  # 每两天设备维护
 ├── src/wechat_airflow/         # 业务实现包
 │   ├── venues/                 # 场馆 API 适配、解析与过滤
 │   ├── notifications/          # Web 观测发布 + 微信投递
