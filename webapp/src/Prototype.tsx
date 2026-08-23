@@ -32,15 +32,18 @@ import {
   redeemPriorityInvite,
   saveReceipt,
   type Dashboard,
+  type SubscriptionTerm,
   type VenueId,
   type VerificationReceipt,
   verifyEmail,
 } from "./api";
+import { resolveDashboardAvailability, resolveVenueDisplayState } from "./dashboard-state";
 import { LULU_LABELS, resolveLuluState } from "./lulu";
+import { AdminPanel, CommunityPanel } from "./OperationsPanel";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
 import { isTextEntry, useNativeKeyboardViewport } from "./nativeKeyboard";
 
-type Panel = "create" | "help" | "subscriptions" | "priority" | null;
+type Panel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | null;
 
 const VENUE_ACCENTS: Record<VenueId, string> = {
   szw: "teal",
@@ -83,6 +86,12 @@ const TIME_OPTIONS = [
   "23:00",
 ];
 
+const TERM_LABELS: Record<SubscriptionTerm, string> = {
+  "7d": "7天", "8d": "8天", "9d": "9天", "10d": "10天",
+  "11d": "11天", "12d": "12天", "13d": "13天", "14d": "14天 · 两周",
+  "30d": "30天", "90d": "3个月", "180d": "半年", long_term: "长期",
+};
+
 function formatClock(value: string | null): string {
   if (!value) return "暂无发送";
   const date = new Date(value);
@@ -96,7 +105,7 @@ function formatClock(value: string | null): string {
 }
 
 function formatRelative(value: string | null): string {
-  if (!value) return "等待首次巡检";
+  if (!value) return "暂无巡检记录";
   const then = new Date(value).getTime();
   const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
   if (seconds < 60) return `${Math.max(seconds, 1)} 秒前`;
@@ -151,19 +160,14 @@ export default function Prototype() {
   const [dashboard, setDashboard] = useState<Dashboard>(() => ({
     ...initialDashboard,
     identity: receipt
-      ? {
-          verified: true,
-          maskedEmail: receipt.maskedEmail,
-          remindersToday: initialDashboard.identity.remindersToday,
-          tier: initialDashboard.identity.tier,
-          dailyLimit: initialDashboard.identity.dailyLimit,
-          remainingToday: initialDashboard.identity.remainingToday,
-        }
+      ? { ...initialDashboard.identity, verified: true, maskedEmail: receipt.maskedEmail }
       : initialDashboard.identity,
   }));
   const [panel, setPanel] = useState<Panel>(null);
   const [loading, setLoading] = useState(true);
-  const [serviceOnline, setServiceOnline] = useState(true);
+  const [serviceOnline, setServiceOnline] = useState(import.meta.env.DEV);
+  const [hasSuccessfulDashboard, setHasSuccessfulDashboard] = useState(import.meta.env.DEV);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
@@ -176,7 +180,7 @@ export default function Prototype() {
   const [venueIds, setVenueIds] = useState<VenueId[]>(["szw", "tops"]);
   const [startTime, setStartTime] = useState("18:00");
   const [endTime, setEndTime] = useState("22:00");
-  const [durationDays, setDurationDays] = useState(7);
+  const [subscriptionTerm, setSubscriptionTerm] = useState<SubscriptionTerm>("7d");
   const [inviteCode, setInviteCode] = useState("");
 
   const refresh = useCallback(async () => {
@@ -185,27 +189,15 @@ export default function Prototype() {
       const next = await getDashboard(receipt);
       setDashboard(next);
       setServiceOnline(true);
+      setHasSuccessfulDashboard(true);
+      setRefreshFailed(false);
       if (receipt && !next.identity.verified) {
         setReceipts(removeReceipt(receipt.token));
         setReceipt(null);
       }
     } catch {
-      const unavailable = import.meta.env.DEV ? FALLBACK_DASHBOARD : EMPTY_DASHBOARD;
-      setDashboard({
-        ...unavailable,
-        generatedAt: new Date().toISOString(),
-        identity: receipt
-          ? {
-              verified: true,
-              maskedEmail: receipt.maskedEmail,
-              remindersToday: unavailable.identity.remindersToday,
-              tier: unavailable.identity.tier,
-              dailyLimit: unavailable.identity.dailyLimit,
-              remainingToday: unavailable.identity.remainingToday,
-            }
-          : unavailable.identity,
-      });
       setServiceOnline(import.meta.env.DEV);
+      setRefreshFailed(true);
     } finally {
       setLoading(false);
     }
@@ -216,6 +208,11 @@ export default function Prototype() {
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    const allowed = dashboard.subscriptionTerms[dashboard.identity.tier];
+    if (!allowed.includes(subscriptionTerm)) setSubscriptionTerm("7d");
+  }, [dashboard.identity.tier, dashboard.subscriptionTerms, subscriptionTerm]);
 
   useEffect(() => {
     if (!toast) return;
@@ -263,8 +260,17 @@ export default function Prototype() {
   const activeIdentity = dashboard.identity.verified
     ? dashboard.identity.maskedEmail
     : receipt?.maskedEmail;
+  const availability = resolveDashboardAvailability({ hasSuccessfulDashboard, loading, refreshFailed });
+  const statusLabel = availability === "loading" ? "正在读取服务状态"
+    : availability === "unknown" ? "暂时无法读取状态"
+    : availability === "stale" ? "刷新失败，显示上次数据" : "服务运行正常";
+  const statusDetail = hasSuccessfulDashboard
+    ? `更新于 ${formatUpdatedAt(dashboard.generatedAt)}`
+    : loading ? "正在获取最新数据" : "请稍后点击刷新";
+  const quotaPercent = dashboard.identity.dailyLimit > 0
+    ? Math.min(100, Math.round(dashboard.identity.remindersToday / dashboard.identity.dailyLimit * 100)) : 0;
   const luluState = resolveLuluState({
-    serviceOnline,
+    serviceOnline: serviceOnline && hasSuccessfulDashboard,
     healthyVenues: dashboard.metrics.healthyVenues,
     totalVenues: dashboard.metrics.totalVenues,
     identityVerified: dashboard.identity.verified,
@@ -294,6 +300,7 @@ export default function Prototype() {
     setChallengeId("");
     setCode("");
     setInviteCode("");
+    setSubscriptionTerm("7d");
     setFormError("");
     setPanel("create");
   };
@@ -379,7 +386,7 @@ export default function Prototype() {
         venueIds,
         startTime,
         endTime,
-        durationDays,
+        termCode: subscriptionTerm,
       });
       setPanel(null);
       setToast("订阅已创建，噜噜会持续帮你盯场");
@@ -410,6 +417,8 @@ export default function Prototype() {
     if (panel === "help") return "提醒如何工作";
     if (panel === "subscriptions") return "我的订阅";
     if (panel === "priority") return "提醒档位";
+    if (panel === "community") return "用户社区";
+    if (panel === "admin") return "管理后台";
     return receipt ? "创建订阅" : "验证邮箱";
   }, [panel, receipt]);
 
@@ -438,10 +447,10 @@ export default function Prototype() {
             </button>
           </header>
 
-          <div className="service-line" aria-live="polite">
-            <span className={`live-dot ${serviceOnline ? "" : "offline"}`} aria-hidden="true" />
-            <strong>{serviceOnline ? "服务运行正常" : "服务暂时不可用"}</strong>
-            <span>更新于 {formatUpdatedAt(dashboard.generatedAt)}</span>
+          <div className={`service-line service-${availability}`} aria-live="polite">
+            <span className={`live-dot ${availability === "ready" ? "" : availability}`} aria-hidden="true" />
+            <strong>{statusLabel}</strong>
+            <span>{statusDetail}</span>
             <button
               type="button"
               aria-label="刷新状态"
@@ -456,19 +465,21 @@ export default function Prototype() {
           <section className="metric-band" aria-label="运行概况">
             <Metric
               icon={<UsersThreeIcon size={25} weight="fill" />}
-              value={dashboard.metrics.activeSubscriptions}
+              value={hasSuccessfulDashboard ? dashboard.metrics.activeSubscriptions : "—"}
               label="个有效订阅"
               tone="teal"
             />
             <Metric
               icon={<EnvelopeSimpleIcon size={25} weight="fill" />}
-              value={dashboard.metrics.remindersToday}
+              value={hasSuccessfulDashboard ? dashboard.metrics.remindersToday : "—"}
               label="今日提醒"
               tone="blue"
             />
             <Metric
               icon={<ShieldCheckIcon size={27} weight="fill" />}
-              value={`${dashboard.metrics.healthyVenues}/${dashboard.metrics.totalVenues}`}
+              value={hasSuccessfulDashboard
+                ? `${dashboard.metrics.healthyVenues}/${dashboard.metrics.totalVenues}`
+                : `—/${dashboard.metrics.totalVenues}`}
               label="场地巡检正常"
               tone="green"
             />
@@ -500,7 +511,9 @@ export default function Prototype() {
                   <i aria-hidden="true">·</i>
                   <span><ClockIcon size={18} weight="bold" />提醒时段</span>
                   <i aria-hidden="true">·</i>
-                  <span><CalendarDotsIcon size={18} weight="bold" />7–14天</span>
+                  <span><CalendarDotsIcon size={18} weight="bold" />
+                    {dashboard.identity.tier === "priority" ? "支持长期" : "7–14天"}
+                  </span>
                 </div>
                 <p>有匹配的未来场地位，系统才会发邮件。</p>
               </div>
@@ -518,28 +531,24 @@ export default function Prototype() {
               ) : null}
             </div>
 
-            {activeIdentity ? (
-              <div className={`tier-row tier-${dashboard.identity.tier}`}>
-                <span className="tier-summary">
-                  <StarIcon size={20} weight="fill" />
-                  <span>
-                    <strong>
-                      {dashboard.identity.tier === "priority" ? "优先用户" : "普通用户"}
-                    </strong>
-                    <small>
-                      今日 {dashboard.identity.remindersToday}/{dashboard.identity.dailyLimit} 封
-                      · 还可发送 {dashboard.identity.remainingToday} 封
-                    </small>
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className={dashboard.identity.tier === "priority" ? "tier-enabled" : undefined}
-                  onClick={() => openPanel("priority")}
-                >
-                  {dashboard.identity.tier === "priority" ? "查看规则" : "输入邀请码"}
-                </button>
-              </div>
+            {activeIdentity && hasSuccessfulDashboard ? (
+              <>
+                <div className={`tier-row tier-${dashboard.identity.tier}`}>
+                  <span className="tier-summary"><StarIcon size={20} weight="fill" /><span>
+                    <strong>{dashboard.identity.tier === "priority" ? "优先用户" : "普通用户"}</strong>
+                    <small>同时可保留 {dashboard.identity.activeSubscriptionLimit} 个有效订阅</small>
+                  </span></span>
+                  <button type="button" className={dashboard.identity.tier === "priority" ? "tier-enabled" : undefined}
+                    onClick={() => openPanel("priority")}>
+                    {dashboard.identity.tier === "priority" ? "查看规则" : "输入邀请码"}
+                  </button>
+                </div>
+                <div className="quota-card" aria-label="今日邮件额度">
+                  <div><span>今日邮件额度</span><strong>还可接收 {dashboard.identity.remainingToday} 封</strong></div>
+                  <p>每天最多 {dashboard.identity.dailyLimit} 封 · 已提交 {dashboard.identity.submittedToday} 封 · 确认送达 {dashboard.identity.deliveredToday} 封 · 发送失败 {dashboard.identity.failedToday} 封</p>
+                  <span className="quota-track" aria-hidden="true"><i style={{ width: `${quotaPercent}%` }} /></span>
+                </div>
+              </>
             ) : null}
 
             <button className="primary-button" type="button" onClick={() => openPanel("create")}>
@@ -561,6 +570,7 @@ export default function Prototype() {
               {dashboard.venues.map((venue) => (
                 (() => {
                   const VenueIcon = VENUE_ICONS[venue.id];
+                  const venueState = resolveVenueDisplayState(availability, venue.healthy);
                   return (
                     <article className="venue-row" key={venue.id}>
                       <span className={`venue-icon venue-icon-${VENUE_ACCENTS[venue.id]}`}>
@@ -571,18 +581,20 @@ export default function Prototype() {
                         <p>{venue.subscriberCount} 个订阅者</p>
                       </div>
                       <div className="venue-health">
-                        <strong className={venue.healthy ? "healthy" : "unhealthy"}>
-                          <CheckCircleIcon size={16} weight="fill" />
-                          {venue.healthy ? "巡检正常" : "巡检异常"}
+                        <strong className={venueState}><CheckCircleIcon size={16} weight="fill" />
+                          {venueState === "unknown" ? (availability === "loading" ? "正在读取" : "状态未知")
+                            : venueState === "healthy" ? "巡检正常" : "巡检异常"}
                         </strong>
-                        <span>{formatRelative(venue.lastInspectionAt)}</span>
+                        <span>{venueState === "unknown" ? (availability === "loading" ? "请稍候" : "点击刷新重试")
+                          : formatRelative(venue.lastInspectionAt)}</span>
                       </div>
                       <div className="venue-mail">
                         <strong className={venue.lastNotificationAt ? "" : "muted"}>
                           <EnvelopeSimpleIcon size={16} weight="fill" />
-                          {formatClock(venue.lastNotificationAt)}
+                          {venueState === "unknown" ? "—" : formatClock(venue.lastNotificationAt)}
                         </strong>
-                        <span>{venue.lastNotificationAt ? "今日发送" : "今日未发送"}</span>
+                        <span>{venueState === "unknown" ? "状态未知"
+                          : venue.lastNotificationAt ? "确认送达" : "今日未确认送达"}</span>
                       </div>
                     </article>
                   );
@@ -600,6 +612,20 @@ export default function Prototype() {
             <span>我的订阅</span>
             <span aria-hidden="true">›</span>
           </button>
+
+          {receipt ? (
+            <button className="subscriptions-link" type="button" onClick={() => openPanel("community")}>
+              <UsersThreeIcon size={24} weight="bold" />
+              <span>用户社区</span><span aria-hidden="true">›</span>
+            </button>
+          ) : null}
+
+          {receipt && dashboard.identity.isAdmin ? (
+            <button className="subscriptions-link admin-entry" type="button" onClick={() => openPanel("admin")}>
+              <ShieldCheckIcon size={24} weight="bold" />
+              <span>管理后台</span><span aria-hidden="true">›</span>
+            </button>
+          ) : null}
         </main>
       </MobileScroll>
 
@@ -614,13 +640,13 @@ export default function Prototype() {
             ? "只设置提醒条件，不展示或代订场地。"
             : undefined
         }
-        snap={panel === "create" ? 0.86 : panel === "priority" ? 0.82 : 0.72}
+        snap={panel === "create" ? 0.86 : panel === "priority" ? 0.82 : panel === "community" || panel === "admin" ? 0.94 : 0.72}
       >
         {panel === "help" ? (
           <div className="help-content">
             <div className="help-row">
               <span>1</span>
-              <div><strong>选择提醒条件</strong><p>设置场地、每日时间段和 7–14 天有效期。</p></div>
+              <div><strong>选择提醒条件</strong><p>普通用户可选 7–14 天；优先用户还可选 30 天、3 个月、半年或长期。</p></div>
             </div>
             <div className="help-row">
               <span>2</span>
@@ -655,7 +681,9 @@ export default function Prototype() {
                       .join("、")}
                   </strong>
                   <span>{subscription.startTime}–{subscription.endTime}</span>
-                  <span>有效至 {subscription.activeUntil.slice(0, 10)}</span>
+                  <span>{!subscription.eligible ? "优先资格已失效，长期订阅已暂停"
+                    : subscription.autoRenew ? "长期有效 · 自动续期"
+                    : `有效至 ${subscription.activeUntil.slice(0, 10)}`}</span>
                 </div>
                 <button
                   type="button"
@@ -679,6 +707,14 @@ export default function Prototype() {
           </div>
         ) : null}
 
+        {panel === "community" && receipt ? (
+          <CommunityPanel receipt={receipt} />
+        ) : null}
+
+        {panel === "admin" && receipt && dashboard.identity.isAdmin ? (
+          <AdminPanel receipt={receipt} />
+        ) : null}
+
         {panel === "priority" ? (
           <div className="priority-panel">
             <div className="tier-comparison">
@@ -690,7 +726,7 @@ export default function Prototype() {
               <article className="featured">
                 <span><StarIcon size={17} weight="fill" />优先用户</span>
                 <strong>{dashboard.deliveryTiers.priority} 封/天</strong>
-                <p>使用一次性趣味口令升级，全局邮件额度紧张时优先处理。</p>
+                <p>使用一次性趣味口令升级，并解锁 30 天、3 个月、半年和长期订阅。</p>
               </article>
             </div>
 
@@ -699,6 +735,7 @@ export default function Prototype() {
               <li><strong>摘要计数：</strong>一封邮件可合并多个场地和时段，只计 1 封。</li>
               <li><strong>达到上限：</strong>当天后续空位邮件不发送，也不会隔天补发旧空位。</li>
               <li><strong>不计额度：</strong>邮箱验证码和微信消息不受档位限制。</li>
+              <li><strong>长期订阅：</strong>优先资格有效期间自动续期，直到主动取消。</li>
             </ul>
 
             {receipt ? (
@@ -803,20 +840,21 @@ export default function Prototype() {
               </fieldset>
 
               <fieldset>
-                <legend>订阅有效期 <span>默认 7 天，最长 14 天</span></legend>
-                <div className="day-choices">
-                  {[7, 8, 9, 10, 11, 12, 13, 14].map((days) => (
-                    <button
-                      type="button"
-                      key={days}
-                      className={durationDays === days ? "selected" : ""}
-                      aria-pressed={durationDays === days}
-                      onClick={() => setDurationDays(days)}
-                    >
-                      {days}天
-                    </button>
-                  ))}
+                <legend>订阅有效期 <span>{dashboard.identity.tier === "priority" ? "优先用户支持长期" : "默认 7 天，最长 14 天"}</span></legend>
+                <div className="day-choices term-choices">
+                  {dashboard.subscriptionTerms.priority.map((term) => {
+                    const allowed = dashboard.subscriptionTerms[dashboard.identity.tier].some((allowedTerm) => allowedTerm === term);
+                    return <button type="button" key={term}
+                      className={`${subscriptionTerm === term ? "selected" : ""} ${allowed ? "" : "locked"}`.trim()}
+                      aria-pressed={subscriptionTerm === term}
+                      onClick={() => allowed ? setSubscriptionTerm(term) : setPanel("priority")}>
+                      {!allowed ? <KeyIcon size={14} weight="fill" /> : null}{TERM_LABELS[term]}
+                    </button>;
+                  })}
                 </div>
+                {subscriptionTerm === "long_term" ? <p className="term-note">
+                  长期订阅会在优先资格有效期间自动续期，直到你主动取消；每日邮件额度和天气规则仍然适用。
+                </p> : null}
               </fieldset>
 
               {formError ? <p className="form-error" role="alert">{formError}</p> : null}
