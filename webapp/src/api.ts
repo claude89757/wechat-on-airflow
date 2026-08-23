@@ -2,6 +2,9 @@ export const VENUE_IDS = ["szw", "gba", "dsh_free", "sysh", "tops", "tyzx", "jdw
 
 export type VenueId = (typeof VENUE_IDS)[number];
 export type DeliveryTier = "standard" | "priority";
+export type SubscriptionTerm =
+  | "7d" | "8d" | "9d" | "10d" | "11d" | "12d" | "13d" | "14d"
+  | "30d" | "90d" | "180d" | "long_term";
 
 export type VenueStatus = {
   id: VenueId;
@@ -18,9 +21,50 @@ export type Subscription = {
   startTime: string;
   endTime: string;
   durationDays: number;
+  termCode: SubscriptionTerm;
+  autoRenew: boolean;
+  eligible: boolean;
   activeUntil: string;
   active: boolean;
   createdAt: string;
+};
+
+export type CommunityUser = {
+  email: string;
+  tier: DeliveryTier;
+  activity: string;
+  activeSubscriptions: number;
+  deliveredVolume: string;
+};
+
+export type AdminUser = {
+  email: string;
+  maskedEmail: string;
+  tier: DeliveryTier;
+  isAdmin: boolean;
+  firstVerifiedAt: string | null;
+  lastVerifiedAt: string | null;
+  lastLoginAt: string | null;
+  lastActiveAt: string | null;
+  activeSubscriptions: number;
+  submittedToday: number;
+  deliveredToday: number;
+  failedToday: number;
+  deliveredAllTime: number;
+};
+
+export type AdminInvite = {
+  id: string;
+  code: string | null;
+  codeHint: string | null;
+  recoverable: boolean;
+  active: boolean;
+  status: "available" | "redeemed" | "expired" | "disabled" | "deleted";
+  note: string | null;
+  createdAt: string;
+  expiresAt: string;
+  redeemedBy: string | null;
+  redeemedAt: string | null;
 };
 
 export type Dashboard = {
@@ -32,14 +76,23 @@ export type Dashboard = {
     totalVenues: number;
   };
   deliveryTiers: { standard: number; priority: number };
+  subscriptionTerms: { standard: SubscriptionTerm[]; priority: SubscriptionTerm[] };
+  subscriptionLimits: { standard: number; priority: number };
   venues: VenueStatus[];
   identity: {
     verified: boolean;
     maskedEmail: string | null;
     remindersToday: number;
+    submittedToday: number;
+    deliveredToday: number;
+    failedToday: number;
     tier: DeliveryTier;
+    isAdmin: boolean;
     dailyLimit: number;
     remainingToday: number;
+    activeSubscriptionLimit: number;
+    activeSubscriptionCount: number;
+    remainingSubscriptions: number;
   };
   subscriptions: Subscription[];
 };
@@ -53,117 +106,62 @@ export type VerificationReceipt = {
 
 const RECEIPTS_KEY = "zacks-tennis-verified-emails-v1";
 
+const FALLBACK_VENUES: VenueStatus[] = [
+  { id: "szw", name: "深圳湾", healthy: true, subscriberCount: 28, lastInspectionAt: "2026-07-29T10:41:40+08:00", lastNotificationAt: null },
+  { id: "gba", name: "大湾区网球场", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:34+08:00", lastNotificationAt: null },
+  { id: "dsh_free", name: "大沙河免费场", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:31+08:00", lastNotificationAt: null },
+  { id: "sysh", name: "上越沙河", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:41:28+08:00", lastNotificationAt: null },
+  { id: "tops", name: "TOPS 科技园", healthy: true, subscriberCount: 22, lastInspectionAt: "2026-07-29T10:41:12+08:00", lastNotificationAt: null },
+  { id: "tyzx", name: "深圳市体育中心", healthy: true, subscriberCount: 30, lastInspectionAt: "2026-07-29T10:40:55+08:00", lastNotificationAt: null },
+  { id: "jdwx", name: "金地威新", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:40:42+08:00", lastNotificationAt: null },
+];
+
+const DEFAULT_TERMS: Dashboard["subscriptionTerms"] = {
+  standard: ["7d", "8d", "9d", "10d", "11d", "12d", "13d", "14d"],
+  priority: ["7d", "8d", "9d", "10d", "11d", "12d", "13d", "14d", "30d", "90d", "180d", "long_term"],
+};
+
 export const FALLBACK_DASHBOARD: Dashboard = {
   generatedAt: "2026-07-29T10:42:00+08:00",
-  metrics: {
-    activeSubscriptions: 128,
-    remindersToday: 6,
-    healthyVenues: 7,
-    totalVenues: 7,
-  },
+  metrics: { activeSubscriptions: 128, remindersToday: 6, healthyVenues: 7, totalVenues: 7 },
   deliveryTiers: { standard: 30, priority: 100 },
-  venues: [
-    {
-      id: "szw",
-      name: "深圳湾",
-      healthy: true,
-      subscriberCount: 28,
-      lastInspectionAt: "2026-07-29T10:41:40+08:00",
-      lastNotificationAt: "2026-07-29T10:26:00+08:00",
-    },
-    {
-      id: "gba",
-      name: "大湾区网球场",
-      healthy: true,
-      subscriberCount: 0,
-      lastInspectionAt: "2026-07-29T10:41:34+08:00",
-      lastNotificationAt: null,
-    },
-    {
-      id: "dsh_free",
-      name: "大沙河免费场",
-      healthy: true,
-      subscriberCount: 0,
-      lastInspectionAt: "2026-07-29T10:41:31+08:00",
-      lastNotificationAt: null,
-    },
-    {
-      id: "sysh",
-      name: "上越沙河",
-      healthy: true,
-      subscriberCount: 24,
-      lastInspectionAt: "2026-07-29T10:41:28+08:00",
-      lastNotificationAt: "2026-07-29T09:41:00+08:00",
-    },
-    {
-      id: "tops",
-      name: "TOPS 科技园",
-      healthy: true,
-      subscriberCount: 22,
-      lastInspectionAt: "2026-07-29T10:41:12+08:00",
-      lastNotificationAt: "2026-07-29T08:58:00+08:00",
-    },
-    {
-      id: "tyzx",
-      name: "深圳市体育中心",
-      healthy: true,
-      subscriberCount: 30,
-      lastInspectionAt: "2026-07-29T10:40:55+08:00",
-      lastNotificationAt: "2026-07-29T07:32:00+08:00",
-    },
-    {
-      id: "jdwx",
-      name: "金地威新",
-      healthy: true,
-      subscriberCount: 24,
-      lastInspectionAt: "2026-07-29T10:40:42+08:00",
-      lastNotificationAt: null,
-    },
-  ],
+  subscriptionTerms: DEFAULT_TERMS,
+  subscriptionLimits: { standard: 5, priority: 20 },
+  venues: FALLBACK_VENUES,
   identity: {
     verified: false,
     maskedEmail: null,
     remindersToday: 0,
+    submittedToday: 0,
+    deliveredToday: 0,
+    failedToday: 0,
     tier: "standard",
+    isAdmin: false,
     dailyLimit: 30,
     remainingToday: 30,
+    activeSubscriptionLimit: 5,
+    activeSubscriptionCount: 0,
+    remainingSubscriptions: 5,
   },
   subscriptions: [],
 };
 
 export const EMPTY_DASHBOARD: Dashboard = {
+  ...FALLBACK_DASHBOARD,
   generatedAt: new Date().toISOString(),
-  metrics: {
-    activeSubscriptions: 0,
-    remindersToday: 0,
-    healthyVenues: 0,
-    totalVenues: 7,
-  },
-  deliveryTiers: { standard: 30, priority: 100 },
-  venues: FALLBACK_DASHBOARD.venues.map((venue) => ({
+  metrics: { activeSubscriptions: 0, remindersToday: 0, healthyVenues: 0, totalVenues: 7 },
+  venues: FALLBACK_VENUES.map((venue) => ({
     ...venue,
     healthy: false,
     subscriberCount: 0,
     lastInspectionAt: null,
     lastNotificationAt: null,
   })),
-  identity: {
-    verified: false,
-    maskedEmail: null,
-    remindersToday: 0,
-    tier: "standard",
-    dailyLimit: 30,
-    remainingToday: 30,
-  },
-  subscriptions: [],
 };
 
 function requestHeaders(receipt?: VerificationReceipt | null): HeadersInit {
   return receipt
-    ? {
-        Authorization: `Bearer ${receipt.token}`,
-        "Content-Type": "application/json",
-      }
+    ? { Authorization: `Bearer ${receipt.token}`, "Content-Type": "application/json" }
     : { "Content-Type": "application/json" };
 }
 
@@ -174,15 +172,9 @@ async function jsonRequest<T>(
 ): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: {
-      ...requestHeaders(receipt),
-      ...(init.headers ?? {}),
-    },
+    headers: { ...requestHeaders(receipt), ...(init.headers ?? {}) },
   });
-
-  const payload = (await response.json().catch(() => null)) as
-    | (T & { error?: string })
-    | null;
+  const payload = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!response.ok || !payload) {
     throw new Error(payload?.error || `请求失败 (${response.status})`);
   }
@@ -193,19 +185,13 @@ export function loadReceipts(): VerificationReceipt[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(RECEIPTS_KEY) || "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (item): item is VerificationReceipt =>
-          Boolean(
-            item &&
-              typeof item === "object" &&
-              typeof (item as VerificationReceipt).token === "string" &&
-              typeof (item as VerificationReceipt).email === "string" &&
-              typeof (item as VerificationReceipt).maskedEmail === "string" &&
-              typeof (item as VerificationReceipt).verifiedAt === "string",
-          ),
-      )
-      .slice(0, 3);
+    return parsed.filter((item): item is VerificationReceipt => Boolean(
+      item && typeof item === "object"
+      && typeof (item as VerificationReceipt).token === "string"
+      && typeof (item as VerificationReceipt).email === "string"
+      && typeof (item as VerificationReceipt).maskedEmail === "string"
+      && typeof (item as VerificationReceipt).verifiedAt === "string",
+    )).slice(0, 3);
   } catch {
     return [];
   }
@@ -226,9 +212,7 @@ export function removeReceipt(token: string): VerificationReceipt[] {
   return next;
 }
 
-export async function getDashboard(
-  receipt?: VerificationReceipt | null,
-): Promise<Dashboard> {
+export async function getDashboard(receipt?: VerificationReceipt | null): Promise<Dashboard> {
   return jsonRequest<Dashboard>("/api/bootstrap", { method: "GET" }, receipt);
 }
 
@@ -242,10 +226,7 @@ export async function requestVerificationCode(email: string): Promise<{
   });
 }
 
-export async function verifyEmail(
-  challengeId: string,
-  code: string,
-): Promise<VerificationReceipt> {
+export async function verifyEmail(challengeId: string, code: string): Promise<VerificationReceipt> {
   return jsonRequest("/api/email/verify", {
     method: "POST",
     body: JSON.stringify({ challengeId, code }),
@@ -258,28 +239,22 @@ export async function createSubscription(
     venueIds: VenueId[];
     startTime: string;
     endTime: string;
-    durationDays: number;
+    termCode: SubscriptionTerm;
   },
 ): Promise<{ subscription: Subscription }> {
-  return jsonRequest(
-    "/api/subscriptions",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-    receipt,
-  );
+  return jsonRequest("/api/subscriptions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, receipt);
 }
 
 export async function cancelSubscription(
   receipt: VerificationReceipt,
   subscriptionId: string,
 ): Promise<{ success: boolean }> {
-  return jsonRequest(
-    `/api/subscriptions/${encodeURIComponent(subscriptionId)}`,
-    { method: "DELETE" },
-    receipt,
-  );
+  return jsonRequest(`/api/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    method: "DELETE",
+  }, receipt);
 }
 
 export async function redeemPriorityInvite(
@@ -293,12 +268,56 @@ export async function redeemPriorityInvite(
   remindersToday: number;
   remainingToday: number;
 }> {
-  return jsonRequest(
-    "/api/priority/redeem",
-    {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    },
-    receipt,
-  );
+  return jsonRequest("/api/priority/redeem", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  }, receipt);
+}
+
+export async function getCommunityUsers(
+  receipt: VerificationReceipt,
+): Promise<{ users: CommunityUser[]; generatedAt: string }> {
+  return jsonRequest("/api/community/users", { method: "GET" }, receipt);
+}
+
+export async function getAdminUsers(
+  receipt: VerificationReceipt,
+): Promise<{ users: AdminUser[]; generatedAt: string }> {
+  return jsonRequest("/api/admin/users", { method: "GET" }, receipt);
+}
+
+export async function getAdminInvites(
+  receipt: VerificationReceipt,
+): Promise<{ invites: AdminInvite[]; generatedAt: string }> {
+  return jsonRequest("/api/admin/invites", { method: "GET" }, receipt);
+}
+
+export async function createAdminInvites(
+  receipt: VerificationReceipt,
+  payload: { count: number; expiresInDays: number; note?: string },
+): Promise<{ invites: AdminInvite[] }> {
+  return jsonRequest("/api/admin/invites", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }, receipt);
+}
+
+export async function updateAdminInvite(
+  receipt: VerificationReceipt,
+  inviteId: string,
+  payload: { active?: boolean; note?: string; expiresInDays?: number },
+): Promise<{ success: boolean }> {
+  return jsonRequest(`/api/admin/invites/${encodeURIComponent(inviteId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }, receipt);
+}
+
+export async function deleteAdminInvite(
+  receipt: VerificationReceipt,
+  inviteId: string,
+): Promise<{ success: boolean }> {
+  return jsonRequest(`/api/admin/invites/${encodeURIComponent(inviteId)}`, {
+    method: "DELETE",
+  }, receipt);
 }

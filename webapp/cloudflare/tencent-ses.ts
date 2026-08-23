@@ -1,10 +1,19 @@
-type TencentSecrets = {
+export type TencentSecrets = {
   TENCENT_SECRET_ID: string;
   TENCENT_SECRET_KEY: string;
   TENCENT_REGION: string;
   EMAIL_FROM_ADDRESS: string;
   EMAIL_REPLY_TO: string;
   EMAIL_TEMPLATE_ID: string;
+};
+
+export type TencentEmailStatus = {
+  MessageId?: string;
+  ToEmailAddress?: string;
+  SendStatus?: number | string;
+  DeliverStatus?: number | string;
+  DeliverTime?: number | string;
+  DeliverMessage?: string;
 };
 
 const ENDPOINT = "ses.tencentcloudapi.com";
@@ -31,45 +40,19 @@ async function hmac(key: string | ArrayBuffer, value: string): Promise<ArrayBuff
   return crypto.subtle.sign("HMAC", imported, encoder.encode(value));
 }
 
-export async function sendTencentTemplateEmail(
+async function callTencentSes<T>(
   env: TencentSecrets,
-  recipient: string,
-  subject: string,
-  body: string,
-  category = "场地提醒",
-): Promise<{ messageId: string | null; requestId: string | null }> {
+  action: string,
+  payloadValue: Record<string, unknown>,
+): Promise<{ response: T; requestId: string | null }> {
   const timestamp = Math.floor(Date.now() / 1000);
   const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
-  const payload = JSON.stringify({
-    FromEmailAddress: env.EMAIL_FROM_ADDRESS,
-    Destination: [recipient],
-    Subject: subject,
-    Template: {
-      TemplateID: Number(env.EMAIL_TEMPLATE_ID),
-      TemplateData: JSON.stringify({
-        COURT_NAME: category,
-        FREE_TIME: body,
-      }),
-    },
-    ReplyToAddresses: env.EMAIL_REPLY_TO,
-    TriggerType: 1,
-  });
-
+  const payload = JSON.stringify(payloadValue);
   const contentType = "application/json";
-  const action = "SendEmail";
-  const canonicalHeaders = [
-    `content-type:${contentType}`,
-    `host:${ENDPOINT}`,
-    "",
-  ].join("\n");
+  const canonicalHeaders = `content-type:${contentType}\nhost:${ENDPOINT}\n`;
   const signedHeaders = "content-type;host";
   const canonicalRequest = [
-    "POST",
-    "/",
-    "",
-    canonicalHeaders,
-    signedHeaders,
-    toHex(await sha256(payload)),
+    "POST", "/", "", canonicalHeaders, signedHeaders, toHex(await sha256(payload)),
   ].join("\n");
   const credentialScope = `${date}/${SERVICE}/tc3_request`;
   const stringToSign = [
@@ -87,8 +70,7 @@ export async function sendTencentTemplateEmail(
     `SignedHeaders=${signedHeaders}`,
     `Signature=${signature}`,
   ].join(", ");
-
-  const response = await fetch(`https://${ENDPOINT}`, {
+  const httpResponse = await fetch(`https://${ENDPOINT}`, {
     method: "POST",
     headers: {
       Authorization: authorization,
@@ -100,21 +82,72 @@ export async function sendTencentTemplateEmail(
     },
     body: payload,
   });
-  const result = await response.json<{
-    Response?: {
-      MessageId?: string;
+  const result = await httpResponse.json<{
+    Response?: T & {
       RequestId?: string;
       Error?: { Code?: string; Message?: string };
     };
   }>();
   const error = result.Response?.Error;
-  if (!response.ok || error) {
+  if (!httpResponse.ok || error || !result.Response) {
     throw new Error(
-      `${error?.Code ?? `HTTP_${response.status}`}: ${error?.Message ?? "邮件发送失败"}`,
+      `${error?.Code ?? `HTTP_${httpResponse.status}`}: ${error?.Message ?? "腾讯云邮件接口调用失败"}`,
     );
   }
   return {
-    messageId: result.Response?.MessageId ?? null,
-    requestId: result.Response?.RequestId ?? null,
+    response: result.Response,
+    requestId: result.Response.RequestId ?? null,
   };
+}
+
+export async function sendTencentTemplateEmail(
+  env: TencentSecrets,
+  recipient: string,
+  subject: string,
+  body: string,
+  category = "场地提醒",
+): Promise<{ messageId: string | null; requestId: string | null }> {
+  const result = await callTencentSes<{ MessageId?: string }>(env, "SendEmail", {
+    FromEmailAddress: env.EMAIL_FROM_ADDRESS,
+    Destination: [recipient],
+    Subject: subject,
+    Template: {
+      TemplateID: Number(env.EMAIL_TEMPLATE_ID),
+      TemplateData: JSON.stringify({ COURT_NAME: category, FREE_TIME: body }),
+    },
+    ReplyToAddresses: env.EMAIL_REPLY_TO,
+    TriggerType: 1,
+  });
+  return {
+    messageId: result.response.MessageId ?? null,
+    requestId: result.requestId,
+  };
+}
+
+function shanghaiDate(offsetDays = 0): string {
+  const shifted = new Date(Date.now() + 8 * 3_600_000 + offsetDays * 86_400_000);
+  return shifted.toISOString().slice(0, 10);
+}
+
+export async function getTencentEmailStatus(
+  env: TencentSecrets,
+  messageId: string,
+  recipient?: string,
+): Promise<TencentEmailStatus | null> {
+  for (const offsetDays of [0, -1, -2]) {
+    const result = await callTencentSes<{
+      EmailStatusList?: TencentEmailStatus[];
+    }>(env, "GetSendEmailStatus", {
+      RequestDate: shanghaiDate(offsetDays),
+      Offset: 0,
+      Limit: 100,
+      MessageId: messageId,
+      ...(recipient ? { ToEmailAddress: recipient } : {}),
+    });
+    const match = (result.response.EmailStatusList ?? []).find(
+      (item) => item.MessageId === messageId,
+    );
+    if (match) return match;
+  }
+  return null;
 }
