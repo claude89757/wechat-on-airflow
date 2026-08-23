@@ -35,20 +35,22 @@ jobs:
       - name: Validate required feature surface
         run: |
           set -euo pipefail
-          grep -q 'claudexzt@gmail.com' webapp/migrations/0006_add_admin_email_lifecycle.sql
-          grep -q '/api/community/users' webapp/cloudflare/index.ts
-          grep -q '/api/admin/users' webapp/cloudflare/index.ts
-          grep -q '/api/admin/invites' webapp/cloudflare/index.ts
-          grep -q 'GetSendEmailStatus' webapp/cloudflare/tencent-ses.ts
-          grep -q 'subscription_expiry' webapp/cloudflare/index.ts
-          grep -q '用户社区' webapp/src/Prototype.tsx
-          grep -q '管理后台' webapp/src/Prototype.tsx
-          grep -q 'CommunityPanel' webapp/src/Prototype.tsx
-          grep -q 'AdminPanel' webapp/src/Prototype.tsx
-          grep -q '确认送达' webapp/src/Prototype.tsx
-          grep -q '发送失败' webapp/src/Prototype.tsx
-          test -f .github/workflows/production-admin-acceptance.yml
-          test -f .github/workflows/deploy-admin-email-lifecycle.yml
+          require_text() { file="$1"; pattern="$2"; label="$3"; if grep -q "$pattern" "$file"; then echo "OK: $label"; else echo "MISSING: $label ($file :: $pattern)" >&2; exit 1; fi; }
+          require_file() { if test -f "$1"; then echo "OK: $2"; else echo "MISSING: $2 ($1)" >&2; exit 1; fi; }
+          require_text webapp/migrations/0006_add_admin_email_lifecycle.sql 'claudexzt@gmail.com' 'admin seed'
+          require_text webapp/cloudflare/index.ts '/api/community/users' 'community API'
+          require_text webapp/cloudflare/index.ts '/api/admin/users' 'admin users API'
+          require_text webapp/cloudflare/index.ts '/api/admin/invites' 'admin invites API'
+          require_text webapp/cloudflare/tencent-ses.ts 'GetSendEmailStatus' 'Tencent delivery reconciliation'
+          require_text webapp/cloudflare/index.ts 'subscription_expiry' 'subscription expiry reminder'
+          require_text webapp/src/Prototype.tsx '用户社区' 'community entry'
+          require_text webapp/src/Prototype.tsx '管理后台' 'admin entry'
+          require_text webapp/src/Prototype.tsx 'CommunityPanel' 'community panel integration'
+          require_text webapp/src/Prototype.tsx 'AdminPanel' 'admin panel integration'
+          require_text webapp/src/Prototype.tsx '确认送达' 'delivered UI'
+          require_text webapp/src/Prototype.tsx '发送失败' 'failed-delivery UI'
+          require_file .github/workflows/production-admin-acceptance.yml 'production acceptance workflow'
+          require_file .github/workflows/deploy-admin-email-lifecycle.yml 'production deploy workflow'
       - name: Remove one-shot generation assets
         run: |
           rm -rf .feature/admin .feature-bootstrap
