@@ -87,11 +87,20 @@ jobs:
                 - name: Airflow 3 DAG imports
                   run: make test-dags
           YAML
+          mkdir -p /tmp/release-hardening-workflows
+          cp .github/workflows/ci.yml /tmp/release-hardening-workflows/ci.yml
+          cp .github/workflows/production-release.yml /tmp/release-hardening-workflows/production-release.yml
+          cp .github/workflows/production-airflow.yml /tmp/release-hardening-workflows/production-airflow.yml
+          git checkout HEAD -- .github/workflows
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
           git commit -m "feat: harden web navigation and release recovery"
           git push origin "HEAD:${HEAD_BRANCH}"
+          cp /tmp/release-hardening-workflows/ci.yml .github/workflows/ci.yml
+          cp /tmp/release-hardening-workflows/production-release.yml .github/workflows/production-release.yml
+          cp /tmp/release-hardening-workflows/production-airflow.yml .github/workflows/production-airflow.yml
+          rm -f .github/workflows/agent-apply-release-hardening.yml
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
