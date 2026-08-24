@@ -69,6 +69,11 @@ export type AdminInvite = {
 
 export type Dashboard = {
   generatedAt: string;
+  weatherEmailGate?: {
+    suppressed: boolean;
+    precipitationMm: number | null;
+    thresholdMm: number;
+  };
   metrics: {
     activeSubscriptions: number;
     remindersToday: number;
@@ -139,6 +144,7 @@ const DEFAULT_TERMS: Dashboard["subscriptionTerms"] = {
 
 export const FALLBACK_DASHBOARD: Dashboard = {
   generatedAt: "2026-07-29T10:42:00+08:00",
+  weatherEmailGate: { suppressed: false, precipitationMm: null, thresholdMm: 25 },
   metrics: { activeSubscriptions: 128, remindersToday: 6, healthyVenues: 8, totalVenues: 8 },
   deliveryTiers: { standard: 10, priority: 100 },
   subscriptionTerms: DEFAULT_TERMS,

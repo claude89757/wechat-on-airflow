@@ -18,13 +18,14 @@ provider outage into silent alert loss.
 ## Decision
 
 - The Cloudflare Worker evaluates Shenzhen's current-day forecast
-  `precipitation_sum` only when eligible subscriber outbox rows exist.
+  `precipitation_sum` for eligible subscriber outbox rows and for the Web
+  status indicator.
 - Open-Meteo is the initial provider because its forecast API exposes daily
   precipitation in millimetres without an API key for non-commercial use.
-- The default suppression threshold is `2.5 mm/day`. This is a configurable
-  product heuristic, not an official court-playability standard. It avoids
-  treating trace drizzle as a shutdown while remaining within the national
-  24-hour light-rain band defined by GB/T 28592-2012.
+- The default suppression threshold is `25 mm/day`, the lower bound of the
+  national 24-hour heavy-rain band in GB/T 28592-2012. Light and moderate
+  rain continue to send email; only a heavy-rain forecast pauses subscriber
+  email.
 - Forecast precipitation greater than or equal to the threshold changes
   eligible outbox rows to `suppressed`. Those rows are not replayed when a
   later forecast becomes dry because the court-availability event may then be

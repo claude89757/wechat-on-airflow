@@ -8,7 +8,7 @@ import {
 const NOW = new Date("2026-08-22T01:00:00.000Z");
 const ENABLED_ENV = {
   WEATHER_EMAIL_GATE_ENABLED: "true",
-  WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM: "2.5",
+  WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM: "25",
 };
 
 function weatherResponse(precipitationMm: number | null): Response {
@@ -39,7 +39,7 @@ describe("Shenzhen weather email gate", () => {
   });
 
   it("keeps subscriber email enabled below the configured threshold", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(weatherResponse(1.2));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(weatherResponse(13.3));
     const decision = await evaluateWeatherEmailGate(
       ENABLED_ENV,
       { fetchImpl: fetchMock, now: NOW, bypassCache: true },
@@ -49,8 +49,8 @@ describe("Shenzhen weather email gate", () => {
       sendEmail: true,
       reason: "precipitation_below_threshold",
       forecastDate: "2026-08-22",
-      precipitationMm: 1.2,
-      thresholdMm: 2.5,
+      precipitationMm: 13.3,
+      thresholdMm: 25,
     });
     const url = fetchMock.mock.calls[0][0] as URL;
     expect(url.searchParams.get("daily")).toBe("precipitation_sum");
@@ -60,7 +60,7 @@ describe("Shenzhen weather email gate", () => {
   });
 
   it("suppresses subscriber email when precipitation reaches the threshold", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(weatherResponse(2.5));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(weatherResponse(25));
     const decision = await evaluateWeatherEmailGate(
       ENABLED_ENV,
       { fetchImpl: fetchMock, now: NOW, bypassCache: true },
@@ -69,8 +69,8 @@ describe("Shenzhen weather email gate", () => {
     expect(decision).toMatchObject({
       sendEmail: false,
       reason: "precipitation_threshold_met",
-      precipitationMm: 2.5,
-      thresholdMm: 2.5,
+      precipitationMm: 25,
+      thresholdMm: 25,
     });
   });
 
@@ -99,7 +99,7 @@ describe("Shenzhen weather email gate", () => {
       sendEmail: true,
       reason: "weather_unavailable",
       precipitationMm: null,
-      thresholdMm: 2.5,
+      thresholdMm: 25,
       error: "network down",
     });
   });
