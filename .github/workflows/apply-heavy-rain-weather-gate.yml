@@ -276,14 +276,7 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add webapp/cloudflare/weather-email-gate.ts \
-                  webapp/cloudflare/weather-email-gate.test.ts \
-                  webapp/cloudflare/index.ts \
-                  webapp/wrangler.jsonc \
-                  webapp/worker-configuration.d.ts \
-                  webapp/src/api.ts \
-                  webapp/src/Prototype.tsx \
-                  webapp/src/prototype.css \
-                  docs/adr/0009-weather-gated-subscriber-email.md
+          git add -u
+          git status --short
           git commit -m "fix(webapp): pause email only for heavy rain [weather-threshold-applied]"
           git push origin "HEAD:${HEAD_BRANCH}"
