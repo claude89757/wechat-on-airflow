@@ -451,6 +451,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
   const now = new Date();
   const nowIso = now.toISOString();
   const dayStart = shanghaiDayStart(now);
+  const weatherEmailGate = await evaluateWeatherEmailGate(env);
 
   const globalResults = await env.DB.batch([
     env.DB.prepare(
@@ -593,6 +594,13 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
 
   return json({
     generatedAt: nowIso,
+    weatherEmailGate: {
+      suppressed:
+        !weatherEmailGate.sendEmail
+        && weatherEmailGate.reason === "precipitation_threshold_met",
+      precipitationMm: weatherEmailGate.precipitationMm,
+      thresholdMm: weatherEmailGate.thresholdMm,
+    },
     metrics: {
       activeSubscriptions,
       remindersToday,

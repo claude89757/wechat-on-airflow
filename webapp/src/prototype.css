@@ -178,6 +178,37 @@
   box-shadow: 0 0 0 3px rgba(209, 73, 91, 0.12);
 }
 
+.weather-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #efd79f;
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #5f4614;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.weather-notice > span {
+  flex: 0 0 auto;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.weather-notice strong {
+  display: block;
+  color: #50390d;
+  font-size: 13px;
+}
+
+.weather-notice p {
+  margin: 3px 0 0;
+  color: #806326;
+}
+
 .metric-band {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

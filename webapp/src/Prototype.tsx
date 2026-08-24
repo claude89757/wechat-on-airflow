@@ -690,6 +690,19 @@ export default function Prototype() {
             </button>
           </div>
 
+          {dashboard.weatherEmailGate?.suppressed ? (
+            <div className="weather-notice" role="status">
+              <span aria-hidden="true">🌧️</span>
+              <div>
+                <strong>深圳今日预计大雨，邮件推送已暂停</strong>
+                <p>
+                  预计降水 {dashboard.weatherEmailGate.precipitationMm ?? "—"} mm，
+                  达到 {dashboard.weatherEmailGate.thresholdMm} mm 阈值；微信通知不受影响。
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           <section className="metric-band" aria-label="运行概况">
             <Metric
               icon={<UsersThreeIcon size={25} weight="fill" />}
@@ -822,7 +835,9 @@ export default function Prototype() {
                           {venueState === "unknown" ? "—" : formatClock(venue.lastNotificationAt)}
                         </strong>
                         <span>{venueState === "unknown" ? "状态未知"
-                          : venue.lastNotificationAt ? "确认送达" : "今日未确认送达"}</span>
+                          : venue.lastNotificationAt ? "确认送达"
+                            : dashboard.weatherEmailGate?.suppressed ? "因大雨暂停邮件"
+                              : "今日未确认送达"}</span>
                       </div>
                     </article>
                   );
