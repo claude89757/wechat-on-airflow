@@ -2,79 +2,117 @@ name: Apply Heavy-Rain Weather Gate
 run-name: apply-heavy-rain-weather-gate/${{ github.sha }}
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/heavy-rain-email-threshold
+      - main
 
 permissions:
   contents: write
 
 concurrency:
-  group: apply-heavy-rain-weather-gate
+  group: apply-heavy-rain-weather-gate-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   apply:
-    if: ${{ !contains(github.event.head_commit.message, '[weather-threshold-applied]') }}
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      HEAD_BRANCH: ${{ github.head_ref }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: webapp/package-lock.json
-      - name: Apply focused threshold and Web notice changes
+      - name: Apply the focused threshold and Web notice changes
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+          def replace_once(path: str, old: str, new: str) -> None:
               target = Path(path)
               text = target.read_text()
-              actual = text.count(old)
-              if actual != expected:
+              if new in text and old not in text:
+                  return
+              count = text.count(old)
+              if count != 1:
                   raise SystemExit(
-                      f"{path}: expected {expected} occurrence(s), found {actual}: {old[:80]!r}"
+                      f"{path}: expected one occurrence, found {count}: {old[:120]!r}"
+                  )
+              target.write_text(text.replace(old, new, 1))
+
+          def replace_all(path: str, old: str, new: str, expected: int) -> None:
+              target = Path(path)
+              text = target.read_text()
+              if old not in text and text.count(new) >= expected:
+                  return
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(
+                      f"{path}: expected {expected} occurrences, found {count}: {old!r}"
                   )
               target.write_text(text.replace(old, new))
 
-          replace_exact(
+          replace_once(
               "webapp/cloudflare/weather-email-gate.ts",
               "const DEFAULT_PRECIPITATION_THRESHOLD_MM = 2.5;",
               "const DEFAULT_PRECIPITATION_THRESHOLD_MM = 25;",
           )
-          replace_exact(
+          replace_once(
               "webapp/wrangler.jsonc",
               '"WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM": "2.5",',
               '"WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM": "25",',
           )
 
-          test_path = Path("webapp/cloudflare/weather-email-gate.test.ts")
-          test_text = test_path.read_text()
-          test_replacements = [
-              ('WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM: "2.5",',
-               'WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM: "25",'),
-              ('mockResolvedValue(weatherResponse(1.2))',
-               'mockResolvedValue(weatherResponse(13.3))'),
-              ('precipitationMm: 1.2,', 'precipitationMm: 13.3,'),
-              ('mockResolvedValue(weatherResponse(2.5))',
-               'mockResolvedValue(weatherResponse(25))'),
-              ('precipitationMm: 2.5,', 'precipitationMm: 25,'),
-          ]
-          for old, new in test_replacements:
-              if test_text.count(old) != 1:
-                  raise SystemExit(f"weather test replacement mismatch: {old!r}")
-              test_text = test_text.replace(old, new)
-          if test_text.count("thresholdMm: 2.5,") != 3:
-              raise SystemExit("weather test threshold expectation count changed")
-          test_text = test_text.replace("thresholdMm: 2.5,", "thresholdMm: 25,")
-          test_path.write_text(test_text)
+          replace_once(
+              "webapp/cloudflare/weather-email-gate.test.ts",
+              'WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM: "2.5",',
+              'WEATHER_EMAIL_PRECIPITATION_THRESHOLD_MM: "25",',
+          )
+          replace_once(
+              "webapp/cloudflare/weather-email-gate.test.ts",
+              "mockResolvedValue(weatherResponse(1.2))",
+              "mockResolvedValue(weatherResponse(13.3))",
+          )
+          replace_once(
+              "webapp/cloudflare/weather-email-gate.test.ts",
+              "precipitationMm: 1.2,",
+              "precipitationMm: 13.3,",
+          )
+          replace_once(
+              "webapp/cloudflare/weather-email-gate.test.ts",
+              "mockResolvedValue(weatherResponse(2.5))",
+              "mockResolvedValue(weatherResponse(25))",
+          )
+          replace_once(
+              "webapp/cloudflare/weather-email-gate.test.ts",
+              "precipitationMm: 2.5,",
+              "precipitationMm: 25,",
+          )
+          replace_all(
+              "webapp/cloudflare/weather-email-gate.test.ts",
+              "thresholdMm: 2.5,",
+              "thresholdMm: 25,",
+              3,
+          )
 
-          replace_exact(
+          replace_once(
+              "docs/adr/0009-weather-gated-subscriber-email.md",
+              """- The Cloudflare Worker evaluates Shenzhen's current-day forecast
+            `precipitation_sum` only when eligible subscriber outbox rows exist.
+          """,
+              """- The Cloudflare Worker evaluates Shenzhen's current-day forecast
+            `precipitation_sum` for eligible subscriber outbox rows and for the Web
+            status indicator.
+          """,
+          )
+          replace_once(
               "docs/adr/0009-weather-gated-subscriber-email.md",
               """- The default suppression threshold is `2.5 mm/day`. This is a configurable
             product heuristic, not an official court-playability standard. It avoids
@@ -87,18 +125,8 @@ jobs:
             email.
           """,
           )
-          replace_exact(
-              "docs/adr/0009-weather-gated-subscriber-email.md",
-              """- The Cloudflare Worker evaluates Shenzhen's current-day forecast
-            `precipitation_sum` only when eligible subscriber outbox rows exist.
-          """,
-              """- The Cloudflare Worker evaluates Shenzhen's current-day forecast
-            `precipitation_sum` for eligible subscriber outbox rows and for the Web
-            status indicator.
-          """,
-          )
 
-          replace_exact(
+          replace_once(
               "webapp/cloudflare/index.ts",
               """  const dayStart = shanghaiDayStart(now);
 
@@ -110,7 +138,7 @@ jobs:
             const globalResults = await env.DB.batch([
           """,
           )
-          replace_exact(
+          replace_once(
               "webapp/cloudflare/index.ts",
               """  return json({
               generatedAt: nowIso,
@@ -129,7 +157,7 @@ jobs:
           """,
           )
 
-          replace_exact(
+          replace_once(
               "webapp/src/api.ts",
               """export type Dashboard = {
               generatedAt: string;
@@ -137,7 +165,7 @@ jobs:
           """,
               """export type Dashboard = {
               generatedAt: string;
-              weatherEmailGate: {
+              weatherEmailGate?: {
                 suppressed: boolean;
                 precipitationMm: number | null;
                 thresholdMm: number;
@@ -145,7 +173,7 @@ jobs:
               metrics: {
           """,
           )
-          replace_exact(
+          replace_once(
               "webapp/src/api.ts",
               """export const FALLBACK_DASHBOARD: Dashboard = {
               generatedAt: "2026-07-29T10:42:00+08:00",
@@ -158,7 +186,7 @@ jobs:
           """,
           )
 
-          replace_exact(
+          replace_once(
               "webapp/src/Prototype.tsx",
               """          </div>
 
@@ -166,7 +194,7 @@ jobs:
           """,
               """          </div>
 
-                    {dashboard.weatherEmailGate.suppressed ? (
+                    {dashboard.weatherEmailGate?.suppressed ? (
                       <div className="weather-notice" role="status">
                         <span aria-hidden="true">🌧️</span>
                         <div>
@@ -182,19 +210,19 @@ jobs:
                     <section className="metric-band" aria-label="运行概况">
           """,
           )
-          replace_exact(
+          replace_once(
               "webapp/src/Prototype.tsx",
               """                        <span>{venueState === "unknown" ? "状态未知"
                                       : venue.lastNotificationAt ? "确认送达" : "今日未确认送达"}</span>
           """,
               """                        <span>{venueState === "unknown" ? "状态未知"
                                       : venue.lastNotificationAt ? "确认送达"
-                                        : dashboard.weatherEmailGate.suppressed ? "因大雨暂停邮件"
+                                        : dashboard.weatherEmailGate?.suppressed ? "因大雨暂停邮件"
                                           : "今日未确认送达"}</span>
           """,
           )
 
-          replace_exact(
+          replace_once(
               "webapp/src/prototype.css",
               ".metric-band {\n",
               """.weather-notice {
@@ -232,24 +260,28 @@ jobs:
             """,
           )
 
-          print("Focused heavy-rain weather gate patch applied")
+          print("Focused heavy-rain weather gate patch is present")
           PY
       - name: Install Web dependencies
         working-directory: webapp
         run: npm ci
-      - name: Verify Web unit tests
+      - name: Run Web unit tests
         working-directory: webapp
         run: npm test
-      - name: Verify Worker types
+      - name: Check Worker types
         working-directory: webapp
         run: npm run check:worker
       - name: Build production Web application
         working-directory: webapp
         run: npm run build
-      - name: Commit the verified patch
+      - name: Commit verified changes to the pull-request branch
         run: |
           set -euo pipefail
           git diff --check
+          if git diff --quiet; then
+            echo "The focused weather patch is already committed."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add webapp/cloudflare/weather-email-gate.ts \
@@ -261,6 +293,5 @@ jobs:
                   webapp/src/Prototype.tsx \
                   webapp/src/prototype.css \
                   docs/adr/0009-weather-gated-subscriber-email.md
-          git diff --cached --quiet && { echo "No patch changes were produced"; exit 1; }
           git commit -m "fix(webapp): pause email only for heavy rain [weather-threshold-applied]"
-          git push origin HEAD:fix/heavy-rain-email-threshold
+          git push origin "HEAD:${HEAD_BRANCH}"
