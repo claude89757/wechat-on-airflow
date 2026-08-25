@@ -29,6 +29,7 @@ airflow_python() {
 }
 airflow_python - <<'PY'
 import json
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit, urlunsplit
@@ -51,7 +52,7 @@ if url and token:
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "zacks-airflow-diagnose/4",
+            "User-Agent": "zacks-airflow-diagnose/5",
         },
         method="POST",
     )
@@ -68,28 +69,92 @@ if url and token:
         result["auth_probe_ok"] = status == 400
 
     reconcile_url = urlunsplit((parsed.scheme, parsed.netloc, "/api/internal/reconcile-deliveries", "", ""))
-    reconcile_request = urllib.request.Request(
-        reconcile_url,
-        data=b"{}",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "User-Agent": "zacks-airflow-diagnose/4",
+    aggregate = {
+        "iterations": 0,
+        "notifications": {
+            "selected": 0,
+            "claimed": 0,
+            "checked": 0,
+            "delivered": 0,
+            "failed": 0,
+            "pending": 0,
+            "unavailable": 0,
+            "errors": {},
         },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(reconcile_request, timeout=20) as response:
-            result["reconcile_status"] = response.getcode()
-            result["reconcile_ok"] = response.getcode() == 200
-    except urllib.error.HTTPError as exc:
-        result["reconcile_status"] = exc.code
-        result["reconcile_ok"] = False
-    except Exception as exc:
-        result["reconcile_ok"] = False
-        result["reconcile_error_type"] = type(exc).__name__
-        result["reconcile_error"] = str(exc)[:200]
+        "systemEmails": {
+            "selected": 0,
+            "claimed": 0,
+            "checked": 0,
+            "delivered": 0,
+            "failed": 0,
+            "pending": 0,
+            "unavailable": 0,
+            "errors": {},
+        },
+    }
+    reconcile_ok = True
+    last_status = None
+    for iteration in range(10):
+        reconcile_request = urllib.request.Request(
+            reconcile_url,
+            data=b"{}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "User-Agent": "zacks-airflow-diagnose/5",
+            },
+            method="POST",
+        )
+        payload = {}
+        try:
+            with urllib.request.urlopen(reconcile_request, timeout=60) as response:
+                last_status = response.getcode()
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last_status = exc.code
+            try:
+                payload = json.loads(exc.read().decode("utf-8"))
+            except Exception:
+                payload = {"success": False, "errorCode": f"HTTP_{exc.code}"}
+        except Exception as exc:
+            last_status = None
+            payload = {
+                "success": False,
+                "errorCode": type(exc).__name__,
+            }
+
+        aggregate["iterations"] += 1
+        for queue in ("notifications", "systemEmails"):
+            section = payload.get(queue) if isinstance(payload, dict) else None
+            if not isinstance(section, dict):
+                continue
+            for key in ("selected", "claimed", "checked", "delivered", "failed", "pending", "unavailable"):
+                aggregate[queue][key] += int(section.get(key) or 0)
+            errors = section.get("errors") or {}
+            if isinstance(errors, dict):
+                for code, count in errors.items():
+                    aggregate[queue]["errors"][str(code)] = (
+                        aggregate[queue]["errors"].get(str(code), 0) + int(count or 0)
+                    )
+
+        if last_status != 200 or not bool(payload.get("success", False)):
+            reconcile_ok = False
+            result["reconcile_error_code"] = str(payload.get("errorCode") or "provider_status_unavailable")
+            break
+
+        selected = int((payload.get("notifications") or {}).get("selected") or 0)
+        selected += int((payload.get("systemEmails") or {}).get("selected") or 0)
+        if selected == 0:
+            break
+        time.sleep(0.5)
+
+    result["reconcile_status"] = last_status
+    result["reconcile_ok"] = reconcile_ok
+    result["reconcile_summary"] = aggregate
+
 print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+if result.get("reconcile_ok") is False:
+    raise SystemExit(2)
 PY
 printf '%s\n' '__WEBAPP_LOGS__'
 for candidate in airflow-worker worker; do
@@ -111,7 +176,7 @@ import urllib.request
 
 request = urllib.request.Request(
     "https://zacks.claude89757.cc/api/bootstrap",
-    headers={"Accept": "application/json", "User-Agent": "zacks-production-diagnose/4"},
+    headers={"Accept": "application/json", "User-Agent": "zacks-production-diagnose/5"},
 )
 with urllib.request.urlopen(request, timeout=10) as response:
     payload = json.loads(response.read().decode("utf-8"))
