@@ -35,6 +35,7 @@ on:
           - db_cleanup_check
           - phone_diagnose
           - webapp_observation_diagnose
+          - webapp_delivery_reconcile
           - wechat_delivery_diagnose
           - wechat_delivery_probe
           - wechat_quiesce
@@ -148,6 +149,9 @@ jobs:
             webapp_observation_diagnose)
               bash scripts/diagnose_webapp_observation.sh
               bash scripts/diagnose_email_delivery_metrics.sh
+              ;;
+            webapp_delivery_reconcile)
+              bash scripts/reconcile_webapp_email_delivery.sh
               ;;
             wechat_delivery_diagnose)
               PYTHONPATH=scripts python scripts/diagnose_wechat_delivery.py --format json
