@@ -30,6 +30,38 @@ export function deploymentHealth(deploymentCommit?: string) {
   };
 }
 
+export function shanghaiDayStartIso(now = new Date()): string {
+  const shifted = new Date(now.getTime() + 8 * 3_600_000);
+  return new Date(
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate(),
+    ) - 8 * 3_600_000,
+  ).toISOString();
+}
+
+export function applyGlobalSubmittedReminderMetric(
+  payload: unknown,
+  submittedToday: number,
+): unknown {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const root = payload as Record<string, unknown>;
+  if (!root.metrics || typeof root.metrics !== "object" || Array.isArray(root.metrics)) {
+    return payload;
+  }
+  const count = Number.isFinite(submittedToday)
+    ? Math.max(0, Math.trunc(submittedToday))
+    : 0;
+  return {
+    ...root,
+    metrics: {
+      ...(root.metrics as Record<string, unknown>),
+      remindersToday: count,
+    },
+  };
+}
+
 function withInviteSecrets(env: DeploymentEnv) {
   return {
     ...env,
@@ -85,6 +117,42 @@ async function reconcileSafely(
   }
 }
 
+async function rewriteBootstrapReminderMetric(
+  response: Response,
+  env: DeploymentEnv,
+): Promise<Response> {
+  try {
+    const [payload, row] = await Promise.all([
+      response.clone().json<unknown>(),
+      env.DB.prepare(
+        `SELECT COUNT(DISTINCT message_id) AS count
+           FROM notification_outbox
+          WHERE provider_submitted_at >= ?`,
+      ).bind(shanghaiDayStartIso()).first<{ count?: number }>(),
+    ]);
+    const corrected = applyGlobalSubmittedReminderMetric(
+      payload,
+      Number(row?.count || 0),
+    );
+    const headers = new Headers(response.headers);
+    headers.delete("Content-Length");
+    headers.delete("Content-Encoding");
+    headers.set("Cache-Control", "no-store");
+    headers.set("Content-Type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify(corrected), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "bootstrap_reminder_metric_correction_failed",
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+    return response;
+  }
+}
+
 export default {
   async fetch(
     request: Request,
@@ -133,6 +201,12 @@ export default {
     }
 
     const response = await worker.fetch(request, withInviteSecrets(env) as never, context);
+    if (response.ok && request.method === "GET" && url.pathname === "/api/bootstrap") {
+      // The home metric is aggregate, like active subscriptions and venue health.
+      // Count provider-accepted reminder digests for the Shanghai calendar day;
+      // provider-confirmed delivery remains available in the signed-in quota card.
+      return rewriteBootstrapReminderMetric(response, env);
+    }
     if (
       response.ok
       && request.method === "POST"
