@@ -53,15 +53,35 @@ function authorizedInternalRequest(request: Request, env: DeploymentEnv): boolea
   return Boolean(token) && constantTimeEqual(token, env.AIRFLOW_PUSH_TOKEN);
 }
 
-async function reconcileSafely(env: DeploymentEnv, limit: number): Promise<void> {
+function safeError(error: unknown): { type: string; message: string } {
+  return {
+    type: error instanceof Error ? error.name : "UnknownError",
+    message: error instanceof Error ? error.message.slice(0, 240) : "unknown",
+  };
+}
+
+async function reconcileSafely(env: DeploymentEnv, limit: number): Promise<boolean> {
   try {
-    await reconcileDeliveryStatuses(withInviteSecrets(env) as never, limit);
+    // Pass the original Worker env object. Bindings such as D1 are runtime
+    // capabilities and should not be copied through object spread before use.
+    await reconcileDeliveryStatuses(env as never, limit);
+    return true;
   } catch (error) {
-    console.warn(JSON.stringify({
-      event: "delivery_reconcile_failed",
-      reason: error instanceof Error ? error.message.slice(0, 200) : "unknown",
-    }));
+    console.warn(JSON.stringify({ event: "delivery_reconcile_failed", ...safeError(error) }));
+    return false;
   }
+}
+
+async function eligibleDeliveryCount(env: DeploymentEnv): Promise<number> {
+  const result = await env.DB.prepare(
+    `SELECT COUNT(DISTINCT message_id) AS count
+       FROM notification_outbox
+      WHERE status = 'submitted'
+        AND message_id IS NOT NULL
+        AND message_id NOT LIKE 'worker:%'
+        AND (provider_checked_at IS NULL OR provider_checked_at < ?)`,
+  ).bind(Date.now() - 5 * 60_000).first<{ count: number }>();
+  return Number(result?.count || 0);
 }
 
 export default {
@@ -84,18 +104,28 @@ export default {
       if (!authorizedInternalRequest(request, env)) {
         return Response.json({ error: "未授权" }, { status: 401 });
       }
-      await reconcileSafely(env, 20);
-      return Response.json({ success: true }, {
-        headers: { "Cache-Control": "no-store" },
-      });
+      try {
+        const eligibleBefore = await eligibleDeliveryCount(env);
+        await reconcileDeliveryStatuses(env as never, 20);
+        const eligibleAfter = await eligibleDeliveryCount(env);
+        return Response.json({
+          success: true,
+          eligibleBefore,
+          eligibleAfter,
+          progressed: Math.max(0, eligibleBefore - eligibleAfter),
+        }, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        const safe = safeError(error);
+        console.warn(JSON.stringify({ event: "delivery_reconcile_endpoint_failed", ...safe }));
+        return Response.json({ success: false, errorType: safe.type, error: safe.message }, {
+          status: 500,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
     }
 
     const response = await worker.fetch(request, withInviteSecrets(env) as never, context);
     if (request.method === "POST" && url.pathname === "/api/internal/observations") {
-      // Run one provider reconciliation inline. The prior waitUntil-only path was
-      // not advancing provider_checked_at in production, while observations are
-      // the reliable live heartbeat. A single lookup keeps request latency bounded
-      // and guarantees eventual progress without coupling it to maintenance jobs.
       await reconcileSafely(env, 1);
     }
     return response;
@@ -106,8 +136,6 @@ export default {
     env: DeploymentEnv,
     context: ExecutionContext,
   ): Promise<void> {
-    // Await reconciliation before the legacy maintenance pipeline so unrelated
-    // renewal/cleanup failures cannot prevent delivery-state refreshes.
     await reconcileSafely(env, 20);
     await worker.scheduled(controller, withInviteSecrets(env) as never, context);
   },
