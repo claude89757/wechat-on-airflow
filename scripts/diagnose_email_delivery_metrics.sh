@@ -24,8 +24,30 @@ SELECT
   COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_checked_at IS NULL THEN message_id END) AS never_checked_today,
   COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_status='not_found' THEN message_id END) AS not_found_today,
   COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_status LIKE 'check_error:%' THEN message_id END) AS check_error_today,
-  COUNT(DISTINCT CASE WHEN provider_submitted_at >= day.start_utc AND message_id LIKE 'worker:%' THEN message_id END) AS placeholder_message_ids_today
+  COUNT(DISTINCT CASE WHEN provider_submitted_at >= day.start_utc AND message_id LIKE 'worker:%' THEN message_id END) AS placeholder_message_ids_today,
+  COUNT(DISTINCT CASE WHEN provider_submitted_at >= day.start_utc THEN email END) AS recipients_today
 FROM notification_outbox, day;
+"
+
+printf '%s\n' '__ADMIN_IDENTITY_DELIVERY_METRICS__'
+wrangler d1 execute zacks-tennis-alerts --remote --json --command "
+WITH day AS (
+  SELECT datetime('now','+8 hours','start of day','-8 hours') AS start_utc
+)
+SELECT
+  COUNT(DISTINCT CASE WHEN n.provider_submitted_at >= day.start_utc THEN n.message_id END) AS submitted_today,
+  COUNT(DISTINCT CASE WHEN n.status='delivered' AND n.provider_delivered_at >= day.start_utc THEN n.message_id END) AS delivered_today,
+  COUNT(DISTINCT CASE WHEN n.status='failed' AND n.provider_submitted_at >= day.start_utc THEN n.message_id END) AS failed_today,
+  COUNT(DISTINCT CASE WHEN n.status='submitted' AND n.provider_submitted_at >= day.start_utc THEN n.message_id END) AS pending_today,
+  COUNT(DISTINCT CASE WHEN n.provider_submitted_at >= day.start_utc AND n.provider_checked_at IS NOT NULL THEN n.message_id END) AS checked_today
+FROM notification_outbox n, day
+WHERE EXISTS (
+  SELECT 1
+    FROM user_roles roles
+   WHERE roles.email = n.email
+     AND roles.role = 'admin'
+     AND roles.revoked_at IS NULL
+);
 "
 
 printf '%s\n' '__PROVIDER_STATUS_BREAKDOWN__'
