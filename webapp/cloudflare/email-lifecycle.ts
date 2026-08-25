@@ -25,6 +25,39 @@ function validDate(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function isNumericCode(value: string): boolean {
+  return /^\d+$/.test(value);
+}
+
+function indicatesSendFailure(value: string): boolean {
+  if (!value || value === "0") return false;
+  if (isNumericCode(value)) return true;
+  return ["failed", "failure", "rejected", "blocked", "error"].includes(value);
+}
+
+function indicatesDeliveryFailure(value: string): boolean {
+  return [
+    "2",
+    "3",
+    "failed",
+    "failure",
+    "bounced",
+    "rejected",
+    "blocked",
+    "discarded",
+    "dropped",
+    "退信",
+    "拒信",
+    "丢弃",
+  ].includes(value);
+}
+
+function failureMessage(value: string): boolean {
+  return /mailbox unavailable|access denied|bounce|bounced|reject|rejected|blocked|discard|dropped|failed|failure|退信|拒信|丢弃|失败/i.test(
+    value,
+  );
+}
+
 export function normalizeTencentDeliveryStatus(
   record: TencentEmailStatusRecord | null,
 ): NormalizedDeliveryStatus {
@@ -40,32 +73,50 @@ export function normalizeTencentDeliveryStatus(
   const deliver = String(record.DeliverStatus ?? "").trim().toLowerCase();
   const send = String(record.SendStatus ?? "").trim().toLowerCase();
   const message = String(record.DeliverMessage ?? "").trim();
-  const explicitDelivered = deliveredAt !== null
+  const providerStatus = `send=${send || "unknown"};deliver=${deliver || "pending"}`;
+
+  // Tencent SES documents DeliverStatus=1 as the only numeric terminal
+  // delivery-success state. DeliverStatus=0 is merely accepted/queued and 8 is
+  // delayed, so neither may be promoted to delivered just because a timestamp
+  // or explanatory message is present.
+  const explicitDelivered = deliver === "1"
     || ["delivered", "success", "succeeded", "投递成功"].includes(deliver);
   if (explicitDelivered) {
     return {
       state: "delivered",
-      providerStatus: `send=${send || "unknown"};deliver=${deliver || "delivered"}`,
+      providerStatus,
       deliveredAt: deliveredAt ?? new Date().toISOString(),
       error: null,
     };
   }
-  const explicitFailure = [
-    "failed", "failure", "bounced", "rejected", "blocked", "2", "3", "4", "5",
-  ].includes(deliver)
-    || ["failed", "failure", "rejected", "2", "3", "4", "5"].includes(send)
-    || Boolean(message && !/success|deliver|投递成功/i.test(message));
-  if (explicitFailure) {
+
+  const sendFailed = indicatesSendFailure(send);
+  const deliveryFailed = indicatesDeliveryFailure(deliver);
+  const messageFailedWithoutProviderState = !deliver && failureMessage(message);
+  if (sendFailed || deliveryFailed || messageFailedWithoutProviderState) {
     return {
       state: "failed",
-      providerStatus: `send=${send || "unknown"};deliver=${deliver || "failed"}`,
+      providerStatus,
       deliveredAt: null,
-      error: message || "腾讯云报告邮件投递失败",
+      error: message || "腾讯云报告邮件发送或投递失败",
     };
   }
+
+  // Older or partial provider records can omit DeliverStatus while still
+  // returning DeliverTime. Keep this compatibility fallback, but never let it
+  // override an explicit queued (0), failed (2/3), or delayed (8) status.
+  if (!deliver && deliveredAt) {
+    return {
+      state: "delivered",
+      providerStatus,
+      deliveredAt,
+      error: null,
+    };
+  }
+
   return {
     state: "submitted",
-    providerStatus: `send=${send || "unknown"};deliver=${deliver || "pending"}`,
+    providerStatus,
     deliveredAt: null,
     error: null,
   };
