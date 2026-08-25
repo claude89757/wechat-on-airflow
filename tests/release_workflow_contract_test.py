@@ -27,6 +27,8 @@ def test_single_router_supports_mutually_exclusive_release_commands():
     assert "RELEASE_RESOLVED_SCOPE" in workflow
     assert "SHIP_RESOLVED_SCOPE" in workflow
     assert "components=\\`$components\\`" in workflow
+    assert "/ops webapp-delivery-reconcile <40-char-sha>" in workflow
+    assert "webapp_delivery_reconcile" in workflow
 
 
 def test_release_gate_plans_before_waiting_and_handles_ci_registration_race():
@@ -63,6 +65,16 @@ def test_airflow_apply_uses_transactional_health_and_restore_wrapper():
     assert workflow.count("scripts/deploy_airflow_transaction.py") == 2
     apply_block = workflow.split("deploy_apply)", 1)[1].split("db_cleanup_check)", 1)[0]
     assert "scripts/deploy_airflow.py --apply" not in apply_block
+
+
+def test_delivery_reconciliation_has_a_separate_protected_operation():
+    workflow = (WORKFLOWS / "production-airflow.yml").read_text(encoding="utf-8")
+
+    assert "webapp_delivery_reconcile" in workflow
+    assert "scripts/reconcile_webapp_email_delivery.sh" in workflow
+    assert "confirm_real_send: false" in (
+        WORKFLOWS / "ops-chatops.yml"
+    ).read_text(encoding="utf-8")
 
 
 def test_ci_is_component_aware_and_cancels_stale_pr_runs():
