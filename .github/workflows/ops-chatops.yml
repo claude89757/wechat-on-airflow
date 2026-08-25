@@ -108,6 +108,11 @@ jobs:
                   fail("webapp observation diagnosis requires a full 40-character SHA")
               outputs["action"] = "webapp_observation_diagnose"
               outputs["target_commit"] = tokens[2].lower()
+          elif tokens[:2] == ["/ops", "webapp-delivery-reconcile"]:
+              if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
+                  fail("webapp delivery reconciliation requires a full 40-character SHA")
+              outputs["action"] = "webapp_delivery_reconcile"
+              outputs["target_commit"] = tokens[2].lower()
           elif tokens[:2] == ["/ops", "wechat-contact-probe"]:
               if len(tokens) != 4 or not sha.fullmatch(tokens[2]):
                   fail("WeChat contact probe requires a full 40-character SHA and simple contact name")
@@ -140,6 +145,7 @@ jobs:
           - \`/release apply <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release tag <version> <40-char-sha>\`
           - \`/ops webapp-observation-diagnose <40-char-sha>\`
+          - \`/ops webapp-delivery-reconcile <40-char-sha>\`
           - \`/ops wechat-contact-probe <40-char-sha> <simple-contact-name>\`
 
           Run: $RUN_URL
@@ -188,6 +194,18 @@ jobs:
       probe_target_membership: all
     secrets: inherit
 
+  webapp_delivery_reconcile:
+    if: needs.route.outputs.action == 'webapp_delivery_reconcile'
+    needs: route
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: webapp_delivery_reconcile
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      request_id: delivery-reconcile-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
   wechat_contact_probe:
     if: needs.route.outputs.action == 'wechat_contact_probe'
     needs: route
@@ -208,6 +226,7 @@ jobs:
       - ship
       - tag
       - webapp_observation_diagnose
+      - webapp_delivery_reconcile
       - wechat_contact_probe
     runs-on: ubuntu-latest
     steps:
@@ -232,6 +251,7 @@ jobs:
           SHIP_SENDER: ${{ needs.ship.outputs.deploy_sender }}
           TAG_RESULT: ${{ needs.tag.result }}
           WEB_DIAG_RESULT: ${{ needs.webapp_observation_diagnose.result }}
+          WEB_RECONCILE_RESULT: ${{ needs.webapp_delivery_reconcile.result }}
           WECHAT_PROBE_RESULT: ${{ needs.wechat_contact_probe.result }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -264,6 +284,14 @@ jobs:
             webapp_observation_diagnose)
               result="$WEB_DIAG_RESULT"
               label="Web observation diagnosis"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            webapp_delivery_reconcile)
+              result="$WEB_RECONCILE_RESULT"
+              label="Web delivery reconciliation"
               resolved="n/a"
               webapp=""
               airflow=""
