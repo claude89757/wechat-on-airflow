@@ -1,6 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sendTencentTemplateEmail } from "./tencent-ses";
+import {
+  getTencentEmailStatus,
+  sendTencentTemplateEmail,
+  tencentStatusRequestDates,
+} from "./tencent-ses";
+
+const SECRETS = {
+  TENCENT_SECRET_ID: "secret-id",
+  TENCENT_SECRET_KEY: "secret-key",
+  TENCENT_REGION: "ap-guangzhou",
+  EMAIL_FROM_ADDRESS: "sender@example.com",
+  EMAIL_REPLY_TO: "reply@example.com",
+  EMAIL_TEMPLATE_ID: "33340",
+};
 
 describe("Tencent SES TC3 request", () => {
   afterEach(() => {
@@ -21,14 +34,7 @@ describe("Tencent SES TC3 request", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await sendTencentTemplateEmail(
-      {
-        TENCENT_SECRET_ID: "secret-id",
-        TENCENT_SECRET_KEY: "secret-key",
-        TENCENT_REGION: "ap-guangzhou",
-        EMAIL_FROM_ADDRESS: "sender@example.com",
-        EMAIL_REPLY_TO: "reply@example.com",
-        EMAIL_TEMPLATE_ID: "33340",
-      },
+      SECRETS,
       "recipient@example.com",
       "subject",
       "body",
@@ -47,5 +53,49 @@ describe("Tencent SES TC3 request", () => {
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers.Authorization).toContain("SignedHeaders=content-type;host");
     expect(headers.Authorization).not.toContain("x-tc-action");
+  });
+
+  it("prefers the send date embedded in the provider MessageId", () => {
+    expect(tencentStatusRequestDates(
+      "qcloudses-30-date-20260824093000-random",
+      Date.parse("2026-08-25T12:00:00.000Z"),
+    )[0]).toBe("2026-08-24");
+  });
+
+  it("queries by MessageId without combining the recipient filter", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-25T12:00:00.000Z"));
+    const messageId = "qcloudses-30-date-20260824093000-random";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        Response: {
+          EmailStatusList: [{
+            MessageId: messageId,
+            ToEmailAddress: "recipient@example.com",
+            SendStatus: 0,
+            DeliverStatus: 1,
+          }],
+          RequestId: "request-id",
+        },
+      }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await getTencentEmailStatus(
+      SECRETS,
+      messageId,
+      "recipient@example.com",
+    );
+
+    expect(status?.DeliverStatus).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const payload = JSON.parse(String(request.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      RequestDate: "2026-08-24",
+      MessageId: messageId,
+      Offset: 0,
+      Limit: 100,
+    });
+    expect(payload).not.toHaveProperty("ToEmailAddress");
   });
 });
