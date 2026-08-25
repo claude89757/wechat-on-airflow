@@ -58,6 +58,33 @@ FROM notification_outbox, day
 WHERE status='submitted' AND provider_submitted_at >= day.start_utc;
 "
 
+printf '%s\n' '__RECONCILIATION_BACKLOG__'
+wrangler d1 execute zacks-tennis-alerts --remote --json --command "
+WITH bounds AS (
+  SELECT
+    datetime('now','-48 hours') AS recent_cutoff,
+    datetime('now','-30 days') AS retention_cutoff
+)
+SELECT
+  COUNT(DISTINCT CASE
+    WHEN provider_submitted_at >= bounds.recent_cutoff THEN message_id END
+  ) AS recent_pending,
+  COUNT(DISTINCT CASE
+    WHEN provider_submitted_at >= bounds.retention_cutoff
+     AND provider_submitted_at < bounds.recent_cutoff THEN message_id END
+  ) AS queryable_backlog,
+  COUNT(DISTINCT CASE
+    WHEN provider_submitted_at < bounds.retention_cutoff THEN message_id END
+  ) AS retention_expired,
+  COUNT(DISTINCT message_id) AS total_pending,
+  MIN(provider_submitted_at) AS oldest_pending_at,
+  MAX(provider_submitted_at) AS newest_pending_at
+FROM notification_outbox, bounds
+WHERE status='submitted'
+  AND message_id IS NOT NULL
+  AND message_id NOT LIKE 'worker:%';
+"
+
 printf '%s\n' '__VENUE_NOTIFICATION_COVERAGE__'
 wrangler d1 execute zacks-tennis-alerts --remote --json --command "
 SELECT
