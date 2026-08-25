@@ -124,9 +124,39 @@ export async function sendTencentTemplateEmail(
   };
 }
 
-function shanghaiDate(offsetDays = 0): string {
-  const shifted = new Date(Date.now() + 8 * 3_600_000 + offsetDays * 86_400_000);
+function shanghaiDate(offsetDays = 0, now = Date.now()): string {
+  const shifted = new Date(now + 8 * 3_600_000 + offsetDays * 86_400_000);
   return shifted.toISOString().slice(0, 10);
+}
+
+export function tencentStatusRequestDates(
+  messageId: string,
+  now = Date.now(),
+): string[] {
+  const dates: string[] = [];
+  const append = (value: string) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value) && !dates.includes(value)) dates.push(value);
+  };
+  const embedded = messageId.match(/(?:^|-)date-(\d{4})(\d{2})(\d{2})\d{6}(?:-|$)/i);
+  if (embedded) append(`${embedded[1]}-${embedded[2]}-${embedded[3]}`);
+  for (const offsetDays of [0, -1, -2]) append(shanghaiDate(offsetDays, now));
+  return dates;
+}
+
+async function queryTencentEmailStatus(
+  env: TencentSecrets,
+  requestDate: string,
+  filter: { MessageId: string } | { ToEmailAddress: string },
+): Promise<TencentEmailStatus[]> {
+  const result = await callTencentSes<{
+    EmailStatusList?: TencentEmailStatus[];
+  }>(env, "GetSendEmailStatus", {
+    RequestDate: requestDate,
+    Offset: 0,
+    Limit: 100,
+    ...filter,
+  });
+  return result.response.EmailStatusList ?? [];
 }
 
 export async function getTencentEmailStatus(
@@ -134,20 +164,29 @@ export async function getTencentEmailStatus(
   messageId: string,
   recipient?: string,
 ): Promise<TencentEmailStatus | null> {
-  for (const offsetDays of [0, -1, -2]) {
-    const result = await callTencentSes<{
-      EmailStatusList?: TencentEmailStatus[];
-    }>(env, "GetSendEmailStatus", {
-      RequestDate: shanghaiDate(offsetDays),
-      Offset: 0,
-      Limit: 100,
-      MessageId: messageId,
-      ...(recipient ? { ToEmailAddress: recipient } : {}),
-    });
-    const match = (result.response.EmailStatusList ?? []).find(
-      (item) => item.MessageId === messageId,
-    );
+  const requestDates = tencentStatusRequestDates(messageId);
+
+  // Tencent's documented examples use either MessageId or ToEmailAddress as the
+  // query filter. Query by MessageId first instead of combining both optional
+  // filters, which is also sufficient to identify one provider delivery.
+  for (const requestDate of requestDates) {
+    const match = (await queryTencentEmailStatus(env, requestDate, { MessageId: messageId }))
+      .find((item) => item.MessageId === messageId);
     if (match) return match;
+  }
+
+  // Some older/partial provider records can fail to match the MessageId index.
+  // Fall back to the recipient-only query and still require the exact MessageId
+  // in the returned list before accepting the record.
+  if (recipient) {
+    for (const requestDate of requestDates) {
+      const match = (await queryTencentEmailStatus(
+        env,
+        requestDate,
+        { ToEmailAddress: recipient },
+      )).find((item) => item.MessageId === messageId);
+      if (match) return match;
+    }
   }
   return null;
 }
