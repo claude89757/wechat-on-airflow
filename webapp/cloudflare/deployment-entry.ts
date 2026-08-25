@@ -1,5 +1,9 @@
 import worker from "./index";
-import { reconcileDeliveryStatuses } from "./delivery-reconcile";
+import {
+  providerCheckError,
+  reconcileDeliveryStatuses,
+  type DeliveryReconcileSummary,
+} from "./delivery-reconcile";
 
 type DeploymentEnv = Env & {
   DEPLOYMENT_COMMIT?: string;
@@ -53,14 +57,31 @@ function authorizedInternalRequest(request: Request, env: DeploymentEnv): boolea
   return Boolean(token) && constantTimeEqual(token, env.AIRFLOW_PUSH_TOKEN);
 }
 
-async function reconcileSafely(env: DeploymentEnv, limit: number): Promise<void> {
+function unavailableCount(summary: DeliveryReconcileSummary): number {
+  return summary.notifications.unavailable + summary.systemEmails.unavailable;
+}
+
+async function reconcileSafely(
+  env: DeploymentEnv,
+  limit: number,
+  source: string,
+): Promise<DeliveryReconcileSummary | null> {
   try {
-    await reconcileDeliveryStatuses(withInviteSecrets(env) as never, limit);
+    const summary = await reconcileDeliveryStatuses(withInviteSecrets(env) as never, limit);
+    console.log(JSON.stringify({
+      event: "delivery_reconcile_completed",
+      source,
+      summary,
+    }));
+    return summary;
   } catch (error) {
+    const detail = providerCheckError(error);
     console.warn(JSON.stringify({
       event: "delivery_reconcile_failed",
-      reason: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+      source,
+      errorCode: detail.code,
     }));
+    return null;
   }
 }
 
@@ -84,19 +105,42 @@ export default {
       if (!authorizedInternalRequest(request, env)) {
         return Response.json({ error: "未授权" }, { status: 401 });
       }
-      await reconcileSafely(env, 20);
-      return Response.json({ success: true }, {
-        headers: { "Cache-Control": "no-store" },
-      });
+      try {
+        const summary = await reconcileDeliveryStatuses(withInviteSecrets(env) as never, 20);
+        const unavailable = unavailableCount(summary);
+        return Response.json({
+          success: unavailable === 0,
+          unavailable,
+          ...summary,
+        }, {
+          status: unavailable === 0 ? 200 : 502,
+          headers: { "Cache-Control": "no-store" },
+        });
+      } catch (error) {
+        const detail = providerCheckError(error);
+        console.error(JSON.stringify({
+          event: "protected_delivery_reconcile_failed",
+          errorCode: detail.code,
+        }));
+        return Response.json({
+          success: false,
+          errorCode: detail.code,
+        }, {
+          status: 500,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
     }
 
     const response = await worker.fetch(request, withInviteSecrets(env) as never, context);
-    if (request.method === "POST" && url.pathname === "/api/internal/observations") {
-      // Run one provider reconciliation inline. The prior waitUntil-only path was
-      // not advancing provider_checked_at in production, while observations are
-      // the reliable live heartbeat. A single lookup keeps request latency bounded
-      // and guarantees eventual progress without coupling it to maintenance jobs.
-      await reconcileSafely(env, 1);
+    if (
+      response.ok
+      && request.method === "POST"
+      && url.pathname === "/api/internal/observations"
+    ) {
+      // One inline lookup guarantees bounded progress on the reliable live
+      // observation heartbeat even if another scheduled maintenance phase fails.
+      await reconcileSafely(env, 1, "observation");
     }
     return response;
   },
@@ -106,9 +150,9 @@ export default {
     env: DeploymentEnv,
     context: ExecutionContext,
   ): Promise<void> {
-    // Await reconciliation before the legacy maintenance pipeline so unrelated
-    // renewal/cleanup failures cannot prevent delivery-state refreshes.
-    await reconcileSafely(env, 20);
+    // Reconcile before the legacy maintenance chain so renewal, draining, or
+    // cleanup errors cannot starve provider delivery-state updates.
+    await reconcileSafely(env, 20, "scheduled");
     await worker.scheduled(controller, withInviteSecrets(env) as never, context);
   },
 } satisfies ExportedHandler<DeploymentEnv>;
