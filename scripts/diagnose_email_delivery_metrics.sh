@@ -20,8 +20,10 @@ SELECT
   COUNT(DISTINCT CASE WHEN status='delivered' AND provider_delivered_at >= day.start_utc THEN message_id END) AS delivered_today,
   COUNT(DISTINCT CASE WHEN status='failed' AND provider_submitted_at >= day.start_utc THEN message_id END) AS failed_today,
   COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc THEN message_id END) AS pending_today,
+  COUNT(DISTINCT CASE WHEN provider_submitted_at >= day.start_utc AND provider_checked_at IS NOT NULL THEN message_id END) AS checked_today,
   COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_checked_at IS NULL THEN message_id END) AS never_checked_today,
   COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_status='not_found' THEN message_id END) AS not_found_today,
+  COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_status LIKE 'check_error:%' THEN message_id END) AS check_error_today,
   COUNT(DISTINCT CASE WHEN provider_submitted_at >= day.start_utc AND message_id LIKE 'worker:%' THEN message_id END) AS placeholder_message_ids_today
 FROM notification_outbox, day;
 "
