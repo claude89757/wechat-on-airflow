@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${CLOUDFLARE_ACCOUNT_ID:?}"
+: "${CLOUDFLARE_API_TOKEN:?}"
+
+wrangler() {
+  (cd webapp && npx wrangler "$@")
+}
+
+# Keep diagnostics aggregate/redacted: no recipient addresses, subjects, bodies,
+# request IDs, provider message IDs, or delivery reasons are printed.
+printf '%s\n' '__EMAIL_DELIVERY_METRICS__'
+wrangler d1 execute zacks-tennis-alerts --remote --json --command "
+WITH day AS (
+  SELECT datetime('now','+8 hours','start of day','-8 hours') AS start_utc
+)
+SELECT
+  COUNT(DISTINCT CASE WHEN provider_submitted_at >= day.start_utc THEN message_id END) AS submitted_today,
+  COUNT(DISTINCT CASE WHEN status='delivered' AND provider_delivered_at >= day.start_utc THEN message_id END) AS delivered_today,
+  COUNT(DISTINCT CASE WHEN status='failed' AND provider_submitted_at >= day.start_utc THEN message_id END) AS failed_today,
+  COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc THEN message_id END) AS pending_today,
+  COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_checked_at IS NULL THEN message_id END) AS never_checked_today,
+  COUNT(DISTINCT CASE WHEN status='submitted' AND provider_submitted_at >= day.start_utc AND provider_status='not_found' THEN message_id END) AS not_found_today,
+  COUNT(DISTINCT CASE WHEN provider_submitted_at >= day.start_utc AND message_id LIKE 'worker:%' THEN message_id END) AS placeholder_message_ids_today
+FROM notification_outbox, day;
+"
+
+printf '%s\n' '__PROVIDER_STATUS_BREAKDOWN__'
+wrangler d1 execute zacks-tennis-alerts --remote --json --command "
+WITH day AS (
+  SELECT datetime('now','+8 hours','start of day','-8 hours') AS start_utc
+)
+SELECT
+  status,
+  COALESCE(provider_status,'(null)') AS provider_status,
+  COUNT(DISTINCT message_id) AS messages
+FROM notification_outbox, day
+WHERE provider_submitted_at >= day.start_utc
+GROUP BY status, COALESCE(provider_status,'(null)')
+ORDER BY messages DESC, status, provider_status;
+"
+
+printf '%s\n' '__PENDING_AGE__'
+wrangler d1 execute zacks-tennis-alerts --remote --json --command "
+WITH day AS (
+  SELECT datetime('now','+8 hours','start of day','-8 hours') AS start_utc
+)
+SELECT
+  MIN(provider_submitted_at) AS oldest_submitted_at,
+  MAX(provider_submitted_at) AS newest_submitted_at,
+  MIN(provider_checked_at) AS oldest_checked_epoch_ms,
+  MAX(provider_checked_at) AS newest_checked_epoch_ms,
+  COUNT(DISTINCT message_id) AS pending_messages
+FROM notification_outbox, day
+WHERE status='submitted' AND provider_submitted_at >= day.start_utc;
+"
+
+printf '%s\n' '__VENUE_NOTIFICATION_COVERAGE__'
+wrangler d1 execute zacks-tennis-alerts --remote --json --command "
+SELECT
+  COUNT(*) AS venues,
+  SUM(CASE WHEN last_notification_at IS NOT NULL THEN 1 ELSE 0 END) AS venues_with_confirmed_delivery,
+  MAX(last_notification_at) AS latest_confirmed_delivery_at
+FROM venue_status;
+"

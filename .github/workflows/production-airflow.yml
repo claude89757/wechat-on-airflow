@@ -77,6 +77,8 @@ jobs:
       AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
       AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
       AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -92,8 +94,18 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: inputs.operation == 'webapp_observation_diagnose'
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
       - name: Install operations dependencies
         run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Install Web diagnostic dependencies
+        if: inputs.operation == 'webapp_observation_diagnose'
+        working-directory: webapp
+        run: npm ci
       - name: Configure production SSH identity
         env:
           SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
@@ -135,6 +147,7 @@ jobs:
               ;;
             webapp_observation_diagnose)
               bash scripts/diagnose_webapp_observation.sh
+              bash scripts/diagnose_email_delivery_metrics.sh
               ;;
             wechat_delivery_diagnose)
               PYTHONPATH=scripts python scripts/diagnose_wechat_delivery.py --format json
