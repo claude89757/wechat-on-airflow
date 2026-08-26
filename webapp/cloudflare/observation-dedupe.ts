@@ -1,4 +1,4 @@
-const OBSERVATION_KEY_VERSION = "v1";
+const OBSERVATION_KEY_VERSION = "v2";
 
 export const OBSERVATION_HEARTBEAT_MS = 5 * 60_000;
 
@@ -18,6 +18,7 @@ export type ObservationSnapshot = {
   key: string;
   fingerprint: string;
   venueId: string;
+  observationScope: string;
   slotCount: number;
 };
 
@@ -70,7 +71,19 @@ export async function observationSnapshot(
   const candidate = payload as Record<string, unknown>;
   const venueId = stringField(candidate, "venue_id", "venueId");
   const venueName = stringField(candidate, "venue_name", "venueName");
-  if (!venueId || venueId.length > 64 || !venueName || venueName.length > 120) {
+  const explicitScope = stringField(
+    candidate,
+    "observation_scope",
+    "observationScope",
+  );
+  const observationScope = explicitScope || "default";
+  if (
+    !venueId
+    || venueId.length > 64
+    || !venueName
+    || venueName.length > 120
+    || observationScope.length > 120
+  ) {
     return null;
   }
   if (!Array.isArray(candidate.slots) || candidate.slots.length > 200) return null;
@@ -91,21 +104,21 @@ export async function observationSnapshot(
     [left.date, left.courtName, left.startTime, left.endTime].join("|")
       .localeCompare([right.date, right.courtName, right.startTime, right.endTime].join("|"))
   );
-  const dates = Array.from(new Set(uniqueSlots.map((slot) => slot.date))).sort();
-  const scope = dates.length ? dates.join(",") : "empty";
   const error = candidate.error ? String(candidate.error).slice(0, 300) : null;
   const fingerprint = await sha256Hex(JSON.stringify({
     venueId,
     venueName,
+    observationScope,
     healthy: candidate.healthy === true,
     error,
     slots: uniqueSlots,
   }));
 
   return {
-    key: `${OBSERVATION_KEY_VERSION}:${venueId}:${scope}`,
+    key: `${OBSERVATION_KEY_VERSION}:${venueId}:${observationScope}`,
     fingerprint,
     venueId,
+    observationScope,
     slotCount: uniqueSlots.length,
   };
 }
