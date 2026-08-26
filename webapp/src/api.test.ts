@@ -15,6 +15,10 @@ function dashboardResponse(): Response {
   });
 }
 
+function dashboardFetchMock() {
+  return vi.fn(async () => dashboardResponse());
+}
+
 describe("dashboard client cache", () => {
   beforeEach(() => {
     invalidateDashboardCache();
@@ -29,7 +33,7 @@ describe("dashboard client cache", () => {
   });
 
   it("turns the 30-second UI refresh loop into one network request per two minutes", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(dashboardResponse());
+    const fetchMock = dashboardFetchMock();
     vi.stubGlobal("fetch", fetchMock);
 
     await getDashboard(null);
@@ -45,7 +49,7 @@ describe("dashboard client cache", () => {
   });
 
   it("coalesces concurrent refreshes for the same identity", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(dashboardResponse());
+    const fetchMock = dashboardFetchMock();
     vi.stubGlobal("fetch", fetchMock);
 
     await Promise.all([getDashboard(null), getDashboard(null), getDashboard(null)]);
@@ -53,7 +57,7 @@ describe("dashboard client cache", () => {
   });
 
   it("never shares a cached dashboard between identities", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(dashboardResponse());
+    const fetchMock = dashboardFetchMock();
     vi.stubGlobal("fetch", fetchMock);
     const receipt: VerificationReceipt = {
       token: "receipt-token",
@@ -71,7 +75,7 @@ describe("dashboard client cache", () => {
   });
 
   it("supports immediate refresh after a state-changing action", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(dashboardResponse());
+    const fetchMock = dashboardFetchMock();
     vi.stubGlobal("fetch", fetchMock);
 
     await getDashboard(null);
