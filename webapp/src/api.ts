@@ -125,6 +125,23 @@ export type CoffeeInvite = {
 };
 
 const RECEIPTS_KEY = "zacks-tennis-verified-emails-v1";
+export const DASHBOARD_CLIENT_CACHE_MS = 120_000;
+
+type DashboardClientCache = {
+  identityKey: string;
+  expiresAt: number;
+  value: Dashboard;
+};
+
+type DashboardClientRequest = {
+  identityKey: string;
+  epoch: number;
+  promise: Promise<Dashboard>;
+};
+
+let dashboardCache: DashboardClientCache | null = null;
+let dashboardRequest: DashboardClientRequest | null = null;
+let dashboardCacheEpoch = 0;
 
 const FALLBACK_VENUES: VenueStatus[] = [
   { id: "szw", name: "深圳湾", healthy: true, subscriberCount: 28, lastInspectionAt: "2026-07-29T10:41:40+08:00", lastNotificationAt: null },
@@ -203,6 +220,20 @@ async function jsonRequest<T>(
   return payload;
 }
 
+function dashboardIdentityKey(receipt?: VerificationReceipt | null): string {
+  return receipt?.token || "anonymous";
+}
+
+function pageIsHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+export function invalidateDashboardCache(): void {
+  dashboardCacheEpoch += 1;
+  dashboardCache = null;
+  dashboardRequest = null;
+}
+
 export function loadReceipts(): VerificationReceipt[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(RECEIPTS_KEY) || "[]") as unknown;
@@ -225,17 +256,52 @@ export function saveReceipt(receipt: VerificationReceipt): VerificationReceipt[]
     ...loadReceipts().filter((item) => item.email.toLowerCase() !== receipt.email.toLowerCase()),
   ].slice(0, 3);
   localStorage.setItem(RECEIPTS_KEY, JSON.stringify(next));
+  invalidateDashboardCache();
   return next;
 }
 
 export function removeReceipt(token: string): VerificationReceipt[] {
   const next = loadReceipts().filter((item) => item.token !== token);
   localStorage.setItem(RECEIPTS_KEY, JSON.stringify(next));
+  invalidateDashboardCache();
   return next;
 }
 
 export async function getDashboard(receipt?: VerificationReceipt | null): Promise<Dashboard> {
-  return jsonRequest<Dashboard>("/api/bootstrap", { method: "GET" }, receipt);
+  const identityKey = dashboardIdentityKey(receipt);
+  const now = Date.now();
+  if (
+    dashboardCache
+    && dashboardCache.identityKey === identityKey
+    && (dashboardCache.expiresAt > now || pageIsHidden())
+  ) {
+    return dashboardCache.value;
+  }
+  if (
+    dashboardRequest
+    && dashboardRequest.identityKey === identityKey
+    && dashboardRequest.epoch === dashboardCacheEpoch
+  ) {
+    return dashboardRequest.promise;
+  }
+
+  const epoch = dashboardCacheEpoch;
+  const promise = jsonRequest<Dashboard>("/api/bootstrap", { method: "GET" }, receipt)
+    .then((value) => {
+      if (dashboardCacheEpoch === epoch) {
+        dashboardCache = {
+          identityKey,
+          expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS,
+          value,
+        };
+      }
+      return value;
+    })
+    .finally(() => {
+      if (dashboardRequest?.promise === promise) dashboardRequest = null;
+    });
+  dashboardRequest = { identityKey, epoch, promise };
+  return promise;
 }
 
 export async function requestVerificationCode(email: string): Promise<{
@@ -249,10 +315,12 @@ export async function requestVerificationCode(email: string): Promise<{
 }
 
 export async function verifyEmail(challengeId: string, code: string): Promise<VerificationReceipt> {
-  return jsonRequest("/api/email/verify", {
+  const receipt = await jsonRequest<VerificationReceipt>("/api/email/verify", {
     method: "POST",
     body: JSON.stringify({ challengeId, code }),
   });
+  invalidateDashboardCache();
+  return receipt;
 }
 
 export async function createSubscription(
@@ -264,19 +332,25 @@ export async function createSubscription(
     termCode: SubscriptionTerm;
   },
 ): Promise<{ subscription: Subscription }> {
-  return jsonRequest("/api/subscriptions", {
+  const result = await jsonRequest<{ subscription: Subscription }>("/api/subscriptions", {
     method: "POST",
     body: JSON.stringify(payload),
   }, receipt);
+  invalidateDashboardCache();
+  return result;
 }
 
 export async function cancelSubscription(
   receipt: VerificationReceipt,
   subscriptionId: string,
 ): Promise<{ success: boolean }> {
-  return jsonRequest(`/api/subscriptions/${encodeURIComponent(subscriptionId)}`, {
-    method: "DELETE",
-  }, receipt);
+  const result = await jsonRequest<{ success: boolean }>(
+    `/api/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    { method: "DELETE" },
+    receipt,
+  );
+  invalidateDashboardCache();
+  return result;
 }
 
 export async function startCoffeeInviteSession(
@@ -306,10 +380,19 @@ export async function redeemPriorityInvite(
   remindersToday: number;
   remainingToday: number;
 }> {
-  return jsonRequest("/api/priority/redeem", {
+  const result = await jsonRequest<{
+    success: boolean;
+    alreadyPriority?: boolean;
+    tier: DeliveryTier;
+    dailyLimit: number;
+    remindersToday: number;
+    remainingToday: number;
+  }>("/api/priority/redeem", {
     method: "POST",
     body: JSON.stringify({ code }),
   }, receipt);
+  invalidateDashboardCache();
+  return result;
 }
 
 export async function getCommunityUsers(
