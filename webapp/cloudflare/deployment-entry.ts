@@ -1,9 +1,20 @@
 import worker from "./index";
 import {
+  bootstrapCacheMiss,
+  invalidateBootstrapCache,
+  matchBootstrapCache,
+  storeBootstrapCache,
+} from "./bootstrap-cache";
+import {
   providerCheckError,
   reconcileDeliveryStatuses,
   type DeliveryReconcileSummary,
 } from "./delivery-reconcile";
+import {
+  decideObservationDedupe,
+  recordForwardedObservation,
+  type ObservationSnapshot,
+} from "./observation-dedupe";
 
 type DeploymentEnv = Env & {
   DEPLOYMENT_COMMIT?: string;
@@ -18,6 +29,10 @@ type DeploymentEnv = Env & {
   EMAIL_REPLY_TO: string;
   EMAIL_TEMPLATE_ID: string;
 };
+
+export const DELIVERY_RECONCILE_CRON = "*/5 * * * *";
+export const MAINTENANCE_CRON = "17 * * * *";
+const DELIVERY_RECONCILE_BATCH = 5;
 
 export function deploymentHealth(deploymentCommit?: string) {
   return {
@@ -41,6 +56,10 @@ export function shanghaiDayStartIso(now = new Date()): string {
   ).toISOString();
 }
 
+export function shanghaiDeliveryDay(now = new Date()): string {
+  return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+}
+
 export function applyGlobalSubmittedReminderMetric(
   payload: unknown,
   submittedToday: number,
@@ -60,6 +79,20 @@ export function applyGlobalSubmittedReminderMetric(
       remindersToday: count,
     },
   };
+}
+
+export function scheduledWorkForCron(
+  cron: string | undefined,
+): "delivery_reconcile" | "maintenance" {
+  return cron === MAINTENANCE_CRON ? "maintenance" : "delivery_reconcile";
+}
+
+export function invalidatesBootstrap(method: string, pathname: string): boolean {
+  return (
+    (method === "POST" && pathname === "/api/subscriptions")
+    || (method === "POST" && pathname === "/api/priority/redeem")
+    || (method === "DELETE" && /^\/api\/subscriptions\/[0-9a-f-]{36}$/i.test(pathname))
+  );
 }
 
 function withInviteSecrets(env: DeploymentEnv) {
@@ -125,10 +158,11 @@ async function rewriteBootstrapReminderMetric(
     const [payload, row] = await Promise.all([
       response.clone().json<unknown>(),
       env.DB.prepare(
-        `SELECT COUNT(DISTINCT message_id) AS count
-           FROM notification_outbox
-          WHERE provider_submitted_at >= ?`,
-      ).bind(shanghaiDayStartIso()).first<{ count?: number }>(),
+        `SELECT COUNT(*) AS count
+           FROM email_delivery_claims
+          WHERE delivery_day = ?
+            AND status = 'sent'`,
+      ).bind(shanghaiDeliveryDay()).first<{ count?: number }>(),
     ]);
     const corrected = applyGlobalSubmittedReminderMetric(
       payload,
@@ -153,6 +187,103 @@ async function rewriteBootstrapReminderMetric(
   }
 }
 
+async function cachedBootstrap(
+  request: Request,
+  env: DeploymentEnv,
+): Promise<Response | null> {
+  try {
+    return await matchBootstrapCache(request, env);
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "bootstrap_cache_read_failed",
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+    return null;
+  }
+}
+
+function storeBootstrapSafely(
+  request: Request,
+  env: DeploymentEnv,
+  response: Response,
+): Promise<void> {
+  return storeBootstrapCache(request, env, response).catch((error) => {
+    console.warn(JSON.stringify({
+      event: "bootstrap_cache_write_failed",
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+  });
+}
+
+async function invalidateBootstrapSafely(
+  request: Request,
+  env: DeploymentEnv,
+): Promise<void> {
+  try {
+    await invalidateBootstrapCache(request, env, true);
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "bootstrap_cache_invalidation_failed",
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+  }
+}
+
+async function observationDecision(
+  request: Request,
+  env: DeploymentEnv,
+): Promise<{ skip: Response | null; snapshot: ObservationSnapshot | null }> {
+  try {
+    const decision = await decideObservationDedupe(
+      env.DB,
+      await request.clone().json<unknown>(),
+    );
+    if (decision.action === "skip" && decision.snapshot) {
+      console.log(JSON.stringify({
+        event: "venue_observation_deduplicated",
+        venueId: decision.snapshot.venueId,
+        slotCount: decision.snapshot.slotCount,
+      }));
+      return {
+        skip: Response.json({
+          success: true,
+          venueId: decision.snapshot.venueId,
+          slotsAccepted: decision.snapshot.slotCount,
+          deduplicated: true,
+        }, {
+          headers: {
+            "Cache-Control": "no-store",
+            "Content-Type": "application/json; charset=utf-8",
+          },
+        }),
+        snapshot: decision.snapshot,
+      };
+    }
+    return { skip: null, snapshot: decision.snapshot };
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "venue_observation_dedupe_failed_open",
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+    return { skip: null, snapshot: null };
+  }
+}
+
+async function recordObservationSafely(
+  env: DeploymentEnv,
+  snapshot: ObservationSnapshot,
+): Promise<void> {
+  try {
+    await recordForwardedObservation(env.DB, snapshot);
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "venue_observation_dedupe_record_failed",
+      venueId: snapshot.venueId,
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+  }
+}
+
 export default {
   async fetch(
     request: Request,
@@ -174,7 +305,10 @@ export default {
         return Response.json({ error: "未授权" }, { status: 401 });
       }
       try {
-        const summary = await reconcileDeliveryStatuses(withInviteSecrets(env) as never, 20);
+        const summary = await reconcileDeliveryStatuses(
+          withInviteSecrets(env) as never,
+          DELIVERY_RECONCILE_BATCH,
+        );
         const unavailable = unavailableCount(summary);
         return Response.json({
           success: unavailable === 0,
@@ -200,21 +334,35 @@ export default {
       }
     }
 
+    if (request.method === "GET" && url.pathname === "/api/bootstrap") {
+      const cached = await cachedBootstrap(request, env);
+      if (cached) return cached;
+    }
+
+    let observationSnapshot: ObservationSnapshot | null = null;
+    if (
+      request.method === "POST"
+      && url.pathname === "/api/internal/observations"
+      && authorizedInternalRequest(request, env)
+    ) {
+      const decision = await observationDecision(request, env);
+      if (decision.skip) return decision.skip;
+      observationSnapshot = decision.snapshot;
+    }
+
     const response = await worker.fetch(request, withInviteSecrets(env) as never, context);
     if (response.ok && request.method === "GET" && url.pathname === "/api/bootstrap") {
-      // The home metric is aggregate, like active subscriptions and venue health.
-      // Count provider-accepted reminder digests for the Shanghai calendar day;
-      // provider-confirmed delivery remains available in the signed-in quota card.
-      return rewriteBootstrapReminderMetric(response, env);
+      const corrected = await rewriteBootstrapReminderMetric(response, env);
+      context.waitUntil(storeBootstrapSafely(request, env, corrected.clone()));
+      return bootstrapCacheMiss(corrected);
     }
-    if (
-      response.ok
-      && request.method === "POST"
-      && url.pathname === "/api/internal/observations"
-    ) {
-      // One inline lookup guarantees bounded progress on the reliable live
-      // observation heartbeat even if another scheduled maintenance phase fails.
-      await reconcileSafely(env, 1, "observation");
+
+    if (response.ok && observationSnapshot) {
+      await recordObservationSafely(env, observationSnapshot);
+    }
+
+    if (response.ok && invalidatesBootstrap(request.method, url.pathname)) {
+      await invalidateBootstrapSafely(request, env);
     }
     return response;
   },
@@ -224,9 +372,11 @@ export default {
     env: DeploymentEnv,
     context: ExecutionContext,
   ): Promise<void> {
-    // Reconcile before the legacy maintenance chain so renewal, draining, or
-    // cleanup errors cannot starve provider delivery-state updates.
-    await reconcileSafely(env, 20, "scheduled");
-    await worker.scheduled(controller, withInviteSecrets(env) as never, context);
+    const cron = (controller as ScheduledController & { cron?: string }).cron;
+    if (scheduledWorkForCron(cron) === "maintenance") {
+      await worker.scheduled(controller, withInviteSecrets(env) as never, context);
+      return;
+    }
+    await reconcileSafely(env, DELIVERY_RECONCILE_BATCH, `scheduled:${cron || "unknown"}`);
   },
 } satisfies ExportedHandler<DeploymentEnv>;
