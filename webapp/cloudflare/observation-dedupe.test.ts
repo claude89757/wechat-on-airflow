@@ -9,6 +9,7 @@ import {
 const baseObservation = {
   venue_id: "szw",
   venue_name: "深圳湾",
+  observation_scope: "check_and_notify_day_0",
   healthy: true,
   checked_at: "2026-08-27T01:00:00.000Z",
   error: null,
@@ -51,6 +52,27 @@ describe("observation fingerprint", () => {
     expect(first?.fingerprint).not.toBe(second?.fingerprint);
   });
 
+  it("forwards availability that disappears and then reappears", async () => {
+    const available = await observationSnapshot(baseObservation);
+    const empty = await observationSnapshot({
+      ...baseObservation,
+      slots: [],
+    });
+    const restored = await observationSnapshot({
+      ...baseObservation,
+      checked_at: "2026-08-27T01:01:00.000Z",
+    });
+    expect(available?.key).toBe(empty?.key);
+    expect(restored?.key).toBe(empty?.key);
+    expect(available?.fingerprint).not.toBe(empty?.fingerprint);
+    expect(restored?.fingerprint).toBe(available?.fingerprint);
+    if (!restored || !empty) throw new Error("expected valid snapshots");
+    expect(shouldSkipObservation(restored, {
+      fingerprint: empty.fingerprint,
+      last_forwarded_at: 1_000_000,
+    }, 1_015_000)).toBe(false);
+  });
+
   it("keeps an unchanged heartbeat inside the venue freshness window", async () => {
     const snapshot = await observationSnapshot(baseObservation);
     if (!snapshot) throw new Error("expected a valid snapshot");
@@ -67,15 +89,19 @@ describe("observation fingerprint", () => {
     )).toBe(false);
   });
 
-  it("uses a stable empty scope without merging different venues", async () => {
-    const first = await observationSnapshot({ ...baseObservation, slots: [] });
+  it("separates parallel day tasks for the same venue", async () => {
+    const first = await observationSnapshot(baseObservation);
     const second = await observationSnapshot({
       ...baseObservation,
-      venue_id: "gba",
-      venue_name: "大湾区网球场",
-      slots: [],
+      observation_scope: "check_and_notify_day_1",
     });
-    expect(first?.key).toBe("v1:szw:empty");
-    expect(second?.key).toBe("v1:gba:empty");
+    expect(first?.key).toBe("v2:szw:check_and_notify_day_0");
+    expect(second?.key).toBe("v2:szw:check_and_notify_day_1");
+  });
+
+  it("uses a safe compatibility scope for old publishers", async () => {
+    const { observation_scope: _scope, ...legacyObservation } = baseObservation;
+    const snapshot = await observationSnapshot(legacyObservation);
+    expect(snapshot?.key).toBe("v2:szw:default");
   });
 });
