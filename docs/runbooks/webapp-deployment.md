@@ -7,11 +7,13 @@ API routes, a D1 binding, and two bounded cron paths. Its custom domain is
 `zacks.claude89757.cc`.
 
 Venue DAG polling frequency is an Airflow contract and must not be reduced to
-control Cloudflare usage. The Worker instead suppresses identical observation
-payloads after an indexed D1 fingerprint lookup, while forwarding every real
-availability or health change immediately. An unchanged observation is still
-forwarded at least every five minutes so the ten-minute venue-health freshness
-contract remains satisfied.
+control Cloudflare usage. Each Airflow task publishes a stable observation
+scope. The Worker suppresses an identical payload after an indexed D1
+fingerprint lookup, while forwarding every real availability, health, or error
+change immediately. An unchanged observation is still forwarded at least every
+five minutes so the ten-minute venue-health freshness contract remains
+satisfied. Older publishers without an explicit scope fail open to a shared
+compatibility scope until the matching Airflow commit is deployed.
 
 The Worker cron paths are intentionally separated:
 
@@ -20,10 +22,12 @@ The Worker cron paths are intentionally separated:
 - `17 * * * *` runs legacy housekeeping, expiry reminders, outbox maintenance,
   and cleanup once per hour without overlapping the five-minute cron.
 
-`/api/bootstrap` responses use a private synthetic Cloudflare Cache API key,
-separated by verification receipt, for at most 120 seconds. Browser responses
-remain `Cache-Control: no-store`; the cache exists only to avoid repeating the
-same personalized D1 dashboard queries during the UI's refresh loop.
+`/api/bootstrap` responses use a private Cloudflare Cache API key on the Worker
+custom-domain origin, separated by a one-way digest of the verification receipt,
+for at most 120 seconds. The receipt never appears in the cache URL. Browser
+responses remain `Cache-Control: no-store`; the edge cache exists only to avoid
+repeating the same personalized D1 dashboard queries and identity writes during
+the UI's refresh loop.
 
 ## Local Verification
 
@@ -69,6 +73,10 @@ must never be downloaded to a workstation.
    read-only production probes before Airflow deployment begins.
 5. Observe natural Airflow publication cycles and record the GitHub run.
 
+The Worker and Airflow publisher changes in this repair must ship from the same
+exact commit. The short Web-before-Airflow interval is safe: an older publisher
+without `observation_scope` is accepted and forwarded rather than rejected.
+
 For isolated diagnosis, `production-webapp.yml` supports `health`,
 `deploy_preflight`, and `deploy_apply`. `make webapp-deploy` and
 `make webapp-health` only dispatch those GitHub operations; they do not use
@@ -82,7 +90,9 @@ D1 migration commands are intentionally unsupported.
 - An unauthenticated observation write returns HTTP 401.
 - Natural venue DAG runs keep their existing 15-second or 30-second schedules.
 - A changed slot set reaches D1 immediately; an unchanged set produces at most
-  one full ingest per observation scope every five minutes.
+  one full ingest per venue/task observation scope every five minutes.
+- A slot set that disappears and then reappears is forwarded on the first
+  matching poll rather than suppressed by the heartbeat throttle.
 - Browser layout and the create-subscription flow pass mobile visual checks.
 - Cloudflare Worker `exceededCpu` stays at zero during the observation window.
 - D1 daily rows read and written remain below the configured free-tier safety
