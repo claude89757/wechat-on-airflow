@@ -110,9 +110,10 @@ def publish_venue_observation(
             }
         )
 
-    normalized_scope = str(
-        observation_scope or _current_observation_scope() or "default"
-    ).strip()[:120] or "default"
+    normalized_scope = (
+        str(observation_scope or _current_observation_scope() or "default").strip()[:120]
+        or "default"
+    )
     payload = {
         "venue_id": venue_id,
         "venue_name": venue_name,
