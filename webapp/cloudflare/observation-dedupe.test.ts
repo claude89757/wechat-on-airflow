@@ -6,6 +6,7 @@ import {
   shouldSkipObservation,
 } from "./observation-dedupe";
 
+const OBSERVATION_NOW = Date.parse("2026-08-27T01:00:30.000Z");
 const baseObservation = {
   venue_id: "szw",
   venue_name: "深圳湾",
@@ -29,10 +30,14 @@ const baseObservation = {
   ],
 };
 
+function snapshot(payload: unknown) {
+  return observationSnapshot(payload, OBSERVATION_NOW);
+}
+
 describe("observation fingerprint", () => {
   it("ignores checked_at and slot ordering", async () => {
-    const first = await observationSnapshot(baseObservation);
-    const second = await observationSnapshot({
+    const first = await snapshot(baseObservation);
+    const second = await snapshot({
       ...baseObservation,
       checked_at: "2026-08-27T01:00:15.000Z",
       slots: [...baseObservation.slots].reverse(),
@@ -44,8 +49,8 @@ describe("observation fingerprint", () => {
   });
 
   it("forwards a real availability change immediately", async () => {
-    const first = await observationSnapshot(baseObservation);
-    const second = await observationSnapshot({
+    const first = await snapshot(baseObservation);
+    const second = await snapshot({
       ...baseObservation,
       slots: baseObservation.slots.slice(0, 1),
     });
@@ -53,12 +58,12 @@ describe("observation fingerprint", () => {
   });
 
   it("forwards availability that disappears and then reappears", async () => {
-    const available = await observationSnapshot(baseObservation);
-    const empty = await observationSnapshot({
+    const available = await snapshot(baseObservation);
+    const empty = await snapshot({
       ...baseObservation,
       slots: [],
     });
-    const restored = await observationSnapshot({
+    const restored = await snapshot({
       ...baseObservation,
       checked_at: "2026-08-27T01:01:00.000Z",
     });
@@ -74,24 +79,24 @@ describe("observation fingerprint", () => {
   });
 
   it("keeps an unchanged heartbeat inside the venue freshness window", async () => {
-    const snapshot = await observationSnapshot(baseObservation);
-    if (!snapshot) throw new Error("expected a valid snapshot");
+    const observation = await snapshot(baseObservation);
+    if (!observation) throw new Error("expected a valid snapshot");
     const forwardedAt = 1_000_000;
     const current = {
-      fingerprint: snapshot.fingerprint,
+      fingerprint: observation.fingerprint,
       last_forwarded_at: forwardedAt,
     };
-    expect(shouldSkipObservation(snapshot, current, forwardedAt + 15_000)).toBe(true);
+    expect(shouldSkipObservation(observation, current, forwardedAt + 15_000)).toBe(true);
     expect(shouldSkipObservation(
-      snapshot,
+      observation,
       current,
       forwardedAt + OBSERVATION_HEARTBEAT_MS,
     )).toBe(false);
   });
 
   it("separates parallel day tasks for the same venue", async () => {
-    const first = await observationSnapshot(baseObservation);
-    const second = await observationSnapshot({
+    const first = await snapshot(baseObservation);
+    const second = await snapshot({
       ...baseObservation,
       observation_scope: "check_and_notify_day_1",
     });
@@ -101,7 +106,18 @@ describe("observation fingerprint", () => {
 
   it("uses a safe compatibility scope for old publishers", async () => {
     const { observation_scope: _scope, ...legacyObservation } = baseObservation;
-    const snapshot = await observationSnapshot(legacyObservation);
-    expect(snapshot?.key).toBe("v2:szw:default");
+    const observation = await snapshot(legacyObservation);
+    expect(observation?.key).toBe("v2:szw:default");
+  });
+
+  it("forwards invalid or stale timestamps to the canonical validator", async () => {
+    expect(await snapshot({
+      ...baseObservation,
+      checked_at: "not-a-date",
+    })).toBeNull();
+    expect(await snapshot({
+      ...baseObservation,
+      checked_at: "2026-08-25T01:00:00.000Z",
+    })).toBeNull();
   });
 });
