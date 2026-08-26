@@ -1,4 +1,4 @@
-const BOOTSTRAP_CACHE_NAMESPACE = "https://bootstrap-cache.invalid/v1";
+const BOOTSTRAP_CACHE_PATH = "/__zacks_edge_cache/bootstrap";
 
 export const BOOTSTRAP_CACHE_TTL_SECONDS = 120;
 
@@ -24,12 +24,17 @@ async function sha256Hex(value: string): Promise<string> {
 }
 
 export async function bootstrapCacheRequest(
+  requestUrl: string,
   token: string | null,
   pepper: string,
 ): Promise<Request> {
   const identity = token ? `receipt:${token}` : "anonymous";
   const digest = await sha256Hex(`zacks-bootstrap:${pepper}:${identity}`);
-  return new Request(`${BOOTSTRAP_CACHE_NAMESPACE}/${digest}`, { method: "GET" });
+  const url = new URL(requestUrl);
+  url.pathname = `${BOOTSTRAP_CACHE_PATH}/${digest}`;
+  url.search = "";
+  url.hash = "";
+  return new Request(url.toString(), { method: "GET" });
 }
 
 function defaultCache(): Cache {
@@ -47,13 +52,19 @@ function clientResponse(response: Response, cacheStatus: "hit" | "miss"): Respon
   });
 }
 
+async function cacheKey(
+  request: Request,
+  env: BootstrapCacheEnv,
+  token = requestToken(request),
+): Promise<Request> {
+  return bootstrapCacheRequest(request.url, token, env.VERIFICATION_PEPPER);
+}
+
 export async function matchBootstrapCache(
   request: Request,
   env: BootstrapCacheEnv,
 ): Promise<Response | null> {
-  const cached = await defaultCache().match(
-    await bootstrapCacheRequest(requestToken(request), env.VERIFICATION_PEPPER),
-  );
+  const cached = await defaultCache().match(await cacheKey(request, env));
   return cached ? clientResponse(cached, "hit") : null;
 }
 
@@ -69,7 +80,7 @@ export async function storeBootstrapCache(
   headers.set("Cache-Control", `public, max-age=${BOOTSTRAP_CACHE_TTL_SECONDS}`);
   headers.set("X-Zacks-Bootstrap-Cache", "miss");
   await defaultCache().put(
-    await bootstrapCacheRequest(requestToken(request), env.VERIFICATION_PEPPER),
+    await cacheKey(request, env),
     new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -84,9 +95,9 @@ export async function invalidateBootstrapCache(
   includeAnonymous = false,
 ): Promise<void> {
   const token = requestToken(request);
-  const keys = [await bootstrapCacheRequest(token, env.VERIFICATION_PEPPER)];
+  const keys = [await cacheKey(request, env, token)];
   if (includeAnonymous && token) {
-    keys.push(await bootstrapCacheRequest(null, env.VERIFICATION_PEPPER));
+    keys.push(await cacheKey(request, env, null));
   }
   await Promise.all(keys.map((key) => defaultCache().delete(key)));
 }
