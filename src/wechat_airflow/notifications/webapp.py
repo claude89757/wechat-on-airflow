@@ -18,6 +18,28 @@ def _get_variable(key: str, default: Any = None) -> Any:
     return Variable.get(key, default=default)
 
 
+def _current_observation_scope() -> str | None:
+    """Return a stable Airflow task scope without coupling callers to task IDs."""
+    try:
+        from airflow.sdk import get_current_context
+
+        context = get_current_context()
+    except Exception:
+        return None
+
+    task_instance = context.get("task_instance") or context.get("ti")
+    task = context.get("task")
+    task_id = str(
+        getattr(task_instance, "task_id", "") or getattr(task, "task_id", "") or ""
+    ).strip()
+    if not task_id:
+        return None
+    map_index = getattr(task_instance, "map_index", -1)
+    if isinstance(map_index, int) and map_index >= 0:
+        return f"{task_id}:{map_index}"
+    return task_id
+
+
 def flatten_court_slots(
     booking_date: str,
     court_data: Mapping[str, Iterable[Iterable[object]]],
@@ -57,6 +79,7 @@ def publish_venue_observation(
     healthy: bool,
     error: str | None = None,
     checked_at: datetime | None = None,
+    observation_scope: str | None = None,
 ) -> dict[str, Any]:
     """Publish venue state without failing the calling DAG."""
     api_url = str(_get_variable(WEBAPP_OBSERVATION_API_URL_VAR, default="")).strip()
@@ -87,9 +110,13 @@ def publish_venue_observation(
             }
         )
 
+    normalized_scope = str(
+        observation_scope or _current_observation_scope() or "default"
+    ).strip()[:120] or "default"
     payload = {
         "venue_id": venue_id,
         "venue_name": venue_name,
+        "observation_scope": normalized_scope,
         "healthy": bool(healthy),
         "checked_at": (checked_at or datetime.now(UTC)).isoformat(),
         "error": str(error or "")[:300] or None,
@@ -109,13 +136,18 @@ def publish_venue_observation(
         response.raise_for_status()
         print(
             f"[WEBAPP] observation published venue={venue_id}, "
-            f"healthy={healthy}, slots={slot_count}"
+            f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}"
         )
-        return {"success": True, "slot_count": slot_count}
+        return {
+            "success": True,
+            "slot_count": slot_count,
+            "observation_scope": normalized_scope,
+        }
     except Exception as exc:
         print(f"[WEBAPP] observation publishing failed venue={venue_id}, error={str(exc)[:300]}")
         return {
             "success": False,
             "error": str(exc)[:300],
             "slot_count": slot_count,
+            "observation_scope": normalized_scope,
         }
