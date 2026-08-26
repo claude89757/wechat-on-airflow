@@ -16,7 +16,7 @@ function dashboardResponse(): Response {
 }
 
 function dashboardFetchMock() {
-  return vi.fn(async () => dashboardResponse());
+  return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => dashboardResponse());
 }
 
 describe("dashboard client cache", () => {
