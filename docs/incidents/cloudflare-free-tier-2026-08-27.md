@@ -26,8 +26,10 @@ latency contract and remain unchanged.
 - The other active venue watchers remain every 30 seconds unless their existing
   repository contract already specifies another value.
 - Every real slot, venue-health, or error change is forwarded immediately.
-- An unchanged venue scope still forwards a heartbeat every five minutes, below
-  the Web application's ten-minute freshness threshold.
+- An unchanged venue/task scope still forwards a heartbeat every five minutes,
+  below the Web application's ten-minute freshness threshold.
+- Availability that disappears and then reappears is forwarded on the first
+  matching poll.
 - Subscriber email remains Web-owned and continues to drain after a forwarded
   observation.
 - No production database records are deleted by this repair.
@@ -37,11 +39,18 @@ latency contract and remain unchanged.
 ### Observation ingest
 
 `observation_ingest_state` stores one indexed fingerprint and last-forwarded
-time for each venue/date scope. `checked_at` is deliberately excluded from the
-fingerprint; venue health, error state, and normalized slot identity remain in
-it. A changed fingerprint bypasses the throttle immediately. An unchanged
-fingerprint receives a successful deduplicated response until the five-minute
-heartbeat expires.
+time for each venue/Airflow-task scope. The shared publisher obtains the current
+Airflow task ID without changing any watcher schedule or watcher call site.
+`checked_at` is deliberately excluded from the fingerprint; venue health, error
+state, and normalized slot identity remain in it. A changed fingerprint bypasses
+the throttle immediately. An unchanged fingerprint receives a successful
+deduplicated response until the five-minute heartbeat expires.
+
+A stable task scope is required for correctness. It prevents parallel day tasks
+from overwriting one another and ensures an available → empty → available state
+transition is never hidden by a recent fingerprint from a different task.
+Older Airflow publishers without the new field are accepted through a fail-open
+compatibility scope until the matching Airflow commit is deployed.
 
 This keeps all Airflow API polling intact while replacing repeated full
 subscription scans, slot upserts, outbox dedupe writes, and outbox drains with a
@@ -58,10 +67,11 @@ the same bounded batch.
 ### Dashboard
 
 Bootstrap responses are cached in the Cloudflare Cache API for at most 120
-seconds under a synthetic key derived from the verification receipt and the
-existing pepper. Receipt tokens never appear in the cache URL. Browser responses
-remain `no-store`, and subscription mutations invalidate both the caller's
-private cache entry and the anonymous aggregate entry.
+seconds under a private URL on the Worker custom-domain origin. The path contains
+only a one-way digest derived from the verification receipt and the existing
+pepper; receipt tokens never appear in the cache URL. Browser responses remain
+`no-store`, and subscription mutations invalidate both the caller's private
+cache entry and the anonymous aggregate entry.
 
 The global submitted-reminder metric now counts one `sent`
 `email_delivery_claims` row per digest for the Shanghai delivery day, backed by
@@ -71,14 +81,18 @@ deduplicating notification rows.
 ## Acceptance
 
 Before any production apply, the exact branch commit must pass `CI / verify` and
-Web deployment preflight. After an approved exact-commit deploy, observe at least
-three natural venue cycles and a full 24-hour Cloudflare window.
+protected release preflight. The Worker migration and the Airflow shared
+publisher must ship from the same exact commit. After an approved exact-commit
+deploy, observe at least three natural venue cycles and a full 24-hour Cloudflare
+window.
 
 Target outcomes:
 
 - no change to any active venue DAG schedule;
 - changed availability appears in the Web notification pipeline on the first
   matching poll;
+- an available → empty → available transition is visible without waiting for the
+  five-minute heartbeat;
 - venue health never becomes stale because of deduplication;
 - delivery-status confirmation normally updates within ten minutes;
 - Workers `exceededCpu` remains zero during the observation window;
@@ -93,6 +107,6 @@ Do not reduce Airflow venue polling frequency as a fallback.
 
 ## Rollback
 
-Rollback is the previous exact Worker commit. The new D1 table and index are
-additive and can remain unused after a Worker rollback; no destructive reverse
-migration is required.
+Rollback is the previous exact Worker and Airflow commit. The new D1 table and
+index are additive and can remain unused after a rollback; no destructive
+reverse migration is required.
