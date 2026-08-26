@@ -82,8 +82,8 @@ export async function observationSnapshot(
     slots.push(slot);
   }
 
-  const uniqueSlots = Array.from(new Map(
-    slots.map((slot) => [
+  const uniqueSlots = Array.from(new Map<string, CanonicalObservationSlot>(
+    slots.map((slot): [string, CanonicalObservationSlot] => [
       [slot.date, slot.courtName, slot.startTime, slot.endTime].join("|"),
       slot,
     ]),
