@@ -66,6 +66,7 @@ async function sha256Hex(value: string): Promise<string> {
 
 export async function observationSnapshot(
   payload: unknown,
+  now = Date.now(),
 ): Promise<ObservationSnapshot | null> {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const candidate = payload as Record<string, unknown>;
@@ -77,12 +78,17 @@ export async function observationSnapshot(
     "observationScope",
   );
   const observationScope = explicitScope || "default";
+  const checkedAt = stringField(candidate, "checked_at", "checkedAt");
+  const checkedAtMs = Date.parse(checkedAt);
   if (
     !venueId
     || venueId.length > 64
     || !venueName
     || venueName.length > 120
     || observationScope.length > 120
+    || !checkedAt
+    || !Number.isFinite(checkedAtMs)
+    || Math.abs(now - checkedAtMs) > 86_400_000
   ) {
     return null;
   }
@@ -141,7 +147,7 @@ export async function decideObservationDedupe(
   payload: unknown,
   now = Date.now(),
 ): Promise<ObservationDedupeDecision> {
-  const snapshot = await observationSnapshot(payload);
+  const snapshot = await observationSnapshot(payload, now);
   if (!snapshot) return { action: "forward", snapshot: null };
   const current = await db.prepare(
     `SELECT fingerprint, last_forwarded_at
