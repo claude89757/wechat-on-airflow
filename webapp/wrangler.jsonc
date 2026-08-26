@@ -25,7 +25,7 @@
     }
   ],
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": ["*/5 * * * *", "17 * * * *"]
   },
   "observability": {
     "enabled": true,
