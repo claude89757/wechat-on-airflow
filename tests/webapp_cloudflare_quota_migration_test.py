@@ -37,15 +37,11 @@ class WebappCloudflareQuotaMigrationTest(TestCase):
     def test_migration_creates_observation_state_and_delivery_day_index(self) -> None:
         tables = {
             row[0]
-            for row in self.database.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in self.database.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         indexes = {
             row[0]
-            for row in self.database.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index'"
-            )
+            for row in self.database.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
         }
         self.assertIn("observation_ingest_state", tables)
         self.assertIn("email_delivery_claims_day_status_idx", indexes)
@@ -55,7 +51,7 @@ class WebappCloudflareQuotaMigrationTest(TestCase):
             """
             INSERT INTO observation_ingest_state
                 (observation_key, fingerprint, last_forwarded_at)
-            VALUES ('v1:szw:empty', 'old', 100)
+            VALUES ('v2:szw:check_and_notify_day_0', 'old', 100)
             ON CONFLICT(observation_key) DO UPDATE SET
                 fingerprint = excluded.fingerprint,
                 last_forwarded_at = excluded.last_forwarded_at
@@ -65,7 +61,7 @@ class WebappCloudflareQuotaMigrationTest(TestCase):
             """
             INSERT INTO observation_ingest_state
                 (observation_key, fingerprint, last_forwarded_at)
-            VALUES ('v1:szw:empty', 'new', 200)
+            VALUES ('v2:szw:check_and_notify_day_0', 'new', 200)
             ON CONFLICT(observation_key) DO UPDATE SET
                 fingerprint = excluded.fingerprint,
                 last_forwarded_at = excluded.last_forwarded_at
@@ -76,7 +72,7 @@ class WebappCloudflareQuotaMigrationTest(TestCase):
                 """
                 SELECT fingerprint, last_forwarded_at
                   FROM observation_ingest_state
-                 WHERE observation_key = 'v1:szw:empty'
+                 WHERE observation_key = 'v2:szw:check_and_notify_day_0'
                 """
             ).fetchone(),
             ("new", 200),
