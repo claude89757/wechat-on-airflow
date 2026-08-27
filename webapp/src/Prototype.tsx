@@ -694,10 +694,10 @@ export default function Prototype() {
             <div className="weather-notice" role="status">
               <span aria-hidden="true">🌧️</span>
               <div>
-                <strong>深圳今日预计大雨，邮件推送已暂停</strong>
+                <strong>深圳今日预计大雨，普通用户邮件已暂停</strong>
                 <p>
                   预计降水 {dashboard.weatherEmailGate.precipitationMm ?? "—"} mm，
-                  达到 {dashboard.weatherEmailGate.thresholdMm} mm 阈值；微信通知不受影响。
+                  达到 {dashboard.weatherEmailGate.thresholdMm} mm 阈值；优先用户和微信通知不受影响。
                 </p>
               </div>
             </div>
@@ -1025,12 +1025,13 @@ export default function Prototype() {
               <article className="featured">
                 <span><StarIcon size={17} weight="fill" />优先用户</span>
                 <strong>{dashboard.deliveryTiers.priority} 封/天</strong>
-                <p>使用一次性趣味口令升级，并解锁 30 天、3 个月、半年和长期订阅。</p>
+                <p>使用一次性趣味口令升级，解锁长期订阅；大雨天气也正常推送邮件。</p>
               </article>
             </div>
 
             <ul className="quota-rules">
               <li><strong>每天重置：</strong>按深圳时间 00:00 重新计算。</li>
+              <li><strong>天气保障：</strong>优先用户不受降雨暂停影响，命中空位后正常发送邮件。</li>
               <li><strong>摘要计数：</strong>一封邮件可合并多个场地和时段，只计 1 封。</li>
               <li><strong>达到上限：</strong>当天后续空位邮件不发送，也不会隔天补发旧空位。</li>
               <li><strong>不计额度：</strong>邮箱验证码和微信消息不受档位限制。</li>
@@ -1044,7 +1045,7 @@ export default function Prototype() {
                   <strong>优先提醒已开启</strong>
                   <p>
                     今日还可发送 {dashboard.identity.remainingToday} 封场地摘要邮件。
-                    验证码和微信消息不受此档位限制。
+                    达到降雨暂停阈值时，优先用户邮件仍会正常发送；验证码和微信消息也不受此档位限制。
                   </p>
                 </div>
               ) : (
@@ -1152,7 +1153,7 @@ export default function Prototype() {
                   })}
                 </div>
                 {subscriptionTerm === "long_term" ? <p className="term-note">
-                  长期订阅会在优先资格有效期间自动续期，直到你主动取消；每日邮件额度和天气规则仍然适用。
+                  长期订阅会在优先资格有效期间自动续期，直到你主动取消；每日邮件额度仍然适用，降雨天气不会暂停优先用户邮件。
                 </p> : null}
               </fieldset>
 

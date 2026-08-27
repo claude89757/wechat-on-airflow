@@ -15,6 +15,9 @@ describe("deployment entry health", () => {
     expect(deploymentHealth(commit)).toEqual({
       ok: true,
       service: "zacks-tennis-alerts",
+      capabilities: {
+        priorityWeatherBypass: true,
+      },
       deploymentCommit: commit,
     });
     expect(deploymentHealth("main").deploymentCommit).toBe("unknown");

@@ -42,6 +42,10 @@ import {
 } from "./tencent-ses";
 import { evaluateWeatherEmailGate } from "./weather-email-gate";
 import {
+  partitionWeatherDeliveries,
+  weatherSuppressedForTier,
+} from "./weather-delivery-policy";
+import {
   LONG_TERM_LEASE_DAYS,
   LONG_TERM_RENEW_THRESHOLD_DAYS,
   normalizeSubscriptionTerm,
@@ -595,9 +599,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
   return json({
     generatedAt: nowIso,
     weatherEmailGate: {
-      suppressed:
-        !weatherEmailGate.sendEmail
-        && weatherEmailGate.reason === "precipitation_threshold_met",
+      suppressed: weatherSuppressedForTier(weatherEmailGate, identityTier),
       precipitationMm: weatherEmailGate.precipitationMm,
       thresholdMm: weatherEmailGate.thresholdMm,
     },
@@ -1786,23 +1788,29 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
   ).results;
   if (!pending.length) return;
 
+let sendable = pending;
+const standardPending = pending.filter((item) => item.tier === "standard");
+if (standardPending.length) {
   const weather = await evaluateWeatherEmailGate(env);
   if (!weather.sendEmail) {
+    const partition = partitionWeatherDeliveries(pending, weather);
     const suppressionReason = [
       "weather_suppressed",
       weather.forecastDate || "unknown-date",
       `${weather.precipitationMm ?? "unknown"}mm`,
       `threshold=${weather.thresholdMm}mm`,
     ].join(":");
-    const results = await env.DB.batch(pending.map((item) =>
-      env.DB.prepare(
-        `UPDATE notification_outbox
-            SET status = 'suppressed', next_attempt_at = ?, last_error = ?
-          WHERE id = ?
-            AND status IN ('pending', 'retry', 'processing')
-            AND next_attempt_at <= ?`,
-      ).bind(now, suppressionReason, item.id, now)
-    ));
+    const results = partition.suppressed.length
+      ? await env.DB.batch(partition.suppressed.map((item) =>
+        env.DB.prepare(
+          `UPDATE notification_outbox
+              SET status = 'suppressed', next_attempt_at = ?, last_error = ?
+            WHERE id = ?
+              AND status IN ('pending', 'retry', 'processing')
+              AND next_attempt_at <= ?`,
+        ).bind(now, suppressionReason, item.id, now)
+      ))
+      : [];
     const itemCount = results.reduce(
       (count, result) => count + Number(result.meta.changes || 0),
       0,
@@ -1813,8 +1821,10 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
       precipitationMm: weather.precipitationMm,
       thresholdMm: weather.thresholdMm,
       itemCount,
+      priorityBypassCount: partition.priorityBypass.length,
     }));
-    return;
+    sendable = partition.sendable;
+    if (!sendable.length) return;
   }
   if (weather.reason === "weather_unavailable") {
     console.warn(JSON.stringify({
@@ -1824,6 +1834,7 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
       reason: weather.error,
     }));
   }
+}
 
   const dayStart = shanghaiDayStart(new Date(now));
   const configuredLimit = Number(env.NOTIFICATION_DAILY_SEND_LIMIT);
@@ -1842,7 +1853,7 @@ async function drainOutbox(env: WorkerEnv): Promise<void> {
   }
 
   const grouped = new Map<string, OutboxRow[]>();
-  for (const item of pending) {
+  for (const item of sendable) {
     const rows = grouped.get(item.email) || [];
     rows.push(item);
     grouped.set(item.email, rows);
