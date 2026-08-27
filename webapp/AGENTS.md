@@ -117,3 +117,4 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   are required to generate one 30-day priority invite per email; hashed-IP and
   session limits remain enforced. The personal QR has no payment callback, so
   the product must never claim that payment was verified.
+- Weather-based email suppression applies only to standard users. An active priority tier obtained through invite redemption bypasses precipitation suppression and continues receiving reminder digests. Weather-provider failures remain fail-open for both tiers, and a verified priority identity must not see the UI's weather-paused state.

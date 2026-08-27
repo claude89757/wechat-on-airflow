@@ -15,6 +15,7 @@ import {
   recordForwardedObservation,
   type ObservationSnapshot,
 } from "./observation-dedupe";
+import { PRIORITY_WEATHER_BYPASS_ENABLED } from "./weather-delivery-policy";
 
 type DeploymentEnv = Env & {
   DEPLOYMENT_COMMIT?: string;
@@ -38,6 +39,9 @@ export function deploymentHealth(deploymentCommit?: string) {
   return {
     ok: true,
     service: "zacks-tennis-alerts",
+    capabilities: {
+      priorityWeatherBypass: PRIORITY_WEATHER_BYPASS_ENABLED,
+    },
     deploymentCommit:
       typeof deploymentCommit === "string" && /^[0-9a-f]{40}$/i.test(deploymentCommit)
         ? deploymentCommit

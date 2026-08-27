@@ -66,7 +66,11 @@ def deployment_is_propagating(payload: dict[str, Any]) -> bool:
     checks = payload.get("checks")
     if not isinstance(checks, dict) or checks.get("exact_deployment_commit") is not False:
         return False
-    other_checks = [value for name, value in checks.items() if name != "exact_deployment_commit"]
+    other_checks = [
+        value
+        for name, value in checks.items()
+        if name not in {"exact_deployment_commit", "priority_weather_bypass_enabled"}
+    ]
     return bool(other_checks) and all(value is True for value in other_checks)
 
 
@@ -85,6 +89,9 @@ def inspect_production(
     checks = {
         "health_http_ok": health_status == 200,
         "service_healthy": isinstance(health, dict) and health.get("ok") is True,
+        "priority_weather_bypass_enabled": isinstance(health, dict)
+        and isinstance(health.get("capabilities"), dict)
+        and health["capabilities"].get("priorityWeatherBypass") is True,
         "exact_deployment_commit": isinstance(health, dict)
         and health.get("deploymentCommit") == expected_commit,
         "bootstrap_http_ok": bootstrap_status == 200,
