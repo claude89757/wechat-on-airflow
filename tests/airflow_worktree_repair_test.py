@@ -42,6 +42,13 @@ class AirflowWorktreeRepairTest(TestCase):
         self.assertNotIn('"patch_file"', script)
         self.assertNotIn('"metadata_file"', script)
 
+    def test_remote_metadata_uses_python_3_8_compatible_utc(self) -> None:
+        script = repair_airflow_worktree.remote_script()
+
+        self.assertIn("from datetime import datetime, timezone", script)
+        self.assertIn("datetime.now(timezone.utc)", script)
+        self.assertNotIn("from datetime import UTC", script)
+
     def test_verification_accepts_repaired_and_already_clean_results(self) -> None:
         common = {
             "ok": True,
