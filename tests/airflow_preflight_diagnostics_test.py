@@ -49,9 +49,7 @@ class AirflowPreflightDiagnosticsTest(TestCase):
         self.assertNotIn('"secret_dir"', script)
 
     def test_protected_workflow_runs_diagnosis_before_preflight_and_apply(self) -> None:
-        workflow = (ROOT / ".github/workflows/production-airflow.yml").read_text(
-            encoding="utf-8"
-        )
+        workflow = (ROOT / ".github/workflows/production-airflow.yml").read_text(encoding="utf-8")
         diagnostic = "scripts/diagnose_airflow_deploy_preflight.py"
 
         self.assertEqual(workflow.count(diagnostic), 2)
