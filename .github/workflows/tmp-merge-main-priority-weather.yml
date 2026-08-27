@@ -1,0 +1,46 @@
+name: Temporary merge latest main for priority weather
+
+on:
+  push:
+    branches:
+      - feat/priority-weather-bypass-20260827
+    paths:
+      - .github/workflows/tmp-merge-main-priority-weather.yml
+
+permissions:
+  contents: write
+
+jobs:
+  merge-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/priority-weather-bypass-20260827
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Merge latest main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge --no-edit origin/main
+      - name: Verify merged implementation
+        run: |
+          cd webapp
+          npm ci
+          npm test
+          npm run check:worker
+          npm run build
+          cd ..
+          python -m py_compile scripts/webapp_production_health.py
+      - name: Remove temporary workflow and push
+        run: |
+          git rm .github/workflows/tmp-merge-main-priority-weather.yml
+          git commit -m "chore: remove temporary merge workflow"
+          git push origin HEAD:feat/priority-weather-bypass-20260827
