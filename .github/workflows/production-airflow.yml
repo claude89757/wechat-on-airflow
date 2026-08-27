@@ -129,9 +129,14 @@ jobs:
                 --expected-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_preflight)
-              PYTHONPATH=src python scripts/deploy_airflow.py --target-commit "$TARGET_COMMIT" --format json
+              PYTHONPATH=scripts python scripts/diagnose_airflow_deploy_preflight.py \
+                --target-commit "$TARGET_COMMIT" --format json
+              PYTHONPATH=src python scripts/deploy_airflow.py \
+                --target-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_apply)
+              PYTHONPATH=scripts python scripts/diagnose_airflow_deploy_preflight.py \
+                --target-commit "$TARGET_COMMIT" --format json
               PYTHONPATH=src python scripts/deploy_airflow_transaction.py \
                 --target-commit "$TARGET_COMMIT" --format json
               ;;
