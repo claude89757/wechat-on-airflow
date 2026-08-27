@@ -9,6 +9,7 @@ from typing import Any
 from _ops import OpsError, airflow_remote, emit, run, ssh_command
 
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+# Protected preflight accepts only a clean checkout or exactly one backed-up drift.
 
 
 def resolve_target_commit(revision: str) -> str:
