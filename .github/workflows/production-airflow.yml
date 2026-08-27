@@ -129,6 +129,11 @@ jobs:
                 --expected-commit "$TARGET_COMMIT" --format json
               ;;
             deploy_preflight)
+              PYTHONPATH=scripts python scripts/repair_airflow_worktree.py \
+                --target-commit "$TARGET_COMMIT" \
+                --expected-dirty-count 1 \
+                --if-needed \
+                --format json
               PYTHONPATH=scripts python scripts/diagnose_airflow_deploy_preflight.py \
                 --target-commit "$TARGET_COMMIT" --format json
               PYTHONPATH=src python scripts/deploy_airflow.py \
