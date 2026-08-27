@@ -114,9 +114,11 @@ class WebappNotificationTest(TestCase):
             ],
             healthy=True,
             checked_at=datetime(2026, 7, 29, 2, 0, tzinfo=UTC),
+            observation_scope="check_and_notify_day_0",
         )
 
         self.assertTrue(result["success"])
+        self.assertEqual(result["observation_scope"], "check_and_notify_day_0")
         request = post.call_args
         self.assertEqual(request.kwargs["timeout"], 3)
         self.assertEqual(
@@ -124,7 +126,46 @@ class WebappNotificationTest(TestCase):
             "Bearer secret-token",
         )
         self.assertEqual(request.kwargs["json"]["venue_id"], "szw")
+        self.assertEqual(
+            request.kwargs["json"]["observation_scope"],
+            "check_and_notify_day_0",
+        )
         self.assertEqual(len(request.kwargs["json"]["slots"]), 1)
+
+    @patch("wechat_airflow.notifications.webapp.requests.post")
+    @patch(
+        "wechat_airflow.notifications.webapp._current_observation_scope",
+        return_value="check_and_notify_day_2",
+    )
+    @patch("wechat_airflow.notifications.webapp._get_variable")
+    def test_uses_current_airflow_task_as_default_scope(
+        self,
+        get_variable,
+        _current_observation_scope,
+        post,
+    ):
+        values = {
+            webapp.WEBAPP_OBSERVATION_API_URL_VAR: "https://example.test/api/internal/observations",
+            webapp.WEBAPP_OBSERVATION_API_TOKEN_VAR: "secret-token",
+        }
+        get_variable.side_effect = lambda key, default=None: values.get(key, default)
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        post.return_value = response
+
+        result = webapp.publish_venue_observation(
+            "szw",
+            "深圳湾",
+            [],
+            healthy=True,
+        )
+
+        self.assertTrue(result["success"])
+        _current_observation_scope.assert_called_once_with()
+        self.assertEqual(
+            post.call_args.kwargs["json"]["observation_scope"],
+            "check_and_notify_day_2",
+        )
 
     @patch("wechat_airflow.notifications.webapp.requests.post")
     @patch("wechat_airflow.notifications.webapp._get_variable")
