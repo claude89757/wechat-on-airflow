@@ -140,11 +140,11 @@ METADATA_FILE="$metadata_file" \
 python3 - <<'PY'
 import json
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 metadata = {
     "backup_id": os.environ["BACKUP_ID"],
-    "created_at": datetime.now(UTC).isoformat(),
+    "created_at": datetime.now(timezone.utc).isoformat(),
     "current_commit": os.environ["CURRENT_COMMIT"],
     "operation_commit": os.environ["OPERATION_COMMIT"],
     "patch_sha256": os.environ["PATCH_SHA256"],
