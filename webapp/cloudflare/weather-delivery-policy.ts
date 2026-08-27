@@ -1,6 +1,8 @@
 import type { DeliveryTier } from "./delivery-tiers";
 import type { WeatherEmailGateDecision } from "./weather-email-gate";
 
+// Exposed through /api/healthz so production acceptance verifies the active
+// Worker contains the same tier-specific weather contract as the tested code.
 export const PRIORITY_WEATHER_BYPASS_ENABLED = true;
 
 export type TieredWeatherDelivery = {
