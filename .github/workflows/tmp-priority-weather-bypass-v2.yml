@@ -1,0 +1,369 @@
+name: Temporary priority weather bypass patch v2
+
+on:
+  push:
+    branches:
+      - feat/priority-weather-bypass-20260827
+    paths:
+      - .github/workflows/tmp-priority-weather-bypass-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/priority-weather-bypass-20260827
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Apply implementation patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          root = Path.cwd()
+
+          def replace_once(path: str, old: str, new: str, label: str) -> None:
+              file_path = root / path
+              text = file_path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one target in {path}, found {count}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def replace_between(path: str, anchor: str, start_marker: str, end_marker: str, new: str, label: str) -> None:
+              file_path = root / path
+              text = file_path.read_text(encoding="utf-8")
+              anchor_at = text.find(anchor)
+              start_at = text.find(start_marker, anchor_at)
+              end_at = text.find(end_marker, start_at)
+              if anchor_at < 0 or start_at < 0 or end_at < 0:
+                  raise SystemExit(f"{label}: markers not found in {path}")
+              file_path.write_text(text[:start_at] + new + text[end_at:], encoding="utf-8")
+
+          (root / "webapp/cloudflare/weather-delivery-policy.ts").write_text(dedent('''\
+          import type { DeliveryTier } from "./delivery-tiers";
+          import type { WeatherEmailGateDecision } from "./weather-email-gate";
+
+          export const PRIORITY_WEATHER_BYPASS_ENABLED = true;
+
+          export type TieredWeatherDelivery = {
+            tier: DeliveryTier;
+          };
+
+          function precipitationSuppressionActive(
+            decision: WeatherEmailGateDecision,
+          ): boolean {
+            return (
+              !decision.sendEmail
+              && decision.reason === "precipitation_threshold_met"
+            );
+          }
+
+          export function weatherSuppressedForTier(
+            decision: WeatherEmailGateDecision,
+            tier: DeliveryTier,
+          ): boolean {
+            return precipitationSuppressionActive(decision) && tier === "standard";
+          }
+
+          export function partitionWeatherDeliveries<T extends TieredWeatherDelivery>(
+            items: T[],
+            decision: WeatherEmailGateDecision,
+          ): {
+            sendable: T[];
+            suppressed: T[];
+            priorityBypass: T[];
+          } {
+            const sendable: T[] = [];
+            const suppressed: T[] = [];
+            const priorityBypass: T[] = [];
+            for (const item of items) {
+              if (weatherSuppressedForTier(decision, item.tier)) {
+                suppressed.push(item);
+                continue;
+              }
+              sendable.push(item);
+              if (precipitationSuppressionActive(decision) && item.tier === "priority") {
+                priorityBypass.push(item);
+              }
+            }
+            return { sendable, suppressed, priorityBypass };
+          }
+          '''), encoding="utf-8")
+
+          (root / "webapp/cloudflare/weather-delivery-policy.test.ts").write_text(dedent('''\
+          import { describe, expect, it } from "vitest";
+
+          import {
+            partitionWeatherDeliveries,
+            weatherSuppressedForTier,
+          } from "./weather-delivery-policy";
+          import type { WeatherEmailGateDecision } from "./weather-email-gate";
+
+          const HEAVY_RAIN: WeatherEmailGateDecision = {
+            sendEmail: false,
+            reason: "precipitation_threshold_met",
+            forecastDate: "2026-08-27",
+            precipitationMm: 32,
+            thresholdMm: 25,
+            error: null,
+          };
+
+          describe("tier-aware weather delivery policy", () => {
+            it("suppresses standard users but lets priority users bypass heavy rain", () => {
+              const standard = { id: "standard", tier: "standard" as const };
+              const priority = { id: "priority", tier: "priority" as const };
+              const result = partitionWeatherDeliveries([standard, priority], HEAVY_RAIN);
+
+              expect(result.suppressed).toEqual([standard]);
+              expect(result.sendable).toEqual([priority]);
+              expect(result.priorityBypass).toEqual([priority]);
+              expect(weatherSuppressedForTier(HEAVY_RAIN, "standard")).toBe(true);
+              expect(weatherSuppressedForTier(HEAVY_RAIN, "priority")).toBe(false);
+            });
+
+            it("sends both tiers below the threshold", () => {
+              const result = partitionWeatherDeliveries([
+                { id: "standard", tier: "standard" as const },
+                { id: "priority", tier: "priority" as const },
+              ], {
+                ...HEAVY_RAIN,
+                sendEmail: true,
+                reason: "precipitation_below_threshold",
+                precipitationMm: 4,
+              });
+              expect(result.sendable).toHaveLength(2);
+              expect(result.suppressed).toEqual([]);
+              expect(result.priorityBypass).toEqual([]);
+            });
+
+            it("keeps weather-provider failures fail-open for both tiers", () => {
+              const result = partitionWeatherDeliveries([
+                { id: "standard", tier: "standard" as const },
+                { id: "priority", tier: "priority" as const },
+              ], {
+                ...HEAVY_RAIN,
+                sendEmail: true,
+                reason: "weather_unavailable",
+                precipitationMm: null,
+                error: "timeout",
+              });
+              expect(result.sendable).toHaveLength(2);
+              expect(result.suppressed).toEqual([]);
+            });
+          });
+          '''), encoding="utf-8")
+
+          replace_once(
+              "webapp/cloudflare/index.ts",
+              'import { evaluateWeatherEmailGate } from "./weather-email-gate";\n',
+              'import { evaluateWeatherEmailGate } from "./weather-email-gate";\n'
+              'import {\n'
+              '  partitionWeatherDeliveries,\n'
+              '  weatherSuppressedForTier,\n'
+              '} from "./weather-delivery-policy";\n',
+              "index import",
+          )
+          replace_once(
+              "webapp/cloudflare/index.ts",
+              '      suppressed:\n'
+              '        !weatherEmailGate.sendEmail\n'
+              '        && weatherEmailGate.reason === "precipitation_threshold_met",\n',
+              '      suppressed: weatherSuppressedForTier(weatherEmailGate, identityTier),\n',
+              "identity-aware weather notice",
+          )
+          replace_between(
+              "webapp/cloudflare/index.ts",
+              "async function drainOutbox",
+              "  const weather = await evaluateWeatherEmailGate(env);\n",
+              "\n  const dayStart = shanghaiDayStart(new Date(now));",
+              dedent('''\
+                let sendable = pending;
+                const standardPending = pending.filter((item) => item.tier === "standard");
+                if (standardPending.length) {
+                  const weather = await evaluateWeatherEmailGate(env);
+                  if (!weather.sendEmail) {
+                    const partition = partitionWeatherDeliveries(pending, weather);
+                    const suppressionReason = [
+                      "weather_suppressed",
+                      weather.forecastDate || "unknown-date",
+                      `${weather.precipitationMm ?? "unknown"}mm`,
+                      `threshold=${weather.thresholdMm}mm`,
+                    ].join(":");
+                    const results = partition.suppressed.length
+                      ? await env.DB.batch(partition.suppressed.map((item) =>
+                        env.DB.prepare(
+                          `UPDATE notification_outbox
+                              SET status = 'suppressed', next_attempt_at = ?, last_error = ?
+                            WHERE id = ?
+                              AND status IN ('pending', 'retry', 'processing')
+                              AND next_attempt_at <= ?`,
+                        ).bind(now, suppressionReason, item.id, now)
+                      ))
+                      : [];
+                    const itemCount = results.reduce(
+                      (count, result) => count + Number(result.meta.changes || 0),
+                      0,
+                    );
+                    console.log(JSON.stringify({
+                      event: "notification_weather_suppressed",
+                      forecastDate: weather.forecastDate,
+                      precipitationMm: weather.precipitationMm,
+                      thresholdMm: weather.thresholdMm,
+                      itemCount,
+                      priorityBypassCount: partition.priorityBypass.length,
+                    }));
+                    sendable = partition.sendable;
+                    if (!sendable.length) return;
+                  }
+                  if (weather.reason === "weather_unavailable") {
+                    console.warn(JSON.stringify({
+                      event: "notification_weather_gate_fail_open",
+                      forecastDate: weather.forecastDate,
+                      thresholdMm: weather.thresholdMm,
+                      reason: weather.error,
+                    }));
+                  }
+                }
+              '''),
+              "tier-aware weather gate",
+          )
+          replace_once(
+              "webapp/cloudflare/index.ts",
+              "  const grouped = new Map<string, OutboxRow[]>();\n  for (const item of pending) {\n",
+              "  const grouped = new Map<string, OutboxRow[]>();\n  for (const item of sendable) {\n",
+              "sendable grouping",
+          )
+
+          replace_once(
+              "webapp/cloudflare/deployment-entry.ts",
+              '} from "./observation-dedupe";\n',
+              '} from "./observation-dedupe";\n'
+              'import { PRIORITY_WEATHER_BYPASS_ENABLED } from "./weather-delivery-policy";\n',
+              "health capability import",
+          )
+          replace_once(
+              "webapp/cloudflare/deployment-entry.ts",
+              '    service: "zacks-tennis-alerts",\n    deploymentCommit:\n',
+              '    service: "zacks-tennis-alerts",\n'
+              '    capabilities: {\n'
+              '      priorityWeatherBypass: PRIORITY_WEATHER_BYPASS_ENABLED,\n'
+              '    },\n'
+              '    deploymentCommit:\n',
+              "health capability",
+          )
+          replace_once(
+              "webapp/cloudflare/deployment-entry.test.ts",
+              '      service: "zacks-tennis-alerts",\n      deploymentCommit: commit,\n',
+              '      service: "zacks-tennis-alerts",\n'
+              '      capabilities: {\n'
+              '        priorityWeatherBypass: true,\n'
+              '      },\n'
+              '      deploymentCommit: commit,\n',
+              "health capability test",
+          )
+
+          replace_once(
+              "scripts/webapp_production_health.py",
+              '    other_checks = [value for name, value in checks.items() if name != "exact_deployment_commit"]\n',
+              '    other_checks = [\n'
+              '        value\n'
+              '        for name, value in checks.items()\n'
+              '        if name not in {"exact_deployment_commit", "priority_weather_bypass_enabled"}\n'
+              '    ]\n',
+              "propagation capability exclusion",
+          )
+          replace_once(
+              "scripts/webapp_production_health.py",
+              '        "service_healthy": isinstance(health, dict) and health.get("ok") is True,\n'
+              '        "exact_deployment_commit": isinstance(health, dict)\n',
+              '        "service_healthy": isinstance(health, dict) and health.get("ok") is True,\n'
+              '        "priority_weather_bypass_enabled": isinstance(health, dict)\n'
+              '        and isinstance(health.get("capabilities"), dict)\n'
+              '        and health["capabilities"].get("priorityWeatherBypass") is True,\n'
+              '        "exact_deployment_commit": isinstance(health, dict)\n',
+              "production capability check",
+          )
+
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              "深圳今日预计大雨，邮件推送已暂停",
+              "深圳今日预计大雨，普通用户邮件已暂停",
+              "weather notice title",
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              "达到 {dashboard.weatherEmailGate.thresholdMm} mm 阈值；微信通知不受影响。",
+              "达到 {dashboard.weatherEmailGate.thresholdMm} mm 阈值；优先用户和微信通知不受影响。",
+              "weather notice detail",
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              "使用一次性趣味口令升级，并解锁 30 天、3 个月、半年和长期订阅。",
+              "使用一次性趣味口令升级，解锁长期订阅；大雨天气也正常推送邮件。",
+              "priority tier description",
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              "              <li><strong>每天重置：</strong>按深圳时间 00:00 重新计算。</li>\n",
+              "              <li><strong>每天重置：</strong>按深圳时间 00:00 重新计算。</li>\n"
+              "              <li><strong>天气保障：</strong>优先用户不受降雨暂停影响，命中空位后正常发送邮件。</li>\n",
+              "priority weather rule",
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              "验证码和微信消息不受此档位限制。",
+              "达到降雨暂停阈值时，优先用户邮件仍会正常发送；验证码和微信消息也不受此档位限制。",
+              "priority active detail",
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              "长期订阅会在优先资格有效期间自动续期，直到你主动取消；每日邮件额度和天气规则仍然适用。",
+              "长期订阅会在优先资格有效期间自动续期，直到你主动取消；每日邮件额度仍然适用，降雨天气不会暂停优先用户邮件。",
+              "long-term note",
+          )
+
+          agents_path = root / "webapp/AGENTS.md"
+          agents = agents_path.read_text(encoding="utf-8")
+          if "Weather-based email suppression applies only to standard users" not in agents:
+              agents_path.write_text(
+                  agents.rstrip()
+                  + "\n- Weather-based email suppression applies only to standard users. An active "
+                  + "priority tier obtained through invite redemption bypasses precipitation "
+                  + "suppression and continues receiving reminder digests. Weather-provider "
+                  + "failures remain fail-open for both tiers, and a verified priority identity "
+                  + "must not see the UI's weather-paused state.\n",
+                  encoding="utf-8",
+              )
+
+          for workflow in (
+              ".github/workflows/tmp-priority-weather-bypass.yml",
+              ".github/workflows/tmp-priority-weather-bypass-v2.yml",
+          ):
+              (root / workflow).unlink(missing_ok=True)
+          PY
+      - name: Verify implementation
+        working-directory: webapp
+        run: |
+          npm ci
+          npm test
+          npm run check:worker
+          npm run build
+          python -m py_compile ../scripts/webapp_production_health.py
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(webapp): let priority users bypass weather suppression"
+          git push origin HEAD:feat/priority-weather-bypass-20260827
