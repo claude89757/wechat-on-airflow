@@ -1,3 +1,9 @@
+import {
+  SUBSCRIBER_REMINDER_CATEGORY,
+  waitForSubscriberReminderWindow,
+  type PriorityEmailGateEnv,
+} from "./priority-email-delivery";
+
 export type TencentSecrets = {
   TENCENT_SECRET_ID: string;
   TENCENT_SECRET_KEY: string;
@@ -6,6 +12,8 @@ export type TencentSecrets = {
   EMAIL_REPLY_TO: string;
   EMAIL_TEMPLATE_ID: string;
 };
+
+type TencentEmailEnv = TencentSecrets & PriorityEmailGateEnv;
 
 export type TencentEmailStatus = {
   MessageId?: string;
@@ -101,12 +109,19 @@ async function callTencentSes<T>(
 }
 
 export async function sendTencentTemplateEmail(
-  env: TencentSecrets,
+  env: TencentEmailEnv,
   recipient: string,
   subject: string,
   body: string,
-  category = "场地提醒",
+  category = SUBSCRIBER_REMINDER_CATEGORY,
 ): Promise<{ messageId: string | null; requestId: string | null }> {
+  // Only subscriber venue reminders participate in the priority lane. Email
+  // verification and expiry/system mail pass an explicit category and remain
+  // immediate so a reminder backlog cannot delay account access or lifecycle mail.
+  if (category === SUBSCRIBER_REMINDER_CATEGORY) {
+    await waitForSubscriberReminderWindow(env, recipient);
+  }
+
   const result = await callTencentSes<{ MessageId?: string }>(env, "SendEmail", {
     FromEmailAddress: env.EMAIL_FROM_ADDRESS,
     Destination: [recipient],
