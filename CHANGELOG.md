@@ -5,6 +5,18 @@ and operational changes.
 
 ## Unreleased
 
+## [0.2.4] - 2026-08-28
+
+### Changed
+
+- Submit priority-user venue reminder digests before standard-user digests and
+  keep a full ten-second lead after the latest priority submission attempt
+  completes, including across concurrent Cloudflare Worker drains.
+- Keep email verification and subscription-expiry messages outside the reminder
+  priority gate, preserve every existing venue polling schedule, and defer a
+  standard reminder instead of submitting it early when priority work remains
+  active beyond one bounded Worker wait.
+
 ## [0.2.3] - 2026-08-23
 
 ### Changed

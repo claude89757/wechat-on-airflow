@@ -15,6 +15,15 @@ const SECRETS = {
   EMAIL_TEMPLATE_ID: "33340",
 };
 
+function successfulSendResponse(messageId = "message-id"): Response {
+  return new Response(
+    JSON.stringify({
+      Response: { MessageId: messageId, RequestId: "request-id" },
+    }),
+    { status: 200 },
+  );
+}
+
 describe("Tencent SES TC3 request", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -23,14 +32,7 @@ describe("Tencent SES TC3 request", () => {
 
   it("matches the Tencent SDK canonical signed headers", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_785_249_600_000);
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          Response: { MessageId: "message-id", RequestId: "request-id" },
-        }),
-        { status: 200 },
-      ),
-    );
+    const fetchMock = vi.fn().mockResolvedValue(successfulSendResponse());
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await sendTencentTemplateEmail(
@@ -53,6 +55,57 @@ describe("Tencent SES TC3 request", () => {
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers.Authorization).toContain("SignedHeaders=content-type;host");
     expect(headers.Authorization).not.toContain("x-tc-action");
+  });
+
+  it("checks the D1 priority lane before a subscriber reminder", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_785_249_600_000);
+    const fetchMock = vi.fn().mockResolvedValue(successfulSendResponse("priority-aware"));
+    vi.stubGlobal("fetch", fetchMock);
+    const first = vi.fn().mockResolvedValue({
+      recipient_tier: "standard",
+      priority_outstanding: 0,
+      last_priority_completed_at: null,
+    });
+    const bind = vi.fn(() => ({ first }));
+    const prepare = vi.fn(() => ({ bind }));
+
+    const result = await sendTencentTemplateEmail(
+      { ...SECRETS, DB: { prepare } as unknown as D1Database },
+      "recipient@example.com",
+      "subject",
+      "body",
+    );
+
+    expect(result.messageId).toBe("priority-aware");
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(bind).toHaveBeenCalledWith(
+      "recipient@example.com",
+      1_785_249_600_000,
+      "2026-07-28",
+      1_785_249_590_000,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not gate verification and other explicit system categories", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_785_249_600_000);
+    const fetchMock = vi.fn().mockResolvedValue(successfulSendResponse("verification"));
+    vi.stubGlobal("fetch", fetchMock);
+    const prepare = vi.fn(() => {
+      throw new Error("priority gate must not run");
+    });
+
+    const result = await sendTencentTemplateEmail(
+      { ...SECRETS, DB: { prepare } as unknown as D1Database },
+      "recipient@example.com",
+      "subject",
+      "body",
+      "邮箱验证",
+    );
+
+    expect(result.messageId).toBe("verification");
+    expect(prepare).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("prefers the send date embedded in the provider MessageId", () => {
