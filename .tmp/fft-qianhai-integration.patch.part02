@@ -1,0 +1,211 @@
++            if proxy is not None:
++                update_proxy_cache(venue.proxy_cache_key, proxy, False)
+ 
+     if successful_proxy:
+         update_proxy_cache(venue.proxy_cache_key, successful_proxy, True)
+     if got_response and response is not None:
+-        return parse_availability(cast(object, response.json()))
++        return parse_availability(
++            cast(object, response.json()),
++            venue.excluded_court_tokens,
++            venue.allowed_court_numbers,
++        )
+     raise Exception("all proxies failed")
+ 
+ 
+@@ -448,6 +519,17 @@ def run_check(venue: PosPalVenue) -> None:
+         error="; ".join(webapp_errors) or None,
+     )
+ 
++    baseline_initialized = True
++    if venue.notification_baseline_key:
++        baseline_state = _as_mapping(
++            Variable.get(
++                venue.notification_baseline_key,
++                deserialize_json=True,
++                default={},
++            )
++        )
++        baseline_initialized = baseline_state.get("initialized") is True
++
+     if up_for_send_data_list:
+         sended_msg_list = _as_str_list(
+             Variable.get(venue.cache_key, deserialize_json=True, default=[])
+@@ -464,6 +546,23 @@ def run_check(venue: PosPalVenue) -> None:
+                 ),
+                 serialize_json=True,
+             )
+-            enqueue_wechat_message(venue, "\n".join(up_for_send_msg_list))
++            if baseline_initialized:
++                enqueue_wechat_message(venue, "\n".join(up_for_send_msg_list))
++            else:
++                print_with_timestamp(
++                    f"{venue.venue_name} first successful observation initialized "
++                    f"{len(up_for_send_msg_list)} notification baselines without delivery"
++                )
++
++    if venue.notification_baseline_key and not baseline_initialized and not webapp_errors:
++        Variable.set(
++            key=venue.notification_baseline_key,
++            value={
++                "initialized": True,
++                "initialized_at": datetime.datetime.now().isoformat(),
++            },
++            description=f"{venue.venue_name} notification warm-start marker",
++            serialize_json=True,
++        )
+ 
+     print_with_timestamp(f"Total cost time: {time.time() - run_start_time:.2f}s")
+diff --git a/tests/ops_scripts_test.py b/tests/ops_scripts_test.py
+index 9a4cf9702d5360258a35328826034f456393ebd6..220b93274116221e4f1b35e5e94332bda6566ac8 100644
+--- a/tests/ops_scripts_test.py
++++ b/tests/ops_scripts_test.py
+@@ -456,11 +456,12 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
+     def test_quiesce_is_scoped_and_preserves_incident_outbox(self):
+         script = quiesce_wechat_delivery.remote_script()
+ 
+-        self.assertEqual(len(quiesce_wechat_delivery.WECHAT_DAG_IDS), 14)
++        self.assertEqual(len(quiesce_wechat_delivery.WECHAT_DAG_IDS), 15)
+         self.assertIn("大沙河国际网球中心巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
+         self.assertIn("泛思博特深云网球场巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
+         self.assertIn("PICKLEPOP宝安网球场巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
+-        self.assertIn("expected_paused = 14", script)
++        self.assertIn("FFTENNIS前海国际网球中心巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
++        self.assertIn("expected_paused = 15", script)
+         self.assertIn(
+             "compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer",
+             script,
+@@ -490,7 +491,7 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
+ 
+     def test_quiesce_requires_paused_dags_and_no_active_work(self):
+         quiet = {
+-            "paused_wechat_dags": 14,
++            "paused_wechat_dags": 15,
+             "active_wechat_task_instances": 0,
+             "active_wechat_dag_runs": 0,
+         }
+diff --git a/tests/pospal_venue_test.py b/tests/pospal_venue_test.py
+index 2cdee79b69fc8a1007d1040e10194c0529d7234d..41b4e7efbb525fa26b05e43223422825a5af518b 100644
+--- a/tests/pospal_venue_test.py
++++ b/tests/pospal_venue_test.py
+@@ -70,6 +70,7 @@ install_import_stubs()
+ pospal_venue = importlib.import_module("wechat_airflow.venues.pospal_venue")
+ pospal_venue.Variable = FakeVariable
+ fsb_shenyun_watcher = importlib.import_module("wechat_airflow.venues.fsb_shenyun_watcher")
++fft_qianhai_watcher = importlib.import_module("wechat_airflow.venues.fft_qianhai_watcher")
+ 
+ 
+ class PosPalVenueTest(unittest.TestCase):
+@@ -134,6 +135,98 @@ class PosPalVenueTest(unittest.TestCase):
+             },
+         )
+ 
++    def test_fft_qianhai_configuration_matches_verified_public_ids(self) -> None:
++        venue = pospal_venue.FFT_QIANHAI
++
++        self.assertEqual(venue.venue_id, "fft_qianhai")
++        self.assertEqual(venue.venue_name, "FFTENNIS前海国际网球中心")
++        self.assertEqual(venue.store_id, "5934657")
++        self.assertEqual(venue.project_uid, "1756717886546691955")
++        self.assertTrue(venue.try_direct_first)
++        self.assertTrue(venue.include_user_id)
++        self.assertEqual(venue.notification_baseline_key, "FFT_QIANHAI_NOTIFICATION_BASELINE")
++        self.assertIn("非标", venue.excluded_court_tokens)
++        self.assertIn("发球机", venue.excluded_court_tokens)
++        self.assertEqual(venue.allowed_court_numbers, frozenset(range(1, 7)))
++
++    def test_fft_qianhai_direct_query_uses_miniprogram_contract_and_filters_rooms(self) -> None:
++        original_post = pospal_venue.requests.post
++        original_sleep = pospal_venue.time.sleep
++        captured: dict[str, object] = {}
++
++        class FakeResponse:
++            status_code = 200
++
++            @staticmethod
++            def json() -> dict[str, object]:
++                return {
++                    "successed": True,
++                    "status": "success",
++                    "result": {
++                        "validClassRooms": [{"name": "1号标准双打场"}],
++                        "slots": [
++                            {
++                                "classRoomName": "1号标准双打场",
++                                "beginDatetime": "2026-08-30 18:00:00",
++                                "endDatetime": "2026-08-30 18:59:00",
++                                "apptInfo": {"canApptOrNot": True},
++                            },
++                            {
++                                "classRoomName": "7号非标单打场",
++                                "beginDatetime": "2026-08-30 18:00:00",
++                                "endDatetime": "2026-08-30 18:59:00",
++                                "apptInfo": {"canApptOrNot": True},
++                            },
++                            {
++                                "classRoomName": "9号发球机场",
++                                "beginDatetime": "2026-08-30 18:00:00",
++                                "endDatetime": "2026-08-30 18:59:00",
++                                "apptInfo": {"canApptOrNot": True},
++                            },
++                            {
++                                "classRoomName": "11号标准双打场",
++                                "beginDatetime": "2026-08-30 18:00:00",
++                                "endDatetime": "2026-08-30 18:59:00",
++                                "apptInfo": {"canApptOrNot": True},
++                            },
++                        ],
++                    },
++                }
++
++        def fake_post(url: str, **kwargs: object) -> FakeResponse:
++            captured["url"] = url
++            captured.update(kwargs)
++            return FakeResponse()
++
++        pospal_venue.requests.post = fake_post
++        pospal_venue.time.sleep = lambda *_args, **_kwargs: None
++        try:
++            result = pospal_venue.get_tennis_court_availability(
++                pospal_venue.FFT_QIANHAI, "2026-08-30", []
++            )
++        finally:
++            pospal_venue.requests.post = original_post
++            pospal_venue.time.sleep = original_sleep
++
++        self.assertEqual(result, {"1号标准双打场": [["18:00", "19:00"]]})
++        self.assertEqual(captured["url"], pospal_venue.POSPAL_API_URL)
++        self.assertNotIn("proxies", captured)
++        self.assertEqual(
++            captured["json"],
++            {
++                "dateTime": "2026-08-30",
++                "projectUid": "1756717886546691955",
++                "userId": 5934657,
++            },
++        )
++        headers = captured["headers"]
++        self.assertIsInstance(headers, dict)
++        assert isinstance(headers, dict)
++        self.assertEqual(headers["STOREID"], "5934657")
++        self.assertEqual(headers["PSPLVISITORAUTO"], "API")
++        self.assertEqual(headers["APPTYPE"], "1")
++        self.assertEqual(headers["VERSIONINFO"], "NC|2026.07.25")
++
+     def test_empty_proxy_list_does_not_call_api_directly(self) -> None:
+         original_post = pospal_venue.requests.post
+ 
+@@ -184,6 +277,69 @@ class PosPalVenueTest(unittest.TestCase):
+             )
+         )
+ 
++    def test_fft_first_successful_observation_warm_starts_without_wechat(self) -> None:
++        expected_msg = (
++            "【FFTENNIS前海国际网球中心1号标准双打场】"
++            "星期日(08-30)空场: 18:00-20:00"
++        )
++        original_load_proxy = pospal_venue.load_proxy_list
++        original_get_availability = pospal_venue.get_tennis_court_availability
++        original_publish = pospal_venue.publish_venue_observation
++        original_enqueue = pospal_venue.enqueue_wechat_message
++        original_datetime = pospal_venue.datetime
