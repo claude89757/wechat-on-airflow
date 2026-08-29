@@ -227,15 +227,21 @@ jobs:
                 -f sha="$head_sha" \
                 -f merge_method="squash" 2>/dev/null || true
             )"
-            merged="$(jq -r '.merged // false' <<<"${merge_response:-{}}")"
+            if [[ -z "$merge_response" ]]; then
+              merge_response='{}'
+            fi
+            merged="$(jq -r '.merged // false' <<<"$merge_response")"
 
             if [[ "$merged" == "true" ]]; then
+              gh issue edit "$number" \
+                --repo "$REPO" \
+                --remove-label "automerge:blocked" >/dev/null 2>&1 || true
               echo "Merged #$number after protected branch checks passed."
             else
               gh issue edit "$number" \
                 --repo "$REPO" \
                 --add-label "automerge:blocked" >/dev/null
-              message="$(jq -r '.message // "GitHub rejected the merge"' <<<"${merge_response:-{}}")"
+              message="$(jq -r '.message // "GitHub rejected the merge"' <<<"$merge_response")"
               echo "Left #$number open: $message"
             fi
           done
