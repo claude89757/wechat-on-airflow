@@ -15,6 +15,7 @@ class WebappNotificationTest(TestCase):
             "sysh_watcher.py": "run_check_tennis_courts",
             "tops_watcher.py": "run_check_tennis_courts",
             "fsb_watcher.py": "run_check_tennis_courts",
+            "ppba_watcher.py": "run_check_tennis_courts",
             "tyzx_watcher.py": "run_check_tennis_courts",
             "dashahe_free_watcher.py": "run_check_dashahe_free_courts",
             "dsh_ydmap_watcher.py": "run_check_tennis_courts",

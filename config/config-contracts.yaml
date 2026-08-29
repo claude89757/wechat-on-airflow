@@ -61,6 +61,12 @@ variables:
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve
+  PPBA_PROXY_CACHE:
+    type: json_list
+    required_by: [PICKLEPOP宝安网球场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
   TYZX_SUCCESSFUL_PROXIES_CACHE:
     type: json_list
     required_by: [深圳市体育中心网球场巡检]
@@ -76,6 +82,7 @@ variables:
       - 上越沙河网球场巡检
       - TOPS科技园网球场巡检
       - 泛思博特福中福网球场巡检
+      - PICKLEPOP宝安网球场巡检
       - 大沙河国际网球中心巡检
     sensitive: true
   SZ_TYZX_TENNIS_CHATROOMS:
@@ -145,6 +152,13 @@ variables:
   泛思博特福中福网球场:
     type: json_list
     required_by: [泛思博特福中福网球场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  PICKLEPOP宝安网球场:
+    type: json_list
+    required_by: [PICKLEPOP宝安网球场巡检]
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve

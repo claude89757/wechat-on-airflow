@@ -62,6 +62,7 @@ const VENUE_ACCENTS: Record<VenueId, string> = {
   sysh: "blue",
   tops: "royal",
   fsb: "blue",
+  ppba: "royal",
   tyzx: "cyan",
   jdwx: "green",
 };
@@ -74,6 +75,7 @@ const VENUE_ICONS: Record<VenueId, React.ElementType> = {
   sysh: TennisBallIcon,
   tops: BuildingsIcon,
   fsb: MapPinIcon,
+  ppba: TennisBallIcon,
   tyzx: CourtBasketballIcon,
   jdwx: BuildingApartmentIcon,
 };

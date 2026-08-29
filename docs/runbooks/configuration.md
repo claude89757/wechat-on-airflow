@@ -58,12 +58,14 @@ not an email event. Only zero-price slices with `status=200` are published.
 
 ## PosPal Venue Booking
 
-TOPS and 泛思博特福中福 query the same public PosPal appointment endpoint with a
-store ID and project UID that live in the adapter. They do not use a login
-token or visitor header, so no additional Airflow secret is required when the
-venue is added. WeChat alerts use the shared `SZ_TENNIS_CHATROOMS` list.
-Application-managed `TOPS_PROXY_CACHE`, `FSB_PROXY_CACHE`, and the venue
-dedupe caches are created on the first successful run.
+TOPS, 泛思博特福中福, and PICKLE POP宝安 query the same public PosPal
+appointment endpoint with a store ID and project UID that live in the adapter.
+They do not use a login token or visitor header, so no additional Airflow
+secret is required when the venue is added. WeChat alerts use the shared
+`SZ_TENNIS_CHATROOMS` list. PICKLE POP宝安 publishes tennis courts only and
+drops pickleball rooms. Application-managed `TOPS_PROXY_CACHE`,
+`FSB_PROXY_CACHE`, `PPBA_PROXY_CACHE`, and the venue dedupe caches are created
+on the first successful run.
 
 ## Raspberry Pi YDMap Scraper
 
