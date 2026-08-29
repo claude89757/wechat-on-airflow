@@ -11,6 +11,7 @@ export const VENUES = {
   fsb_xinan: "泛思博特新安",
   fsb_zhengzhong: "泛思博特正中",
   fsb_atuoshan: "泛思博特安托山",
+  ppba: "PICKLE POP宝安",
   tyzx: "深圳市体育中心",
   jdwx: "金地威新",
 } as const;

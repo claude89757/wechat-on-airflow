@@ -1,5 +1,72 @@
 # Production Baseline
 
+## PICKLE POP Bao'an On 2026-08-29
+
+Release `0.4.0` is
+`9f43b5c7c885df92da49e4b67ca3a6349978fc8a` (PR #96). Web and Airflow both
+run that SHA. Sender was out of scope and was not redeployed.
+
+The PosPal venue PICKLE POP宝安 (`ppba` / `PICKLEPOP宝安网球场巡检`) is on
+the public catalog. Unauthenticated `/api/bootstrap` returns ten venues and
+no email address. The production UI lists the venue as healthy. Creating a
+subscription still requires email verification; no verification email or live
+WeChat probe was sent.
+
+The 30-second DAG produced three consecutive natural successes
+(`13:19:54`, `13:20:24`, `13:20:54` UTC) and published healthy observations.
+Web `lastInspectionAt` for `ppba` refreshed from `13:15:30Z` to `13:21:14Z`
+during the observation window. Pickleball rooms stay out of tennis
+observations. The DAG ID has no space because Airflow 3 `validate_key`
+rejects whitespace.
+
+CI `verify` on the exact SHA is run `33253861848`. Ship
+`33254286167` applied D1 migration `0011_add_ppba_venue.sql`, uploaded the
+Worker, and replaced Airflow application containers. Post-observe Web health
+`33254814885` reported ten venues and the exact SHA. Post-observe Airflow
+health `33254789784` passed with no paused DAGs, no missing Variables, and
+no recent-run failures. Historical WeChat fallback outbox records remain
+(`200`) and were not replayed.
+
+Rollback remains the previous named release `0.3.0`
+(`5bc7427b2fbfd2d0d65f9d96dc91929ceb597964`) without replacing the Airflow 3
+database. Re-apply that commit through the protected Web and Airflow
+workflows. D1 already contains the `ppba` venue row; rolling Web back hides
+it from the catalog but does not delete the row.
+
+## Dashah International Tennis Center On 2026-08-29
+
+Release `0.3.0` is
+`5bc7427b2fbfd2d0d65f9d96dc91929ceb597964` (PR #94). Web and Airflow both
+run that SHA. Sender was out of scope and was not redeployed.
+
+The paid Dashah International Tennis Center venue (`dsh` /
+`大沙河国际网球中心`) is on the public catalog. Unauthenticated
+`/api/bootstrap` returns nine venues and no email address. The production UI
+lists the venue and shows a healthy inspection. Creating a subscription still
+requires email verification; no verification email or live WeChat probe was
+sent.
+
+`PI_DEVICE_SSH` was seeded through the protected `pi_device_ssh_sync`
+operation before Airflow apply. The 3-minute DAG
+`大沙河国际网球中心巡检` produced three consecutive natural successes
+(`12:32`, `12:35`, `12:38` UTC) and published healthy observations. Web
+`lastInspectionAt` for `dsh` continued to refresh during the observation
+window.
+
+CI `verify` on the exact SHA is run `33252143707`. The first ship attempt
+(`33252303428`) applied D1 migration `0010_add_dsh_venue.sql` and uploaded
+the Worker, then failed health because the custom domain still served the
+previous Worker for a few seconds. After propagation, Web health reported
+nine venues and the exact SHA. The successful ship is
+`33252429294`. Post-observe Airflow health passed with no paused DAGs, no
+missing Variables, and no recent-run failures. Historical WeChat fallback
+outbox records remain and were not replayed.
+
+Rollback remains the previous named release `0.2.4`
+(`ef12280fbff7b8e367a5fb81573bb8117232fee0`) without replacing the Airflow 3
+database. Re-apply that commit through the protected Web and Airflow
+workflows.
+
 ## Zacks Phone Reboot Every Two Days On 2026-08-23
 
 The `zacks_phone_daily_reboot` schedule changed from daily to every other day

@@ -67,6 +67,7 @@ const VENUE_ACCENTS: Record<VenueId, string> = {
   fsb_xinan: "green",
   fsb_zhengzhong: "royal",
   fsb_atuoshan: "blue",
+  ppba: "royal",
   tyzx: "cyan",
   jdwx: "green",
 };
@@ -84,6 +85,7 @@ const VENUE_ICONS: Record<VenueId, React.ElementType> = {
   fsb_xinan: TennisBallIcon,
   fsb_zhengzhong: BuildingsIcon,
   fsb_atuoshan: MapPinIcon,
+  ppba: TennisBallIcon,
   tyzx: CourtBasketballIcon,
   jdwx: BuildingApartmentIcon,
 };

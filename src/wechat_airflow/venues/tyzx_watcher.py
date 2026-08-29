@@ -678,6 +678,51 @@ def get_proxy_list():
     return final_proxy_list
 
 
+def wechat_window_label(is_weekend: bool) -> str:
+    return "17:00-21:00" if is_weekend else "18:00-21:00"
+
+
+def filter_court_data_for_notification(
+    input_date: str, court_data: dict[str, list[list[str]]]
+) -> list[dict[str, Any]]:
+    """按工作日 18:00-21:00、周末 17:00-21:00 筛选需要微信通知的空场。"""
+    inform_date = datetime.datetime.strptime(input_date, "%Y-%m-%d").strftime("%m-%d")
+    check_date = datetime.datetime.strptime(input_date, "%Y-%m-%d")
+    is_weekend = check_date.weekday() >= 5
+    if is_weekend:
+        target_start = datetime.datetime.strptime("17:00", "%H:%M")
+        target_end = datetime.datetime.strptime("21:00", "%H:%M")
+    else:
+        target_start = datetime.datetime.strptime("18:00", "%H:%M")
+        target_end = datetime.datetime.strptime("21:00", "%H:%M")
+
+    up_for_send_data_list: list[dict[str, Any]] = []
+    for court_name, free_slots in court_data.items():
+        if not free_slots:
+            continue
+
+        filtered_slots: list[list[str]] = []
+        for slot in free_slots:
+            try:
+                start_time = datetime.datetime.strptime(slot[0], "%H:%M")
+                end_time = datetime.datetime.strptime(slot[1], "%H:%M")
+            except (ValueError, IndexError) as exc:
+                print(f"      ⚠️ 解析时间格式失败: {slot}, 错误: {exc}")
+                continue
+            if max(start_time, target_start) < min(end_time, target_end):
+                filtered_slots.append(slot)
+
+        if filtered_slots:
+            up_for_send_data_list.append(
+                {
+                    "date": inform_date,
+                    "court_name": f"体育中心{court_name}",
+                    "free_slot_list": filtered_slots,
+                }
+            )
+    return up_for_send_data_list
+
+
 def run_check_tennis_courts():
     """主要检查逻辑"""
     if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
@@ -700,7 +745,6 @@ def run_check_tennis_courts():
 
     for index in range(0, 4):  # 查询今天、明天、后天、大后天
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%Y-%m-%d")
-        inform_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%m-%d")
         check_date = datetime.datetime.strptime(input_date, "%Y-%m-%d")
         is_weekend = check_date.weekday() >= 5
         weekday_str = ["一", "二", "三", "四", "五", "六", "日"][check_date.weekday()]
@@ -721,61 +765,33 @@ def run_check_tennis_courts():
 
             print(f"🎾 {input_date} 场地筛选结果:")
             total_available_slots = 0
-            total_filtered_slots = 0
-
             for court_name, free_slots in court_data.items():
                 if free_slots:
                     total_available_slots += len(free_slots)
-                    filtered_slots = []
-
                     print(f"  🏟️ {court_name}: 原始可用时段 {len(free_slots)} 个")
                     for slot in free_slots:
                         print(f"    📍 {slot[0]}-{slot[1]}")
 
-                    # 根据工作日/周末筛选时段
-                    for slot in free_slots:
-                        # 安全地解析时间格式
-                        try:
-                            # 检查时间段是否与目标时间范围有重叠
-                            start_time = datetime.datetime.strptime(slot[0], "%H:%M")
-                            end_time = datetime.datetime.strptime(slot[1], "%H:%M")
+            day_notifications = filter_court_data_for_notification(input_date, court_data)
+            up_for_send_data_list.extend(day_notifications)
+            filtered_by_court = {
+                item["court_name"]: item["free_slot_list"] for item in day_notifications
+            }
+            for court_name, free_slots in court_data.items():
+                if not free_slots:
+                    continue
+                filtered_slots = filtered_by_court.get(f"体育中心{court_name}", [])
+                if filtered_slots:
+                    print(f"    ✅ 筛选后符合时段要求: {len(filtered_slots)} 个")
+                    for slot in filtered_slots:
+                        print(f"      ⭐ {slot[0]}-{slot[1]}")
+                else:
+                    print(
+                        f"    ❌ 筛选后无符合时段要求的场地 (需要{day_type}{wechat_window_label(is_weekend)})"
+                    )
 
-                            if is_weekend:
-                                # 周末关注15点到21点的场地
-                                target_start = datetime.datetime.strptime("16:00", "%H:%M")
-                                target_end = datetime.datetime.strptime("21:00", "%H:%M")
-                            else:
-                                # 工作日关注18点到21点的场地
-                                target_start = datetime.datetime.strptime("18:00", "%H:%M")
-                                target_end = datetime.datetime.strptime("21:00", "%H:%M")
-
-                            # 判断时间段是否有重叠：max(start1, start2) < min(end1, end2)
-                            if max(start_time, target_start) < min(end_time, target_end):
-                                filtered_slots.append(slot)
-
-                        except (ValueError, IndexError) as e:
-                            print(f"      ⚠️ 解析时间格式失败: {slot}, 错误: {e}")
-                            continue
-
-                    if filtered_slots:
-                        total_filtered_slots += len(filtered_slots)
-                        print(f"    ✅ 筛选后符合时段要求: {len(filtered_slots)} 个")
-                        for slot in filtered_slots:
-                            print(f"      ⭐ {slot[0]}-{slot[1]}")
-
-                        up_for_send_data_list.append(
-                            {
-                                "date": inform_date,
-                                "court_name": f"体育中心{court_name}",
-                                "free_slot_list": filtered_slots,
-                            }
-                        )
-                    else:
-                        print(
-                            f"    ❌ 筛选后无符合时段要求的场地 (需要{day_type}{'15-21点' if is_weekend else '18-21点'})"
-                        )
-
-            time_filter = "15:00-21:00" if is_weekend else "18:00-21:00"
+            time_filter = wechat_window_label(is_weekend)
+            total_filtered_slots = sum(len(item["free_slot_list"]) for item in day_notifications)
             print(
                 f"📊 {input_date} 统计: 总可用{total_available_slots}个时段, 符合{time_filter}条件{total_filtered_slots}个时段"
             )

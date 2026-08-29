@@ -70,8 +70,20 @@ describe("subscription domain", () => {
     ).toEqual(["fsb_shenyun", "fsb_shekou", "fsb_xinan", "fsb_zhengzhong", "fsb_atuoshan"]);
   });
 
-  it("registers fourteen venues including Fansibote chain courts", () => {
-    expect(Object.keys(VENUES)).toHaveLength(14);
+  it("accepts PICKLE POP Bao'an subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["ppba"],
+        startTime: "18:00",
+        endTime: "22:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["ppba"]);
+  });
+
+  it("registers fifteen venues including Fansibote chain courts", () => {
+    expect(Object.keys(VENUES)).toHaveLength(15);
+    expect(VENUES.ppba).toBe("PICKLE POP宝安");
     expect(VENUES.dsh).toBe("大沙河国际网球中心");
     expect(VENUES.fsb_shenyun).toBe("泛思博特深云");
     expect(VENUES.fsb_shekou).toBe("泛思博特蛇口");

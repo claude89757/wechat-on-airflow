@@ -60,6 +60,12 @@ both on sale and backed by a non-empty free-court list. The Web application
 therefore never infers a free release from an ordinary empty calendar date.
 Best-effort WeChat for this venue goes only to `Zacks_大沙河限定免费`.
 
+TOPS, 泛思博特福中福, and PICKLE POP宝安 share the public PosPal appointment
+API. Each adapter carries its own store ID and project UID. PICKLE POP宝安
+publishes tennis courts only and never treats pickleball rooms as tennis
+availability. WeChat for these paid venues uses the shared
+`SZ_TENNIS_CHATROOMS` list.
+
 Dashah International Tennis Center is a paid YDMap H5 venue. Airflow does not
 open the booking page itself. A Raspberry Pi scrape host runs Chromium on a
 private loopback HTTP service; the venue watcher SSHes to that host, curls
@@ -73,11 +79,14 @@ Greater Bay Area WeChat uses the same Zacks chatrooms as Shenzhen Bay, with a
 different hour window: weekdays 18:00-21:00 and weekends 12:00-21:00. The booking
 query ends at 21:00 so a closed 21:00-22:00 hour cannot appear as a free slot.
 Shenzhen Bay WeChat remains weekdays 18:00-22:00 and weekends 16:00-22:00.
+Shenzhen Sports Center WeChat uses weekdays 18:00-21:00 and weekends 17:00-21:00.
 
 WeChat availability alerts append the venue booking mini-program as the last
 line of the same send, at most once per chat and mini-program every two hours.
 Shenzhen Bay and Greater Bay Area share the 未来荟 program, so the second venue
-does not repeat that card. Slot dedupe caches stay link-free.
+does not repeat that card. Dashah International uses 威逊文体, Fuzhongfu uses
+泛思博特, and PICKLE POP Bao'an uses PICKLEPOP宝安摩天轮馆. Slot dedupe
+caches stay link-free.
 
 The Airflow WeChat deduplication cache is written before WeChat delivery.
 Its fallback outbox is a deduplicated incident record, not an automatic retry

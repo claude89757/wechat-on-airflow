@@ -5,7 +5,17 @@ and operational changes.
 
 ## Unreleased
 
-## [0.4.0] - 2026-08-29
+### Added
+
+- Append booking mini-program footers for Dashah International (威逊文体),
+  Fuzhongfu (泛思博特), and PICKLE POP Bao'an (PICKLEPOP宝安摩天轮馆).
+
+### Changed
+
+- Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
+  to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
+
+## [0.5.0] - 2026-08-29
 
 ### Added
 
@@ -18,6 +28,17 @@ and operational changes.
 
 - Treat a successful PosPal V2 response with zero bookable rooms as a healthy
   empty result so these stores can stay green until online booking opens.
+
+## [0.4.0] - 2026-08-29
+
+### Added
+
+- Add PICKLE POP Bao'an (`ppba`) to the Web subscription catalog and a
+  30-second Airflow inspection DAG on the same public PosPal booking API as
+  TOPS and Fansibote Fuzhongfu.
+- Publish tennis-only availability to the Web app and send best-effort WeChat
+  alerts to the shared Zacks chatrooms. Pickleball courts stay out of tennis
+  observations.
 
 ## [0.3.0] - 2026-08-29
 

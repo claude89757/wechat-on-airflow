@@ -61,7 +61,7 @@ component identities are recorded independently.
 Verify:
 
 - `/api/healthz` reports healthy and the expected Web deployment commit;
-- unauthenticated `/api/bootstrap` exposes fourteen venues and no email address;
+- unauthenticated `/api/bootstrap` exposes fifteen venues and no email address;
 - unauthenticated observation writes return HTTP 401;
 - mobile subscription and critical interaction tests pass.
 
