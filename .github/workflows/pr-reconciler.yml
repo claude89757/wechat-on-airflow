@@ -1,0 +1,148 @@
+name: PR Reconciler
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "43 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-reconciler
+  cancel-in-progress: false
+
+jobs:
+  close-superseded:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Close same-repository pull requests already present on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          gh label create "superseded" \
+            --repo "$REPO" \
+            --color "cfd3d7" \
+            --description "All proposed file states are already present on main" \
+            --force >/dev/null
+          gh label create "keep-open" \
+            --repo "$REPO" \
+            --color "5319e7" \
+            --description "Exclude this pull request from automatic superseded cleanup" \
+            --force >/dev/null
+
+          declare -a pull_requests=()
+          if [[ "$EVENT_NAME" == "pull_request_target" ]]; then
+            mapfile -t pull_requests < <(
+              jq -r '.pull_request.number' "$GITHUB_EVENT_PATH"
+            )
+          else
+            mapfile -t pull_requests < <(
+              gh api --method GET --paginate "search/issues" \
+                -f q="repo:$REPO is:pr is:open" \
+                -f per_page=100 \
+                --jq '.items[].number'
+            )
+          fi
+
+          for number in "${pull_requests[@]}"; do
+            if [[ ! "$number" =~ ^[0-9]+$ ]]; then
+              continue
+            fi
+
+            pr_json="$(gh api "repos/$REPO/pulls/$number")"
+            state="$(jq -r '.state' <<<"$pr_json")"
+            draft="$(jq -r '.draft' <<<"$pr_json")"
+            base_ref="$(jq -r '.base.ref' <<<"$pr_json")"
+            head_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
+            head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+            keep_open="$(
+              jq -r '[.labels[].name] | index("keep-open") != null' <<<"$pr_json"
+            )"
+
+            if [[ "$state" != "open" ||
+                  "$draft" != "false" ||
+                  "$base_ref" != "main" ||
+                  "$head_repo" != "$REPO" ||
+                  "$keep_open" == "true" ]]; then
+              continue
+            fi
+
+            mapfile -t touched_paths < <(
+              gh api --paginate "repos/$REPO/pulls/$number/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)' |
+                awk 'NF && !seen[$0]++'
+            )
+
+            main_commit_json="$(gh api "repos/$REPO/commits/main")"
+            main_sha="$(jq -r '.sha' <<<"$main_commit_json")"
+            main_tree_sha="$(jq -r '.commit.tree.sha' <<<"$main_commit_json")"
+            head_tree_sha="$(
+              gh api "repos/$REPO/commits/$head_sha" --jq '.commit.tree.sha'
+            )"
+
+            main_tree="$(gh api "repos/$REPO/git/trees/$main_tree_sha?recursive=1")"
+            head_tree="$(gh api "repos/$REPO/git/trees/$head_tree_sha?recursive=1")"
+
+            if [[ "$(jq -r '.truncated' <<<"$main_tree")" == "true" ||
+                  "$(jq -r '.truncated' <<<"$head_tree")" == "true" ]]; then
+              echo "Skipping #$number because a recursive Git tree was truncated."
+              continue
+            fi
+
+            equivalent=true
+            if ((${#touched_paths[@]} == 0)); then
+              [[ "$main_tree_sha" == "$head_tree_sha" ]] || equivalent=false
+            else
+              for path in "${touched_paths[@]}"; do
+                main_entry="$(
+                  jq -c --arg path "$path" \
+                    '[.tree[] | select(.path == $path) | {mode, type, sha}][0] // null' \
+                    <<<"$main_tree"
+                )"
+                head_entry="$(
+                  jq -c --arg path "$path" \
+                    '[.tree[] | select(.path == $path) | {mode, type, sha}][0] // null' \
+                    <<<"$head_tree"
+                )"
+                if [[ "$main_entry" != "$head_entry" ]]; then
+                  equivalent=false
+                  break
+                fi
+              done
+            fi
+
+            if [[ "$equivalent" != "true" ]]; then
+              continue
+            fi
+
+            latest_head_sha="$(
+              gh api "repos/$REPO/pulls/$number" --jq '.head.sha'
+            )"
+            latest_main_sha="$(gh api "repos/$REPO/commits/main" --jq '.sha')"
+            if [[ "$latest_head_sha" != "$head_sha" ||
+                  "$latest_main_sha" != "$main_sha" ]]; then
+              echo "Skipping #$number because a compared ref moved."
+              continue
+            fi
+
+            gh issue edit "$number" \
+              --repo "$REPO" \
+              --add-label "superseded" >/dev/null
+            gh pr close "$number" \
+              --repo "$REPO" \
+              --comment "Automatic reconciliation found that every Git object changed by this PR already has the same final state on \`main\`. Closing it as superseded; no code was merged and no production workflow was invoked." \
+              >/dev/null
+            echo "Closed #$number because its complete file effect is already present on main."
+          done
