@@ -1,0 +1,236 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 989d356ba4e5d5304258e27b3749e1785162834c..f35f1c6432b8f73a9148be718a4fb6622fb2ea46 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,8 +5,16 @@ and operational changes.
+ 
+ ## Unreleased
+ 
++## [0.6.0] - 2026-08-30
++
+ ### Added
+ 
++- Add FFTENNIS Qianhai International Tennis Center (`fft_qianhai`) to the Web
++  subscription catalog and a 30-second Airflow inspection DAG backed by its
++  read-only PosPal V2 availability API.
++- Keep only courts 1–6 / standard double courts from FFTENNIS observations,
++  excluding non-standard singles and ball-machine courts. Warm-start the first
++  successful notification baseline without sending historical availability.
+ - Append booking mini-program footers for Dashah International (威逊文体),
+   Fuzhongfu (泛思博特), and PICKLE POP Bao'an (PICKLEPOP宝安摩天轮馆).
+ 
+diff --git a/config/active-components.yaml b/config/active-components.yaml
+index b3ad44e10a546dfa3af6bf5ad558c8f8743f7129..9549602ff6e99401e399ebcaaf9489fca1a05b86 100644
+--- a/config/active-components.yaml
++++ b/config/active-components.yaml
+@@ -548,6 +548,41 @@ active_dags:
+       - wechat_dedupe_cache_written_before_wechat_delivery
+       - webapp_observation_precedes_wechat
+ 
++  - dag_id: FFTENNIS前海国际网球中心巡检
++    file: dags/tennis_dags/sz_tennis/fft_qianhai_watcher.py
++    schedule: every_30_seconds
++    tasks:
++      - check_tennis_courts
++    variables:
++      - FFT_PROXY_CACHE
++      - FFT_QIANHAI_NOTIFICATION_BASELINE
++      - SZ_TENNIS_CHATROOMS
++      - WEBAPP_OBSERVATION_API_TOKEN
++      - WEBAPP_OBSERVATION_API_URL
++      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
++      - FFTENNIS前海国际网球中心
++    connections: []
++    direct_modules:
++      - wechat_airflow.venues.fft_qianhai_watcher
++      - wechat_airflow.venues.pospal_venue
++      - wechat_airflow.notifications.webapp
++      - wechat_airflow.notifications.wechat
++    external_services:
++      - fft_qianhai_booking_api
++      - public_proxy_list
++      - zacks_tennis_webapp
++      - wechat_sender_api
++    notifications:
++      - webapp_observation
++      - wechat
++    purpose: Detect FFTENNIS Qianhai standard double-court availability, excluding non-standard singles and ball-machine courts; initialize the first notification baseline without delivery.
++    verification:
++      - dag_imports
++      - recent_runs_succeed
++      - first_successful_observation_seeds_notification_baseline_without_delivery
++      - wechat_dedupe_cache_written_before_wechat_delivery
++      - webapp_observation_precedes_wechat
++
+   - dag_id: 深圳市体育中心网球场巡检
+     file: dags/tennis_dags/sz_tennis/tyzx_watcher.py
+     schedule: "*/1 * * * *"
+diff --git a/config/config-contracts.yaml b/config/config-contracts.yaml
+index 3f87e879d7d0f61f5517a5c54fa6934d9ffe8e40..bf512f627c3d0a24ad89278be3b4da025e84ef68 100644
+--- a/config/config-contracts.yaml
++++ b/config/config-contracts.yaml
+@@ -67,6 +67,20 @@ variables:
+     sensitive: false
+     managed_by_application: true
+     fresh_start_policy: preserve
++  FFT_PROXY_CACHE:
++    type: json_list
++    required_by: [FFTENNIS前海国际网球中心巡检]
++    sensitive: false
++    managed_by_application: true
++    fresh_start_policy: preserve
++    default: []
++  FFT_QIANHAI_NOTIFICATION_BASELINE:
++    type: json_object
++    required_by: [FFTENNIS前海国际网球中心巡检]
++    sensitive: false
++    managed_by_application: true
++    fresh_start_policy: preserve
++    default: {}
+   PPBA_PROXY_CACHE:
+     type: json_list
+     required_by: [PICKLEPOP宝安网球场巡检]
+@@ -93,6 +107,7 @@ variables:
+       - 泛思博特新安网球场巡检
+       - 泛思博特正中网球场巡检
+       - 泛思博特安托山网球场巡检
++      - FFTENNIS前海国际网球中心巡检
+       - PICKLEPOP宝安网球场巡检
+       - 大沙河国际网球中心巡检
+     sensitive: true
+@@ -202,6 +217,13 @@ variables:
+     managed_by_application: true
+     fresh_start_policy: preserve
+     default: []
++  FFTENNIS前海国际网球中心:
++    type: json_list
++    required_by: [FFTENNIS前海国际网球中心巡检]
++    sensitive: false
++    managed_by_application: true
++    fresh_start_policy: preserve
++    default: []
+   PICKLEPOP宝安网球场:
+     type: json_list
+     required_by: [PICKLEPOP宝安网球场巡检]
+diff --git a/config/runtime-target.yaml b/config/runtime-target.yaml
+index f44bdd2acfa9833fbdce10b0f0776ebaa0058cd4..0377a1b8a457f28fa1fe65a5223e249230c7a9f4 100644
+--- a/config/runtime-target.yaml
++++ b/config/runtime-target.yaml
+@@ -56,7 +56,7 @@ managed_services:
+     public_hostname: zacks.claude89757.cc
+     public_base_url: https://zacks.claude89757.cc
+     health_path: /api/healthz
+-    expected_venue_count: 15
++    expected_venue_count: 16
+     deployment_owner: github_actions
+   cloudflare_tunnel:
+     runtime: systemd
+diff --git a/dags/tennis_dags/sz_tennis/fft_qianhai_watcher.py b/dags/tennis_dags/sz_tennis/fft_qianhai_watcher.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..545138b358fa63a3388e4f4361958ac3914de59f
+--- /dev/null
++++ b/dags/tennis_dags/sz_tennis/fft_qianhai_watcher.py
+@@ -0,0 +1,33 @@
++import datetime
++from datetime import timedelta
++from zoneinfo import ZoneInfo
++
++from airflow.providers.standard.operators.python import PythonOperator
++from airflow.sdk import DAG
++
++from wechat_airflow.venues.fft_qianhai_watcher import run_check_tennis_courts
++
++DEFAULT_ARGS = {
++    "owner": "claude89757",
++    "depends_on_past": False,
++    "start_date": datetime.datetime(2026, 8, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
++    "email_on_failure": False,
++    "email_on_retry": False,
++}
++
++dag = DAG(
++    "FFTENNIS前海国际网球中心巡检",
++    default_args=DEFAULT_ARGS,
++    description="FFTENNIS前海国际网球中心巡检 - PosPal平台",
++    schedule=timedelta(seconds=30),
++    max_active_runs=1,
++    dagrun_timeout=timedelta(minutes=10),
++    catchup=False,
++    tags=["深圳"],
++)
++
++PythonOperator(
++    task_id="check_tennis_courts",
++    python_callable=run_check_tennis_courts,
++    dag=dag,
++)
+diff --git a/docs/integrations/fft-qianhai-pospal.md b/docs/integrations/fft-qianhai-pospal.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..76bde1af4f66b19d9aa595d322dc03a4a4506ed8
+--- /dev/null
++++ b/docs/integrations/fft-qianhai-pospal.md
+@@ -0,0 +1,37 @@
++# FFTENNIS前海国际网球中心 PosPal 场地查询接入
++
++## 来源与边界
++
++归档 `miniprogram-wxb8ec04a1ebd1866b-2026.07.25.zip` 对应的小程序使用
++PosPal / 银豹预约接口。接入仅复用无需登录、无需支付、不会创建订单的只读查询；
++登录、会员、支付和下单接口均不进入 Airflow 或 Web。归档中的任何凭据均不得写入
++代码、日志、文档或 GitHub Actions 产物。
++
++## 只读查询链路
++
++1. `Store/GetStoreDataFast`：确认门店身份与营业状态。
++2. `AppointmentVenue/LoadClassroomProjectList`：发现门店预约项目。
++3. `AppointmentVenue/AppointmentVenueConfig`：读取预约开放天数等配置。
++4. `AppointmentVenue/LoadValidClassRoomApptSettingV2`：按日期查询场地时段。
++
++运行时使用公开门店标识 `5934657`、项目标识 `1756717886546691955`，以及
++`dateTime`、`projectUid`、`userId` 三个查询字段。适配器先直连，失败后才使用现有
++公开 HTTPS 代理池；该策略仅对 `fft_qianhai` 生效。
++
++## 2026-08-30 只读验证
++
++隔离 GitHub Actions 运行器连续查询 2026-08-30、2026-08-31 和 2026-09-01：
++
++- 门店名称精确返回 `FFTENNIS前海国际网球中心`，状态正常且未停业。
++- 项目列表返回一个 `网球场` 项目。
++- 三天查询均返回 `success`，每天 159 个时段、10 个场地。
++- 可订时段数分别为 103、123、130。
++
++这些数字只证明接口和响应结构在验证时可用，不作为长期场地余量承诺。
++
++## 场地筛选与通知安全
++
++Web 和微信只接收 1–6 号标准双打场。名称包含 `非标`、`发球机`、`小场`、
++`匹克` 或 `练习` 的场地在解析阶段即被剔除。首次完整成功巡检先发布 Web 原始
++观测并写入通知去重缓存，再记录初始化标记；该轮不发送微信，避免上线时把当前
++全部余量当作新增消息。之后仅通知新出现且符合现有时段、时长规则的可订区间。
+diff --git a/docs/runbooks/webapp-deployment.md b/docs/runbooks/webapp-deployment.md
+index 2c0d3c6618362d020a611b17f99298a942ae471f..5c7ac7b4262cb268dddcd45ab2416edd2e1eac6a 100644
+--- a/docs/runbooks/webapp-deployment.md
++++ b/docs/runbooks/webapp-deployment.md
+@@ -98,7 +98,7 @@ D1 migration commands are intentionally unsupported.
+ ## Verify
+ 
+ - `/api/healthz` returns `ok: true` and the exact release commit.
+-- `/api/bootstrap` returns fifteen venues and no email addresses.
++- `/api/bootstrap` returns sixteen venues and no email addresses.
+ - An unauthenticated observation write returns HTTP 401.
+ - Natural venue DAG runs keep their existing 15-second, 30-second, and one-minute
+   schedules.
+diff --git a/pyproject.toml b/pyproject.toml
+index cd10a1745120830293dc6ce464ee0833232aba0e..3ccab1e438efc318feebbf60ad0c87679ebc68d8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "wechat-on-airflow"
+-version = "0.5.2"
++version = "0.6.0"
+ description = "Airflow workflows for Shenzhen tennis availability notifications."
+ readme = "README.md"
+ requires-python = ">=3.12,<3.13"
+diff --git a/scripts/quiesce_wechat_delivery.py b/scripts/quiesce_wechat_delivery.py
