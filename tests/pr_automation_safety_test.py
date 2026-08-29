@@ -51,8 +51,5 @@ def test_dependabot_triage_uses_fetch_metadata_ecosystem_names() -> None:
     triage = (WORKFLOWS / "dependabot-triage.yml").read_text()
 
     assert "pip:python-patch|npm_and_yarn:webapp-patch" in triage
-    assert (
-        "npm_and_yarn:webapp/package.json|npm_and_yarn:webapp/package-lock.json"
-        in triage
-    )
+    assert "npm_and_yarn:webapp/package.json|npm_and_yarn:webapp/package-lock.json" in triage
     assert "npm:webapp-patch" not in triage
