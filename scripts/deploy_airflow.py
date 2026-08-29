@@ -35,6 +35,23 @@ ACTIVE_TASK_STATES = (
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
+def planned_target_pause_state(
+    dag_id: str,
+    *,
+    current_dag_ids: set[str],
+    recorded_paused: bool | None,
+) -> bool:
+    """Return True when apply should leave a target DAG paused.
+
+    Newly introduced target DAGs are always restored unpaused. A previous
+    failed rollout can leave them paused in metadata; that leftover must not
+    survive the next apply of the same target set.
+    """
+    if dag_id not in current_dag_ids:
+        return False
+    return bool(recorded_paused)
+
+
 def airflow_image_name(airflow_version: str, commit: str) -> str:
     if not COMMIT_PATTERN.fullmatch(commit):
         raise OpsError("target commit must resolve to a full SHA-1")
@@ -216,9 +233,13 @@ with create_session() as session:
             select(DagModel.dag_id, DagModel.is_paused).where(DagModel.dag_id.in_(all_dag_ids))
         ).all()
     )
+current_set = set(current_dag_ids)
 for dag_id in current_dag_ids:
     print(f"current\\t{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
 for dag_id in target_dag_ids:
+    if dag_id not in current_set:
+        print(f"target\\t0\\t{{dag_id}}")
+        continue
     print(f"target\\t{{int(bool(states.get(dag_id, False)))}}\\t{{dag_id}}")
 PY
 

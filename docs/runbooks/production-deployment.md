@@ -89,9 +89,11 @@ or unclassified runtime paths conservatively expand to all components.
 ## Airflow Transaction
 
 Airflow apply builds a commit-tagged image, drains active task instances,
-preserves each DAG's pause state, replaces only application services, and
-retains PostgreSQL, Redis, log, and other stateful volumes. It batches
-pause-state changes through the supported Airflow CLI.
+preserves each already-declared DAG's pause state, restores newly introduced
+target DAGs as unpaused even if leftover metadata marked them paused, replaces
+only application services, and retains PostgreSQL, Redis, log, and other
+stateful volumes. It batches pause-state changes through the supported
+Airflow CLI.
 
 Deployment and full production health are one transaction. If new containers
 start but any complete health check fails, the workflow restores the prior

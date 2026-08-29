@@ -15,6 +15,14 @@ and operational changes.
 - Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
   to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
 
+## [0.5.2] - 2026-08-29
+
+### Changed
+
+- Restore newly introduced target DAGs as unpaused even when a previous
+  failed rollout left them paused in Airflow metadata, so apply no longer
+  preserves that leftover and immediately fails health.
+
 ## [0.5.1] - 2026-08-29
 
 ### Changed
