@@ -29,6 +29,7 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
@@ -92,6 +93,12 @@ jobs:
                   "$head_repo" != "$REPO" ||
                   "$has_eligible_label" != "true" ]]; then
               echo "Skipping #$number because its identity or state is not eligible."
+              continue
+            fi
+
+            if [[ "$EVENT_NAME" == "workflow_run" &&
+                  "$WORKFLOW_HEAD_SHA" != "$head_sha" ]]; then
+              echo "Skipping #$number because CI completed for ${WORKFLOW_HEAD_SHA:-unknown}, not current head $head_sha."
               continue
             fi
 
@@ -166,6 +173,12 @@ jobs:
               [[ "$mergeable_state" != "unknown" ]] && break
               sleep 2
             done
+
+            if [[ "$EVENT_NAME" == "workflow_run" &&
+                  "$WORKFLOW_HEAD_SHA" != "$head_sha" ]]; then
+              echo "Skipping #$number because its head moved after the completed CI run."
+              continue
+            fi
 
             safe_status="$(
               gh api "repos/$REPO/commits/$head_sha/status" \

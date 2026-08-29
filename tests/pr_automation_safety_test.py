@@ -50,9 +50,20 @@ def test_dependabot_merge_is_bound_to_the_classified_head_sha() -> None:
 
     assert 'context="dependabot-safe-patch"' in triage
     assert 'select(.context == "dependabot-safe-patch")' in reconcile
+    assert "WORKFLOW_HEAD_SHA" in reconcile
+    assert '"$WORKFLOW_HEAD_SHA" != "$head_sha"' in reconcile
     assert '-f expected_head_sha="$head_sha"' in reconcile
     assert '-f sha="$head_sha"' in reconcile
     assert '-f merge_method="squash"' in reconcile
+
+
+def test_pr_reconciler_requires_a_complete_changed_file_listing() -> None:
+    reconciler = (WORKFLOWS / "pr-reconciler.yml").read_text()
+
+    assert "reported_changed_files" in reconciler
+    assert "returned_changed_files" in reconciler
+    assert "returned_changed_files != reported_changed_files" in reconciler
+    assert "GitHub returned $returned_changed_files of $reported_changed_files" in reconciler
 
 
 def test_dependabot_merge_response_has_valid_json_fallback() -> None:
