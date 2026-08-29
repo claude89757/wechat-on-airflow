@@ -1,0 +1,173 @@
+name: Dependabot PR Triage
+
+# pull_request_target uses the trusted workflow from the default branch. This
+# workflow must never check out or execute code from a pull request head.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Optional open Dependabot PR number; leave empty to inspect all.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: dependabot-triage-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      (github.event.pull_request.user.login == 'dependabot[bot]' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refresh report-only triage comments
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_PR: ${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          marker='<!-- dependabot-triage-report -->'
+          repo="$GITHUB_REPOSITORY"
+
+          if [[ -n "${REQUESTED_PR:-}" ]]; then
+            if [[ ! "$REQUESTED_PR" =~ ^[0-9]+$ ]]; then
+              echo "Invalid PR number: $REQUESTED_PR" >&2
+              exit 1
+            fi
+            prs=("$REQUESTED_PR")
+          else
+            mapfile -t prs < <(
+              gh api --paginate "repos/$repo/pulls?state=open&per_page=100" \
+                --jq '.[] | select(.user.login == "dependabot[bot]") | .number'
+            )
+          fi
+
+          if ((${#prs[@]} == 0)); then
+            echo "No open Dependabot pull requests."
+            exit 0
+          fi
+
+          for pr in "${prs[@]}"; do
+            pr_json="$(gh api "repos/$repo/pulls/$pr")"
+            author="$(jq -r '.user.login' <<<"$pr_json")"
+            head_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
+            state="$(jq -r '.state' <<<"$pr_json")"
+
+            if [[ "$state" != "open" || "$author" != "dependabot[bot]" || "$head_repo" != "$repo" ]]; then
+              echo "Skipping PR #$pr: not an open same-repository Dependabot PR."
+              continue
+            fi
+
+            title="$(jq -r '.title' <<<"$pr_json")"
+            head_ref="$(jq -r '.head.ref' <<<"$pr_json")"
+            combined="${title,,} ${head_ref,,}"
+
+            mapfile -t files < <(
+              gh api --paginate "repos/$repo/pulls/$pr/files?per_page=100" \
+                --jq '.[].filename'
+            )
+
+            ecosystems=()
+            unexpected_files=()
+            sensitive_files=()
+            for file in "${files[@]}"; do
+              case "$file" in
+                pyproject.toml|uv.lock|Pipfile|Pipfile.lock|poetry.lock|requirements*.txt|requirements/*.txt)
+                  ecosystems+=("python")
+                  ;;
+                webapp/package.json|webapp/package-lock.json|webapp/npm-shrinkwrap.json|webapp/yarn.lock|webapp/pnpm-lock.yaml)
+                  ecosystems+=("webapp")
+                  ;;
+                .github/workflows/*)
+                  ecosystems+=("github-actions")
+                  sensitive_files+=("$file")
+                  ;;
+                Dockerfile|*/Dockerfile|docker/*|docker-compose*.yml)
+                  ecosystems+=("docker")
+                  sensitive_files+=("$file")
+                  ;;
+                *)
+                  unexpected_files+=("$file")
+                  ;;
+              esac
+            done
+
+            if ((${#ecosystems[@]} == 0)); then
+              ecosystem="unknown"
+            else
+              ecosystem="$(printf '%s\n' "${ecosystems[@]}" | sort -u | paste -sd, - | sed 's/,/, /g')"
+            fi
+
+            if ((${#unexpected_files[@]} > 0)); then
+              classification="manual review — non-dependency files changed"
+            elif ((${#sensitive_files[@]} > 0)); then
+              classification="manual review — workflow or container control surface"
+            elif [[ "$combined" == *"python-dev-nonmajor"* || "$combined" == *"webapp-dev-nonmajor"* ]]; then
+              classification="low-risk candidate after CI — report only"
+            elif [[ "$combined" == *"webapp-runtime-nonmajor"* ]]; then
+              classification="manual review — Web runtime dependencies"
+            else
+              classification="manual review — individual, major, or legacy grouped update"
+            fi
+
+            if ((${#files[@]} == 0)); then
+              changed_files="- No changed files reported by GitHub."
+            else
+              changed_files="$(printf -- '- `%s`\n' "${files[@]}")"
+            fi
+
+            printf -v body '%s\n' \
+              "$marker" \
+              "### Dependabot triage report" \
+              "" \
+              "- **Mode:** report only — this workflow cannot merge, rebase, update branches, close PRs, or dispatch deployment workflows." \
+              "- **Classification:** $classification" \
+              "- **Detected surface:** $ecosystem" \
+              "- **Head branch:** \`$head_ref\`" \
+              "- **Required gate:** the latest \`CI / verify\` run on the current PR head." \
+              "" \
+              "<details>" \
+              "<summary>Changed files (${#files[@]})</summary>" \
+              "" \
+              "$changed_files" \
+              "</details>" \
+              "" \
+              "This report is generated from GitHub pull-request metadata only. The workflow never checks out or executes code from the pull request."
+            body="${body%$'\n'}"
+
+            comment_id="$(
+              gh api --paginate "repos/$repo/issues/$pr/comments?per_page=100" \
+                --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- dependabot-triage-report -->"))) | .id' \
+                | head -n 1
+            )"
+
+            if [[ -n "$comment_id" ]]; then
+              current_body="$(gh api "repos/$repo/issues/comments/$comment_id" --jq '.body')"
+              if [[ "$current_body" != "$body" ]]; then
+                gh api --method PATCH "repos/$repo/issues/comments/$comment_id" \
+                  -f body="$body" >/dev/null
+                echo "Updated triage report on PR #$pr."
+              else
+                echo "Triage report on PR #$pr is already current."
+              fi
+            else
+              gh api --method POST "repos/$repo/issues/$pr/comments" \
+                -f body="$body" >/dev/null
+              echo "Created triage report on PR #$pr."
+            fi
+          done
