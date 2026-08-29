@@ -408,7 +408,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect and notify Shenzhen Sports Center tennis availability.
+    purpose: Detect and notify Shenzhen Sports Center tennis availability to the dedicated WeChat chatrooms, using weekday 18:00-21:00 and weekend 17:00-21:00 windows.
     verification:
       - dag_imports
       - recent_runs_succeed

@@ -5,6 +5,16 @@ and operational changes.
 
 ## Unreleased
 
+### Added
+
+- Append booking mini-program footers for Dashah International (威逊文体),
+  Fuzhongfu (泛思博特), and PICKLE POP Bao'an (PICKLEPOP宝安摩天轮馆).
+
+### Changed
+
+- Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
+  to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
+
 ## [0.4.0] - 2026-08-29
 
 ### Added

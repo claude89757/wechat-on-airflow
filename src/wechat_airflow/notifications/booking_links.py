@@ -40,6 +40,18 @@ TYZX_PROGRAM = BookingMiniProgram(
     program_id="tyzx",
     link="#小程序://i深体/GA0nZbyQSAq9iSa",
 )
+DSH_PROGRAM = BookingMiniProgram(
+    program_id="dsh",
+    link="#小程序://威逊文体/il2QpVgwVeghPtg",
+)
+FSB_PROGRAM = BookingMiniProgram(
+    program_id="fsb",
+    link="#小程序://泛思博特/D0aY3jOJ2oq34fh",
+)
+PPBA_PROGRAM = BookingMiniProgram(
+    program_id="ppba",
+    link="#小程序://PICKLEPOP宝安摩天轮馆/PK3I72u2dNFoA2b",
+)
 
 VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "szw": WEILAIHUI,
@@ -48,6 +60,9 @@ VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "tops": TOPS_PROGRAM,
     "jdwx": JDWX_PROGRAM,
     "dsh_free": DSH_FREE_PROGRAM,
+    "dsh": DSH_PROGRAM,
+    "fsb": FSB_PROGRAM,
+    "ppba": PPBA_PROGRAM,
     "tyzx": TYZX_PROGRAM,
 }
 
