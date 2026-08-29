@@ -59,8 +59,20 @@ describe("subscription domain", () => {
     ).toEqual(["fsb"]);
   });
 
-  it("registers nine venues including Dashah International Tennis Center", () => {
-    expect(Object.keys(VENUES)).toHaveLength(9);
+  it("accepts PICKLE POP Bao'an subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["ppba"],
+        startTime: "18:00",
+        endTime: "22:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["ppba"]);
+  });
+
+  it("registers ten venues including PICKLE POP Bao'an", () => {
+    expect(Object.keys(VENUES)).toHaveLength(10);
+    expect(VENUES.ppba).toBe("PICKLE POP宝安");
     expect(VENUES.dsh).toBe("大沙河国际网球中心");
   });
 

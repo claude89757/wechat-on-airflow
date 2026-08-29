@@ -5,6 +5,17 @@ and operational changes.
 
 ## Unreleased
 
+## [0.4.0] - 2026-08-29
+
+### Added
+
+- Add PICKLE POP Bao'an (`ppba`) to the Web subscription catalog and a
+  30-second Airflow inspection DAG on the same public PosPal booking API as
+  TOPS and Fansibote Fuzhongfu.
+- Publish tennis-only availability to the Web app and send best-effort WeChat
+  alerts to the shared Zacks chatrooms. Pickleball courts stay out of tennis
+  observations.
+
 ## [0.3.0] - 2026-08-29
 
 ### Added

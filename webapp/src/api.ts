@@ -1,4 +1,4 @@
-export const VENUE_IDS = ["szw", "gba", "dsh_free", "dsh", "sysh", "tops", "fsb", "tyzx", "jdwx"] as const;
+export const VENUE_IDS = ["szw", "gba", "dsh_free", "dsh", "sysh", "tops", "fsb", "ppba", "tyzx", "jdwx"] as const;
 
 export type VenueId = (typeof VENUE_IDS)[number];
 export type DeliveryTier = "standard" | "priority";
@@ -151,6 +151,7 @@ const FALLBACK_VENUES: VenueStatus[] = [
   { id: "sysh", name: "上越沙河", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:41:28+08:00", lastNotificationAt: null },
   { id: "tops", name: "TOPS 科技园", healthy: true, subscriberCount: 22, lastInspectionAt: "2026-07-29T10:41:12+08:00", lastNotificationAt: null },
   { id: "fsb", name: "泛思博特福中福", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
+  { id: "ppba", name: "PICKLE POP宝安", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
   { id: "tyzx", name: "深圳市体育中心", healthy: true, subscriberCount: 30, lastInspectionAt: "2026-07-29T10:40:55+08:00", lastNotificationAt: null },
   { id: "jdwx", name: "金地威新", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:40:42+08:00", lastNotificationAt: null },
 ];
@@ -163,7 +164,7 @@ const DEFAULT_TERMS: Dashboard["subscriptionTerms"] = {
 export const FALLBACK_DASHBOARD: Dashboard = {
   generatedAt: "2026-07-29T10:42:00+08:00",
   weatherEmailGate: { suppressed: false, precipitationMm: null, thresholdMm: 25 },
-  metrics: { activeSubscriptions: 128, remindersToday: 6, healthyVenues: 9, totalVenues: 9 },
+  metrics: { activeSubscriptions: 128, remindersToday: 6, healthyVenues: 10, totalVenues: 10 },
   deliveryTiers: { standard: 10, priority: 100 },
   subscriptionTerms: DEFAULT_TERMS,
   subscriptionLimits: { standard: 5, priority: 20 },
@@ -189,7 +190,7 @@ export const FALLBACK_DASHBOARD: Dashboard = {
 export const EMPTY_DASHBOARD: Dashboard = {
   ...FALLBACK_DASHBOARD,
   generatedAt: new Date().toISOString(),
-  metrics: { activeSubscriptions: 0, remindersToday: 0, healthyVenues: 0, totalVenues: 9 },
+  metrics: { activeSubscriptions: 0, remindersToday: 0, healthyVenues: 0, totalVenues: 10 },
   venues: FALLBACK_VENUES.map((venue) => ({
     ...venue,
     healthy: false,

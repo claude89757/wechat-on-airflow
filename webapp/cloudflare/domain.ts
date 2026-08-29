@@ -6,6 +6,7 @@ export const VENUES = {
   sysh: "上越沙河",
   tops: "TOPS 科技园",
   fsb: "泛思博特福中福",
+  ppba: "PICKLE POP宝安",
   tyzx: "深圳市体育中心",
   jdwx: "金地威新",
 } as const;
