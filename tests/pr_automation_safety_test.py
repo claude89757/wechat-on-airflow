@@ -19,6 +19,14 @@ def test_dependabot_groups_only_aggregate_patch_updates() -> None:
     assert groups_by_ecosystem["npm"]["webapp-patch"]["update-types"] == ["patch"]
 
 
+def test_dependabot_classifier_uses_fetch_metadata_ecosystem_names() -> None:
+    triage = (WORKFLOWS / "dependabot-triage.yml").read_text()
+
+    assert "pip:python-patch|npm_and_yarn:webapp-patch" in triage
+    assert "npm_and_yarn:webapp/package.json" in triage
+    assert "npm_and_yarn:webapp/package-lock.json" in triage
+
+
 def test_write_capable_pr_automation_never_executes_pr_code_or_deploys() -> None:
     workflow_names = [
         "dependabot-triage.yml",
