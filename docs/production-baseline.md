@@ -1,5 +1,53 @@
 # Production Baseline
 
+## Fansibote Chain Five Stores On 2026-08-29
+
+Release `0.5.2` is
+`c962f89b697e9415c85e2ba9164181d667cc126a` (PRs #102, #103, #104). Web and
+Airflow both run that SHA. Sender was out of scope and was not redeployed.
+
+The five PosPal chain tennis venues are on the public catalog: 深云
+(`fsb_shenyun` / `泛思博特深云网球场巡检`), 蛇口 (`fsb_shekou` /
+`泛思博特蛇口网球场巡检`), 新安 (`fsb_xinan` / `泛思博特新安网球场巡检`),
+正中 (`fsb_zhengzhong` / `泛思博特正中网球场巡检`), and 安托山
+(`fsb_atuoshan` / `泛思博特安托山网球场巡检`). Unauthenticated
+`/api/bootstrap` returns fifteen venues and no email address. The production
+UI lists all five as healthy. Creating a subscription still requires email
+verification; no verification email or live WeChat probe was sent.
+
+Only standard tennis / 风雨场 courts are published. 小场, 匹克, and 练习
+courts are dropped before Web observation or WeChat. A successful PosPal V2
+response with zero bookable rooms is a healthy empty result.
+
+The first `0.5.0` ship (`7367a0c64baf504e424f29d2768a19c6bda5f19f`, run
+`33256597187`) applied Web and then rolled Airflow back because the new
+30-second DAGs had one or two successes, which the health gate treated as
+missing history. `0.5.1` (`91fb2c28d9a5988eed8c31e72ecaf0ce3fee9fa0`, run
+`33257916867`) treated incomplete all-success history as warming-up, but
+apply restored the leftover paused metadata from the first rollback and
+failed health on paused active DAGs. `0.5.2` unpauses newly introduced
+target DAGs even when leftover metadata marked them paused.
+
+The five 30-second DAGs produced three consecutive natural successes around
+`15:07`–`15:09` UTC and stayed unpaused. Web `lastInspectionAt` refreshed
+from `15:02:59Z`–`15:03:01Z` to `15:13:30Z`–`15:13:58Z` during the
+observation window.
+
+CI `verify` on the exact SHA is run `33258842519`. Ship `33258953775`
+uploaded the Worker and replaced Airflow application containers. D1
+migration `0012_add_fsb_chain_venues.sql` was already applied by the
+`0.5.0` Web apply. Post-observe Web health `33259442440` reported fifteen
+venues and the exact SHA. Post-observe Airflow health `33259442569` passed
+with no paused DAGs, no missing Variables, and no recent-run failures.
+Historical WeChat fallback outbox records remain (`200`) and were not
+replayed.
+
+Rollback remains the previous named release `0.4.0`
+(`9f43b5c7c885df92da49e4b67ca3a6349978fc8a`) without replacing the Airflow 3
+database. Re-apply that commit through the protected Web and Airflow
+workflows. D1 already contains the five venue rows; rolling Web back hides
+them from the catalog but does not delete the rows.
+
 ## PICKLE POP Bao'an On 2026-08-29
 
 Release `0.4.0` is
