@@ -19,7 +19,7 @@
     "cf:migrate:local": "wrangler d1 migrations apply zacks-tennis-alerts --local"
   },
   "dependencies": {
-    "@fontsource/roboto": "5.2.10",
+    "@fontsource/roboto": "5.3.0",
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-dialog": "1.1.23",
     "@radix-ui/react-dropdown-menu": "2.1.24",
