@@ -9,9 +9,6 @@ and operational changes.
 
 - Append booking mini-program footers for Dashah International (威逊文体),
   Fuzhongfu (泛思博特), and PICKLE POP Bao'an (PICKLEPOP宝安摩天轮馆).
-- Add a manual GitHub probe that opens Bao'an YDMap in a separate Raspberry Pi
-  Chromium profile and debug port, then checks Dashah health before and after.
-  It does not change the Dashah scraper, ports, or service.
 
 ### Changed
 
