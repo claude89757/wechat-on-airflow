@@ -31,13 +31,16 @@ def test_dependabot_groups_only_aggregate_approved_update_tiers() -> None:
 
     # Runtime, deployment-control, and repository-wide rule-engine updates
     # must remain individual PRs under explicit review.
-    assert not {
-        "fastapi",
-        "uvicorn",
-        "selenium",
-        "Appium-Python-Client",
-        "ruff",
-    } & python_minor
+    assert (
+        not {
+            "fastapi",
+            "uvicorn",
+            "selenium",
+            "Appium-Python-Client",
+            "ruff",
+        }
+        & python_minor
+    )
     assert not {"wrangler", "@fontsource/roboto", "motion"} & webapp_minor
 
 
@@ -53,7 +56,10 @@ def test_dependabot_classifier_uses_verified_metadata_and_explicit_allowlists() 
     assert "version-update:semver-minor" in triage
     assert "dependabot-safe-update" in triage
     assert "automerge:dependency" in triage
-    assert "python_minor_allowlist='httpx|mypy|pre-commit|pytest|pytest-cov|types-paramiko|types-requests'" in triage
+    assert (
+        "python_minor_allowlist='httpx|mypy|pre-commit|pytest|pytest-cov|types-paramiko|types-requests'"
+        in triage
+    )
 
 
 def test_write_capable_pr_automation_never_executes_pr_code_or_deploys() -> None:
