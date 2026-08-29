@@ -140,7 +140,9 @@ verify that the Airflow venue cache was written before delivery and compare the
 message identity with its fallback outbox. Check for overlapping DAG runs and
 preserve evidence before changing either cache. A repeated booking mini-program
 card in the same chat within two hours is a cooldown-cache miss, not a new
-slot; Shenzhen Bay and Greater Bay Area share the 未来荟 program.
+slot; Shenzhen Bay and Greater Bay Area share the 未来荟 program. Dashah
+International uses 威逊文体, Fuzhongfu uses 泛思博特, and PICKLE POP Bao'an
+uses PICKLEPOP宝安摩天轮馆.
 
 ## Phone Reboot Failure
 
