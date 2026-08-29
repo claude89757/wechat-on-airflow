@@ -292,8 +292,41 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("target_dag_ids_b64", script)
         self.assertIn("retired_dags_left_paused", script)
         self.assertIn('restore_dags "$restore_regex"', script)
+        self.assertIn("if dag_id not in current_set:", script)
         self.assertIn("states.get(dag_id, False)", script)
         self.assertIn("states.get(dag_id, True)", script)
+
+    def test_newly_introduced_target_dags_are_restored_unpaused(self):
+        current = {"existing"}
+
+        self.assertFalse(
+            deploy_airflow.planned_target_pause_state(
+                "new_venue",
+                current_dag_ids=current,
+                recorded_paused=True,
+            )
+        )
+        self.assertFalse(
+            deploy_airflow.planned_target_pause_state(
+                "new_venue",
+                current_dag_ids=current,
+                recorded_paused=None,
+            )
+        )
+        self.assertTrue(
+            deploy_airflow.planned_target_pause_state(
+                "existing",
+                current_dag_ids=current,
+                recorded_paused=True,
+            )
+        )
+        self.assertFalse(
+            deploy_airflow.planned_target_pause_state(
+                "existing",
+                current_dag_ids=current,
+                recorded_paused=False,
+            )
+        )
 
     def test_recovery_deploy_bounds_current_work_and_preserves_outbox(self):
         script = deploy_airflow.remote_script()
