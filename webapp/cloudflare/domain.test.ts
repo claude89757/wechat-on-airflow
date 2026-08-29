@@ -9,6 +9,7 @@ import {
   slotMatchesTimeRange,
   validateSlotObservation,
   validateSubscriptionInput,
+  VENUES,
 } from "./domain";
 
 describe("subscription domain", () => {
@@ -56,6 +57,22 @@ describe("subscription domain", () => {
         durationDays: 7,
       }).venueIds,
     ).toEqual(["fsb"]);
+  });
+
+  it("registers nine venues including Dashah International Tennis Center", () => {
+    expect(Object.keys(VENUES)).toHaveLength(9);
+    expect(VENUES.dsh).toBe("大沙河国际网球中心");
+  });
+
+  it("accepts Dashah International Tennis Center subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["dsh"],
+        startTime: "18:00",
+        endTime: "22:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["dsh"]);
   });
 
   it("accepts Dashah River free-court subscriptions", () => {

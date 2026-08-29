@@ -15,7 +15,7 @@ five minutes so the ten-minute venue-health freshness contract remains
 satisfied. Older publishers without an explicit scope fail open to a shared
 compatibility scope until the matching Airflow commit is deployed.
 
-The configured venue schedules produce at most 47,520 observation requests per
+The configured venue schedules produce at most 48,000 observation requests per
 day before task runtime and scheduler overlap reduce the actual count. This is a
 request-budget constraint, not a reason to slow venue polling. Alert at 80,000
 total Worker requests per day so the production account retains margin below the
@@ -98,7 +98,7 @@ D1 migration commands are intentionally unsupported.
 ## Verify
 
 - `/api/healthz` returns `ok: true` and the exact release commit.
-- `/api/bootstrap` returns eight venues and no email addresses.
+- `/api/bootstrap` returns nine venues and no email addresses.
 - An unauthenticated observation write returns HTTP 401.
 - Natural venue DAG runs keep their existing 15-second, 30-second, and one-minute
   schedules.

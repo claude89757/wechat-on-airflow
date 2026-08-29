@@ -5,6 +5,27 @@ and operational changes.
 
 ## Unreleased
 
+## [0.3.0] - 2026-08-29
+
+### Added
+
+- Add paid Dashah International Tennis Center (`dsh`) to the Web subscription
+  catalog and a 3-minute Airflow inspection DAG.
+- Collect five booking days from the Raspberry Pi Chromium scraper, publish raw
+  slots to the Web app, then send best-effort WeChat alerts to the shared Zacks
+  chatrooms.
+- Seed Airflow Variable `PI_DEVICE_SSH` from GitHub `production` Environment
+  secrets through the protected `pi_device_ssh_sync` operation.
+
+### Changed
+
+- Treat a newly declared DAG with no run history as healthy at apply time so
+  the first natural cycles can occur after unpause.
+- Restore newly introduced target DAGs as unpaused instead of leaving them
+  paused by the missing-state default.
+- Classify Raspberry Pi scrape-host files as release metadata so they do not
+  force a WeChat sender deployment.
+
 ## [0.2.4] - 2026-08-28
 
 ### Changed

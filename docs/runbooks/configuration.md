@@ -65,9 +65,29 @@ venue is added. WeChat alerts use the shared `SZ_TENNIS_CHATROOMS` list.
 Application-managed `TOPS_PROXY_CACHE`, `FSB_PROXY_CACHE`, and the venue
 dedupe caches are created on the first successful run.
 
+## Raspberry Pi YDMap Scraper
+
+`PI_DEVICE_SSH` is a sensitive JSON object used only by the Dashah
+International Tennis Center DAG. It requires `host`, `port`, `username`,
+`password`, and `host_key_sha256`. Optional `scrape_url` defaults to
+`http://127.0.0.1:8788/inspect`. Never log or commit its value.
+
+The GitHub `production` Environment stores the scrape-host login as
+`PI_DEVICE_SSH_*` names. Rotate them there, then run the protected
+`pi_device_ssh_sync` Airflow operation. The operation validates the shape and
+streams the value directly into the Airflow API Server container; developer
+devices do not retrieve the production value. Those secrets are not an Airflow
+runtime path and must not be copied onto developer machines. The workstation
+`.env` is a local convenience file, not production identity.
+
+The scrape service listens only on the Pi loopback interface. Airflow reaches
+it by SSH and a localhost `curl`. Do not publish port `8788`. The watcher
+collects today plus four later calendar days, publishes raw slots to the Web
+app, and applies the shared paid-venue WeChat window afterwards.
+
 ## Web Subscription Publisher
 
-All eight venue DAGs require:
+All nine venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in

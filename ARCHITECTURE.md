@@ -60,6 +60,15 @@ both on sale and backed by a non-empty free-court list. The Web application
 therefore never infers a free release from an ordinary empty calendar date.
 Best-effort WeChat for this venue goes only to `Zacks_大沙河限定免费`.
 
+Dashah International Tennis Center is a paid YDMap H5 venue. Airflow does not
+open the booking page itself. A Raspberry Pi scrape host runs Chromium on a
+private loopback HTTP service; the venue watcher SSHes to that host, curls
+`http://127.0.0.1:8788/inspect?days=5`, publishes the raw slots to the Web app,
+then sends best-effort WeChat to the shared `SZ_TENNIS_CHATROOMS` list. The
+scrape HTTP port is not public. Runtime SSH settings live in the Airflow
+Variable `PI_DEVICE_SSH`; GitHub `PI_DEVICE_SSH_*` secrets are only the
+protected seed for that Variable.
+
 Greater Bay Area WeChat uses the same Zacks chatrooms as Shenzhen Bay, with a
 different hour window: weekdays 18:00-21:00 and weekends 12:00-21:00. The booking
 query ends at 21:00 so a closed 21:00-22:00 hour cannot appear as a free slot.
@@ -129,6 +138,8 @@ the cutover boundary.
   enforces a 120-line limit and rejects direct network-client imports.
 - Venue querying, parsing, filtering, and notification orchestration live in
   `src/wechat_airflow/venues/`.
+- Raspberry Pi scrape-host services live in `pi_host/` and are not imported by
+  Airflow workers.
 - Proxy refresh implementations live in `src/wechat_airflow/proxy_tools/`.
 - Device maintenance implementations live in
   `src/wechat_airflow/maintenance/`.
@@ -143,8 +154,11 @@ the cutover boundary.
 - Production maintenance is executed through scripts and one-off deployment
   manager commands, not through Airflow internal Python APIs.
 - GitHub is the production identity, approval, and audit control plane. Its
-  protected workflows hold only scoped deployment identities; Airflow,
-  Cloudflare, and the Android sender retain their own runtime secrets.
+protected workflows hold only scoped deployment identities; Airflow,
+Cloudflare, and the Android sender retain their own runtime secrets. The
+Raspberry Pi scrape-host login is stored as `PI_DEVICE_SSH_*` names in the
+GitHub `production` Environment and must not be copied onto developer
+machines.
 - Airflow infrastructure credentials are mounted per service from the
   root-owned, root-group-readable host Secret directory. Airflow and
   PostgreSQL remain non-root processes in group `0`; the sender reads systemd

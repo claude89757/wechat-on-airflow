@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import unittest
@@ -27,6 +28,7 @@ import production_health  # noqa: E402
 import quiesce_wechat_delivery  # noqa: E402
 import resume_airflow_scheduling  # noqa: E402
 import sync_nswtt_config  # noqa: E402
+import sync_pi_device_ssh  # noqa: E402
 import verify_fresh_start_config  # noqa: E402
 import webapp_production_health  # noqa: E402
 
@@ -44,6 +46,7 @@ class RemoteSshAuthenticationContractTest(unittest.TestCase):
             "quiesce_wechat_delivery.py",
             "resume_airflow_scheduling.py",
             "sync_nswtt_config.py",
+            "sync_pi_device_ssh.py",
         ):
             source = (ROOT / "scripts" / script_name).read_text(encoding="utf-8")
             self.assertNotIn("sshpass", source, script_name)
@@ -67,6 +70,40 @@ class NswttConfigSyncTest(unittest.TestCase):
             sync_nswtt_config.validated_config(
                 '{"app_version":"2.14.30","cookie":"sid=x","email":"hidden"}'
             )
+
+
+class PiDeviceSshSyncTest(unittest.TestCase):
+    def test_sync_contract_requires_complete_ssh_fields(self):
+        value = sync_pi_device_ssh.validated_config(
+            {
+                "host": "203.0.113.10",
+                "port": "6000",
+                "username": "pi-user",
+                "password": "secret",
+                "host_key_sha256": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            }
+        )
+        parsed = json.loads(value)
+        self.assertEqual(parsed["port"], 6000)
+        self.assertEqual(parsed["host"], "203.0.113.10")
+
+        with self.assertRaisesRegex(_ops.OpsError, "missing required SSH fields"):
+            sync_pi_device_ssh.validated_config({"host": "203.0.113.10", "port": "6000"})
+        with self.assertRaisesRegex(_ops.OpsError, "must be an integer"):
+            sync_pi_device_ssh.validated_config(
+                {
+                    "host": "203.0.113.10",
+                    "port": "not-a-port",
+                    "username": "pi-user",
+                    "password": "secret",
+                    "host_key_sha256": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                }
+            )
+
+        source = (ROOT / "scripts" / "sync_pi_device_ssh.py").read_text(encoding="utf-8")
+        self.assertIn("sorted(value.keys())", source)
+        self.assertNotIn("print(config_json)", source)
+        self.assertNotIn("print(raw_fields", source)
 
 
 class AirflowSchedulingResumeTest(unittest.TestCase):
@@ -255,6 +292,8 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertIn("target_dag_ids_b64", script)
         self.assertIn("retired_dags_left_paused", script)
         self.assertIn('restore_dags "$restore_regex"', script)
+        self.assertIn("states.get(dag_id, False)", script)
+        self.assertIn("states.get(dag_id, True)", script)
 
     def test_recovery_deploy_bounds_current_work_and_preserves_outbox(self):
         script = deploy_airflow.remote_script()
@@ -384,7 +423,9 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
     def test_quiesce_is_scoped_and_preserves_incident_outbox(self):
         script = quiesce_wechat_delivery.remote_script()
 
-        self.assertEqual(len(quiesce_wechat_delivery.WECHAT_DAG_IDS), 7)
+        self.assertEqual(len(quiesce_wechat_delivery.WECHAT_DAG_IDS), 8)
+        self.assertIn("大沙河国际网球中心巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
+        self.assertIn("expected_paused = 8", script)
         self.assertIn(
             "compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer",
             script,
@@ -414,7 +455,7 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
 
     def test_quiesce_requires_paused_dags_and_no_active_work(self):
         quiet = {
-            "paused_wechat_dags": 7,
+            "paused_wechat_dags": 8,
             "active_wechat_task_instances": 0,
             "active_wechat_dag_runs": 0,
         }
@@ -602,6 +643,32 @@ class ProductionHealthParsingTest(unittest.TestCase):
         )
 
         self.assertEqual(counts, {"venue": 3, "proxy": 1, "import_only": 0})
+
+    def test_new_dag_without_run_history_is_not_an_apply_failure(self):
+        no_history, is_new = production_health.classify_recent_run_history(3, [])
+        self.assertIsNone(no_history)
+        self.assertTrue(is_new)
+
+        partial_success, still_new = production_health.classify_recent_run_history(
+            3, [{"state": "success"}]
+        )
+        self.assertEqual(
+            partial_success, {"observed_count": 1, "required_count": 3, "states": ["success"]}
+        )
+        self.assertFalse(still_new)
+
+        failed, _ = production_health.classify_recent_run_history(
+            3, [{"state": "failed"}, {"state": "success"}]
+        )
+        self.assertEqual(
+            failed, {"observed_count": 2, "required_count": 3, "states": ["failed", "success"]}
+        )
+
+        healthy, _ = production_health.classify_recent_run_history(
+            3,
+            [{"state": "success"}, {"state": "success"}, {"state": "success"}],
+        )
+        self.assertIsNone(healthy)
 
     def test_deployment_commit_must_match_exact_release_commit(self):
         commit = "a" * 40

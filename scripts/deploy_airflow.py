@@ -219,7 +219,7 @@ with create_session() as session:
 for dag_id in current_dag_ids:
     print(f"current\\t{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
 for dag_id in target_dag_ids:
-    print(f"target\\t{{int(bool(states.get(dag_id, True)))}}\\t{{dag_id}}")
+    print(f"target\\t{{int(bool(states.get(dag_id, False)))}}\\t{{dag_id}}")
 PY
 
 pause_regex="$(python3 - "$dag_state_file" <<'PY'

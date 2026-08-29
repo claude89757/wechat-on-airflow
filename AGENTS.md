@@ -37,6 +37,7 @@ from the last verified state; chat history is not authoritative.
 - `tests/`: unit, contract, DAG import, and smoke tests.
 - `config/`: non-secret machine-readable contracts.
 - `scripts/`: idempotent development and operations commands.
+- `pi_host/`: Raspberry Pi scrape-host services, not Airflow DAG code.
 - `docker/`: reproducible Airflow image files.
 - `docs/`: architecture, runbooks, configuration, and decisions.
 
@@ -85,6 +86,7 @@ make db-cleanup-check
 make sender-image
 make webapp-deploy
 make webapp-health
+make pi-device-ssh-sync
 ```
 
 `make verify` is the required local development gate before committing. The
@@ -115,6 +117,30 @@ Environment. A workstation authenticates only with `gh auth login`; GitHub
 Actions receives scoped SSH deployment identities and invokes the structured
 operations scripts. Runtime secrets stay in platform-native stores and are
 never downloaded to developer devices.
+
+The Raspberry Pi used for YDMap / 大沙河国际网球交流中心 browser scraping
+is a third remote host, alongside the Airflow server and the Android WeChat
+sender host. Its login identity is stored only in the GitHub `production`
+Environment. Do not copy those values into the repository, commit `.env`,
+print them, or treat a workstation `.env` as production identity.
+
+GitHub Environment secret names:
+
+- `PI_DEVICE_SSH_HOST`
+- `PI_DEVICE_SSH_PORT`
+- `PI_DEVICE_SSH_USER`
+- `PI_DEVICE_SSH_PASSWORD`
+- `PI_DEVICE_SSH_KNOWN_HOSTS`
+- `PI_DEVICE_SSH_HOST_KEY_SHA256`
+
+The contract also lists these names in
+`config/runtime-target.yaml` under `pi_device_ssh_environment` and
+`github_environment_secrets`. Airflow and sender hosts use SSH public keys;
+the Pi currently uses password authentication plus a pinned host-key
+fingerprint. Future Airflow or GitHub workflows that need the Pi must read
+these Environment secrets in Actions, then keep the runtime copy in an
+Airflow Variable or a host credential file. Do not download the password to
+a laptop, and do not accept an unverified host key.
 
 Before and after a production change:
 
