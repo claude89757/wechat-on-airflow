@@ -11,6 +11,22 @@ updates:
           - "*"
         update-types:
           - patch
+      # Only development tools whose behavior is exercised directly by CI are
+      # grouped for minor-version automation. Sender/runtime dependencies such
+      # as FastAPI, Selenium, and Uvicorn remain individual manual-review PRs.
+      python-dev-minor:
+        dependency-type: development
+        patterns:
+          - "httpx"
+          - "mypy"
+          - "pre-commit"
+          - "pytest"
+          - "pytest-cov"
+          - "ruff"
+          - "types-paramiko"
+          - "types-requests"
+        update-types:
+          - minor
 
   - package-ecosystem: github-actions
     directory: /
@@ -28,6 +44,22 @@ updates:
           - "*"
         update-types:
           - patch
+      # Build, type-check, unit-test, and browser-test tooling may move within
+      # the current major after the exact PR head passes the complete Web gate.
+      # Wrangler is intentionally excluded because it controls deployment.
+      webapp-dev-minor:
+        dependency-type: development
+        patterns:
+          - "@cloudflare/workers-types"
+          - "@playwright/test"
+          - "@types/react"
+          - "@types/react-dom"
+          - "@vitejs/plugin-react"
+          - "typescript"
+          - "vite"
+          - "vitest"
+        update-types:
+          - minor
 
   - package-ecosystem: docker
     directory: /docker/airflow
