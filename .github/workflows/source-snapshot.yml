@@ -1,0 +1,29 @@
+name: Source Snapshot
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/source-snapshot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: >-
+      github.head_ref == 'feat/webapp-weekday-ux' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Create source archive
+        run: git archive --format=zip --output=/tmp/wechat-on-airflow-source.zip HEAD
+      - name: Upload source archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-snapshot-${{ github.run_id }}
+          path: /tmp/wechat-on-airflow-source.zip
+          if-no-files-found: error
+          retention-days: 1
