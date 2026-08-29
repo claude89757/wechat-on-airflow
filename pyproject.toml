@@ -30,7 +30,7 @@ dev = [
   "fastapi==0.139.2",
   "httpx==0.28.1",
   "mypy==1.17.1",
-  "pre-commit==4.3.0",
+  "pre-commit==4.6.2",
   "pytest==9.0.3",
   "pytest-cov==6.2.1",
   "ruff==0.12.11",
