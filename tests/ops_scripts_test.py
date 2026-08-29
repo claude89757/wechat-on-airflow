@@ -654,10 +654,14 @@ class ProductionHealthParsingTest(unittest.TestCase):
         partial_success, still_new = production_health.classify_recent_run_history(
             3, [{"state": "success"}]
         )
-        self.assertEqual(
-            partial_success, {"observed_count": 1, "required_count": 3, "states": ["success"]}
+        self.assertIsNone(partial_success)
+        self.assertTrue(still_new)
+
+        two_successes, still_warming = production_health.classify_recent_run_history(
+            3, [{"state": "success"}, {"state": "success"}]
         )
-        self.assertFalse(still_new)
+        self.assertIsNone(two_successes)
+        self.assertTrue(still_warming)
 
         failed, _ = production_health.classify_recent_run_history(
             3, [{"state": "failed"}, {"state": "success"}]

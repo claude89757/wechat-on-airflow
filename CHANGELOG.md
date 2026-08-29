@@ -15,6 +15,15 @@ and operational changes.
 - Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
   to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
 
+## [0.5.1] - 2026-08-29
+
+### Changed
+
+- Treat a newly declared DAG whose completed runs are all successful but
+  still fewer than the required observation cycles as apply-time healthy
+  warming-up, so 30-second venue DAGs are not rolled back after their first
+  one or two successes.
+
 ## [0.5.0] - 2026-08-29
 
 ### Added
