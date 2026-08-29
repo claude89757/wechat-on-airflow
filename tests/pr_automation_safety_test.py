@@ -12,8 +12,7 @@ def test_dependabot_groups_only_aggregate_patch_updates() -> None:
     config = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text())
 
     groups_by_ecosystem = {
-        update["package-ecosystem"]: update.get("groups", {})
-        for update in config["updates"]
+        update["package-ecosystem"]: update.get("groups", {}) for update in config["updates"]
     }
 
     assert groups_by_ecosystem["pip"]["python-patch"]["update-types"] == ["patch"]
