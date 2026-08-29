@@ -56,7 +56,7 @@ managed_services:
     public_hostname: zacks.claude89757.cc
     public_base_url: https://zacks.claude89757.cc
     health_path: /api/healthz
-    expected_venue_count: 8
+    expected_venue_count: 9
     deployment_owner: github_actions
   cloudflare_tunnel:
     runtime: systemd
@@ -100,6 +100,7 @@ production_operations:
     - wechat_quiesce
     - airflow_resume
     - nswtt_config_sync
+    - pi_device_ssh_sync
   sender_operations:
     - health
     - device_diagnose
@@ -122,6 +123,14 @@ production_operations:
     host: WECHAT_SENDER_SSH_HOST
     port: WECHAT_SENDER_SSH_PORT
     username: WECHAT_SENDER_SSH_USER
+  pi_device_ssh_environment:
+    host: PI_DEVICE_SSH_HOST
+    port: PI_DEVICE_SSH_PORT
+    username: PI_DEVICE_SSH_USER
+    password: PI_DEVICE_SSH_PASSWORD
+    known_hosts: PI_DEVICE_SSH_KNOWN_HOSTS
+    host_key_sha256: PI_DEVICE_SSH_HOST_KEY_SHA256
+    authentication: ssh_password
   github_environment_secrets:
     - AIRFLOW_SSH_HOST
     - AIRFLOW_SSH_PORT
@@ -135,6 +144,12 @@ production_operations:
     - WECHAT_SENDER_SSH_USER
     - WECHAT_SENDER_SSH_PRIVATE_KEY
     - WECHAT_SENDER_SSH_KNOWN_HOSTS
+    - PI_DEVICE_SSH_HOST
+    - PI_DEVICE_SSH_PORT
+    - PI_DEVICE_SSH_USER
+    - PI_DEVICE_SSH_PASSWORD
+    - PI_DEVICE_SSH_KNOWN_HOSTS
+    - PI_DEVICE_SSH_HOST_KEY_SHA256
     - CLOUDFLARE_ACCOUNT_ID
     - CLOUDFLARE_API_TOKEN
 maintenance:

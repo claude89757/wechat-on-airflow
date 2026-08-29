@@ -68,6 +68,7 @@ def install_import_stubs() -> None:
 
 install_import_stubs()
 fsb_watcher = importlib.import_module("wechat_airflow.venues.fsb_watcher")
+fsb_watcher.Variable = FakeVariable
 
 
 class FsbWatcherTest(unittest.TestCase):

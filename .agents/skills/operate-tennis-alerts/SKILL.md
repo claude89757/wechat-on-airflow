@@ -129,7 +129,9 @@ operations through the protected workflows. Deployment credentials must come
 from the GitHub `production` Environment. Runtime credentials must come from
 Airflow Variables, Cloudflare Worker Secrets, Docker Secrets, or systemd
 credentials; the repository and developer workstation must not contain
-production secret files.
+production secret files. The Raspberry Pi scrape host uses the
+`PI_DEVICE_SSH_*` names declared in `config/runtime-target.yaml`; never print
+those values or copy a workstation `.env` into production.
 
 ## Finish Only With Evidence
 

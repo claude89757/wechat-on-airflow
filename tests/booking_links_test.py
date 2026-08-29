@@ -93,6 +93,7 @@ class BookingLinksTest(unittest.TestCase):
         self.assertEqual(
             booking_links.program_for_venue("dsh_free"), booking_links.DSH_FREE_PROGRAM
         )
+        self.assertIsNone(booking_links.program_for_venue("dsh"))
         self.assertEqual(booking_links.program_for_venue("tyzx"), booking_links.TYZX_PROGRAM)
         self.assertEqual(
             booking_links.SYSH_PROGRAM.link,

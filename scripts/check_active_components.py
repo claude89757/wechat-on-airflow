@@ -398,6 +398,7 @@ def main() -> None:
             "wechat_quiesce",
             "airflow_resume",
             "nswtt_config_sync",
+            "pi_device_ssh_sync",
         ]
         or operations.get("sender_operations")
         != [
@@ -424,11 +425,29 @@ def main() -> None:
         "WECHAT_SENDER_SSH_USER",
         "WECHAT_SENDER_SSH_PRIVATE_KEY",
         "WECHAT_SENDER_SSH_KNOWN_HOSTS",
+        "PI_DEVICE_SSH_HOST",
+        "PI_DEVICE_SSH_PORT",
+        "PI_DEVICE_SSH_USER",
+        "PI_DEVICE_SSH_PASSWORD",
+        "PI_DEVICE_SSH_KNOWN_HOSTS",
+        "PI_DEVICE_SSH_HOST_KEY_SHA256",
         "CLOUDFLARE_ACCOUNT_ID",
         "CLOUDFLARE_API_TOKEN",
     }
     if set(operations.get("github_environment_secrets", [])) != expected_github_secrets:
         fail("GitHub production Environment secret contract is incomplete")
+    pi_ssh = operations.get("pi_device_ssh_environment")
+    if (
+        not isinstance(pi_ssh, dict)
+        or pi_ssh.get("host") != "PI_DEVICE_SSH_HOST"
+        or pi_ssh.get("port") != "PI_DEVICE_SSH_PORT"
+        or pi_ssh.get("username") != "PI_DEVICE_SSH_USER"
+        or pi_ssh.get("password") != "PI_DEVICE_SSH_PASSWORD"
+        or pi_ssh.get("known_hosts") != "PI_DEVICE_SSH_KNOWN_HOSTS"
+        or pi_ssh.get("host_key_sha256") != "PI_DEVICE_SSH_HOST_KEY_SHA256"
+        or pi_ssh.get("authentication") != "ssh_password"
+    ):
+        fail("Raspberry Pi SSH Environment contract is incomplete")
     missing_workflows = sorted(
         name
         for name in PRODUCTION_WORKFLOWS

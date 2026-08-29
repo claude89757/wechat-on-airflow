@@ -1,0 +1,23 @@
+[Unit]
+Description=Dashah YDMap tennis scrape service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=claude
+Group=claude
+WorkingDirectory=/home/claude/dsh_ydmap
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XAUTHORITY=/home/claude/.Xauthority
+Environment=LANG=zh_CN.UTF-8
+Environment=LANGUAGE=zh_CN:zh
+Environment=LC_ALL=zh_CN.UTF-8
+ExecStart=/usr/bin/python3 /home/claude/dsh_ydmap/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -186,3 +186,18 @@ def test_manual_scope_cannot_omit_detected_runtime_component(tmp_path: Path):
 
     assert result.returncode == 2
     assert "omits detected runtime components: airflow" in result.stderr
+
+
+def test_pi_scrape_host_files_are_metadata_not_sender_runtime(tmp_path: Path):
+    repo, _ = init_repo(tmp_path)
+    write(repo, "pi_host/dsh_ydmap/server.py", "print('ok')\n")
+    write(repo, "deploy/systemd/dsh-ydmap-scraper.service", "[Service]\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "pi host")
+
+    payload = json.loads(run_plan(repo, "--target-commit", git(repo, "rev-parse", "HEAD")).stdout)
+
+    assert payload["runtime_components"] == []
+    assert payload["resolved_scope"] == "control"
+    assert payload["deploy_sender"] is False
+    assert payload["unknown_files"] == []

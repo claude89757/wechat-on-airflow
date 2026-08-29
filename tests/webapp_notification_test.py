@@ -17,8 +17,13 @@ class WebappNotificationTest(TestCase):
             "fsb_watcher.py": "run_check_tennis_courts",
             "tyzx_watcher.py": "run_check_tennis_courts",
             "dashahe_free_watcher.py": "run_check_dashahe_free_courts",
+            "dsh_ydmap_watcher.py": "run_check_tennis_courts",
         }
         watcher_root = Path(__file__).parents[1] / "src" / "wechat_airflow" / "venues"
+        self.assertEqual(
+            set(watchers),
+            {path.name for path in watcher_root.glob("*_watcher.py")},
+        )
 
         for filename, function_name in watchers.items():
             with self.subTest(filename=filename):

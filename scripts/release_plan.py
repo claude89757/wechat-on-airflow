@@ -72,6 +72,7 @@ METADATA_PREFIXES = (
     "tests/",
     "webapp/qa/",
     "webapp/tests/",
+    "pi_host/",
 )
 METADATA_EXACT = {
     "CHANGELOG.md",
@@ -79,6 +80,7 @@ METADATA_EXACT = {
     "README.en.md",
     "ARCHITECTURE.md",
     "AGENTS.md",
+    "deploy/systemd/dsh-ydmap-scraper.service",
     "CONTRIBUTING.md",
     "CODE_OF_CONDUCT.md",
     "SECURITY.md",

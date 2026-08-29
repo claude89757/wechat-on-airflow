@@ -40,6 +40,7 @@ on:
           - wechat_quiesce
           - airflow_resume
           - nswtt_config_sync
+          - pi_device_ssh_sync
       target_commit:
         description: Exact commit SHA on main
         required: true
@@ -122,6 +123,11 @@ jobs:
           CONFIRM_REAL_SEND: ${{ inputs.confirm_real_send }}
           PROBE_TARGET_MEMBERSHIP: ${{ inputs.probe_target_membership }}
           NSWTT_API_CONFIG: ${{ secrets.NSWTT_API_CONFIG }}
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
         run: |
           case "$OPERATION" in
             health)
@@ -178,6 +184,9 @@ jobs:
               ;;
             nswtt_config_sync)
               PYTHONPATH=scripts python scripts/sync_nswtt_config.py
+              ;;
+            pi_device_ssh_sync)
+              PYTHONPATH=scripts python scripts/sync_pi_device_ssh.py
               ;;
             *)
               exit 2

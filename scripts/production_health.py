@@ -88,6 +88,35 @@ def normalized_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes"}
 
 
+def classify_recent_run_history(
+    required_count: int,
+    runs: object,
+) -> tuple[dict[str, Any] | None, bool]:
+    """Return (failure, is_new_without_history) for one DAG.
+
+    A declared DAG with zero completed runs is treated as newly introduced and
+    does not fail apply-time health. Once any run exists, the newest required
+    runs must all succeed.
+    """
+    if required_count <= 0:
+        return None, False
+    valid_runs = [run for run in runs if isinstance(run, dict)] if isinstance(runs, list) else []
+    if not valid_runs:
+        return None, True
+    relevant_runs = valid_runs[:required_count]
+    states = [str(run.get("state", "")).lower() for run in relevant_runs]
+    if len(relevant_runs) < required_count or any(state != "success" for state in states):
+        return (
+            {
+                "observed_count": len(relevant_runs),
+                "required_count": required_count,
+                "states": states,
+            },
+            False,
+        )
+    return None, False
+
+
 def required_successful_run_counts(
     active_dags: list[dict[str, Any]],
     production_cycles: int,
@@ -707,21 +736,17 @@ PY
 
     recent_run_failures: dict[str, dict[str, Any]] = {}
     recent_run_summary: dict[str, list[dict[str, Any]]] = {}
+    new_dags_without_history: list[str] = []
     for dag_id in dag_ids:
         required_count = required_run_counts[dag_id]
         runs = recent_runs.get(dag_id, []) if isinstance(recent_runs, dict) else []
         valid_runs = [run for run in runs if isinstance(run, dict)]
         recent_run_summary[dag_id] = valid_runs
-        relevant_runs = valid_runs[:required_count]
-        states = [str(run.get("state", "")).lower() for run in relevant_runs]
-        if required_count and (
-            len(relevant_runs) < required_count or any(state != "success" for state in states)
-        ):
-            recent_run_failures[dag_id] = {
-                "observed_count": len(relevant_runs),
-                "required_count": required_count,
-                "states": states,
-            }
+        failure, is_new_without_history = classify_recent_run_history(required_count, valid_runs)
+        if is_new_without_history:
+            new_dags_without_history.append(dag_id)
+        if failure is not None:
+            recent_run_failures[dag_id] = failure
 
     recent_outbox_failures, historical_outboxes, malformed_outboxes = classify_fallback_outboxes(
         outboxes if isinstance(outboxes, dict) else {"outboxes": outboxes},
@@ -855,6 +880,13 @@ PY
             f"{len(recent_run_failures)} DAGs lack the required successful run history",
             "inspect failed task logs and verify three completed successful cycles",
         )
+    if new_dags_without_history:
+        add_warning(
+            "recent_dag_runs",
+            "newly declared DAGs have no completed runs yet: "
+            + ", ".join(new_dags_without_history),
+            "observe the configured natural schedule cycles before treating the DAG as proven",
+        )
     if malformed_outboxes:
         add_issue(
             "notification_fallback",
@@ -923,6 +955,7 @@ PY
         "variable_contracts": variable_contracts,
         "recent_runs": recent_run_summary,
         "recent_run_failures": recent_run_failures,
+        "new_dags_without_history": new_dags_without_history,
         "fallback_outbox_counts": outbox_counts,
         "fallback_outboxes": outboxes,
         "database": database,

@@ -29,6 +29,16 @@ variables:
     required_fields:
       - app_version
       - cookie
+  PI_DEVICE_SSH:
+    type: json_object
+    required_by: [大沙河国际网球中心巡检]
+    sensitive: true
+    required_fields:
+      - host
+      - port
+      - username
+      - password
+      - host_key_sha256
   SZW_API_AUTHORIZATION:
     type: string
     required_by: [深圳湾网球场巡检, 大湾区网球场巡检]
@@ -66,6 +76,7 @@ variables:
       - 上越沙河网球场巡检
       - TOPS科技园网球场巡检
       - 泛思博特福中福网球场巡检
+      - 大沙河国际网球中心巡检
     sensitive: true
   SZ_TYZX_TENNIS_CHATROOMS:
     type: newline_separated_string
@@ -166,6 +177,13 @@ variables:
   大沙河免费场:
     type: json_list
     required_by: [大沙河免费场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  大沙河国际网球中心:
+    type: json_list
+    required_by: [大沙河国际网球中心巡检]
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve

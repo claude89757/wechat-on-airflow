@@ -2,6 +2,7 @@ export const VENUES = {
   szw: "深圳湾",
   gba: "大湾区网球场",
   dsh_free: "大沙河免费场",
+  dsh: "大沙河国际网球中心",
   sysh: "上越沙河",
   tops: "TOPS 科技园",
   fsb: "泛思博特福中福",

@@ -67,6 +67,16 @@ release and must remain a healthy empty observation. Authentication expiry
 fails the task and requires rotating the protected GitHub Environment secret,
 then running `nswtt_config_sync` before the next deployment health check.
 
+## Dashah International YDMap Inspection Failure
+
+The paid Dashah International DAG SSHes to the Raspberry Pi scrape host and
+curls the loopback inspect endpoint. A captcha, empty JSON, or SSH failure is
+an unhealthy observation, not an email event. Confirm `dsh-ydmap-scraper`
+is active on the Pi, port `8788` remains loopback-only, and Airflow Variable
+`PI_DEVICE_SSH` exists. Rotate the GitHub `PI_DEVICE_SSH_*` secrets, then run
+`pi_device_ssh_sync` before the next deployment health check. Do not expose the
+scrape port or copy the workstation `.env` onto the Airflow host.
+
 ## WeChat Failure
 
 Check sender `/healthz`, `device_busy` responses, Appium availability, device

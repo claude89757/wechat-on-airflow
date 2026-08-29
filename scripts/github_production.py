@@ -128,6 +128,7 @@ def main() -> None:
             "wechat_quiesce",
             "airflow_resume",
             "nswtt_config_sync",
+            "pi_device_ssh_sync",
         },
         "sender": {
             "health",
