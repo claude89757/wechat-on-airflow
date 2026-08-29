@@ -1,0 +1,482 @@
+name: Dependabot maintenance
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Optional Dependabot pull request number; blank checks all candidates
+        required: false
+        type: string
+      dry_run:
+        description: Report actions without changing pull requests
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-maintenance
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Reconcile safe Dependabot pull requests
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const defaultBranch = context.payload.repository.default_branch;
+            const target = String(context.payload.inputs?.pull_request ?? "").trim();
+            const dryRun = String(context.payload.inputs?.dry_run ?? "false") === "true";
+            const allowedGroups = new Map([
+              ["python-dev-non-major", "python"],
+              ["python-runtime-non-major", "python"],
+              ["webapp-dev-non-major", "webapp"],
+              ["webapp-runtime-non-major", "webapp"],
+            ]);
+            const blockingLabels = new Set([
+              "breaking-change",
+              "do-not-merge",
+              "manual-review",
+              "production",
+            ]);
+            const sleep = (milliseconds) =>
+              new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+            function candidateFor(pull) {
+              const text = `${pull.title} ${pull.head.ref}`.toLowerCase();
+              for (const [group, ecosystem] of allowedGroups) {
+                if (text.includes(group)) {
+                  return { group, ecosystem };
+                }
+              }
+              return null;
+            }
+
+            function versionRows(body) {
+              const rows = [];
+              for (const line of String(body ?? "").split(/\r?\n/)) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith("|") || (trimmed.match(/\|/g) ?? []).length < 4) {
+                  continue;
+                }
+                const cells = trimmed.replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+                if (
+                  cells.length !== 3 ||
+                  !cells[1].startsWith("`") ||
+                  !cells[2].startsWith("`")
+                ) {
+                  continue;
+                }
+                rows.push([
+                  cells[0],
+                  cells[1].replace(/^`|`$/g, "").trim(),
+                  cells[2].replace(/^`|`$/g, "").trim(),
+                ]);
+              }
+              return rows;
+            }
+
+            function major(version) {
+              const match = String(version).match(/(?:^|[^\d])(\d+)\.\d+/);
+              return match ? Number(match[1]) : null;
+            }
+
+            function provesNonMajor(body) {
+              const rows = versionRows(body);
+              return (
+                rows.length > 0 &&
+                rows.every(([, from, to]) => {
+                  const fromMajor = major(from);
+                  const toMajor = major(to);
+                  return fromMajor !== null && fromMajor === toMajor;
+                })
+              );
+            }
+
+            function allowedFile(path, ecosystem) {
+              if (ecosystem === "webapp") {
+                return new Set([
+                  "webapp/package.json",
+                  "webapp/package-lock.json",
+                  "webapp/npm-shrinkwrap.json",
+                ]).has(path);
+              }
+              if (
+                new Set([
+                  "pyproject.toml",
+                  "uv.lock",
+                  "poetry.lock",
+                  "Pipfile",
+                  "Pipfile.lock",
+                ]).has(path)
+              ) {
+                return true;
+              }
+              return !path.includes("/") &&
+                /^(?:requirements|constraints)(?:[-_.][^/]+)?\.txt$/.test(path);
+            }
+
+            async function upsertComment(number, key, message) {
+              const marker = `<!-- dependabot-maintenance:${key} -->`;
+              const body = `${marker}\n${message}`;
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: number,
+                per_page: 100,
+              });
+              const existing = comments.find(
+                (comment) =>
+                  comment.user?.login === "github-actions[bot]" &&
+                  String(comment.body ?? "").includes(marker),
+              );
+              if (dryRun) {
+                core.notice(`DRY RUN: would ${existing ? "update" : "add"} ${key} on #${number}`);
+                return;
+              }
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: number,
+                  body,
+                });
+              }
+            }
+
+            async function candidateNumbers() {
+              if (target) {
+                if (!/^\d+$/.test(target)) {
+                  throw new Error("pull_request input must be a positive integer");
+                }
+                return [Number(target)];
+              }
+
+              const run = context.payload.workflow_run;
+              if (run) {
+                const associated = (run.pull_requests ?? [])
+                  .map((pull) => pull.number)
+                  .filter(Number.isInteger);
+                if (associated.length > 0) {
+                  return [...new Set(associated)];
+                }
+                if (!run.head_sha) {
+                  return [];
+                }
+                const pulls = await github.paginate(github.rest.pulls.list, {
+                  owner,
+                  repo,
+                  state: "open",
+                  per_page: 100,
+                });
+                return pulls
+                  .filter((pull) => pull.head.sha === run.head_sha)
+                  .map((pull) => pull.number);
+              }
+
+              const pulls = await github.paginate(github.rest.pulls.list, {
+                owner,
+                repo,
+                state: "open",
+                per_page: 100,
+              });
+              return pulls.map((pull) => pull.number);
+            }
+
+            async function exactCiResult(pull) {
+              const run = context.payload.workflow_run;
+              if (run?.head_sha === pull.head.sha) {
+                return {
+                  ok: run.conclusion === "success",
+                  state: run.conclusion ?? run.status ?? "unknown",
+                };
+              }
+
+              const response = await github.request(
+                "GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs",
+                {
+                  owner,
+                  repo,
+                  workflow_id: "ci.yml",
+                  head_sha: pull.head.sha,
+                  per_page: 20,
+                },
+              );
+              const exact = response.data.workflow_runs.filter(
+                (item) => item.head_sha === pull.head.sha,
+              );
+              if (exact.length === 0) {
+                return { ok: false, state: "missing" };
+              }
+              const latest = exact[0];
+              return {
+                ok: latest.status === "completed" && latest.conclusion === "success",
+                state: latest.status === "completed" ? latest.conclusion : latest.status,
+              };
+            }
+
+            async function refreshMergeability(number) {
+              let pull;
+              for (let attempt = 0; attempt < 6; attempt += 1) {
+                pull = (await github.rest.pulls.get({ owner, repo, pull_number: number })).data;
+                if (pull.mergeable !== null) {
+                  return pull;
+                }
+                await sleep(2000);
+              }
+              return pull;
+            }
+
+            async function updateBranchAndDispatch(pull) {
+              const number = pull.number;
+              const oldSha = pull.head.sha;
+              if (dryRun) {
+                core.notice(`DRY RUN: would refresh #${number} at ${oldSha} and dispatch CI`);
+                return;
+              }
+
+              try {
+                await github.request(
+                  "PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch",
+                  {
+                    owner,
+                    repo,
+                    pull_number: number,
+                    expected_head_sha: oldSha,
+                  },
+                );
+              } catch (error) {
+                if ([403, 409, 422].includes(error.status)) {
+                  await upsertComment(
+                    number,
+                    `rebase-${oldSha}`,
+                    "@dependabot rebase\n\nThe guarded maintainer could not refresh this branch " +
+                      "through the API. Dependabot was asked to rebase it. No deployment was attempted.",
+                  );
+                  return;
+                }
+                throw error;
+              }
+
+              let refreshed = pull;
+              for (let attempt = 0; attempt < 30; attempt += 1) {
+                await sleep(2000);
+                refreshed = (
+                  await github.rest.pulls.get({ owner, repo, pull_number: number })
+                ).data;
+                if (refreshed.head.sha !== oldSha) {
+                  break;
+                }
+              }
+              if (refreshed.head.sha === oldSha) {
+                await upsertComment(
+                  number,
+                  `refresh-pending-${oldSha}`,
+                  "GitHub accepted a guarded branch refresh, but the new head was not visible " +
+                    "during this run. The scheduled reconciler will retry. No deployment was attempted.",
+                );
+                return;
+              }
+
+              await github.request(
+                "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+                {
+                  owner,
+                  repo,
+                  workflow_id: "ci.yml",
+                  ref: refreshed.head.ref,
+                },
+              );
+              await upsertComment(
+                number,
+                `ci-${refreshed.head.sha}`,
+                `The branch was refreshed to \`${refreshed.head.sha}\` and CI was dispatched ` +
+                  "for that exact commit. Merge will be retried only after `verify` succeeds. " +
+                  "No deployment was attempted.",
+              );
+            }
+
+            async function processPull(number) {
+              let pull = (await github.rest.pulls.get({ owner, repo, pull_number: number })).data;
+              const candidate = candidateFor(pull);
+              if (!candidate) {
+                core.info(`#${number}: not an allowlisted non-major dependency group`);
+                return;
+              }
+
+              const labels = new Set(pull.labels.map((label) => String(label.name).toLowerCase()));
+              const invalidReason =
+                pull.state !== "open" ? "not open" :
+                pull.draft ? "draft" :
+                pull.user.login !== "dependabot[bot]" ? "author is not Dependabot" :
+                pull.base.ref !== defaultBranch ? "wrong base branch" :
+                pull.head.repo?.full_name !== `${owner}/${repo}` ? "head is in another repository" :
+                !pull.head.ref.startsWith("dependabot/") ? "head is not a Dependabot branch" :
+                [...labels].some((label) => blockingLabels.has(label)) ? "blocking label present" :
+                !provesNonMajor(pull.body) ? "version table does not prove a non-major update" :
+                null;
+              if (invalidReason) {
+                core.info(`#${number}: skipped — ${invalidReason}`);
+                return;
+              }
+
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner,
+                repo,
+                pull_number: number,
+                per_page: 100,
+              });
+              if (
+                files.length === 0 ||
+                files.some(
+                  (file) =>
+                    file.status === "removed" ||
+                    !allowedFile(file.filename, candidate.ecosystem),
+                )
+              ) {
+                core.warning(`#${number}: changed files are outside the dependency allowlist`);
+                return;
+              }
+
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: number,
+                per_page: 100,
+              });
+              const latestReview = new Map();
+              for (const review of reviews) {
+                if (review.user?.login) {
+                  latestReview.set(review.user.login, review.state);
+                }
+              }
+              if ([...latestReview.values()].includes("CHANGES_REQUESTED")) {
+                core.info(`#${number}: a review requests changes`);
+                return;
+              }
+
+              const ci = await exactCiResult(pull);
+              const verifiedSha = pull.head.sha;
+              if (!ci.ok) {
+                core.info(`#${number}: exact-head CI is ${ci.state}`);
+                if (["failure", "cancelled", "timed_out", "action_required"].includes(ci.state)) {
+                  await upsertComment(
+                    number,
+                    `ci-blocked-${pull.head.sha}`,
+                    `Automatic merge is paused because exact-head CI finished with ` +
+                      `\`${ci.state}\` for \`${pull.head.sha}\`. The PR remains open; ` +
+                      "no deployment was attempted.",
+                  );
+                }
+                return;
+              }
+
+              pull = await refreshMergeability(number);
+              if (pull.head.sha !== verifiedSha) {
+                const currentCi = await exactCiResult(pull);
+                if (!currentCi.ok) {
+                  core.info(`#${number}: head changed after CI; waiting for exact-head verification`);
+                  return;
+                }
+              }
+
+              if (pull.mergeable === false || pull.mergeable_state === "dirty") {
+                await upsertComment(
+                  number,
+                  `conflict-${pull.head.sha}`,
+                  "Automatic merge stopped because GitHub reports a merge conflict. " +
+                    "Manual resolution is required; no deployment was attempted.",
+                );
+                return;
+              }
+              if (pull.mergeable_state === "behind") {
+                await updateBranchAndDispatch(pull);
+                return;
+              }
+
+              if (dryRun) {
+                core.notice(`DRY RUN: would squash-merge #${number} at ${pull.head.sha}`);
+                return;
+              }
+
+              try {
+                const result = await github.request(
+                  "PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge",
+                  {
+                    owner,
+                    repo,
+                    pull_number: number,
+                    sha: pull.head.sha,
+                    merge_method: "squash",
+                    commit_title: `${pull.title} (#${number})`,
+                    commit_message:
+                      "Automatically merged after exact-head CI and dependency-only safety checks. " +
+                      "Production deployment remains manual.",
+                  },
+                );
+                if (result.data.merged) {
+                  core.notice(
+                    `#${number}: merged ${candidate.group} at ${pull.head.sha}; deployment not invoked`,
+                  );
+                  return;
+                }
+              } catch (error) {
+                if (![405, 409, 422].includes(error.status)) {
+                  throw error;
+                }
+              }
+
+              pull = await refreshMergeability(number);
+              if (pull.state === "open" && pull.mergeable_state === "behind") {
+                await updateBranchAndDispatch(pull);
+                return;
+              }
+              await upsertComment(
+                number,
+                `merge-blocked-${pull.head.sha}`,
+                `GitHub declined the guarded squash merge (state: ` +
+                  `\`${pull.mergeable_state}\`). The scheduled reconciler will retry; ` +
+                  "no deployment was attempted.",
+              );
+            }
+
+            const numbers = [...new Set(await candidateNumbers())].sort((a, b) => a - b);
+            if (numbers.length === 0) {
+              core.info("No open pull request is associated with this run.");
+              return;
+            }
+
+            let unexpectedErrors = 0;
+            for (const number of numbers) {
+              try {
+                await processPull(number);
+              } catch (error) {
+                unexpectedErrors += 1;
+                core.error(`#${number}: ${error.stack ?? error.message ?? String(error)}`);
+              }
+            }
+            if (unexpectedErrors > 0) {
+              core.setFailed(`${unexpectedErrors} pull request(s) failed reconciliation`);
+            }
