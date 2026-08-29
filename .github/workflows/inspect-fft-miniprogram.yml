@@ -1,0 +1,69 @@
+name: Inspect FFT mini-program archive
+
+on:
+  push:
+    branches:
+      - chore/inspect-fft-miniprogram-20260830
+    paths:
+      - .github/workflows/inspect-fft-miniprogram.yml
+      - docs/integrations/miniprogram-wxb8ec04a1ebd1866b-2026.07.25.zip
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Verify and extract archived build
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="docs/integrations/miniprogram-wxb8ec04a1ebd1866b-2026.07.25.zip"
+          expected_sha256="4b24f41a0ba2db47e49d6c0f167acebb40c80b165d82d908796f0033a8b9746f"
+          actual_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+          test "$actual_sha256" = "$expected_sha256"
+
+          rm -rf artifacts/fft-miniprogram
+          mkdir -p artifacts/fft-miniprogram
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          archive = Path("docs/integrations/miniprogram-wxb8ec04a1ebd1866b-2026.07.25.zip")
+          output = Path("artifacts/fft-miniprogram")
+
+          with zipfile.ZipFile(archive) as bundle:
+              members = bundle.infolist()
+              for member in members:
+                  path = PurePosixPath(member.filename)
+                  if path.is_absolute() or ".." in path.parts:
+                      raise RuntimeError(f"unsafe archive member: {member.filename!r}")
+              bundle.extractall(output)
+
+          manifest = {
+              "archive": archive.as_posix(),
+              "files": sum(not item.is_dir() for item in members),
+              "directories": sum(item.is_dir() for item in members),
+              "uncompressed_bytes": sum(item.file_size for item in members),
+          }
+          (output / "_extraction_manifest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload extracted source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fft-miniprogram-source-${{ github.sha }}
+          path: artifacts/fft-miniprogram
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
