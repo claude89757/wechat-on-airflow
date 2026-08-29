@@ -59,6 +59,17 @@ describe("subscription domain", () => {
     ).toEqual(["fsb"]);
   });
 
+  it("accepts Fansibote chain-court subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["fsb_shenyun", "fsb_shekou", "fsb_xinan", "fsb_zhengzhong", "fsb_atuoshan"],
+        startTime: "18:00",
+        endTime: "22:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["fsb_shenyun", "fsb_shekou", "fsb_xinan", "fsb_zhengzhong", "fsb_atuoshan"]);
+  });
+
   it("accepts PICKLE POP Bao'an subscriptions", () => {
     expect(
       validateSubscriptionInput({
@@ -70,10 +81,15 @@ describe("subscription domain", () => {
     ).toEqual(["ppba"]);
   });
 
-  it("registers ten venues including PICKLE POP Bao'an", () => {
-    expect(Object.keys(VENUES)).toHaveLength(10);
+  it("registers fifteen venues including Fansibote chain courts", () => {
+    expect(Object.keys(VENUES)).toHaveLength(15);
     expect(VENUES.ppba).toBe("PICKLE POP宝安");
     expect(VENUES.dsh).toBe("大沙河国际网球中心");
+    expect(VENUES.fsb_shenyun).toBe("泛思博特深云");
+    expect(VENUES.fsb_shekou).toBe("泛思博特蛇口");
+    expect(VENUES.fsb_xinan).toBe("泛思博特新安");
+    expect(VENUES.fsb_zhengzhong).toBe("泛思博特正中");
+    expect(VENUES.fsb_atuoshan).toBe("泛思博特安托山");
   });
 
   it("accepts Dashah International Tennis Center subscriptions", () => {
