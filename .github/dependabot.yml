@@ -4,26 +4,80 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
     groups:
-      python-runtime:
+      python-dev-non-major:
+        patterns:
+          - httpx
+          - mypy
+          - pre-commit
+          - pytest
+          - pytest-cov
+          - ruff
+          - "types-*"
+        update-types:
+          - minor
+          - patch
+      python-runtime-non-major:
         patterns:
           - "*"
+        exclude-patterns:
+          - httpx
+          - mypy
+          - pre-commit
+          - pytest
+          - pytest-cov
+          - ruff
+          - "types-*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+
   - package-ecosystem: npm
     directory: /webapp
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
     groups:
-      webapp-runtime:
+      webapp-dev-non-major:
+        patterns:
+          - "@cloudflare/workers-types"
+          - "@playwright/test"
+          - "@types/*"
+          - "@vitejs/plugin-react"
+          - typescript
+          - vite
+          - vitest
+          - wrangler
+        update-types:
+          - minor
+          - patch
+      webapp-runtime-non-major:
         patterns:
           - "*"
+        exclude-patterns:
+          - "@cloudflare/workers-types"
+          - "@playwright/test"
+          - "@types/*"
+          - "@vitejs/plugin-react"
+          - typescript
+          - vite
+          - vitest
+          - wrangler
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: docker
     directory: /docker/airflow
     schedule:
       interval: monthly
+
   - package-ecosystem: docker
     directory: /docker/sender
     schedule:
