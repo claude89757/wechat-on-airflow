@@ -5,6 +5,11 @@ and operational changes.
 
 ## Unreleased
 
+### Changed
+
+- Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
+  to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
+
 ## [0.4.0] - 2026-08-29
 
 ### Added

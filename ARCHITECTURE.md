@@ -79,6 +79,7 @@ Greater Bay Area WeChat uses the same Zacks chatrooms as Shenzhen Bay, with a
 different hour window: weekdays 18:00-21:00 and weekends 12:00-21:00. The booking
 query ends at 21:00 so a closed 21:00-22:00 hour cannot appear as a free slot.
 Shenzhen Bay WeChat remains weekdays 18:00-22:00 and weekends 16:00-22:00.
+Shenzhen Sports Center WeChat uses weekdays 18:00-21:00 and weekends 17:00-21:00.
 
 WeChat availability alerts append the venue booking mini-program as the last
 line of the same send, at most once per chat and mini-program every two hours.
