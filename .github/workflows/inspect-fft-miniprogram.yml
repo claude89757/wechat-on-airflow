@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Verify and extract archived build
         shell: bash
@@ -28,7 +30,7 @@ jobs:
           test "$actual_sha256" = "$expected_sha256"
 
           rm -rf artifacts/fft-miniprogram
-          mkdir -p artifacts/fft-miniprogram
+          mkdir -p artifacts/fft-miniprogram artifacts/repository
           python - <<'PY'
           from __future__ import annotations
 
@@ -59,7 +61,15 @@ jobs:
           )
           PY
 
-      - name: Upload extracted source
+      - name: Export tracked repository snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=zip \
+            --output artifacts/repository/wechat-on-airflow-source.zip \
+            HEAD
+
+      - name: Upload extracted mini-program source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fft-miniprogram-source-${{ github.sha }}
@@ -67,3 +77,12 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 9
+
+      - name: Upload repository snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wechat-on-airflow-source-${{ github.sha }}
+          path: artifacts/repository/wechat-on-airflow-source.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
