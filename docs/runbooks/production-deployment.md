@@ -106,7 +106,8 @@ The health gate checks, among other contracts:
 - private Execution API route behavior;
 - DAG source readability, registration, pause state, and import errors;
 - required Variables without exposing values;
-- declared recent successful schedule cycles;
+- declared recent successful schedule cycles (new DAGs with only successful
+  but incomplete history stay apply-healthy as warming-up warnings);
 - managed Cloudflare Tunnel and sender readiness;
 - outbox evidence without automatic replay.
 

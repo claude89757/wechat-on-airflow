@@ -94,9 +94,11 @@ def classify_recent_run_history(
 ) -> tuple[dict[str, Any] | None, bool]:
     """Return (failure, is_new_without_history) for one DAG.
 
-    A declared DAG with zero completed runs is treated as newly introduced and
-    does not fail apply-time health. Once any run exists, the newest required
-    runs must all succeed.
+    A declared DAG with zero completed runs, or with fewer than the required
+    successful runs and no failures, is treated as newly introduced / warming
+    up and does not fail apply-time health. Once the newest required runs all
+    exist, they must all succeed. Any failed completed run in that window is
+    an apply failure.
     """
     if required_count <= 0:
         return None, False
@@ -105,7 +107,7 @@ def classify_recent_run_history(
         return None, True
     relevant_runs = valid_runs[:required_count]
     states = [str(run.get("state", "")).lower() for run in relevant_runs]
-    if len(relevant_runs) < required_count or any(state != "success" for state in states):
+    if any(state != "success" for state in states):
         return (
             {
                 "observed_count": len(relevant_runs),
@@ -114,6 +116,8 @@ def classify_recent_run_history(
             },
             False,
         )
+    if len(relevant_runs) < required_count:
+        return None, True
     return None, False
 
 
@@ -883,8 +887,8 @@ PY
     if new_dags_without_history:
         add_warning(
             "recent_dag_runs",
-            "newly declared DAGs have no completed runs yet: "
-            + ", ".join(new_dags_without_history),
+            "newly declared or warming-up DAGs have not yet completed "
+            "the required successful run history: " + ", ".join(new_dags_without_history),
             "observe the configured natural schedule cycles before treating the DAG as proven",
         )
     if malformed_outboxes:
