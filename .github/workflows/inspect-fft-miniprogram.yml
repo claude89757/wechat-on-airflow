@@ -30,7 +30,7 @@ jobs:
           test "$actual_sha256" = "$expected_sha256"
 
           rm -rf artifacts/fft-miniprogram
-          mkdir -p artifacts/fft-miniprogram artifacts/repository
+          mkdir -p artifacts/fft-miniprogram artifacts/repository artifacts/probe
           python - <<'PY'
           from __future__ import annotations
 
@@ -61,6 +61,207 @@ jobs:
           )
           PY
 
+      - name: Probe read-only venue endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import datetime as dt
+          import json
+          import os
+          import ssl
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+          from typing import Any
+          from zoneinfo import ZoneInfo
+
+          BASE_URL = "https://wxservice-stg48.pospal.cn/wxapi/"
+          STORE_ID = 5934657
+          REPORT_PATH = Path("artifacts/probe/fft-read-only-api-report.json")
+          SSL_CONTEXT = ssl.create_default_context()
+          SSL_CONTEXT.check_hostname = False
+          SSL_CONTEXT.verify_mode = ssl.CERT_NONE
+
+          def mapping(value: object) -> dict[str, Any]:
+              return value if isinstance(value, dict) else {}
+
+          def post(path: str, payload: dict[str, object]) -> dict[str, Any]:
+              request = urllib.request.Request(
+                  BASE_URL + path,
+                  data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "STOREID": str(STORE_ID),
+                      "PSPLVISITORAUTO": "API",
+                      "APPTYPE": "1",
+                      "VERSIONINFO": "NC|2026.07.25",
+                      "Content-Type": "application/json",
+                      "User-Agent": "wechat-on-airflow-read-only-probe/1.0",
+                  },
+              )
+              with urllib.request.urlopen(
+                  request,
+                  timeout=20,
+                  context=SSL_CONTEXT,
+              ) as response:
+                  if response.status != 200:
+                      raise RuntimeError(f"{path}: HTTP {response.status}")
+                  body = json.loads(response.read().decode("utf-8"))
+              if not isinstance(body, dict):
+                  raise RuntimeError(f"{path}: response is not an object")
+              return body
+
+          report: dict[str, Any] = {
+              "base_host": "wxservice-stg48.pospal.cn",
+              "store_id": STORE_ID,
+              "checked_at": dt.datetime.now(dt.UTC).isoformat(),
+              "usable": False,
+              "errors": [],
+          }
+
+          try:
+              store_response = post(
+                  "Store/GetStoreDataFast",
+                  {"includeLatLon": True, "igornVipCheck": True},
+              )
+              store = mapping(store_response.get("result"))
+              resolved_store_id = int(store.get("storeUserId") or STORE_ID)
+              report["store"] = {
+                  "store_user_id": resolved_store_id,
+                  "store_name": str(store.get("storeName") or ""),
+                  "industry": str(store.get("industry") or ""),
+                  "is_chain_store": bool(store.get("IsChainStore")),
+                  "is_open_multi_store": bool(store.get("IsOpenMulMiniAppStore")),
+                  "store_status": store.get("StoreStatus"),
+                  "is_business_closed": bool(store.get("IsBizClosed")),
+                  "successed": store_response.get("successed"),
+                  "status": store_response.get("status"),
+              }
+
+              project_response = post(
+                  "AppointmentVenue/LoadClassroomProjectList",
+                  {"userId": resolved_store_id},
+              )
+              raw_projects = project_response.get("result")
+              projects = raw_projects if isinstance(raw_projects, list) else []
+              sanitized_projects: list[dict[str, object]] = []
+              for raw_project in projects:
+                  project = mapping(raw_project)
+                  sanitized_projects.append(
+                      {
+                          "txt_uid": str(project.get("txtUid") or ""),
+                          "name": str(
+                              project.get("name")
+                              or project.get("txtName")
+                              or project.get("projectName")
+                              or ""
+                          ),
+                          "type": project.get("type"),
+                          "user_id": project.get("userId"),
+                      }
+                  )
+              report["projects"] = sanitized_projects
+              report["project_response"] = {
+                  "successed": project_response.get("successed"),
+                  "status": project_response.get("status"),
+                  "count": len(projects),
+              }
+
+              config_response = post(
+                  "AppointmentVenue/AppointmentVenueConfig",
+                  {"storeId": resolved_store_id},
+              )
+              config = mapping(config_response.get("result"))
+              current_setting = mapping(config.get("currentSetting"))
+              report["venue_config"] = {
+                  "advance_days": current_setting.get("advanceDays"),
+                  "venue_time_limit": config.get("venueTimeLimit"),
+                  "successed": config_response.get("successed"),
+                  "status": config_response.get("status"),
+              }
+
+              selected = next(
+                  (
+                      project
+                      for project in sanitized_projects
+                      if "网球" in str(project.get("name") or "")
+                      or "tennis" in str(project.get("name") or "").lower()
+                  ),
+                  sanitized_projects[0] if sanitized_projects else None,
+              )
+              if selected and selected.get("txt_uid"):
+                  today = dt.datetime.now(ZoneInfo("Asia/Shanghai")).date()
+                  checks: list[dict[str, object]] = []
+                  for day_offset in range(3):
+                      query_date = today + dt.timedelta(days=day_offset)
+                      availability_response = post(
+                          "AppointmentVenue/LoadValidClassRoomApptSettingV2",
+                          {
+                              "dateTime": query_date.isoformat(),
+                              "projectUid": selected["txt_uid"],
+                              "userId": resolved_store_id,
+                          },
+                      )
+                      result = mapping(availability_response.get("result"))
+                      slots = result.get("slots")
+                      rooms = result.get("validClassRooms")
+                      slot_list = slots if isinstance(slots, list) else []
+                      room_list = rooms if isinstance(rooms, list) else []
+                      bookable = [
+                          slot
+                          for slot in slot_list
+                          if mapping(mapping(slot).get("apptInfo")).get("canApptOrNot") is True
+                      ]
+                      room_names = sorted(
+                          {
+                              str(mapping(slot).get("classRoomName") or "")
+                              for slot in slot_list
+                              if str(mapping(slot).get("classRoomName") or "").strip()
+                          }
+                      )
+                      checks.append(
+                          {
+                              "date": query_date.isoformat(),
+                              "successed": availability_response.get("successed"),
+                              "status": availability_response.get("status"),
+                              "slot_count": len(slot_list),
+                              "valid_room_count": len(room_list),
+                              "bookable_slot_count": len(bookable),
+                              "room_names": room_names,
+                              "result_keys": sorted(result),
+                          }
+                      )
+                  report["selected_project"] = selected
+                  report["availability_checks"] = checks
+                  report["usable"] = bool(
+                      report["store"]["store_name"]
+                      and report["project_response"]["count"]
+                      and all(check["status"] == "success" for check in checks)
+                      and all("slots" in check["result_keys"] for check in checks)
+                  )
+              else:
+                  report["errors"].append("No venue project with a non-empty txtUid was returned")
+          except (OSError, ValueError, RuntimeError, urllib.error.URLError) as error:
+              report["errors"].append(f"{type(error).__name__}: {error}")
+
+          REPORT_PATH.write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("## FFT read-only API probe\n\n")
+              summary.write(f"- usable: `{report['usable']}`\n")
+              summary.write(f"- store: `{mapping(report.get('store')).get('store_name', '')}`\n")
+              summary.write(
+                  f"- projects: `{mapping(report.get('project_response')).get('count', 0)}`\n"
+              )
+              summary.write(f"- errors: `{len(report['errors'])}`\n")
+          PY
+
       - name: Export tracked repository snapshot
         shell: bash
         run: |
@@ -74,6 +275,15 @@ jobs:
         with:
           name: fft-miniprogram-source-${{ github.sha }}
           path: artifacts/fft-miniprogram
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
+
+      - name: Upload sanitized API probe report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fft-read-only-api-report-${{ github.sha }}
+          path: artifacts/probe/fft-read-only-api-report.json
           if-no-files-found: error
           retention-days: 1
           compression-level: 9
