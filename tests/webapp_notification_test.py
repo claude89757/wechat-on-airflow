@@ -15,9 +15,21 @@ class WebappNotificationTest(TestCase):
             "sysh_watcher.py": "run_check_tennis_courts",
             "tops_watcher.py": "run_check_tennis_courts",
             "fsb_watcher.py": "run_check_tennis_courts",
+            "fsb_shenyun_watcher.py": "run_check_tennis_courts",
+            "fsb_shekou_watcher.py": "run_check_tennis_courts",
+            "fsb_xinan_watcher.py": "run_check_tennis_courts",
+            "fsb_zhengzhong_watcher.py": "run_check_tennis_courts",
+            "fsb_atuoshan_watcher.py": "run_check_tennis_courts",
             "tyzx_watcher.py": "run_check_tennis_courts",
             "dashahe_free_watcher.py": "run_check_dashahe_free_courts",
             "dsh_ydmap_watcher.py": "run_check_tennis_courts",
+        }
+        pospal_wrappers = {
+            "fsb_shenyun_watcher.py",
+            "fsb_shekou_watcher.py",
+            "fsb_xinan_watcher.py",
+            "fsb_zhengzhong_watcher.py",
+            "fsb_atuoshan_watcher.py",
         }
         watcher_root = Path(__file__).parents[1] / "src" / "wechat_airflow" / "venues"
         self.assertEqual(
@@ -50,6 +62,9 @@ class WebappNotificationTest(TestCase):
                     for node in ast.walk(function)
                     if isinstance(node, ast.Call)
                 ]
+                if filename in pospal_wrappers:
+                    self.assertEqual([name for _, name in calls], ["run_check"])
+                    continue
                 publish_lines = [
                     line for line, name in calls if name == "publish_venue_observation"
                 ]
@@ -65,6 +80,34 @@ class WebappNotificationTest(TestCase):
                 self.assertTrue(publish_lines)
                 self.assertTrue(wechat_lines)
                 self.assertLess(max(publish_lines), min(wechat_lines))
+
+        pospal_source = (watcher_root / "pospal_venue.py").read_text(encoding="utf-8")
+        self.assertNotIn("notifications.email", pospal_source)
+        pospal_tree = ast.parse(pospal_source)
+        pospal_function = next(
+            node
+            for node in pospal_tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "run_check"
+        )
+        pospal_calls = [
+            (
+                node.lineno,
+                node.func.id
+                if isinstance(node.func, ast.Name)
+                else node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else "",
+            )
+            for node in ast.walk(pospal_function)
+            if isinstance(node, ast.Call)
+        ]
+        pospal_publish = [
+            line for line, name in pospal_calls if name == "publish_venue_observation"
+        ]
+        pospal_wechat = [line for line, name in pospal_calls if name == "enqueue_wechat_message"]
+        self.assertTrue(pospal_publish)
+        self.assertTrue(pospal_wechat)
+        self.assertLess(max(pospal_publish), min(pospal_wechat))
 
     def test_flattens_slots_and_normalizes_midnight(self):
         result = webapp.flatten_court_slots(

@@ -5,6 +5,20 @@ and operational changes.
 
 ## Unreleased
 
+## [0.4.0] - 2026-08-29
+
+### Added
+
+- Add five Fansibote chain tennis venues to the Web subscription catalog and
+  30-second Airflow inspection DAGs: 深云, 蛇口, 新安, 正中, and 安托山.
+- Keep only standard tennis / 风雨场 courts from the shared PosPal V2 payload
+  and drop 小场, 匹克, and 练习 courts before Web observation or WeChat.
+
+### Changed
+
+- Treat a successful PosPal V2 response with zero bookable rooms as a healthy
+  empty result so these stores can stay green until online booking opens.
+
 ## [0.3.0] - 2026-08-29
 
 ### Added

@@ -6,6 +6,11 @@ export const VENUES = {
   sysh: "上越沙河",
   tops: "TOPS 科技园",
   fsb: "泛思博特福中福",
+  fsb_shenyun: "泛思博特深云",
+  fsb_shekou: "泛思博特蛇口",
+  fsb_xinan: "泛思博特新安",
+  fsb_zhengzhong: "泛思博特正中",
+  fsb_atuoshan: "泛思博特安托山",
   tyzx: "深圳市体育中心",
   jdwx: "金地威新",
 } as const;
