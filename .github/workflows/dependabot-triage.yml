@@ -67,7 +67,7 @@ jobs:
           fi
 
           case "$PACKAGE_ECOSYSTEM:$DEPENDENCY_GROUP" in
-            pip:python-patch|npm:webapp-patch)
+            pip:python-patch|npm_and_yarn:webapp-patch)
               ;;
             *)
               eligible=false
@@ -99,7 +99,7 @@ jobs:
             case "$PACKAGE_ECOSYSTEM:$path" in
               pip:pyproject.toml)
                 ;;
-              npm:webapp/package.json|npm:webapp/package-lock.json)
+              npm_and_yarn:webapp/package.json|npm_and_yarn:webapp/package-lock.json)
                 ;;
               *)
                 eligible=false
