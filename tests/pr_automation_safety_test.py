@@ -58,6 +58,6 @@ def test_dependabot_merge_is_bound_to_the_classified_head_sha() -> None:
 def test_dependabot_merge_response_has_valid_json_fallback() -> None:
     reconcile = (WORKFLOWS / "dependabot-reconcile.yml").read_text()
 
-    assert '${merge_response:-{}}' not in reconcile
+    assert "${merge_response:-{}}" not in reconcile
     assert "merge_response='{}'" in reconcile
     assert '<<<"$merge_response"' in reconcile
