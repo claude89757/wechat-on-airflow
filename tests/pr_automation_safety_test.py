@@ -45,3 +45,14 @@ def test_dependabot_merge_is_bound_to_the_classified_head_sha() -> None:
     assert '-f expected_head_sha="$head_sha"' in reconcile
     assert '-f sha="$head_sha"' in reconcile
     assert '-f merge_method="squash"' in reconcile
+
+
+def test_dependabot_triage_uses_fetch_metadata_ecosystem_names() -> None:
+    triage = (WORKFLOWS / "dependabot-triage.yml").read_text()
+
+    assert "pip:python-patch|npm_and_yarn:webapp-patch" in triage
+    assert (
+        "npm_and_yarn:webapp/package.json|npm_and_yarn:webapp/package-lock.json"
+        in triage
+    )
+    assert "npm:webapp-patch" not in triage
