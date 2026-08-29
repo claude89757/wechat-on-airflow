@@ -30,12 +30,12 @@ dev = [
   "fastapi==0.139.2",
   "httpx==0.28.1",
   "mypy==1.17.1",
-  "pre-commit==4.3.0",
-  "pytest==9.0.3",
+  "pre-commit==4.6.2",
+  "pytest==9.1.1",
   "pytest-cov==6.2.1",
-  "ruff==0.12.11",
+  "ruff==0.16.4",
   "types-paramiko==3.5.0.20240928",
-  "types-requests==2.32.4.20250809",
+  "types-requests==2.33.0.20260712",
 ]
 
 [tool.hatch.build.targets.wheel]
