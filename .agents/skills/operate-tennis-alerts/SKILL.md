@@ -133,6 +133,28 @@ production secret files. The Raspberry Pi scrape host uses the
 `PI_DEVICE_SSH_*` names declared in `config/runtime-target.yaml`; never print
 those values or copy a workstation `.env` into production.
 
+## Add Or Change A Venue
+
+Venue work crosses Airflow, the Cloudflare web application, and D1. Use the
+full touch-point list in
+[venue-integration.md](references/venue-integration.md). Three rules cause the
+most rework:
+
+- PosPal / 银豹 venues extend the shared adapter in
+  `src/wechat_airflow/venues/pospal_venue.py`. Do not clone a legacy full
+  adapter such as `ppba_watcher.py` or `fsb_watcher.py`; those predate the
+  shared base class.
+- Court matching must not assume the court name contains 网球. Match on
+  `classroomInfo.projectName`, or extend the base class exclusion list. A
+  matcher built on `"网球" in court_name` silently filters out every court at a
+  venue like FFTENNIS前海, which names courts `1号（双打场）`.
+- Migration file numbers are unique and ordered. Take the next free number, and
+  remember `INSERT OR IGNORE` will silently skip a colliding file.
+
+Re-read the current venue count, `WECHAT_DAG_IDS` length, inline
+`expected_paused`, and newest migration number before editing. They move with
+every integration.
+
 ## Finish Only With Evidence
 
 Do not declare completion until:
