@@ -18,6 +18,23 @@ class BookingLinksTest(unittest.TestCase):
         self.assertIsNone(booking_links.program_for_venue(" "))
         self.assertIsNone(booking_links.program_for_venue("unknown"))
 
+    def test_active_venues_have_registered_booking_links(self):
+        catalog = {
+            "szw": booking_links.WEILAIHUI,
+            "gba": booking_links.WEILAIHUI,
+            "dsh_free": booking_links.DSH_FREE_PROGRAM,
+            "dsh": booking_links.DSH_PROGRAM,
+            "sysh": booking_links.SYSH_PROGRAM,
+            "tops": booking_links.TOPS_PROGRAM,
+            "fsb": booking_links.FSB_PROGRAM,
+            "ppba": booking_links.PPBA_PROGRAM,
+            "tyzx": booking_links.TYZX_PROGRAM,
+            "jdwx": booking_links.JDWX_PROGRAM,
+        }
+        self.assertEqual(set(catalog), set(booking_links.VENUE_BOOKING_PROGRAMS))
+        for venue_id, program in catalog.items():
+            self.assertEqual(booking_links.program_for_venue(venue_id), program)
+
     def test_attach_footer_adds_the_scheme_once_as_the_last_line(self):
         message = "【深圳湾1号场】星期二(08-18)空场: 18:00-19:00"
         attached = booking_links.attach_footer(message, booking_links.WEILAIHUI.link)
@@ -93,7 +110,15 @@ class BookingLinksTest(unittest.TestCase):
         self.assertEqual(
             booking_links.program_for_venue("dsh_free"), booking_links.DSH_FREE_PROGRAM
         )
-        self.assertIsNone(booking_links.program_for_venue("dsh"))
+        self.assertEqual(booking_links.program_for_venue("dsh"), booking_links.DSH_PROGRAM)
+        self.assertEqual(booking_links.DSH_PROGRAM.link, "#小程序://威逊文体/il2QpVgwVeghPtg")
+        self.assertEqual(booking_links.program_for_venue("fsb"), booking_links.FSB_PROGRAM)
+        self.assertEqual(booking_links.FSB_PROGRAM.link, "#小程序://泛思博特/D0aY3jOJ2oq34fh")
+        self.assertEqual(booking_links.program_for_venue("ppba"), booking_links.PPBA_PROGRAM)
+        self.assertEqual(
+            booking_links.PPBA_PROGRAM.link,
+            "#小程序://PICKLEPOP宝安摩天轮馆/PK3I72u2dNFoA2b",
+        )
         self.assertEqual(booking_links.program_for_venue("tyzx"), booking_links.TYZX_PROGRAM)
         self.assertEqual(
             booking_links.SYSH_PROGRAM.link,
