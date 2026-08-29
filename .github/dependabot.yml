@@ -14,6 +14,8 @@ updates:
       # Only development tools whose behavior is exercised directly by CI are
       # grouped for minor-version automation. Sender/runtime dependencies such
       # as FastAPI, Selenium, and Uvicorn remain individual manual-review PRs.
+      # Ruff is also kept individual because minor releases can change lint and
+      # formatting rules across unrelated repository files.
       python-dev-minor:
         dependency-type: development
         patterns:
@@ -22,7 +24,6 @@ updates:
           - "pre-commit"
           - "pytest"
           - "pytest-cov"
-          - "ruff"
           - "types-paramiko"
           - "types-requests"
         update-types:
