@@ -4,26 +4,49 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Production Python dependencies remain individual PRs. Only non-major
+    # development-tool updates are grouped for lower-risk review.
     groups:
-      python-runtime:
+      python-dev-nonmajor:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
         patterns:
           - "*"
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+
   - package-ecosystem: npm
     directory: /webapp
     schedule:
       interval: weekly
+    # Keep runtime and development updates separate, and leave every major
+    # update as an individual PR for explicit review.
     groups:
-      webapp-runtime:
+      webapp-runtime-nonmajor:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
         patterns:
           - "*"
+      webapp-dev-nonmajor:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+
   - package-ecosystem: docker
     directory: /docker/airflow
     schedule:
       interval: monthly
+
   - package-ecosystem: docker
     directory: /docker/sender
     schedule:
