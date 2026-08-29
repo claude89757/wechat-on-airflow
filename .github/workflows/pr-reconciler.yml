@@ -67,6 +67,7 @@ jobs:
             base_ref="$(jq -r '.base.ref' <<<"$pr_json")"
             head_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
             head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+            reported_changed_files="$(jq -r '.changed_files // -1' <<<"$pr_json")"
             keep_open="$(
               jq -r '[.labels[].name] | index("keep-open") != null' <<<"$pr_json"
             )"
@@ -79,9 +80,24 @@ jobs:
               continue
             fi
 
+            if [[ ! "$reported_changed_files" =~ ^[0-9]+$ ]]; then
+              echo "Skipping #$number because GitHub reported an invalid changed-file count."
+              continue
+            fi
+
+            files_json="$(
+              gh api --paginate "repos/$REPO/pulls/$number/files?per_page=100"
+            )"
+            returned_changed_files="$(jq -s '[.[][]] | length' <<<"$files_json")"
+            if ((returned_changed_files != reported_changed_files)); then
+              echo "Skipping #$number because GitHub returned $returned_changed_files of $reported_changed_files changed files."
+              continue
+            fi
+
             mapfile -t touched_paths < <(
-              gh api --paginate "repos/$REPO/pulls/$number/files?per_page=100" \
-                --jq '.[] | .filename, (.previous_filename // empty)' |
+              jq -r -s \
+                '[.[][]] | .[] | .filename, (.previous_filename // empty)' \
+                <<<"$files_json" |
                 awk 'NF && !seen[$0]++'
             )
 
