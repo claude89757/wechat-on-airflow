@@ -1,0 +1,45 @@
+name: Isolated Pi YDMap Probe
+run-name: production/pi-isolated-ydmap-probe/${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Run an isolated Bao'an YDMap probe without touching Dashah
+        required: true
+        type: boolean
+        default: false
+      request_id:
+        description: Unique request correlation ID
+        required: false
+        default: manual
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-isolated-ydmap-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: inputs.confirm
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install probe dependencies
+        run: python -m pip install --disable-pip-version-check paramiko==3.5.1
+      - name: Probe Bao'an YDMap on the Pi without touching Dashah
+        env:
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+        run: PYTHONPATH=scripts python scripts/probe_pi_ydmap_isolated.py
