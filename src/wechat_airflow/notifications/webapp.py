@@ -139,9 +139,7 @@ def wechat_delivery_allowed(
     its `valid_until` timestamp. Missing/stale state fails closed.
     """
     mode = (
-        str(_get_variable(WEBAPP_WECHAT_GATE_MODE_VAR, default=DEFAULT_GATE_MODE))
-        .strip()
-        .lower()
+        str(_get_variable(WEBAPP_WECHAT_GATE_MODE_VAR, default=DEFAULT_GATE_MODE)).strip().lower()
     )
     if mode not in {"off", "shadow", "enforce"}:
         mode = DEFAULT_GATE_MODE
