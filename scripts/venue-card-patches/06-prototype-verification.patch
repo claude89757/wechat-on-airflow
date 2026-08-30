@@ -1,0 +1,30 @@
+--- a/webapp/src/Prototype.tsx
++++ b/webapp/src/Prototype.tsx
+@@ -1420,14 +1604,26 @@
+                 className="sheet-primary"
+                 type="button"
+                 aria-describedby="subscription-summary"
++                aria-label={quickVenue ? `创建${quickVenue.name}提醒` : "确认创建订阅"}
+                 disabled={formBusy || !subscriptionFormReady}
+                 onClick={() => void submitSubscription()}
+               >
+-                {formBusy ? "正在创建…" : "确认创建订阅"}
++                {formBusy ? "正在创建…" : quickVenue ? "创建该场地提醒" : "确认创建订阅"}
+               </button>
+             </div>
+           ) : (
+             <div className="verification-form">
++              {quickVenue ? (
++                <div className="quick-verification-context">
++                  <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id]}`} aria-hidden="true">
++                    <QuickVenueIcon size={20} weight="duotone" />
++                  </span>
++                  <div>
++                    <strong>已选择 {quickVenue.name}</strong>
++                    <span>验证邮箱后会继续保留该场地，并进入提醒条件设置。</span>
++                  </div>
++                </div>
++              ) : null}
+               {receipts.length ? (
+                 <div className="receipt-history">
+                   <span>本浏览器验证过</span>
