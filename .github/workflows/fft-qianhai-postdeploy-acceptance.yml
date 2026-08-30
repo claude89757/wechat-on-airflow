@@ -1,0 +1,124 @@
+name: FFT Qianhai post-deploy acceptance
+
+on:
+  push:
+    branches:
+      - ops/fft-qianhai-postdeploy-acceptance-20260830
+    paths:
+      - .github/workflows/fft-qianhai-postdeploy-acceptance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  webapp-health:
+    uses: ./.github/workflows/production-webapp.yml
+    with:
+      operation: health
+      target_commit: c8f0f7115b9b498cb660e7507d91aa66abfcff7e
+      request_id: fft-qianhai-postdeploy-${{ github.run_id }}
+    secrets: inherit
+
+  airflow-health:
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: health
+      target_commit: c8f0f7115b9b498cb660e7507d91aa66abfcff7e
+      request_id: fft-qianhai-postdeploy-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  public-acceptance:
+    needs: [webapp-health, airflow-health]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify public health and FFT venue freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 5 --max-time 20 \
+            https://zacks.claude89757.cc/api/healthz > /tmp/health.json
+          curl --fail --silent --show-error --retry 5 --max-time 20 \
+            https://zacks.claude89757.cc/api/bootstrap > /tmp/bootstrap.json
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import re
+          from pathlib import Path
+          from typing import Any
+
+          EXPECTED_COMMIT = "c8f0f7115b9b498cb660e7507d91aa66abfcff7e"
+          EXPECTED_VENUE_ID = "fft_qianhai"
+          EXPECTED_VENUE_NAME = "FFTENNIS前海国际网球中心"
+          SHA = re.compile(r"^[0-9a-f]{40}$")
+
+          health = json.loads(Path("/tmp/health.json").read_text(encoding="utf-8"))
+          bootstrap = json.loads(Path("/tmp/bootstrap.json").read_text(encoding="utf-8"))
+
+          def mappings(value: object) -> list[dict[str, Any]]:
+              if isinstance(value, list):
+                  return [item for item in value if isinstance(item, dict)]
+              return []
+
+          def find_commit(value: object) -> str | None:
+              preferred: list[str] = []
+              fallback: list[str] = []
+
+              def walk(item: object, path: tuple[str, ...] = ()) -> None:
+                  if isinstance(item, dict):
+                      for key, child in item.items():
+                          walk(child, (*path, str(key).lower()))
+                  elif isinstance(item, list):
+                      for child in item:
+                          walk(child, path)
+                  elif isinstance(item, str) and SHA.fullmatch(item):
+                      if any("commit" in key or "release" in key or key == "sha" for key in path):
+                          preferred.append(item)
+                      else:
+                          fallback.append(item)
+
+              walk(value)
+              candidates = preferred or fallback
+              return candidates[0] if candidates else None
+
+          venues = mappings(bootstrap.get("venues"))
+          if not venues and isinstance(bootstrap.get("data"), dict):
+              venues = mappings(bootstrap["data"].get("venues"))
+
+          venue = next(
+              (
+                  item
+                  for item in venues
+                  if item.get("id") == EXPECTED_VENUE_ID
+                  or item.get("venueId") == EXPECTED_VENUE_ID
+              ),
+              None,
+          )
+          assert find_commit(health) == EXPECTED_COMMIT, health
+          assert len(venues) == 26, len(venues)
+          assert venue is not None, venues
+          assert venue.get("name") == EXPECTED_VENUE_NAME, venue
+          assert venue.get("lastInspectionAt"), venue
+
+          serialized = json.dumps(bootstrap, ensure_ascii=False).lower()
+          assert "@" not in serialized, "bootstrap unexpectedly contains an email-shaped value"
+
+          print(
+              json.dumps(
+                  {
+                      "ok": True,
+                      "deployed_commit": EXPECTED_COMMIT,
+                      "venue_count": len(venues),
+                      "venue_id": EXPECTED_VENUE_ID,
+                      "venue_name": venue.get("name"),
+                      "last_inspection_at": venue.get("lastInspectionAt"),
+                      "bootstrap_contains_no_at_sign": True,
+                  },
+                  ensure_ascii=False,
+                  sort_keys=True,
+              )
+          )
+          PY
