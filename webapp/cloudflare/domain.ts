@@ -18,8 +18,13 @@ export const VENUES = {
 
 export type VenueId = keyof typeof VENUES;
 
+export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
+export const ALL_WEEKDAY_MASK = 127;
+
 export type SubscriptionInput = {
   venueIds: VenueId[];
+  weekdays: Weekday[];
   startTime: string;
   endTime: string;
   durationDays: number;
@@ -55,6 +60,39 @@ export function parseTime(value: string): number {
   }
   const [hours, minutes] = value.split(":").map(Number);
   return hours * 60 + minutes;
+}
+
+export function normalizeWeekdays(value: unknown): Weekday[] {
+  if (value === undefined) return [...WEEKDAYS];
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("请至少选择一个星期");
+  }
+  const weekdays = Array.from(new Set(value.map(Number))).sort((left, right) => left - right);
+  if (
+    weekdays.length === 0
+    || weekdays.some((weekday) => !Number.isInteger(weekday) || weekday < 1 || weekday > 7)
+  ) {
+    throw new Error("星期选择无效");
+  }
+  return weekdays as Weekday[];
+}
+
+export function weekdayMaskFromDays(weekdays: readonly Weekday[]): number {
+  if (!weekdays.length) throw new Error("请至少选择一个星期");
+  return weekdays.reduce((mask, weekday) => mask | (1 << (weekday - 1)), 0);
+}
+
+export function weekdaysFromMask(value: number | null | undefined): Weekday[] {
+  const mask = Number.isInteger(value) && Number(value) >= 1 && Number(value) <= ALL_WEEKDAY_MASK
+    ? Number(value)
+    : ALL_WEEKDAY_MASK;
+  return WEEKDAYS.filter((weekday) => Boolean(mask & (1 << (weekday - 1))));
+}
+
+export function bookingDateWeekday(date: string): Weekday {
+  const [year, month, day] = date.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return (weekday === 0 ? 7 : weekday) as Weekday;
 }
 
 export function validateSubscriptionInput(value: unknown): SubscriptionInput {
@@ -95,7 +133,9 @@ export function validateSubscriptionInput(value: unknown): SubscriptionInput {
     ? legacyDurationDays
     : 7;
 
-  return { venueIds, startTime, endTime, durationDays };
+  const weekdays = normalizeWeekdays(candidate.weekdays);
+
+  return { venueIds, weekdays, startTime, endTime, durationDays };
 }
 
 export function validateSlotObservation(value: unknown): SlotObservation {
@@ -129,6 +169,11 @@ export function slotMatchesTimeRange(
 ): boolean {
   return parseTime(slot.startTime) < parseTime(endTime)
     && parseTime(slot.endTime) > parseTime(startTime);
+}
+
+export function slotMatchesWeekday(slot: SlotObservation, weekdayMask: number): boolean {
+  const weekday = bookingDateWeekday(slot.date);
+  return Boolean(weekdayMask & (1 << (weekday - 1)));
 }
 
 export function activeUntilIso(durationDays: number, now = new Date()): string {
