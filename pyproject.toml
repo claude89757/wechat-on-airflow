@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [{ name = "claude89757" }]
 dependencies = [
   "cryptography==48.0.1",
-  "paramiko==3.5.1",
+  "paramiko==5.0.0",
   "PyYAML==6.0.3",
   "requests==2.34.2",
 ]
