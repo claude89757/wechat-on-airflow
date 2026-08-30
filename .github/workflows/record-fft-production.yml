@@ -1,0 +1,219 @@
+name: Record FFT Qianhai production evidence
+
+on:
+  push:
+    branches:
+      - docs/fft-qianhai-production-20260830
+    paths:
+      - .github/workflows/record-fft-production.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  actions: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      FEATURE_BRANCH: feat/fft-qianhai-release-prep-20260830
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Collect exact release evidence
+        id: evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          health=$(curl --fail --silent --show-error --retry 5 --max-time 20 \
+            https://zacks.claude89757.cc/api/healthz)
+          deployed_sha=$(HEALTH="$health" python - <<'PY'
+          from __future__ import annotations
+          import json, os, re
+          value = json.loads(os.environ["HEALTH"])
+          pattern = re.compile(r"^[0-9a-f]{40}$")
+          preferred: list[str] = []
+          fallback: list[str] = []
+          def walk(item: object, path: tuple[str, ...] = ()) -> None:
+              if isinstance(item, dict):
+                  for key, child in item.items():
+                      walk(child, (*path, str(key).lower()))
+              elif isinstance(item, list):
+                  for child in item:
+                      walk(child, path)
+              elif isinstance(item, str) and pattern.fullmatch(item):
+                  if any("commit" in key or "release" in key or key == "sha" for key in path):
+                      preferred.append(item)
+                  else:
+                      fallback.append(item)
+          walk(value)
+          candidates = preferred or fallback
+          if not candidates:
+              raise SystemExit("No full release SHA in public health response")
+          print(candidates[0])
+          PY
+          )
+
+          pr=$(gh api "repos/$GH_REPO/pulls?state=closed&head=${{ github.repository_owner }}:$FEATURE_BRANCH&base=main&per_page=100" \
+            | jq -c '[.[] | select(.merged_at != null)][0]')
+          pr_number=$(jq -r '.number' <<<"$pr")
+          pr_merge_sha=$(jq -r '.merge_commit_sha' <<<"$pr")
+          [[ "$pr_number" =~ ^[0-9]+$ ]]
+
+          ci_run=$(gh api "repos/$GH_REPO/actions/runs?head_sha=$deployed_sha&per_page=100" \
+            | jq -c '[.workflow_runs[] | select(.name == "CI" and .conclusion == "success")][0]')
+          ci_run_id=$(jq -r '.id' <<<"$ci_run")
+          [[ "$ci_run_id" =~ ^[0-9]+$ ]]
+
+          orchestrator=$(gh api "repos/$GH_REPO/actions/runs?branch=$(python - <<'PY'
+          import urllib.parse
+          print(urllib.parse.quote("feat/fft-qianhai-release-prep-20260830", safe=""))
+          PY
+          )&per_page=100" \
+            | jq -c '[.workflow_runs[] | select(.name == "Orchestrate FFT Qianhai production release" and .conclusion == "success")][0]')
+          orchestrator_id=$(jq -r '.id' <<<"$orchestrator")
+          [[ "$orchestrator_id" =~ ^[0-9]+$ ]]
+
+          rm -rf /tmp/fft-acceptance
+          mkdir -p /tmp/fft-acceptance
+          gh run download "$orchestrator_id" \
+            --repo "$GH_REPO" \
+            --name "fft-qianhai-production-acceptance-$deployed_sha" \
+            --dir /tmp/fft-acceptance
+          acceptance=$(find /tmp/fft-acceptance -name acceptance.json -print -quit)
+          test -n "$acceptance"
+          jq -e --arg sha "$deployed_sha" '.target_sha == $sha' "$acceptance" >/dev/null
+
+          echo "deployed_sha=$deployed_sha" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "pr_merge_sha=$pr_merge_sha" >> "$GITHUB_OUTPUT"
+          echo "ci_run_id=$ci_run_id" >> "$GITHUB_OUTPUT"
+          echo "orchestrator_id=$orchestrator_id" >> "$GITHUB_OUTPUT"
+          cp "$acceptance" /tmp/fft-acceptance.json
+
+      - name: Update production baseline
+        shell: bash
+        env:
+          DEPLOYED_SHA: ${{ steps.evidence.outputs.deployed_sha }}
+          PR_NUMBER: ${{ steps.evidence.outputs.pr_number }}
+          PR_MERGE_SHA: ${{ steps.evidence.outputs.pr_merge_sha }}
+          CI_RUN_ID: ${{ steps.evidence.outputs.ci_run_id }}
+          ORCHESTRATOR_ID: ${{ steps.evidence.outputs.orchestrator_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          baseline = Path("docs/production-baseline.md")
+          text = baseline.read_text(encoding="utf-8")
+          heading = "## FFTENNIS Qianhai International Tennis Center On 2026-08-30"
+          if heading in text:
+              raise SystemExit("FFT production baseline section already exists")
+
+          acceptance = json.loads(Path("/tmp/fft-acceptance.json").read_text(encoding="utf-8"))
+          runs = acceptance["production_runs"]
+          grouped: dict[str, list[dict[str, object]]] = {}
+          for run in runs:
+              grouped.setdefault(str(run["label"]), []).append(run)
+
+          def run_refs(label: str) -> str:
+              selected = grouped.get(label, [])
+              if not selected:
+                  return "none recorded"
+              return ", ".join(
+                  f"`{item['id']}` ({item['name']}, {item['conclusion']})"
+                  for item in selected
+              )
+
+          section = f"""{heading}
+
+Release `0.6.0` is `{os.environ['DEPLOYED_SHA']}` (PR #{os.environ['PR_NUMBER']};
+merge record `{os.environ['PR_MERGE_SHA']}`). Web and Airflow both run that
+exact release SHA. The public Web catalog contains sixteen venues, including
+`fft_qianhai` / `FFTENNIS前海国际网球中心`, and exposes no email address.
+
+The integration uses the third-party mini-program's read-only PosPal venue
+query chain with standard TLS verification, no login state, and no booking,
+order, lock, payment, or cancellation calls. Production publishes only courts
+1–6 / standard double courts; non-standard singles, ball-machine, small,
+pickleball, and practice courts are rejected before Web observation or WeChat.
+The first successful inspection initialized the WeChat notification baseline
+without sending historical availability.
+
+Exact-commit CI `verify` passed in run `{os.environ['CI_RUN_ID']}`. The protected
+release orchestration is run `{os.environ['ORCHESTRATOR_ID']}`. Baseline health:
+{run_refs('baseline-health')}. Release preflight: {run_refs('release-preflight')}.
+Release apply: {run_refs('release-apply')}. Post-release health:
+{run_refs('post-release-health')}.
+
+After three-plus natural 30-second cycles, `/api/healthz` reported the exact
+release commit, `/api/bootstrap` returned sixteen venues, and the FFT venue had
+a non-empty `lastInspectionAt`. No real verification email or WeChat acceptance
+message was sent. Rollback remains the previous production release
+`{acceptance['previous_production_sha']}`; re-apply it through the protected
+ship workflow without deleting the additive D1 venue row.
+
+"""
+          marker = "# Production Baseline\n\n"
+          if marker not in text:
+              raise SystemExit("Production baseline title marker not found")
+          baseline.write_text(text.replace(marker, marker + section, 1), encoding="utf-8")
+          PY
+
+          rm -f .github/workflows/record-fft-production.yml
+          git diff --check
+
+      - name: Commit evidence and open PR
+        id: pr
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m 'docs: record FFT Qianhai production release'
+          git push origin HEAD:${GITHUB_REF_NAME}
+          head_sha=$(git rev-parse HEAD)
+          pr_url=$(gh pr create \
+            --base main \
+            --head "$GITHUB_REF_NAME" \
+            --title 'docs: 记录 FFTENNIS 前海生产发布证据' \
+            --body "记录 FFTENNIS 前海国际网球中心的精确发布 SHA、PR、CI、受保护预检/应用/健康工作流、自然巡检和回滚基线。该 PR 仅更新文档，不触发生产发布。")
+          pr_number=${pr_url##*/}
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for docs CI and merge exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha='${{ steps.pr.outputs.sha }}'
+          pr_number='${{ steps.pr.outputs.number }}'
+          for attempt in $(seq 1 180); do
+            runs=$(gh api "repos/$GH_REPO/commits/$head_sha/check-runs?per_page=100")
+            status=$(jq -r '[.check_runs[] | select(.name == "verify")][0].status // empty' <<<"$runs")
+            conclusion=$(jq -r '[.check_runs[] | select(.name == "verify")][0].conclusion // empty' <<<"$runs")
+            if [[ "$status" == completed ]]; then
+              [[ "$conclusion" == success ]]
+              break
+            fi
+            sleep 10
+          done
+          [[ "${status:-}" == completed && "${conclusion:-}" == success ]]
+          response=$(gh api --method PUT "repos/$GH_REPO/pulls/$pr_number/merge" \
+            -f sha="$head_sha" \
+            -f merge_method=squash \
+            -f commit_title='docs: 记录 FFTENNIS 前海生产发布证据')
+          jq -e '.merged == true' <<<"$response" >/dev/null
+          echo "Merged documentation PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
