@@ -1,0 +1,81 @@
+name: Prepare Release 0.6.4
+
+on:
+  push:
+    branches:
+      - release/0.6.4
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-release-0-6-4
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: ${{ !contains(github.event.head_commit.message, '[release-064-prepared]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/0.6.4
+          fetch-depth: 0
+
+      - name: Update release contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = [
+              (Path("pyproject.toml"), 'version = "0.6.3"', 'version = "0.6.4"'),
+              (Path("src/wechat_airflow/__init__.py"), '__version__ = "0.6.3"', '__version__ = "0.6.4"'),
+          ]
+          for path, before, after in replacements:
+              source = path.read_text(encoding="utf-8")
+              if source.count(before) != 1:
+                  raise SystemExit(f"unexpected version marker in {path}")
+              path.write_text(source.replace(before, after, 1), encoding="utf-8")
+
+          changelog = Path("CHANGELOG.md")
+          source = changelog.read_text(encoding="utf-8")
+          marker = "## Unreleased\n"
+          section = """## Unreleased
+
+## [0.6.4] - 2026-08-30
+
+### Changed
+
+- Keep the normal 30-second Web display refresh on the existing 120-second
+  client and edge cache path, while making an explicit manual refresh fetch
+  current dashboard data and report completion to the user.
+- Prioritize verified users' personal subscription and delivered-email metrics,
+  label global metrics explicitly, and rename the first-level support action to
+  “支持 Zacks”.
+
+### Fixed
+
+- Derive fallback venue totals from the full 26-venue catalog so initial and
+  degraded states no longer display the obsolete 15-venue total.
+- Require confirmation before cancelling a subscription, restore visible
+  keyboard focus, increase key mobile status text above 9px, and align browser
+  and source contracts with the removed subscriptions footer entry.
+"""
+          if source.count(marker) != 1:
+              raise SystemExit("unexpected Unreleased marker")
+          changelog.write_text(source.replace(marker, section, 1), encoding="utf-8")
+          PY
+
+      - name: Validate release metadata
+        run: |
+          git diff --check
+          python scripts/release_contract.py 0.6.4 HEAD
+
+      - name: Commit release metadata
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml src/wechat_airflow/__init__.py CHANGELOG.md
+          git commit -m "chore(release): prepare 0.6.4 [release-064-prepared]"
+          git push origin HEAD:release/0.6.4
