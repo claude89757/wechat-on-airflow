@@ -22,6 +22,16 @@ WECHAT_DAG_IDS = (
     "泛思博特新安网球场巡检",
     "泛思博特正中网球场巡检",
     "泛思博特安托山网球场巡检",
+    "泛思博特棕榈泉网球场巡检",
+    "泛思博特观湖网球场巡检",
+    "泛思博特坂田网球场巡检",
+    "泛思博特沙河网球场巡检",
+    "泛思博特保税网球场巡检",
+    "泛思博特南油网球场巡检",
+    "泛思博特新桥网球场巡检",
+    "泛思博特壹方城网球场巡检",
+    "泛思博特麒麟网球场巡检",
+    "泛思博特茅洲河网球场巡检",
     "PICKLEPOP宝安网球场巡检",
     "深圳市体育中心网球场巡检",
     "大沙河国际网球中心巡检",
@@ -248,7 +258,7 @@ import sys
 
 state = json.loads(os.environ.pop("STATE_RESULT"))
 verification = json.loads(os.environ.pop("VERIFICATION"))
-expected_paused = 14
+expected_paused = 24
 ok = (
     verification.get("paused_wechat_dags") == expected_paused
     and verification.get("active_wechat_task_instances") == 0
