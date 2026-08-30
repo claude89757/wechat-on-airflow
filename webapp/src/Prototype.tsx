@@ -9,6 +9,7 @@ import {
   CourtBasketballIcon,
   DotsThreeIcon,
   EnvelopeSimpleIcon,
+  GithubLogoIcon,
   ListBulletsIcon,
   MapPinIcon,
   PlusCircleIcon,
@@ -35,10 +36,12 @@ import {
   redeemPriorityInvite,
   saveReceipt,
   startCoffeeInviteSession,
+  WEEKDAYS,
   type Dashboard,
   type SubscriptionTerm,
   type VenueId,
   type VerificationReceipt,
+  type Weekday,
   verifyEmail,
 } from "./api";
 import { resolveDashboardAvailability, resolveVenueDisplayState } from "./dashboard-state";
@@ -53,6 +56,33 @@ type CoffeeInviteSession = Awaited<ReturnType<typeof startCoffeeInviteSession>>;
 type CoffeeInviteReward = Awaited<ReturnType<typeof claimCoffeeInvite>>;
 
 const COFFEE_REVEAL_DELAY_MS = 5_000;
+const GITHUB_REPOSITORY_URL = "https://github.com/claude89757/wechat-on-airflow";
+
+const WEEKDAY_LABELS: Record<Weekday, string> = {
+  1: "星期一",
+  2: "星期二",
+  3: "星期三",
+  4: "星期四",
+  5: "星期五",
+  6: "星期六",
+  7: "星期日",
+};
+
+const WEEKDAY_SHORT_LABELS: Record<Weekday, string> = {
+  1: "一",
+  2: "二",
+  3: "三",
+  4: "四",
+  5: "五",
+  6: "六",
+  7: "日",
+};
+
+const WEEKDAY_PRESETS: Array<{ label: string; weekdays: Weekday[] }> = [
+  { label: "每天", weekdays: [...WEEKDAYS] },
+  { label: "工作日", weekdays: [1, 2, 3, 4, 5] },
+  { label: "周末", weekdays: [6, 7] },
+];
 
 const VENUE_ACCENTS: Record<VenueId, string> = {
   szw: "teal",
@@ -116,6 +146,34 @@ const TERM_LABELS: Record<SubscriptionTerm, string> = {
   "11d": "11天", "12d": "12天", "13d": "13天", "14d": "14天 · 两周",
   "30d": "30天", "90d": "3个月", "180d": "半年", long_term: "长期",
 };
+
+function formatWeekdays(value: readonly Weekday[] | undefined): string {
+  const weekdays = value?.length ? [...value].sort((left, right) => left - right) : [...WEEKDAYS];
+  if (weekdays.length === 7) return "每天";
+  if (weekdays.join(",") === "1,2,3,4,5") return "工作日";
+  if (weekdays.join(",") === "6,7") return "周末";
+  return weekdays.map((weekday) => WEEKDAY_LABELS[weekday].replace("星期", "周")).join("、");
+}
+
+function SubscriptionCelebration({ celebrationId }: { celebrationId: number }) {
+  const particles = Array.from({ length: 30 }, (_, index) => {
+    const angle = (index % 10) * 36;
+    const burst = Math.floor(index / 10);
+    const style = {
+      "--firework-angle": `${angle}deg`,
+      "--firework-distance": `${58 + (index % 4) * 8}px`,
+      "--firework-delay": `${burst * 150 + (index % 3) * 20}ms`,
+    } as React.CSSProperties;
+    return <i key={`${celebrationId}-${index}`} style={style} />;
+  });
+  return (
+    <div className="subscription-celebration" aria-hidden="true" data-testid="subscription-celebration">
+      <div className="firework-burst firework-burst-left">{particles.slice(0, 10)}</div>
+      <div className="firework-burst firework-burst-center">{particles.slice(10, 20)}</div>
+      <div className="firework-burst firework-burst-right">{particles.slice(20)}</div>
+    </div>
+  );
+}
 
 function formatClock(value: string | null): string {
   if (!value) return "暂无发送";
@@ -216,6 +274,8 @@ export default function Prototype() {
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
+  const [celebrationId, setCelebrationId] = useState<number | null>(null);
+  const celebrationCounter = useRef(0);
   const [notificationBurst, setNotificationBurst] = useState(false);
   const previousReminderCount = useRef<number | null>(null);
   const [email, setEmail] = useState(receipt?.email ?? "");
@@ -223,6 +283,7 @@ export default function Prototype() {
   const [code, setCode] = useState("");
   const codeInputRef = useRef<HTMLInputElement>(null);
   const [venueIds, setVenueIds] = useState<VenueId[]>(["szw", "tops"]);
+  const [weekdays, setWeekdays] = useState<Weekday[]>([...WEEKDAYS]);
   const [startTime, setStartTime] = useState("18:00");
   const [endTime, setEndTime] = useState("22:00");
   const [subscriptionTerm, setSubscriptionTerm] = useState<SubscriptionTerm>("7d");
@@ -286,9 +347,15 @@ export default function Prototype() {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 2600);
+    const timer = window.setTimeout(() => setToast(""), 4200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (celebrationId === null) return;
+    const timer = window.setTimeout(() => setCelebrationId(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [celebrationId]);
 
   useEffect(() => {
     previousReminderCount.current = null;
@@ -340,6 +407,19 @@ export default function Prototype() {
     const timer = window.setTimeout(reveal, delay);
     return () => window.clearTimeout(timer);
   }, [coffeeRevealAt, panel]);
+
+  const popularVenues = useMemo(() => [...dashboard.venues].sort((left, right) =>
+    right.subscriberCount - left.subscriberCount
+      || left.name.localeCompare(right.name, "zh-CN")
+      || left.id.localeCompare(right.id)
+  ), [dashboard.venues]);
+  const selectedVenueNames = useMemo(() => popularVenues
+    .filter((venue) => venueIds.includes(venue.id))
+    .map((venue) => venue.name), [popularVenues, venueIds]);
+  const subscriptionFormReady = venueIds.length > 0
+    && weekdays.length > 0
+    && startTime < endTime;
+  const subscriptionSummary = `${venueIds.length} 个场地 · ${formatWeekdays(weekdays)} · ${startTime}–${endTime} · ${TERM_LABELS[subscriptionTerm]}`;
 
   const activeIdentity = dashboard.identity.verified
     ? dashboard.identity.maskedEmail
@@ -539,20 +619,52 @@ export default function Prototype() {
   };
 
   const toggleVenue = (venueId: VenueId) => {
-    setVenueIds((current) =>
-      current.includes(venueId)
+    setVenueIds((current) => {
+      const next = current.includes(venueId)
         ? current.filter((item) => item !== venueId)
-        : [...current, venueId],
-    );
+        : [...current, venueId];
+      setFormError(next.length ? "" : "请至少选择一个场地");
+      return next;
+    });
+  };
+
+  const selectAllVenues = () => {
+    setVenueIds(popularVenues.map((venue) => venue.id));
+    setFormError("");
+  };
+
+  const clearVenues = () => {
+    setVenueIds([]);
+    setFormError("请至少选择一个场地");
+  };
+
+  const toggleWeekday = (weekday: Weekday) => {
+    setWeekdays((current) => {
+      const next = current.includes(weekday)
+        ? current.filter((item) => item !== weekday)
+        : [...current, weekday].sort((left, right) => left - right);
+      setFormError(next.length ? "" : "请至少选择一个星期");
+      return next;
+    });
+  };
+
+  const applyWeekdayPreset = (preset: readonly Weekday[]) => {
+    setWeekdays([...preset]);
+    setFormError("");
   };
 
   const submitSubscription = async () => {
+    if (formBusy) return;
     if (!receipt) {
       setFormError("请先验证邮箱");
       return;
     }
     if (!venueIds.length) {
       setFormError("请至少选择一个场地");
+      return;
+    }
+    if (!weekdays.length) {
+      setFormError("请至少选择一个星期");
       return;
     }
     if (startTime >= endTime) {
@@ -565,12 +677,15 @@ export default function Prototype() {
     try {
       await createSubscription(receipt, {
         venueIds,
+        weekdays,
         startTime,
         endTime,
         termCode: subscriptionTerm,
       });
       setPanel(null);
-      setToast("订阅已创建，噜噜会持续帮你盯场");
+      celebrationCounter.current += 1;
+      setCelebrationId(celebrationCounter.current);
+      setToast(`订阅已创建：${subscriptionSummary}`);
       await refresh();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "订阅创建失败");
@@ -673,6 +788,17 @@ export default function Prototype() {
                         <span>管理后台</span>
                       </DropdownMenu.Item>
                     ) : null}
+                    <DropdownMenu.Separator className="more-menu-separator" />
+                    <DropdownMenu.Item className="more-menu-item" asChild>
+                      <a
+                        href={GITHUB_REPOSITORY_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <GithubLogoIcon size={20} weight="bold" aria-hidden="true" />
+                        <span>项目开源地址</span>
+                      </a>
+                    </DropdownMenu.Item>
                     <DropdownMenu.Arrow className="more-menu-arrow" />
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
@@ -764,9 +890,11 @@ export default function Prototype() {
                 <div className="feature-line">
                   <span><MapPinIcon size={18} weight="bold" />选择场地</span>
                   <i aria-hidden="true">·</i>
+                  <span><CalendarDotsIcon size={18} weight="bold" />指定星期</span>
+                  <i aria-hidden="true">·</i>
                   <span><ClockIcon size={18} weight="bold" />提醒时段</span>
                   <i aria-hidden="true">·</i>
-                  <span><CalendarDotsIcon size={18} weight="bold" />
+                  <span><ShieldCheckIcon size={18} weight="bold" />
                     {dashboard.identity.tier === "priority" ? "支持长期" : "7–14天"}
                   </span>
                 </div>
@@ -816,13 +944,13 @@ export default function Prototype() {
             <div className="section-heading">
               <div>
                 <h2 id="venue-heading">场地运行状态</h2>
-                <p>按最后一次成功巡检时间排序</p>
+                <p>热门优先 · 按关注人数从高到低排序</p>
               </div>
               <span><ArrowsClockwiseIcon size={17} />30 秒自动更新</span>
             </div>
 
             <div className="venue-list">
-              {dashboard.venues.map((venue) => (
+              {popularVenues.map((venue) => (
                 (() => {
                   const VenueIcon = VENUE_ICONS[venue.id];
                   const venueState = resolveVenueDisplayState(availability, venue.healthy);
@@ -833,7 +961,7 @@ export default function Prototype() {
                       </span>
                       <div className="venue-name">
                         <h3>{venue.name}</h3>
-                        <p>{venue.subscriberCount} 个订阅者</p>
+                        <p>{venue.subscriberCount > 0 ? `${venue.subscriberCount} 人关注` : "暂无关注"}</p>
                       </div>
                       <div className="venue-health">
                         <strong className={venueState}><CheckCircleIcon size={16} weight="fill" />
@@ -959,7 +1087,7 @@ export default function Prototype() {
           <div className="help-content">
             <div className="help-row">
               <span>1</span>
-              <div><strong>选择提醒条件</strong><p>普通用户可选 7–14 天；优先用户还可选 30 天、3 个月、半年或长期。</p></div>
+              <div><strong>选择提醒条件</strong><p>可指定场地、星期和时间段；普通用户可选 7–14 天，优先用户还支持更长期限。</p></div>
             </div>
             <div className="help-row">
               <span>2</span>
@@ -979,6 +1107,10 @@ export default function Prototype() {
                 </p>
               </div>
             </div>
+            <div className="help-row">
+              <span>5</span>
+              <div><strong>确保邮件能送达</strong><p>首次使用请留意垃圾邮件或广告邮件，并将 Zacks 通知标记为“不是垃圾邮件”。</p></div>
+            </div>
           </div>
         ) : null}
 
@@ -993,6 +1125,7 @@ export default function Prototype() {
                       .filter(Boolean)
                       .join("、")}
                   </strong>
+                  <span>{formatWeekdays(subscription.weekdays)}</span>
                   <span>{subscription.startTime}–{subscription.endTime}</span>
                   <span>{!subscription.eligible ? "优先资格已失效，长期订阅已暂停"
                     : subscription.autoRenew ? "长期有效 · 自动续期"
@@ -1106,7 +1239,7 @@ export default function Prototype() {
 
         {panel === "create" ? (
           receipt ? (
-            <div className="subscription-form">
+            <div className="subscription-form" aria-busy={formBusy}>
               <div className="sheet-identity">
                 <ShieldCheckIcon size={22} weight="fill" />
                 <span><strong>{receipt.maskedEmail}</strong> 已验证</span>
@@ -1115,8 +1248,15 @@ export default function Prototype() {
 
               <fieldset>
                 <legend>选择场地 <span>可多选</span></legend>
+                <div className="choice-toolbar">
+                  <span>已选 {venueIds.length}/{popularVenues.length} · 热门优先</span>
+                  <div>
+                    <button type="button" onClick={selectAllVenues}>全选</button>
+                    <button type="button" onClick={clearVenues}>清空</button>
+                  </div>
+                </div>
                 <div className="venue-choices">
-                  {dashboard.venues.map((venue) => {
+                  {popularVenues.map((venue) => {
                     const selected = venueIds.includes(venue.id);
                     return (
                       <button
@@ -1127,11 +1267,53 @@ export default function Prototype() {
                         onClick={() => toggleVenue(venue.id)}
                       >
                         <CheckCircleIcon size={18} weight={selected ? "fill" : "regular"} />
-                        {venue.name}
+                        <span>{venue.name}</span>
+                        <small>{venue.subscriberCount} 人</small>
                       </button>
                     );
                   })}
                 </div>
+              </fieldset>
+
+              <fieldset aria-describedby="weekday-help">
+                <legend>指定巡检星期 <span>至少选择一天</span></legend>
+                <div className="weekday-presets" aria-label="星期快捷选择">
+                  {WEEKDAY_PRESETS.map((preset) => {
+                    const selected = preset.weekdays.length === weekdays.length
+                      && preset.weekdays.every((weekday) => weekdays.includes(weekday));
+                    return (
+                      <button
+                        type="button"
+                        key={preset.label}
+                        className={selected ? "selected" : ""}
+                        aria-pressed={selected}
+                        onClick={() => applyWeekdayPreset(preset.weekdays)}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="weekday-choices">
+                  {WEEKDAYS.map((weekday) => {
+                    const selected = weekdays.includes(weekday);
+                    return (
+                      <button
+                        type="button"
+                        key={weekday}
+                        className={selected ? "selected" : ""}
+                        aria-label={WEEKDAY_LABELS[weekday]}
+                        aria-pressed={selected}
+                        onClick={() => toggleWeekday(weekday)}
+                      >
+                        <span aria-hidden="true">{WEEKDAY_SHORT_LABELS[weekday]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="field-help" id="weekday-help">
+                  只在所选星期匹配场地日期；例如选择“周末”，星期一至星期五不会发送提醒。
+                </p>
               </fieldset>
 
               <fieldset>
@@ -1139,14 +1321,20 @@ export default function Prototype() {
                 <div className="time-range">
                   <label>
                     <span>开始</span>
-                    <select value={startTime} onChange={(event) => setStartTime(event.target.value)}>
+                    <select value={startTime} onChange={(event) => {
+                      setStartTime(event.target.value);
+                      setFormError("");
+                    }}>
                       {TIME_OPTIONS.slice(0, -1).map((time) => <option key={time}>{time}</option>)}
                     </select>
                   </label>
                   <span aria-hidden="true">—</span>
                   <label>
                     <span>结束</span>
-                    <select value={endTime} onChange={(event) => setEndTime(event.target.value)}>
+                    <select value={endTime} onChange={(event) => {
+                      setEndTime(event.target.value);
+                      setFormError("");
+                    }}>
                       {TIME_OPTIONS.slice(1).map((time) => <option key={time}>{time}</option>)}
                     </select>
                   </label>
@@ -1171,11 +1359,21 @@ export default function Prototype() {
                 </p> : null}
               </fieldset>
 
+              <div className="subscription-summary" aria-live="polite" id="subscription-summary">
+                <span>即将创建</span>
+                <strong>{subscriptionSummary}</strong>
+                <p>{selectedVenueNames.length ? selectedVenueNames.join("、") : "尚未选择场地"}</p>
+              </div>
+
               {formError ? <p className="form-error" role="alert">{formError}</p> : null}
+              <span className="sr-only" aria-live="polite">
+                {formBusy ? "正在创建订阅，请稍候" : ""}
+              </span>
               <button
                 className="sheet-primary"
                 type="button"
-                disabled={formBusy}
+                aria-describedby="subscription-summary"
+                disabled={formBusy || !subscriptionFormReady}
                 onClick={() => void submitSubscription()}
               >
                 {formBusy ? "正在创建…" : "确认创建订阅"}
@@ -1225,6 +1423,13 @@ export default function Prototype() {
               <p className="verification-note">
                 验证成功后，此浏览器会记住邮箱；更换浏览器时需要重新验证。
               </p>
+              <div className="email-delivery-tip" role="note">
+                <EnvelopeSimpleIcon size={20} weight="fill" aria-hidden="true" />
+                <p>
+                  没有收到验证码或场地提醒？请先检查垃圾邮件或广告邮件；找到来自 Zacks
+                  的通知后，点击“不是垃圾邮件”或将发件人加入白名单，后续提醒会更稳定。
+                </p>
+              </div>
               {formError ? <p className="form-error" role="alert">{formError}</p> : null}
               <button
                 className="sheet-primary"
@@ -1239,6 +1444,9 @@ export default function Prototype() {
         ) : null}
       </BottomSheet>
 
+      {celebrationId !== null ? (
+        <SubscriptionCelebration celebrationId={celebrationId} />
+      ) : null}
       {toast ? <div className="app-toast" role="status">{toast}</div> : null}
     </>
   );

@@ -87,6 +87,7 @@ test.describe("mobile v2 presentation", () => {
     await expect(page.locator(".bottom-sheet")).toBeVisible();
     await expect(page.locator(".subscription-form")).toBeVisible();
     await expect(page.locator(".venue-choices")).toHaveCSS("display", "grid");
+    await expect(page.locator(".weekday-choices")).toHaveCSS("display", "grid");
     await expect(page.locator(".day-choices")).toHaveCSS("display", "grid");
 
     const venueButtons = page.locator(".venue-choices button");
@@ -100,6 +101,14 @@ test.describe("mobile v2 presentation", () => {
     await expect(dayButtons).toHaveCount(8);
     const dayButtonBox = await dayButtons.first().boundingBox();
     expect(dayButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    const weekdayButtons = page.locator(".weekday-choices button");
+    await expect(weekdayButtons).toHaveCount(7);
+    const weekdayButtonBox = await weekdayButtons.first().boundingBox();
+    expect(weekdayButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await page.getByRole("button", { name: "周末", exact: true }).click();
+    await expect(page.getByRole("button", { name: "星期六" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".subscription-summary")).toContainText("周末");
 
     const submitButton = page.locator(".subscription-form .sheet-primary");
     await expect(submitButton).toHaveCSS("position", "sticky");

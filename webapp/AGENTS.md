@@ -86,8 +86,10 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   produce happy or short celebration states, and service degradation produces
   a concerned state. Keep sprite timing compositor-friendly and do not restart
   unchanged animations on polling refreshes.
-- Creating a subscription is a standalone card and flow. Users choose venues, a
-  desired daily time range, and an active duration from 7 to 14 days.
+- Creating a subscription is a standalone card and flow. Users choose venues,
+  one or more ISO weekdays, a desired daily time range, and an active duration
+  from 7 to 14 days. Weekday selection defaults to all seven days and offers
+  daily, workday, and weekend presets.
 - Opening the subscription verification sheet must not summon the native
   keyboard until the user taps an input. While the native keyboard is open,
   every sheet follows `visualViewport`, keeps the focused email or verification

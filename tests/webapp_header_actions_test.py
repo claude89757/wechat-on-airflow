@@ -11,6 +11,10 @@ def test_footer_actions_move_into_accessible_header_menu():
     assert 'onSelect={() => openPanel("subscriptions")}' in source
     assert 'onSelect={() => openPanel("community")}' in source
     assert 'onSelect={() => openPanel("admin")}' in source
+    assert 'href={GITHUB_REPOSITORY_URL}' in source
+    assert 'target="_blank"' in source
+    assert 'rel="noopener noreferrer"' in source
+    assert "项目开源地址" in source
     assert 'className="subscriptions-link"' not in source
 
 

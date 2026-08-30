@@ -7,11 +7,21 @@ and operational changes.
 
 ### Added
 
+- Let Web subscribers choose one or more weekdays, including one-tap daily,
+  weekday, and weekend presets. Existing subscriptions continue to run every
+  day.
+- Celebrate successful subscription creation with a short reduced-motion-aware
+  firework effect, and add clear spam-folder guidance for verification and
+  reminder email.
+- Add the public GitHub repository to the header More menu.
 - Append booking mini-program footers for Dashah International (威逊文体),
   Fuzhongfu (泛思博特), and PICKLE POP Bao'an (PICKLEPOP宝安摩天轮馆).
 
 ### Changed
 
+- Order the public venue list and subscription selector by unique active
+  follower count, with a deterministic name/ID tie-breaker and visible
+  popularity labels.
 - Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
   to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
 
