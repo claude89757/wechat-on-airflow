@@ -14,16 +14,27 @@ and operational changes.
   firework effect, and add clear spam-folder guidance for verification and
   reminder email.
 - Add the public GitHub repository to the header More menu.
-- Append booking mini-program footers for Dashah International (å¨é€Šæ–‡ä½“),
-  Fuzhongfu (æ³›æ€åšç‰¹), and PICKLE POP Bao'an (PICKLEPOPå®å®‰æ‘©å¤©è½®é¦†).
 
 ### Changed
 
 - Order the public venue list and subscription selector by unique active
   follower count, with a deterministic name/ID tie-breaker and visible
   popularity labels.
+
+## [0.5.3] - 2026-08-30
+
+### Added
+
+- Append booking mini-program footers for Dashah International (å¨é€Šæ–‡ä½“),
+  Fuzhongfu (æ³›æ€åšç‰¹), and PICKLE POP Bao'an (PICKLEPOPå®å®‰æ‘©å¤©è½®é¦†).
+
+### Changed
+
 - Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
   to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
+- Before 12:00 Asia/Shanghai, inspect only the four already released Dashah
+  International booking dates. Restore the rolling fifth date at noon so its
+  pre-release disabled cells cannot be published or pushed as false availability.
 
 ## [0.5.2] - 2026-08-29
 
@@ -95,84 +106,7 @@ and operational changes.
 - Submit priority-user venue reminder digests before standard-user digests and
   keep a full ten-second lead after the latest priority submission attempt
   completes, including across concurrent Cloudflare Worker drains.
-- Keep email verification and subscription-expiry messages outside the reminder
-  priority gate, preserve every existing venue polling schedule, and defer a
-  standard reminder instead of submitting it early when priority work remains
-  active beyond one bounded Worker wait.
-
-## [0.2.3] - 2026-08-23
-
-### Changed
-
-- Plan and validate release scope before waiting for CI, so a missing sender
-  approval or unsafe manually narrowed scope fails immediately instead of after
-  a potentially long queued check.
-- Expose requested scope, resolved scope, and the actual Web, Airflow, and sender
-  component operations in the one authoritative production-control report.
-
-### Fixed
-
-- Give only the exact current `main` head a short 60-second check-registration
-  grace, avoiding a race immediately after merge while historical SHAs with no
-  CI record continue to fail immediately.
-
-## [0.2.2] - 2026-08-23
-
-### Changed
-
-- Route owner-approved release, tag, and production-operations comments through
-  one `Production Control` workflow so one command produces one authoritative
-  Action run and one final report.
-- Add `/release ship <version> <sha>` to validate the named release, deploy the
-  required components, verify production health, and create the immutable tag
-  and GitHub Release in one run.
-- Plan CI and production deployment scopes from changed files. Web-only patches
-  no longer rebuild or replace Airflow, control-only releases deploy no runtime,
-  and stale pull-request CI runs are cancelled automatically.
-- Make Web apply mode run its own build, Wrangler dry-run, and migration listing
-  before mutation, so routine low-risk releases do not need a separate preflight
-  workflow run.
-
-### Fixed
-
-- Remove overlapping `issue_comment` listeners that made `/release tag` look
-  like a failed production release even when the dedicated tag workflow passed.
-- Remove the duplicate 30-minute CI wait from ChatOps; the exact-SHA production
-  gate remains the only authority for queued, successful, failed, or missing CI.
-- Reject a manually narrowed release scope when it omits a detected runtime
-  component, and require explicit `sender=true` approval for sender deployment.
-
-## [0.2.1] - 2026-08-23
-
-### Fixed
-
-- Prevent the mobile dashboard from entering its drag or rubber-band state when
-  the pointer moves from the top-right More trigger into the opened menu.
-
-## [0.2.0] - 2026-08-23
-
-### Added
-
-- Add a header coffee-support sheet with the supplied WeChat QR and a
-  server-timed easter egg that issues one 30-day priority invite per verified
-  email after the QR has remained visible for five seconds.
-- Monitor æ³›æ€åšç‰¹ç¦ä¸­ç¦ tennis availability on the same PosPal booking API as
-  TOPS, publish observations to the Web app, and send best-effort WeChat alerts
-  to the shared Zacks chatrooms.
-- Add protected GitHub workflows for Cloudflare Worker/D1 deployment, exact-SHA
-  Web health checks, and one release gate spanning Web, Airflow, and the sender.
-- Notify `Zacks_å¤§æ²™æ²³é™å®šå…è´¹` for Dashah River free-court availability after
-  the Web observation and WeChat dedupe cache are written.
-- Append venue booking mini-program links to WeChat availability alerts, at most
-  once per chat and mini-program every two hours, with Shenzhen Bay and Greater
-  Bay Area sharing the æœªæ¥èŸ card.
-
-### Changed
-
-- Reboot the Zacks WeChat sender phone every two days instead of daily, keeping
-  the 05:00 Asia/Shanghai slot.
-- Move My Subscriptions, User Community, and Admin into an accessible header
-  More menu, and shorten the coffee entry to â€œâ˜• æ”¯æŒä½œè€…â€ while retaining a
+- Keep email veri™¥…Ñ¥½¸…¹ÍÕ‰ÍÉ¥ÁÑ¥½¸µ•áÁ¥Éäµ•ÍÍ…•Ì½ÕÑÍ¥‘”Ñ¡”É•µ¥¹‘•È(€ÁÉ¥½É¥Ñä…Ñ”°ÁÉ•Í•ÉÙ”•Ù•Éä•á¥ÍÑ¥¹œÙ•¹Õ”Á½±±¥¹œÍ¡•‘Õ±”°…¹‘•™•È„(€ÍÑ…¹‘…ÉÉ•µ¥¹‘•È¥¹ÍÑ•…½˜ÍÕ‰µ¥ÑÑ¥¹œ¥Ğ•…É±äİ¡•¸ÁÉ¥½É¥Ñäİ½É¬É•µ…¥¹Ì(€…Ñ¥Ù”‰•å½¹½¹”‰½Õ¹‘•]½É­•Èİ…¥Ğ¸((ŒŒlÀ¸È¸Ít€´€ÈÀÈØ´Àà´ÈÌ((ŒŒŒ¡…¹•((´A±…¸…¹Ù…±¥‘…Ñ”É•±•…Í”Í½Á”‰•™½É”İ…¥Ñ¥¹œ™½È$°Í¼„µ¥ÍÍ¥¹œÍ•¹‘•È(€…ÁÁÉ½Ù…°½ÈÕ¹Í…™”µ…¹Õ…±±ä¹…ÉÉ½İ•Í½Á”™…¥±Ì¥µµ•‘¥…Ñ•±ä¥¹ÍÑ•…½˜…™Ñ•È(€„Á½Ñ•¹Ñ¥…±±ä±½¹œÅÕ•Õ•¡•¬¸(´áÁ½Í”É•ÅÕ•ÍÑ•Í½Á”°É•Í½±Ù•Í½Á”°…¹Ñ¡”…ÑÕ…°]•ˆ°¥É™±½Ü°…¹Í•¹‘•È(€½µÁ½¹•¹Ğ½Á•É…Ñ¥½¹Ì¥¸Ñ¡”½¹”…ÕÑ¡½É¥Ñ…Ñ¥Ù”ÁÉ½‘ÕÑ¥½¸µ½¹ÑÉ½°É•Á½ÉĞ¸((ŒŒŒ¥á•((´¥Ù”½¹±äÑ¡”•á…ĞÕÉÉ•¹Ğµ…¥¹€¡•…„Í¡½ÉĞ€ØÀµÍ•½¹¡•¬µÉ•¥ÍÑÉ…Ñ¥½¸(€É…”°…Ù½¥‘¥¹œ„É…”¥µµ•‘¥…Ñ•±ä…™Ñ•Èµ•É”İ¡¥±”¡¥ÍÑ½É¥…°M!Ìİ¥Ñ ¹¼(€$É•½É½¹Ñ¥¹Õ”Ñ¼™…¥°¥µµ•‘¥…Ñ•±ä¸((ŒŒlÀ¸È¸Ét€´€ÈÀÈØ´Àà´ÈÌ((ŒŒŒ¡…¹•((´I½ÕÑ”½İ¹•Èµ…ÁÁÉ½Ù•É•±•…Í”°Ñ…œ°…¹ÁÉ½‘ÕÑ¥½¸µ½Á•É…Ñ¥½¹Ì½µµ•¹ÑÌÑ¡É½Õ (€½¹”AÉ½‘ÕÑ¥½¸½¹ÑÉ½±€İ½É­™±½ÜÍ¼½¹”½µµ…¹ÁÉ½‘Õ•Ì½¹”…ÕÑ¡½É¥Ñ…Ñ¥Ù”(€Ñ¥½¸ÉÕ¸…¹½¹”™¥¹…°É•Á½ÉĞ¸(´‘€½É•±•…Í”Í¡¥À€ñÙ•ÉÍ¥½¸ø€ñÍ¡„ù€Ñ¼Ù…±¥‘…Ñ”Ñ¡”¹…µ•É•±•…Í”°‘•Á±½äÑ¡”(€É•ÅÕ¥É•½µÁ½¹•¹ÑÌ°Ù•É¥™äÁÉ½‘ÕÑ¥½¸¡•…±Ñ °…¹É•…Ñ”Ñ¡”¥µµÕÑ…‰±”Ñ…œ(€…¹¥Ñ!ÕˆI•±•…Í”¥¸½¹”ÉÕ¸¸(´A±…¸$…¹ÁÉ½‘ÕÑ¥½¸‘•Á±½åµ•¹ĞÍ½Á•Ì™É½´¡…¹•™¥±•Ì¸]•ˆµ½¹±äÁ…Ñ¡•Ì(€¹¼±½¹•ÈÉ•‰Õ¥±½ÈÉ•Á±…”¥É™±½Ü°½¹ÑÉ½°µ½¹±äÉ•±•…Í•Ì‘•Á±½ä¹¼ÉÕ¹Ñ¥µ”°(€…¹ÍÑ…±”ÁÕ±°µÉ•ÅÕ•ÍĞ$ÉÕ¹Ì…É”…¹•±±•…ÕÑ½µ…Ñ¥…±±ä¸(´5…­”]•ˆ…ÁÁ±äµ½‘”ÉÕ¸¥ÑÌ½İ¸‰Õ¥±°]É…¹±•È‘ÉäµÉÕ¸°…¹µ¥É…Ñ¥½¸±¥ÍÑ¥¹œ(€‰•™½É”µÕÑ…Ñ¥½¸°Í¼É½ÕÑ¥¹”±½ÜµÉ¥Í¬É•±•…Í•Ì‘¼¹½Ğ¹••„Í•Á…É…Ñ”ÁÉ•™±¥¡Ğ(€İ½É­™±½ÜÉÕ¸¸((ŒŒŒ¥á•((´I•µ½Ù”½Ù•É±…ÁÁ¥¹œ¥ÍÍÕ•}½µµ•¹Ñ€±¥ÍÑ•¹•ÉÌÑ¡…Ğµ…‘”€½É•±•…Í”Ñ…€±½½¬(€±¥­”„™…¥±•ÁÉ½‘ÕÑ¥½¸É•±•…Í”•Ù•¸İ¡•¸Ñ¡”‘•‘¥…Ñ•Ñ…œİ½É­™±½ÜÁ…ÍÍ•¸(´I•µ½Ù”Ñ¡”‘ÕÁ±¥…Ñ”€ÌÀµµ¥¹ÕÑ”$İ…¥Ğ™É½´¡…Ñ=ÁÌìÑ¡”•á…ĞµM!ÁÉ½‘ÕÑ¥½¸(€…Ñ”É•µ…¥¹ÌÑ¡”½¹±ä…ÕÑ¡½É¥Ñä™½ÈÅÕ•Õ•°ÍÕ•ÍÍ™Õ°°™…¥±•°½Èµ¥ÍÍ¥¹œ$¸(´I•©•Ğ„µ…¹Õ…±±ä¹…ÉÉ½İ•É•±•…Í”Í½Á”İ¡•¸¥Ğ½µ¥ÑÌ„‘•Ñ•Ñ•ÉÕ¹Ñ¥µ”(€½µÁ½¹•¹Ğ°…¹É•ÅÕ¥É”•áÁ±¥¥ĞÍ•¹‘•ÈõÑÉÕ•€…ÁÁÉ½Ù…°™½ÈÍ•¹‘•È‘•Á±½åµ•¹Ğ¸((ŒŒlÀ¸È¸Åt€´€ÈÀÈØ´Àà´ÈÌ((ŒŒŒ¥á•((´AÉ•Ù•¹ĞÑ¡”µ½‰¥±”‘…Í¡‰½…É™É½´•¹Ñ•É¥¹œ¥ÑÌ‘É…œ½ÈÉÕ‰‰•Èµ‰…¹ÍÑ…Ñ”İ¡•¸(€Ñ¡”Á½¥¹Ñ•Èµ½Ù•Ì™É½´Ñ¡”Ñ½ÀµÉ¥¡Ğ5½É”ÑÉ¥•È¥¹Ñ¼Ñ¡”½Á•¹•µ•¹Ô¸((ŒŒlÀ¸È¸Át€´€ÈÀÈØ´Àà´ÈÌ((ŒŒŒ‘‘•((´‘„¡•…‘•È½™™•”µÍÕÁÁ½ÉĞÍ¡••Ğİ¥Ñ Ñ¡”ÍÕÁÁ±¥•]•¡…ĞEH…¹„(€Í•ÉÙ•ÈµÑ¥µ••…ÍÑ•È•œÑ¡…Ğ¥ÍÍÕ•Ì½¹”€ÌÀµ‘…äÁÉ¥½É¥Ñä¥¹Ù¥Ñ”Á•ÈÙ•É¥™¥•(€•µ…¥°…™Ñ•ÈÑ¡”EH¡…ÌÉ•µ…¥¹•Ù¥Í¥‰±”™½È™¥Ù”Í•½¹‘Ì¸(´5½¹¥Ñ½ÈƒšÎošw–6k&çš?²¤Ñ•¹¹¥Ì…Ù…¥±…‰¥±¥Ñä½¸Ñ¡”Í…µ”A½ÍA…°‰½½­¥¹œA$…Ì(€Q=AL°ÁÕ‰±¥Í ½‰Í•ÉÙ…Ñ¥½¹ÌÑ¼Ñ¡”]•ˆ…ÁÀ°…¹Í•¹‰•ÍĞµ•™™½ÉĞ]•¡…Ğ…±•ÉÑÌ(€Ñ¼Ñ¡”Í¡…É•i…­Ì¡…ÑÉ½½µÌ¸(´‘ÁÉ½Ñ•Ñ•¥Ñ!Õˆİ½É­™±½İÌ™½È±½Õ‘™±…É”]½É­•È½Ä‘•Á±½åµ•¹Ğ°•á…ĞµM!(€]•ˆ¡•…±Ñ ¡•­Ì°…¹½¹”É•±•…Í”…Ñ”ÍÁ…¹¹¥¹œ]•ˆ°¥É™±½Ü°…¹Ñ¡”Í•¹‘•È¸(´9½Ñ¥™äi…­Í–’ŸšÊgšÊÏ¦fC–ºk–5€™½È…Í¡… I¥Ù•È™É•”µ½ÕÉĞ…Ù…¥±…‰¥±¥Ñä…™Ñ•È(€Ñ¡”]•ˆ½‰Í•ÉÙ…Ñ¥½¸…¹]•¡…Ğ‘•‘ÕÁ”…¡”…É”İÉ¥ÑÑ•¸¸(´ÁÁ•¹Ù•¹Õ”‰½½­¥¹œµ¥¹¤µÁÉ½É…´±¥¹­ÌÑ¼]•¡…Ğ…Ù…¥±…‰¥±¥Ñä…±•ÉÑÌ°…Ğµ½ÍĞ(€½¹”Á•È¡…Ğ…¹µ¥¹¤µÁÉ½É…´•Ù•ÉäÑİ¼¡½ÕÉÌ°İ¥Ñ M¡•¹é¡•¸	…ä…¹É•…Ñ•È(€	…äÉ•„Í¡…É¥¹œÑ¡”ƒšr«šv—šÆ…É¸((ŒŒŒ¡…¹•((´I•‰½½ĞÑ¡”i…­Ì]•¡…ĞÍ•¹‘•ÈÁ¡½¹”•Ù•ÉäÑİ¼‘…åÌ¥¹ÍÑ•…½˜‘…¥±ä°­••Á¥¹œ(€Ñ¡”€ÀÔèÀÀÍ¥„½M¡…¹¡…¤Í±½Ğ¸(´5½Ù”5äMÕ‰ÍÉ¥ÁÑ¥½¹Ì°UÍ•È½µµÕ¹¥Ñä°…¹‘µ¥¸¥¹Ñ¼…¸…•ÍÍ¥‰±”¡•…‘•È(€5½É”µ•¹Ô°…¹Í¡½ÉÑ•¸Ñ¡”½™™•”•¹ÑÉäÑ¼ƒŠsŠbT€æ”¯æŒä½œè€…â€ while retaining a
   full accessible label and compact narrow-screen behavior.
 - Fail the production gate immediately when an older target SHA has no CI check
   record, while continuing to poll checks that are queued or in progress.
@@ -234,7 +168,7 @@ and operational changes.
   caches.
 - Reset fallback outboxes without replay during the fresh start and verify
   imported Variable values without logging them.
-- Pin PostgreSQL and Redis by pullable registry manifest digests instead of
+- Pin PostgreSQL and Redis by pulaable registry manifest digests instead of
   host-local image configuration IDs.
 - Bundle production DAGs into the pinned Airflow image and verify their
   readability in production health checks.
