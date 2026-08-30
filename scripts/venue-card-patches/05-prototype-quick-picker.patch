@@ -1,0 +1,114 @@
+--- a/webapp/src/Prototype.tsx
++++ b/webapp/src/Prototype.tsx
+@@ -1293,34 +1432,74 @@
+                 <button type="button" onClick={changeEmail}>更换</button>
+               </div>
+ 
+-              <fieldset>
+-                <legend>选择场地 <span>可多选</span></legend>
+-                <div className="choice-toolbar">
+-                  <span>已选 {venueIds.length}/{popularVenues.length} · 热门优先</span>
++              {subscriptionLimitReached ? (
++                <div className="subscription-limit-notice" role="alert">
++                  <ShieldCheckIcon size={22} weight="fill" aria-hidden="true" />
+                   <div>
+-                    <button type="button" onClick={selectAllVenues}>全选</button>
+-                    <button type="button" onClick={clearVenues}>清空</button>
++                    <strong>有效订阅已达到 {dashboard.identity.activeSubscriptionLimit} 个上限</strong>
++                    <span>先取消不再需要的提醒，再创建新的场地订阅。</span>
+                   </div>
++                  <button type="button" onClick={() => openPanel("subscriptions")}>管理</button>
+                 </div>
+-                <div className="venue-choices">
+-                  {popularVenues.map((venue) => {
+-                    const selected = venueIds.includes(venue.id);
+-                    return (
+-                      <button
+-                        type="button"
+-                        key={venue.id}
+-                        className={selected ? "selected" : ""}
+-                        aria-pressed={selected}
+-                        onClick={() => toggleVenue(venue.id)}
+-                      >
+-                        <CheckCircleIcon size={18} weight={selected ? "fill" : "regular"} />
+-                        <span>{venue.name}</span>
+-                        <small>{venue.subscriberCount} 人</small>
+-                      </button>
+-                    );
+-                  })}
+-                </div>
+-              </fieldset>
++              ) : null}
++
++              {quickVenue ? (
++                <fieldset className="quick-venue-selection">
++                  <legend>已选场地 <span>快速创建</span></legend>
++                  <div className="quick-venue-chip">
++                    <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id]}`} aria-hidden="true">
++                      <QuickVenueIcon size={20} weight="duotone" />
++                    </span>
++                    <span className="quick-venue-copy">
++                      <strong>{quickVenue.name}</strong>
++                      <small>
++                        {quickVenueSubscriptions.length
++                          ? `已有 ${quickVenueSubscriptions.length} 个有效提醒包含此场地`
++                          : "场地已选好，继续设置提醒条件"}
++                      </small>
++                    </span>
++                    <button type="button" onClick={() => setQuickVenueId(null)}>
++                      添加其他场地
++                    </button>
++                  </div>
++                  {quickVenueSubscriptions.length ? (
++                    <div className="quick-subscription-notice" role="status">
++                      <CheckCircleIcon size={18} weight="fill" aria-hidden="true" />
++                      <span>可以继续新增不同星期或时段的提醒。</span>
++                      <button type="button" onClick={() => openPanel("subscriptions")}>查看已有</button>
++                    </div>
++                  ) : null}
++                </fieldset>
++              ) : (
++                <fieldset>
++                  <legend>选择场地 <span>可多选</span></legend>
++                  <div className="choice-toolbar">
++                    <span>已选 {venueIds.length}/{popularVenues.length} · 热门优先</span>
++                    <div>
++                      <button type="button" onClick={selectAllVenues}>全选</button>
++                      <button type="button" onClick={clearVenues}>清空</button>
++                    </div>
++                  </div>
++                  <div className="venue-choices">
++                    {popularVenues.map((venue) => {
++                      const selected = venueIds.includes(venue.id);
++                      return (
++                        <button
++                          type="button"
++                          key={venue.id}
++                          className={selected ? "selected" : ""}
++                          aria-pressed={selected}
++                          onClick={() => toggleVenue(venue.id)}
++                        >
++                          <CheckCircleIcon size={18} weight={selected ? "fill" : "regular"} />
++                          <span>{venue.name}</span>
++                          <small>{venue.subscriberCount} 人</small>
++                        </button>
++                      );
++                    })}
++                  </div>
++                </fieldset>
++              )}
+ 
+               <fieldset aria-describedby="weekday-help">
+                 <legend>指定巡检星期 <span>至少选择一天</span></legend>
+@@ -1412,6 +1591,11 @@
+                 <p>{selectedVenueNames.length ? selectedVenueNames.join("、") : "尚未选择场地"}</p>
+               </div>
+ 
++              {duplicateSubscription ? (
++                <p className="form-notice duplicate-subscription" role="status">
++                  已存在完全相同的提醒，无需重复创建；可以修改星期、时段或有效期。
++                </p>
++              ) : null}
+               {formError ? <p className="form-error" role="alert">{formError}</p> : null}
+               <span className="sr-only" aria-live="polite">
+                 {formBusy ? "正在创建订阅，请稍候" : ""}
