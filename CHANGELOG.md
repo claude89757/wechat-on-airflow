@@ -5,6 +5,23 @@ and operational changes.
 
 ## Unreleased
 
+## [0.6.5] - 2026-08-30
+
+### Added
+
+- Replace the mobile venue status rows with compact, touch-friendly cards that
+  retain inspection health, configured cadence, status-sync age, follower count,
+  and the latest confirmed reminder delivery.
+- Open a venue-prefilled quick subscription flow directly from each card while
+  preserving email verification, weekday, time-window, and term controls.
+
+### Changed
+
+- Use three venue-card columns on typical phones and two below 360px, with
+  keyboard activation, visible focus, subscription-count and limit states, and
+  post-creation card highlighting.
+- Keep the existing full multi-venue creation flow available through “添加其他场地”.
+
 ## [0.6.4] - 2026-08-30
 
 ### Changed

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wechat-on-airflow"
-version = "0.6.4"
+version = "0.6.5"
 description = "Airflow workflows for Shenzhen tennis availability notifications."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
