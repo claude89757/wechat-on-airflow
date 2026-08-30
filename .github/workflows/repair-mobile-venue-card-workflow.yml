@@ -36,12 +36,28 @@ jobs:
           if start < 0 or end < 0:
               raise SystemExit('unable to locate celebration patch block')
 
-          replacement = '''          source = replace_once(
-              source,
-              ''' + "'''  useEffect(() => {\n            previousReminderCount.current = null;\n" + '''''',
-              ''' + "'''  useEffect(() => {\n            if (!highlightedVenueId) return;\n            const timer = window.setTimeout(() => setHighlightedVenueId(null), 1800);\n            return () => window.clearTimeout(timer);\n          }, [highlightedVenueId]);\n\n          useEffect(() => {\n            previousReminderCount.current = null;\n" + '''''',
-              "card highlight effect",
-          )'''
+          replacement = "\n".join([
+              "          source = replace_once(",
+              "              source,",
+              "              '''  useEffect(() => {",
+              "            previousReminderCount.current = null;",
+              "            setNotificationBurst(false);",
+              "          }, [receipt?.token]);",
+              "          ''',",
+              "              '''  useEffect(() => {",
+              "            if (!highlightedVenueId) return;",
+              "            const timer = window.setTimeout(() => setHighlightedVenueId(null), 1800);",
+              "            return () => window.clearTimeout(timer);",
+              "          }, [highlightedVenueId]);",
+              "",
+              "          useEffect(() => {",
+              "            previousReminderCount.current = null;",
+              "            setNotificationBurst(false);",
+              "          }, [receipt?.token]);",
+              "          ''',",
+              "              \"card highlight effect\",",
+              "          )",
+          ])
           path.write_text(source[:start] + replacement + source[end:], encoding='utf-8')
           PY
 
