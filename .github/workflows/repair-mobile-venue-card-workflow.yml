@@ -1,4 +1,4 @@
-name: Repair Mobile Venue Card Workflow
+name: Extract Mobile Venue Card Patch
 
 on:
   push:
@@ -9,12 +9,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: repair-mobile-venue-card-workflow
+  group: extract-mobile-venue-card-patch
   cancel-in-progress: false
 
 jobs:
-  repair:
-    if: ${{ !contains(github.event.head_commit.message, '[venue-card-workflow-repaired]') && !contains(github.event.head_commit.message, '[venue-card-ux-prepared]') }}
+  extract:
+    if: ${{ !contains(github.event.head_commit.message, '[venue-card-patch-extracted]') && !contains(github.event.head_commit.message, '[venue-card-ux-prepared]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,55 +22,64 @@ jobs:
           ref: feat/mobile-venue-card-quick-create-20260830
           fetch-depth: 0
 
-      - name: Replace fragile celebration marker
+      - name: Extract and harden implementation script
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('.github/workflows/implement-mobile-venue-card-quick-create.yml')
-          source = path.read_text(encoding='utf-8')
-          start_marker = "          celebration_effect = '''  useEffect(() => {"
-          end_marker = "\n\n          source = replace_once(\n              source,\n              '''  const popularVenues"
-          start = source.find(start_marker)
-          end = source.find(end_marker, start)
-          if start < 0 or end < 0:
-              raise SystemExit('unable to locate celebration patch block')
+          workflow = Path('.github/workflows/implement-mobile-venue-card-quick-create.yml')
+          lines = workflow.read_text(encoding='utf-8').splitlines()
+          start = lines.index("          python - <<'PY'") + 1
+          end = lines.index("          PY", start)
+          script_lines = [line[10:] if line.startswith('          ') else line for line in lines[start:end]]
+          script = '\n'.join(script_lines) + '\n'
+
+          start_marker = "celebration_effect = '''  useEffect(() => {"
+          end_marker = "\n\nsource = replace_once(\n    source,\n    '''  const popularVenues"
+          patch_start = script.find(start_marker)
+          patch_end = script.find(end_marker, patch_start)
+          if patch_start < 0 or patch_end < 0:
+              raise SystemExit('unable to locate celebration patch block in extracted script')
 
           replacement = "\n".join([
-              "          source = replace_once(",
-              "              source,",
-              "              '''  useEffect(() => {",
-              "            previousReminderCount.current = null;",
-              "            setNotificationBurst(false);",
-              "          }, [receipt?.token]);",
-              "          ''',",
-              "              '''  useEffect(() => {",
-              "            if (!highlightedVenueId) return;",
-              "            const timer = window.setTimeout(() => setHighlightedVenueId(null), 1800);",
-              "            return () => window.clearTimeout(timer);",
-              "          }, [highlightedVenueId]);",
+              "source = replace_once(",
+              "    source,",
+              "    '''  useEffect(() => {",
+              "    previousReminderCount.current = null;",
+              "    setNotificationBurst(false);",
+              "  }, [receipt?.token]);",
+              "  ''',",
+              "    '''  useEffect(() => {",
+              "    if (!highlightedVenueId) return;",
+              "    const timer = window.setTimeout(() => setHighlightedVenueId(null), 1800);",
+              "    return () => window.clearTimeout(timer);",
+              "  }, [highlightedVenueId]);",
               "",
-              "          useEffect(() => {",
-              "            previousReminderCount.current = null;",
-              "            setNotificationBurst(false);",
-              "          }, [receipt?.token]);",
-              "          ''',",
-              "              \"card highlight effect\",",
-              "          )",
+              "  useEffect(() => {",
+              "    previousReminderCount.current = null;",
+              "    setNotificationBurst(false);",
+              "  }, [receipt?.token]);",
+              "  ''',",
+              "    \"card highlight effect\",",
+              ")",
           ])
-          path.write_text(source[:start] + replacement + source[end:], encoding='utf-8')
+          script = script[:patch_start] + replacement + script[patch_end:]
+
+          destination = Path('scripts/patch_mobile_venue_cards.py')
+          destination.write_text(script, encoding='utf-8')
           PY
 
-      - name: Verify repaired workflow syntax marker
+      - name: Validate extracted script
         run: |
-          grep -q 'previousReminderCount.current = null' .github/workflows/implement-mobile-venue-card-quick-create.yml
-          grep -q 'setHighlightedVenueId(null)' .github/workflows/implement-mobile-venue-card-quick-create.yml
+          python -m py_compile scripts/patch_mobile_venue_cards.py
+          grep -q 'setHighlightedVenueId(null)' scripts/patch_mobile_venue_cards.py
+          grep -q 'venue-card-tops' scripts/patch_mobile_venue_cards.py
           git diff --check
 
-      - name: Commit repair
+      - name: Commit extracted script
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/implement-mobile-venue-card-quick-create.yml
-          git commit -m "ci: repair venue card implementation marker [venue-card-workflow-repaired]"
+          git add scripts/patch_mobile_venue_cards.py
+          git commit -m "ci: extract venue card implementation script [venue-card-patch-extracted]"
           git push origin HEAD:feat/mobile-venue-card-quick-create-20260830
