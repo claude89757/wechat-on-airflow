@@ -9,13 +9,26 @@ import requests
 WEBAPP_OBSERVATION_API_URL_VAR = "WEBAPP_OBSERVATION_API_URL"
 WEBAPP_OBSERVATION_API_TOKEN_VAR = "WEBAPP_OBSERVATION_API_TOKEN"
 WEBAPP_OBSERVATION_TIMEOUT_SECONDS_VAR = "WEBAPP_OBSERVATION_TIMEOUT_SECONDS"
+WEBAPP_WECHAT_GATE_CACHE_VAR = "WEBAPP_WECHAT_SUBSCRIPTION_GATES"
+WEBAPP_WECHAT_GATE_MODE_VAR = "WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE"
 DEFAULT_TIMEOUT_SECONDS = 5.0
+DEFAULT_GATE_MODE = "enforce"
 
 
-def _get_variable(key: str, default: Any = None) -> Any:
+def _get_variable(
+    key: str,
+    default: Any = None,
+    deserialize_json: bool = False,
+) -> Any:
     from airflow.sdk import Variable
 
-    return Variable.get(key, default=default)
+    return Variable.get(key, default=default, deserialize_json=deserialize_json)
+
+
+def _set_variable(key: str, value: Any, serialize_json: bool = False) -> None:
+    from airflow.sdk import Variable
+
+    Variable.set(key, value, serialize_json=serialize_json)
 
 
 def _current_observation_scope() -> str | None:
@@ -69,6 +82,98 @@ def flatten_court_slots(
                 }
             )
     return slots
+
+
+def _normalize_gate(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    evaluated_at = str(value.get("evaluatedAt") or value.get("evaluated_at") or "").strip()
+    valid_until = str(value.get("validUntil") or value.get("valid_until") or "").strip()
+    try:
+        evaluated_ts = datetime.fromisoformat(evaluated_at.replace("Z", "+00:00"))
+        valid_until_ts = datetime.fromisoformat(valid_until.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if evaluated_ts.tzinfo is None or valid_until_ts.tzinfo is None:
+        return None
+    return {
+        "allowed": value.get("allowed") is True,
+        "evaluated_at": evaluated_ts.astimezone(UTC).isoformat(),
+        "valid_until": valid_until_ts.astimezone(UTC).isoformat(),
+        "revision": int(value.get("revision") or 0),
+    }
+
+
+def _cache_gate(venue_id: str, gate: dict[str, Any]) -> None:
+    try:
+        cached = _get_variable(WEBAPP_WECHAT_GATE_CACHE_VAR, default={}, deserialize_json=True)
+        if not isinstance(cached, dict):
+            cached = {}
+        cached[str(venue_id)] = gate
+        _set_variable(WEBAPP_WECHAT_GATE_CACHE_VAR, cached, serialize_json=True)
+    except Exception as exc:
+        print(f"[WEBAPP_WECHAT_GATE] cache write failed venue={venue_id}, error={str(exc)[:200]}")
+
+
+def _cached_gate(venue_id: str) -> dict[str, Any] | None:
+    try:
+        cached = _get_variable(WEBAPP_WECHAT_GATE_CACHE_VAR, default={}, deserialize_json=True)
+    except Exception:
+        return None
+    if not isinstance(cached, dict):
+        return None
+    return _normalize_gate(cached.get(str(venue_id)))
+
+
+def wechat_delivery_allowed(
+    venue_id: str,
+    observation_result: Mapping[str, object] | None = None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether the venue's WeChat alert may be delivered.
+
+    `off` preserves the legacy behavior. `shadow` logs the decision but does not
+    suppress. `enforce` is the production default: a fresh Web-owned subscription
+    gate is required, while a short Cloudflare outage may reuse the last gate until
+    its `valid_until` timestamp. Missing/stale state fails closed.
+    """
+    mode = (
+        str(_get_variable(WEBAPP_WECHAT_GATE_MODE_VAR, default=DEFAULT_GATE_MODE)).strip().lower()
+    )
+    if mode not in {"off", "shadow", "enforce"}:
+        mode = DEFAULT_GATE_MODE
+    if mode == "off":
+        return True
+
+    gate = None
+    if observation_result:
+        gate = _normalize_gate(
+            observation_result.get("wechat_gate") or observation_result.get("wechatGate")
+        )
+    if gate is None:
+        gate = _cached_gate(venue_id)
+
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    fresh = False
+    allowed = False
+    if gate:
+        try:
+            valid_until = datetime.fromisoformat(str(gate["valid_until"]).replace("Z", "+00:00"))
+            fresh = valid_until >= current
+            allowed = fresh and bool(gate.get("allowed"))
+        except (KeyError, ValueError, TypeError):
+            fresh = False
+            allowed = False
+
+    decision = "allow" if allowed else "suppress"
+    print(
+        f"[WEBAPP_WECHAT_GATE] venue={venue_id}, mode={mode}, decision={decision}, "
+        f"fresh={fresh}, revision={gate.get('revision') if gate else None}"
+    )
+    if mode == "shadow":
+        return True
+    return allowed
 
 
 def publish_venue_observation(
@@ -135,14 +240,25 @@ def publish_venue_observation(
             timeout=timeout,
         )
         response.raise_for_status()
+        try:
+            response_payload = response.json()
+        except ValueError:
+            response_payload = {}
+        gate = _normalize_gate(
+            response_payload.get("wechatGate") if isinstance(response_payload, dict) else None
+        )
+        if gate is not None:
+            _cache_gate(venue_id, gate)
         print(
             f"[WEBAPP] observation published venue={venue_id}, "
-            f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}"
+            f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}, "
+            f"wechat_gate={gate.get('allowed') if gate else None}"
         )
         return {
             "success": True,
             "slot_count": slot_count,
             "observation_scope": normalized_scope,
+            "wechat_gate": gate,
         }
     except Exception as exc:
         print(f"[WEBAPP] observation publishing failed venue={venue_id}, error={str(exc)[:300]}")
@@ -151,4 +267,5 @@ def publish_venue_observation(
             "error": str(exc)[:300],
             "slot_count": slot_count,
             "observation_scope": normalized_scope,
+            "wechat_gate": _cached_gate(venue_id),
         }

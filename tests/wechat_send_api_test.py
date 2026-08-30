@@ -292,6 +292,7 @@ class WeChatSendApiTest(unittest.TestCase):
             patch("wechat_airflow.notifications.wechat.datetime", Evening),
             patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
             patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
+            patch("wechat_airflow.notifications.wechat.wechat_delivery_allowed", return_value=True),
             patch(
                 "wechat_airflow.notifications.wechat.send_wechat_text",
                 return_value={"success": True, "sent_count": 1},
@@ -337,6 +338,7 @@ class WeChatSendApiTest(unittest.TestCase):
             patch("wechat_airflow.notifications.wechat.datetime", Evening),
             patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
             patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
+            patch("wechat_airflow.notifications.wechat.wechat_delivery_allowed", return_value=True),
             patch(
                 "wechat_airflow.notifications.wechat._utc_now",
                 return_value="2026-08-18T10:05:00+00:00",
