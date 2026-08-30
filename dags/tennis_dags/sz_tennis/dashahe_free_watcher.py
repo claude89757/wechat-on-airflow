@@ -21,7 +21,7 @@ dag = DAG(
     "大沙河免费场巡检",
     default_args=DEFAULT_ARGS,
     description="南山文体通大沙河免费场巡检",
-    schedule=timedelta(seconds=30),
+    schedule=timedelta(minutes=1),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
