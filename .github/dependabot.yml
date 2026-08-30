@@ -11,9 +11,9 @@ updates:
           - "*"
         update-types:
           - patch
-      # Only development tools whose behavior is exercised directly by CI are
-      # grouped for minor-version automation. Sender/runtime dependencies such
-      # as FastAPI, Selenium, and Uvicorn remain individual manual-review PRs.
+      # Development tools exercised directly by CI stay grouped for immediate
+      # low-risk automation. Runtime libraries and rule engines stay individual
+      # so the authorized nightly maintainer validates each exact PR head.
       python-dev-minor:
         dependency-type: development
         patterns:
@@ -22,7 +22,6 @@ updates:
           - "pre-commit"
           - "pytest"
           - "pytest-cov"
-          - "ruff"
           - "types-paramiko"
           - "types-requests"
         update-types:
@@ -46,7 +45,7 @@ updates:
           - patch
       # Build, type-check, unit-test, and browser-test tooling may move within
       # the current major after the exact PR head passes the complete Web gate.
-      # Wrangler is intentionally excluded because it controls deployment.
+      # Wrangler remains individual for nightly control-plane validation.
       webapp-dev-minor:
         dependency-type: development
         patterns:

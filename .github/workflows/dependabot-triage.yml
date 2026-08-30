@@ -90,7 +90,9 @@ jobs:
           ensure_label "automerge:blocked" "b60205" "Automatic dependency processing is blocked"
           ensure_label "needs-manual-review" "d93f0b" "Dependency update requires manual compatibility review"
 
-          python_minor_allowlist='httpx|mypy|pre-commit|pytest|pytest-cov|ruff|types-paramiko|types-requests'
+          # Ruff is deliberately absent: its minor releases can alter lint and
+          # formatting behavior across files outside the dependency manifest.
+          python_minor_allowlist='httpx|mypy|pre-commit|pytest|pytest-cov|types-paramiko|types-requests'
           webapp_minor_allowlist='@cloudflare/workers-types|@playwright/test|@types/react|@types/react-dom|@vitejs/plugin-react|typescript|vite|vitest'
 
           eligible=false

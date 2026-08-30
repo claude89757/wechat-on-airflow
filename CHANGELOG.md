@@ -5,6 +5,8 @@ and operational changes.
 
 ## Unreleased
 
+## [0.5.3] - 2026-08-30
+
 ### Added
 
 - Append booking mini-program footers for Dashah International (威逊文体),
@@ -14,6 +16,9 @@ and operational changes.
 
 - Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
   to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
+- Before 12:00 Asia/Shanghai, inspect only the four already released Dashah
+  International booking dates. Restore the rolling fifth date at noon so its
+  pre-release disabled cells cannot be published or pushed as false availability.
 
 ## [0.5.2] - 2026-08-29
 
