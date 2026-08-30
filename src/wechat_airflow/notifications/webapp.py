@@ -138,7 +138,11 @@ def wechat_delivery_allowed(
     gate is required, while a short Cloudflare outage may reuse the last gate until
     its `valid_until` timestamp. Missing/stale state fails closed.
     """
-    mode = str(_get_variable(WEBAPP_WECHAT_GATE_MODE_VAR, default=DEFAULT_GATE_MODE)).strip().lower()
+    mode = (
+        str(_get_variable(WEBAPP_WECHAT_GATE_MODE_VAR, default=DEFAULT_GATE_MODE))
+        .strip()
+        .lower()
+    )
     if mode not in {"off", "shadow", "enforce"}:
         mode = DEFAULT_GATE_MODE
     if mode == "off":
@@ -146,7 +150,9 @@ def wechat_delivery_allowed(
 
     gate = None
     if observation_result:
-        gate = _normalize_gate(observation_result.get("wechat_gate") or observation_result.get("wechatGate"))
+        gate = _normalize_gate(
+            observation_result.get("wechat_gate") or observation_result.get("wechatGate")
+        )
     if gate is None:
         gate = _cached_gate(venue_id)
 
