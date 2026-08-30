@@ -19,7 +19,7 @@ dag = DAG(
     "上越沙河网球场巡检",
     default_args=DEFAULT_ARGS,
     description="上越沙河网球场巡检 - Tennis168平台",
-    schedule=timedelta(seconds=30),
+    schedule=timedelta(minutes=1),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
