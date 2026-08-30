@@ -38,11 +38,17 @@ test.describe("mobile v2 presentation", () => {
       expect(metricBox?.height ?? 0).toBeGreaterThanOrEqual(90);
     }
 
-    const firstVenue = page.locator(".venue-row").first();
-    await expect(firstVenue).toBeVisible();
-    const venueBox = await firstVenue.boundingBox();
-    expect(venueBox?.height ?? 0).toBeGreaterThanOrEqual(78);
-    await expect(firstVenue.locator(".venue-mail")).toHaveCSS("display", "flex");
+    const venueCards = page.locator(".venue-card");
+    expect(await venueCards.count()).toBeGreaterThan(3);
+    const venueBoxes = await Promise.all(
+      [0, 1, 2, 3].map((index) => venueCards.nth(index).boundingBox()),
+    );
+    expect(venueBoxes[0]?.height ?? 0).toBeGreaterThanOrEqual(116);
+    expect(venueBoxes[0]?.width ?? 0).toBeGreaterThanOrEqual(100);
+    expect(Math.abs((venueBoxes[0]?.y ?? 0) - (venueBoxes[1]?.y ?? 0))).toBeLessThan(2);
+    expect(Math.abs((venueBoxes[0]?.y ?? 0) - (venueBoxes[2]?.y ?? 0))).toBeLessThan(2);
+    expect(venueBoxes[3]?.y ?? 0).toBeGreaterThan((venueBoxes[0]?.y ?? 0) + 40);
+    await expect(venueCards.first().locator(".venue-card-mail")).toBeVisible();
 
     const surfaceOverflow = await page.evaluate(() => {
       const viewportWidth = document.documentElement.clientWidth;
@@ -99,7 +105,7 @@ test.describe("mobile v2 presentation", () => {
     }
 
     const dayButtons = page.locator(".day-choices button");
-    await expect(dayButtons).toHaveCount(8);
+    await expect(dayButtons).toHaveCount(12);
     const dayButtonBox = await dayButtons.first().boundingBox();
     expect(dayButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 
@@ -176,10 +182,10 @@ test.describe("mobile v2 presentation", () => {
     await expect(page.getByText("收款码已显示，请完成支付，稍候片刻。")).toBeVisible();
 
     const claimButton = page.getByRole("button", { name: "已请咖啡", exact: true });
-    await expect(claimButton).toHaveCount(0);
-    await page.clock.fastForward(4_999);
-    await expect(claimButton).toHaveCount(0);
-    await page.clock.fastForward(1);
+    expect(await claimButton.count()).toBe(0);
+    await page.clock.fastForward(4_000);
+    expect(await claimButton.count()).toBe(0);
+    await page.clock.fastForward(1_100);
     await expect(claimButton).toBeVisible();
 
     await claimButton.click();
@@ -205,9 +211,9 @@ test.describe("mobile v2 presentation", () => {
     await page.clock.fastForward(32);
 
     const claimButton = page.getByRole("button", { name: "已请咖啡", exact: true });
-    await page.clock.fastForward(4_999);
-    await expect(claimButton).toHaveCount(0);
-    await page.clock.fastForward(1);
+    await page.clock.fastForward(4_000);
+    expect(await claimButton.count()).toBe(0);
+    await page.clock.fastForward(1_100);
     await expect(claimButton).toBeVisible();
     expect(sessionCalls).toBe(0);
 
@@ -258,6 +264,33 @@ test.describe("mobile v2 presentation", () => {
     expect(coffeePanelFits).toBe(true);
   });
 
+  test("uses two venue columns on a 320px screen without hiding metrics", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.goto("/");
+
+    const venueCards = page.locator(".venue-card");
+    expect(await venueCards.count()).toBeGreaterThan(2);
+    const first = await venueCards.nth(0).boundingBox();
+    const second = await venueCards.nth(1).boundingBox();
+    const third = await venueCards.nth(2).boundingBox();
+
+    expect(first?.width ?? 0).toBeGreaterThanOrEqual(130);
+    expect(Math.abs((first?.y ?? 0) - (second?.y ?? 0))).toBeLessThan(2);
+    expect(third?.y ?? 0).toBeGreaterThan((first?.y ?? 0) + 40);
+    await expect(venueCards.first().locator(".venue-card-status")).toBeVisible();
+    await expect(venueCards.first().locator(".venue-card-meta")).toBeVisible();
+    await expect(venueCards.first().locator(".venue-card-mail")).toBeVisible();
+
+    const gridFits = await page.locator(".venue-grid").evaluate((grid) => {
+      const viewportWidth = document.documentElement.clientWidth;
+      const rect = grid.getBoundingClientRect();
+      return document.documentElement.scrollWidth <= viewportWidth
+        && rect.left >= -0.5
+        && rect.right <= viewportWidth + 0.5;
+    });
+    expect(gridFits).toBe(true);
+  });
+
   test("shows visible keyboard focus and keeps key status text readable", async ({ page }) => {
     await page.goto("/");
 
@@ -271,7 +304,7 @@ test.describe("mobile v2 presentation", () => {
     expect(focusIsVisible).toBe(true);
 
     const keyTextSizes = await page.locator(
-      ".metric span, .venue-health span, .venue-mail span",
+      ".metric span, .venue-card-status strong, .venue-card-status small, .venue-card-meta, .venue-card-mail",
     ).evaluateAll((elements) => elements.map((element) =>
       parseFloat(getComputedStyle(element).fontSize),
     ));

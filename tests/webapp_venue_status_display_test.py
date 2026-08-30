@@ -25,8 +25,8 @@ def test_web_labels_status_sync_without_adding_an_api_path() -> None:
     helper = (ROOT / "webapp/src/venue-inspection-display.ts").read_text()
 
     assert 'from "./venue-inspection-display"' in prototype
-    assert "状态同步 ${formatRelative(venue.lastInspectionAt)}" in prototype
+    assert "状态同步${compactRelative}" in prototype
     assert "巡检与页面同步分开" in prototype
-    assert "30 秒刷新显示" in prototype
+    assert "页面每 30 秒更新" in prototype
     assert "fetch(" not in helper
     assert "/api/" not in helper

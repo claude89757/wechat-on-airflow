@@ -219,6 +219,35 @@ function formatRelative(value: string | null): string {
   return `${Math.floor(seconds / 3600)} 小时前`;
 }
 
+function formatCompactRelative(value: string | null): string {
+  if (!value) return "暂无";
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return "暂无";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 60) return `${Math.max(seconds, 1)}秒前`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟前`;
+  return `${Math.floor(seconds / 3600)}小时前`;
+}
+
+function formatCardNotification(
+  value: string | null,
+  venueState: "healthy" | "unhealthy" | "unknown",
+  weatherSuppressed: boolean,
+): string {
+  if (venueState === "unknown") return "状态未知";
+  if (value) return formatClock(value);
+  if (weatherSuppressed) return "邮件暂停";
+  return "今日无送达";
+}
+
+function sameSelection(
+  left: readonly (string | number)[],
+  right: readonly (string | number)[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.map(String).sort().join("|") === right.map(String).sort().join("|");
+}
+
 function formatUpdatedAt(value: string): string {
   const date = new Date(value);
   return new Intl.DateTimeFormat("zh-CN", {
@@ -306,6 +335,8 @@ export default function Prototype() {
   const [code, setCode] = useState("");
   const codeInputRef = useRef<HTMLInputElement>(null);
   const [venueIds, setVenueIds] = useState<VenueId[]>(["szw", "tops"]);
+  const [quickVenueId, setQuickVenueId] = useState<VenueId | null>(null);
+  const [highlightedVenueId, setHighlightedVenueId] = useState<VenueId | null>(null);
   const [weekdays, setWeekdays] = useState<Weekday[]>([...WEEKDAYS]);
   const [startTime, setStartTime] = useState("18:00");
   const [endTime, setEndTime] = useState("22:00");
@@ -382,6 +413,12 @@ export default function Prototype() {
   }, [celebrationId]);
 
   useEffect(() => {
+    if (!highlightedVenueId) return;
+    const timer = window.setTimeout(() => setHighlightedVenueId(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [highlightedVenueId]);
+
+  useEffect(() => {
     previousReminderCount.current = null;
     setNotificationBurst(false);
   }, [receipt?.token]);
@@ -440,9 +477,43 @@ export default function Prototype() {
   const selectedVenueNames = useMemo(() => popularVenues
     .filter((venue) => venueIds.includes(venue.id))
     .map((venue) => venue.name), [popularVenues, venueIds]);
+  const quickVenue = useMemo(() => quickVenueId
+    ? popularVenues.find((venue) => venue.id === quickVenueId) ?? null
+    : null, [popularVenues, quickVenueId]);
+  const QuickVenueIcon = quickVenue ? VENUE_ICONS[quickVenue.id] : TennisBallIcon;
+  const activeVenueSubscriptionCounts = useMemo(() => {
+    const counts = new Map<VenueId, number>();
+    for (const subscription of dashboard.subscriptions) {
+      if (!subscription.active || !subscription.eligible) continue;
+      for (const venueId of subscription.venueIds) {
+        counts.set(venueId, (counts.get(venueId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [dashboard.subscriptions]);
+  const quickVenueSubscriptions = useMemo(() => quickVenue
+    ? dashboard.subscriptions.filter((subscription) =>
+        subscription.active
+        && subscription.eligible
+        && subscription.venueIds.includes(quickVenue.id))
+    : [], [dashboard.subscriptions, quickVenue]);
+  const duplicateSubscription = useMemo(() => dashboard.subscriptions.some((subscription) =>
+    subscription.active
+      && subscription.eligible
+      && sameSelection(subscription.venueIds, venueIds)
+      && sameSelection(subscription.weekdays, weekdays)
+      && subscription.startTime === startTime
+      && subscription.endTime === endTime
+      && subscription.termCode === subscriptionTerm
+  ), [dashboard.subscriptions, endTime, startTime, subscriptionTerm, venueIds, weekdays]);
+  const subscriptionLimitReached = Boolean(
+    receipt && hasSuccessfulDashboard && dashboard.identity.remainingSubscriptions <= 0,
+  );
   const subscriptionFormReady = venueIds.length > 0
     && weekdays.length > 0
-    && startTime < endTime;
+    && startTime < endTime
+    && !duplicateSubscription
+    && !subscriptionLimitReached;
   const subscriptionSummary = `${venueIds.length} 个场地 · ${formatWeekdays(weekdays)} · ${startTime}–${endTime} · ${TERM_LABELS[subscriptionTerm]}`;
 
   const activeIdentity = dashboard.identity.verified
@@ -489,6 +560,18 @@ export default function Prototype() {
     setFormError("");
     if (nextPanel === "coffee") resetCoffeeFlow();
     setPanel(nextPanel);
+  };
+
+  const openCreatePanel = (venueId?: VenueId) => {
+    keyboard.hide();
+    setFormError("");
+    if (venueId) {
+      setVenueIds([venueId]);
+      setQuickVenueId(venueId);
+    } else {
+      setQuickVenueId(null);
+    }
+    setPanel("create");
   };
 
   const handleCoffeeImageLoad = async (image: HTMLImageElement) => {
@@ -695,6 +778,14 @@ export default function Prototype() {
       setFormError("结束时间必须晚于开始时间");
       return;
     }
+    if (subscriptionLimitReached) {
+      setFormError(`有效订阅已达到 ${dashboard.identity.activeSubscriptionLimit} 个上限`);
+      return;
+    }
+    if (duplicateSubscription) {
+      setFormError("已存在完全相同的提醒，无需重复创建");
+      return;
+    }
 
     setFormBusy(true);
     setFormError("");
@@ -706,10 +797,15 @@ export default function Prototype() {
         endTime,
         termCode: subscriptionTerm,
       });
+      const createdQuickVenue = quickVenue;
       setPanel(null);
+      setQuickVenueId(null);
+      if (createdQuickVenue) setHighlightedVenueId(createdQuickVenue.id);
       celebrationCounter.current += 1;
       setCelebrationId(celebrationCounter.current);
-      setToast(`订阅已创建：${subscriptionSummary}`);
+      setToast(createdQuickVenue
+        ? `${createdQuickVenue.name}提醒已创建 · ${formatWeekdays(weekdays)} · ${startTime}–${endTime} · ${TERM_LABELS[subscriptionTerm]}`
+        : `订阅已创建：${subscriptionSummary}`);
       await refresh();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "订阅创建失败");
@@ -744,8 +840,11 @@ export default function Prototype() {
     if (panel === "community") return "用户社区";
     if (panel === "admin") return "管理后台";
     if (panel === "coffee") return "支持 Zacks";
+    if (panel === "create" && quickVenue) {
+      return receipt ? `创建${quickVenue.name}提醒` : `订阅${quickVenue.name}`;
+    }
     return receipt ? "创建订阅" : "验证邮箱";
-  }, [panel, receipt]);
+  }, [panel, quickVenue, receipt]);
 
   return (
     <>
@@ -971,7 +1070,7 @@ export default function Prototype() {
               </>
             ) : null}
 
-            <button className="primary-button" type="button" onClick={() => openPanel("create")}>
+            <button className="primary-button" type="button" onClick={() => openCreatePanel()}>
               <PlusCircleIcon size={24} weight="bold" />
               创建订阅
             </button>
@@ -981,52 +1080,89 @@ export default function Prototype() {
             <div className="section-heading">
               <div>
                 <h2 id="venue-heading">场地运行状态</h2>
-                <p>热门优先 · 每 30 秒刷新显示 · 数据最长缓存 2 分钟</p>
+                <p>点按卡片快速创建提醒 · 页面每 30 秒更新</p>
               </div>
-              <span><ArrowsClockwiseIcon size={17} />可手动刷新</span>
+              <span><ArrowsClockwiseIcon size={17} />最长缓存 2 分钟</span>
             </div>
 
-            <div className="venue-list">
-              {popularVenues.map((venue) => (
-                (() => {
-                  const VenueIcon = VENUE_ICONS[venue.id];
-                  const venueState = resolveVenueDisplayState(availability, venue.healthy);
-                  const inspectionCadence = formatInspectionCadence(venue.id);
-                  return (
-                    <article className="venue-row" key={venue.id}>
-                      <span className={`venue-icon venue-icon-${VENUE_ACCENTS[venue.id]}`}>
-                        <VenueIcon size={23} weight="duotone" />
+            <div className="venue-card-legend" aria-label="卡片指标说明">
+              <span><i className="venue-status-dot healthy" aria-hidden="true" />巡检</span>
+              <span><ArrowsClockwiseIcon size={14} aria-hidden="true" />同步</span>
+              <span><UsersThreeIcon size={14} aria-hidden="true" />关注</span>
+              <span><EnvelopeSimpleIcon size={14} aria-hidden="true" />送达</span>
+            </div>
+
+            <div className="venue-grid">
+              {popularVenues.map((venue) => {
+                const VenueIcon = VENUE_ICONS[venue.id];
+                const venueState = resolveVenueDisplayState(availability, venue.healthy);
+                const inspectionCadence = formatInspectionCadence(venue.id);
+                const compactCadence = inspectionCadence.replace("/次", "");
+                const compactRelative = formatCompactRelative(venue.lastInspectionAt);
+                const existingSubscriptionCount = activeVenueSubscriptionCounts.get(venue.id) ?? 0;
+                const actionState = existingSubscriptionCount > 0
+                  ? "subscribed"
+                  : subscriptionLimitReached ? "full" : "add";
+                const actionLabel = existingSubscriptionCount > 0
+                  ? `✓${existingSubscriptionCount}`
+                  : subscriptionLimitReached ? "已满" : "+";
+                const statusText = venueState === "unknown"
+                  ? availability === "loading" ? "读取中" : "未知"
+                  : venueState === "healthy" ? "正常" : "异常";
+                const mailText = formatCardNotification(
+                  venue.lastNotificationAt,
+                  venueState,
+                  Boolean(dashboard.weatherEmailGate?.suppressed),
+                );
+                const mailTone = venue.lastNotificationAt
+                  ? ""
+                  : dashboard.weatherEmailGate?.suppressed ? "is-paused" : "is-muted";
+
+                return (
+                  <button
+                    className={[
+                      "venue-card",
+                      `venue-card-${venueState}`,
+                      existingSubscriptionCount > 0 ? "is-subscribed" : "",
+                      highlightedVenueId === venue.id ? "is-highlighted" : "",
+                    ].filter(Boolean).join(" ")}
+                    type="button"
+                    key={venue.id}
+                    data-testid={`venue-card-${venue.id}`}
+                    data-venue-id={venue.id}
+                    aria-label={`为${venue.name}快速创建提醒；${statusText}，${inspectionCadence}，状态同步${compactRelative}，${venue.subscriberCount}人关注，${mailText}`}
+                    onClick={() => openCreatePanel(venue.id)}
+                  >
+                    <span className="venue-card-heading">
+                      <span className={`venue-card-icon venue-icon-${VENUE_ACCENTS[venue.id]}`} aria-hidden="true">
+                        <VenueIcon size={17} weight="duotone" />
                       </span>
-                      <div className="venue-name">
-                        <h3>{venue.name}</h3>
-                        <p>{venue.subscriberCount > 0 ? `${venue.subscriberCount} 人关注` : "暂无关注"}</p>
-                      </div>
-                      <div
-                        className="venue-health"
-                        title={venueState === "unknown" ? undefined
-                          : `实际巡检频率：${inspectionCadence}；页面时间为最近一次状态同步记录`}
-                      >
-                        <strong className={venueState}><CheckCircleIcon size={16} weight="fill" />
-                          {venueState === "unknown" ? (availability === "loading" ? "正在读取" : "状态未知")
-                            : venueState === "healthy" ? `正常 · ${inspectionCadence}` : `异常 · ${inspectionCadence}`}
-                        </strong>
-                        <span>{venueState === "unknown" ? (availability === "loading" ? "请稍候" : "点击刷新重试")
-                          : `状态同步 ${formatRelative(venue.lastInspectionAt)}`}</span>
-                      </div>
-                      <div className="venue-mail">
-                        <strong className={venue.lastNotificationAt ? "" : "muted"}>
-                          <EnvelopeSimpleIcon size={16} weight="fill" />
-                          {venueState === "unknown" ? "—" : formatClock(venue.lastNotificationAt)}
-                        </strong>
-                        <span>{venueState === "unknown" ? "状态未知"
-                          : venue.lastNotificationAt ? "确认送达"
-                            : dashboard.weatherEmailGate?.suppressed ? "因大雨暂停邮件"
-                              : "今日未确认送达"}</span>
-                      </div>
-                    </article>
-                  );
-                })()
-              ))}
+                      <span className="venue-card-name">{venue.name}</span>
+                      <span className={`venue-card-action is-${actionState}`} aria-hidden="true">
+                        {actionLabel}
+                      </span>
+                    </span>
+
+                    <span className="venue-card-status">
+                      <i className={`venue-status-dot ${venueState}`} aria-hidden="true" />
+                      <strong>{statusText}</strong>
+                      <small>{compactCadence}</small>
+                    </span>
+
+                    <span className="venue-card-meta">
+                      <span><ArrowsClockwiseIcon size={13} aria-hidden="true" />{compactRelative}</span>
+                      <span className="venue-card-followers">
+                        <UsersThreeIcon size={13} aria-hidden="true" />{venue.subscriberCount}
+                      </span>
+                    </span>
+
+                    <span className={`venue-card-mail ${mailTone}`.trim()}>
+                      <EnvelopeSimpleIcon size={13} weight="fill" aria-hidden="true" />
+                      {mailText}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 
@@ -1039,17 +1175,20 @@ export default function Prototype() {
           if (!open) {
             if (panel === "coffee") resetCoffeeFlow();
             setPanel(null);
+            setQuickVenueId(null);
           }
         }}
         title={panelTitle}
         description={
           panel === "create"
-            ? "只设置提醒条件，不展示或代订场地。"
+            ? quickVenue
+              ? `已选择${quickVenue.name}，设置星期、时段和有效期即可。`
+              : "只设置提醒条件，不展示或代订场地。"
             : undefined
         }
         snap={panel === "coffee" || panel === "community" || panel === "admin"
           ? 0.94
-          : panel === "create" ? 0.86 : panel === "priority" ? 0.82 : 0.72}
+          : panel === "create" ? quickVenue ? 0.82 : 0.86 : panel === "priority" ? 0.82 : 0.72}
       >
         {panel === "coffee" ? (
           <div className="coffee-panel" data-testid="coffee-panel">
@@ -1193,7 +1332,7 @@ export default function Prototype() {
                 <ShieldCheckIcon size={38} weight="duotone" />
                 <strong>还没有订阅</strong>
                 <p>创建后会在这里管理提醒条件。</p>
-                <button type="button" onClick={() => setPanel("create")}>创建第一个订阅</button>
+                <button type="button" onClick={() => openCreatePanel()}>创建第一个订阅</button>
               </div>
             )}
             {formError ? <p className="form-error" role="alert">{formError}</p> : null}
@@ -1278,7 +1417,7 @@ export default function Prototype() {
                 <KeyIcon size={38} weight="duotone" />
                 <strong>请先验证邮箱</strong>
                 <p>优先档位绑定到邮箱，验证后才能兑换邀请码。</p>
-                <button type="button" onClick={() => setPanel("create")}>去验证邮箱</button>
+                <button type="button" onClick={() => openCreatePanel()}>去验证邮箱</button>
               </div>
             )}
           </div>
@@ -1293,34 +1432,74 @@ export default function Prototype() {
                 <button type="button" onClick={changeEmail}>更换</button>
               </div>
 
-              <fieldset>
-                <legend>选择场地 <span>可多选</span></legend>
-                <div className="choice-toolbar">
-                  <span>已选 {venueIds.length}/{popularVenues.length} · 热门优先</span>
+              {subscriptionLimitReached ? (
+                <div className="subscription-limit-notice" role="alert">
+                  <ShieldCheckIcon size={22} weight="fill" aria-hidden="true" />
                   <div>
-                    <button type="button" onClick={selectAllVenues}>全选</button>
-                    <button type="button" onClick={clearVenues}>清空</button>
+                    <strong>有效订阅已达到 {dashboard.identity.activeSubscriptionLimit} 个上限</strong>
+                    <span>先取消不再需要的提醒，再创建新的场地订阅。</span>
                   </div>
+                  <button type="button" onClick={() => openPanel("subscriptions")}>管理</button>
                 </div>
-                <div className="venue-choices">
-                  {popularVenues.map((venue) => {
-                    const selected = venueIds.includes(venue.id);
-                    return (
-                      <button
-                        type="button"
-                        key={venue.id}
-                        className={selected ? "selected" : ""}
-                        aria-pressed={selected}
-                        onClick={() => toggleVenue(venue.id)}
-                      >
-                        <CheckCircleIcon size={18} weight={selected ? "fill" : "regular"} />
-                        <span>{venue.name}</span>
-                        <small>{venue.subscriberCount} 人</small>
-                      </button>
-                    );
-                  })}
-                </div>
-              </fieldset>
+              ) : null}
+
+              {quickVenue ? (
+                <fieldset className="quick-venue-selection">
+                  <legend>已选场地 <span>快速创建</span></legend>
+                  <div className="quick-venue-chip">
+                    <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id]}`} aria-hidden="true">
+                      <QuickVenueIcon size={20} weight="duotone" />
+                    </span>
+                    <span className="quick-venue-copy">
+                      <strong>{quickVenue.name}</strong>
+                      <small>
+                        {quickVenueSubscriptions.length
+                          ? `已有 ${quickVenueSubscriptions.length} 个有效提醒包含此场地`
+                          : "场地已选好，继续设置提醒条件"}
+                      </small>
+                    </span>
+                    <button type="button" onClick={() => setQuickVenueId(null)}>
+                      添加其他场地
+                    </button>
+                  </div>
+                  {quickVenueSubscriptions.length ? (
+                    <div className="quick-subscription-notice" role="status">
+                      <CheckCircleIcon size={18} weight="fill" aria-hidden="true" />
+                      <span>可以继续新增不同星期或时段的提醒。</span>
+                      <button type="button" onClick={() => openPanel("subscriptions")}>查看已有</button>
+                    </div>
+                  ) : null}
+                </fieldset>
+              ) : (
+                <fieldset>
+                  <legend>选择场地 <span>可多选</span></legend>
+                  <div className="choice-toolbar">
+                    <span>已选 {venueIds.length}/{popularVenues.length} · 热门优先</span>
+                    <div>
+                      <button type="button" onClick={selectAllVenues}>全选</button>
+                      <button type="button" onClick={clearVenues}>清空</button>
+                    </div>
+                  </div>
+                  <div className="venue-choices">
+                    {popularVenues.map((venue) => {
+                      const selected = venueIds.includes(venue.id);
+                      return (
+                        <button
+                          type="button"
+                          key={venue.id}
+                          className={selected ? "selected" : ""}
+                          aria-pressed={selected}
+                          onClick={() => toggleVenue(venue.id)}
+                        >
+                          <CheckCircleIcon size={18} weight={selected ? "fill" : "regular"} />
+                          <span>{venue.name}</span>
+                          <small>{venue.subscriberCount} 人</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              )}
 
               <fieldset aria-describedby="weekday-help">
                 <legend>指定巡检星期 <span>至少选择一天</span></legend>
@@ -1412,6 +1591,11 @@ export default function Prototype() {
                 <p>{selectedVenueNames.length ? selectedVenueNames.join("、") : "尚未选择场地"}</p>
               </div>
 
+              {duplicateSubscription ? (
+                <p className="form-notice duplicate-subscription" role="status">
+                  已存在完全相同的提醒，无需重复创建；可以修改星期、时段或有效期。
+                </p>
+              ) : null}
               {formError ? <p className="form-error" role="alert">{formError}</p> : null}
               <span className="sr-only" aria-live="polite">
                 {formBusy ? "正在创建订阅，请稍候" : ""}
@@ -1420,14 +1604,26 @@ export default function Prototype() {
                 className="sheet-primary"
                 type="button"
                 aria-describedby="subscription-summary"
+                aria-label={quickVenue ? `创建${quickVenue.name}提醒` : "确认创建订阅"}
                 disabled={formBusy || !subscriptionFormReady}
                 onClick={() => void submitSubscription()}
               >
-                {formBusy ? "正在创建…" : "确认创建订阅"}
+                {formBusy ? "正在创建…" : quickVenue ? "创建该场地提醒" : "确认创建订阅"}
               </button>
             </div>
           ) : (
             <div className="verification-form">
+              {quickVenue ? (
+                <div className="quick-verification-context">
+                  <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id]}`} aria-hidden="true">
+                    <QuickVenueIcon size={20} weight="duotone" />
+                  </span>
+                  <div>
+                    <strong>已选择 {quickVenue.name}</strong>
+                    <span>验证邮箱后会继续保留该场地，并进入提醒条件设置。</span>
+                  </div>
+                </div>
+              ) : null}
               {receipts.length ? (
                 <div className="receipt-history">
                   <span>本浏览器验证过</span>
