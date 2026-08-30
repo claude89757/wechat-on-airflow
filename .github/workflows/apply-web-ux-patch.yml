@@ -1,0 +1,40 @@
+name: Apply Web UX Source Patch
+
+on:
+  push:
+    branches:
+      - fix/web-ux-refresh-a11y-20260830
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-web-ux-source-patch
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[web-ux-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/web-ux-refresh-a11y-20260830
+          fetch-depth: 0
+
+      - name: Apply deterministic source updates
+        run: node scripts/apply_web_ux_patch.mjs
+
+      - name: Validate patch shape
+        run: |
+          git diff --check
+          test -n "$(git status --short)"
+
+      - name: Commit patched sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add webapp tests
+          git commit -m "fix(web): polish refresh, metrics, cancellation and accessibility [web-ux-patched]"
+          git push origin HEAD:fix/web-ux-refresh-a11y-20260830
