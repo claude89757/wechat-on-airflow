@@ -168,12 +168,16 @@ PY
 printf '%s\n' '__WEBAPP_LOGS__'
 for candidate in airflow-worker worker; do
   if compose ps --services --status running | grep -qx "$candidate"; then
-    compose_with_timeout 12s exec -T "$candidate" sh -lc '
-      find /opt/airflow/logs -type f \
-        \( -path "*大沙河国际网球中心巡检*" -o -path "*dsh_ydmap_watcher*" \) \
-        -mmin -180 -size -5M -print0 2>/dev/null \
-        | xargs -0 -r grep -hE "\[WEBAPP\]|Error checking 大沙河国际网球中心|start to check 大沙河国际网球中心" 2>/dev/null \
-        | tail -n 240
+    compose_with_timeout 30s exec -T "$candidate" sh -lc '
+      printf "%s\n" "__DSH_LOG_ROOTS__"
+      find /opt/airflow/logs -mindepth 1 -maxdepth 1 -type d -printf "%p\n" 2>/dev/null \
+        | grep -E "大沙河|dsh" \
+        | head -n 40 || true
+      for root in /opt/airflow/logs/*大沙河国际网球中心巡检* /opt/airflow/logs/*dsh_ydmap_watcher*; do
+        [ -d "$root" ] || continue
+        find "$root" -type f -mmin -240 -size -5M \
+          -exec grep -hE "\[WEBAPP\]|Error checking 大沙河国际网球中心|start to check 大沙河国际网球中心" {} + 2>/dev/null
+      done | tail -n 300
     ' || true
   fi
 done
