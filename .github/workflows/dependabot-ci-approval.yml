@@ -2,6 +2,10 @@ name: Dependabot CI Approval
 run-name: dependabot/ci-approval/${{ github.run_id }}
 
 on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  schedule:
+    - cron: "*/5 * * * *"
   workflow_run:
     workflows: ["CI"]
     types: [completed]
@@ -16,15 +20,13 @@ permissions:
   contents: read
   pull-requests: read
 
-concurrency:
-  group: dependabot-ci-approval
-  cancel-in-progress: false
-
 jobs:
   approve:
     if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'action_required'
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.conclusion == 'action_required') &&
+      (github.event_name != 'pull_request_target' ||
+       github.event.pull_request.user.login == 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -195,21 +197,64 @@ jobs:
               return `run ${run.id}: refused because no open exact-head Dependabot PR matched`;
             }
 
-            let runs;
-            if (context.eventName === "workflow_run") {
-              runs = [context.payload.workflow_run];
-            } else {
-              runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+            async function currentDependabotHeads() {
+              const pulls = await github.paginate(github.rest.pulls.list, {
+                owner,
+                repo,
+                state: "open",
+                base: "main",
+                per_page: 100,
+              });
+              return new Set(
+                pulls
+                  .filter((pull) =>
+                    pull.user?.login === "dependabot[bot]" &&
+                    pull.head?.repo?.full_name === repository &&
+                    pull.head?.ref?.startsWith("dependabot/"),
+                  )
+                  .map((pull) => pull.head.sha),
+              );
+            }
+
+            async function actionRequiredRuns(headSha = null) {
+              const options = {
                 owner,
                 repo,
                 workflow_id: "ci.yml",
                 event: "pull_request",
                 status: "action_required",
                 per_page: 100,
-              });
+              };
+              if (headSha) options.head_sha = headSha;
+              return github.paginate(github.rest.actions.listWorkflowRuns, options);
             }
 
-            runs.sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+            async function waitForExactHeadActionRequired(headSha) {
+              for (let attempt = 0; attempt < 8; attempt += 1) {
+                const runs = await actionRequiredRuns(headSha);
+                const exact = runs.filter((run) => run.head_sha === headSha);
+                if (exact.length > 0) return exact;
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+              }
+              return [];
+            }
+
+            let runs;
+            if (context.eventName === "workflow_run") {
+              runs = [context.payload.workflow_run];
+            } else if (context.eventName === "pull_request_target") {
+              const pull = context.payload.pull_request;
+              runs = await waitForExactHeadActionRequired(pull.head.sha);
+            } else {
+              const currentHeads = await currentDependabotHeads();
+              runs = (await actionRequiredRuns()).filter((run) =>
+                currentHeads.has(run.head_sha),
+              );
+            }
+
+            runs = [...new Map(runs.map((run) => [run.id, run])).values()]
+              .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+
             const results = [];
             for (const run of runs) {
               results.push(await approveVerifiedRun(run));
@@ -217,7 +262,7 @@ jobs:
 
             core.summary.addHeading("Verified Dependabot CI approvals");
             if (results.length === 0) {
-              core.summary.addRaw("No action-required CI runs were found.\n");
+              core.summary.addRaw("No current exact-head action-required CI runs were found.\n");
             } else {
               core.summary.addList(results);
             }
