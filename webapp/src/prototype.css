@@ -1628,3 +1628,29 @@
     font-size: 10px;
   }
 }
+
+/* Keyboard focus restoration for the production Web UI. */
+.device-screen .dashboard-screen button:focus-visible,
+.device-screen .dashboard-screen a:focus-visible,
+.device-screen .dashboard-screen input:focus-visible,
+.device-screen .dashboard-screen select:focus-visible,
+.device-screen .dashboard-screen textarea:focus-visible,
+.device-screen .bottom-sheet button:focus-visible,
+.device-screen .bottom-sheet a:focus-visible,
+.device-screen .bottom-sheet input:focus-visible,
+.device-screen .bottom-sheet select:focus-visible,
+.device-screen .bottom-sheet textarea:focus-visible,
+.device-screen .bottom-sheet [tabindex]:focus-visible {
+  outline: 3px solid rgba(6, 155, 152, 0.55) !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(6, 155, 152, 0.16) !important;
+}
+
+.device-screen .dashboard-screen input:focus-visible,
+.device-screen .dashboard-screen select:focus-visible,
+.device-screen .dashboard-screen textarea:focus-visible,
+.device-screen .bottom-sheet input:focus-visible,
+.device-screen .bottom-sheet select:focus-visible,
+.device-screen .bottom-sheet textarea:focus-visible {
+  border-color: var(--teal) !important;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyGlobalSubmittedReminderMetric,
+  bypassesBootstrapCache,
   deploymentHealth,
   invalidatesBootstrap,
   scheduledWorkForCron,
@@ -62,6 +63,18 @@ describe("free-tier scheduling", () => {
   it("keeps recent delivery reconciliation separate from hourly maintenance", () => {
     expect(scheduledWorkForCron("*/5 * * * *")).toBe("delivery_reconcile");
     expect(scheduledWorkForCron("17 * * * *")).toBe("maintenance");
+  });
+
+  it("bypasses the edge cache only for an explicit manual bootstrap refresh", () => {
+    expect(bypassesBootstrapCache(
+      new Request("https://example.com/api/bootstrap?refresh=1"),
+    )).toBe(true);
+    expect(bypassesBootstrapCache(
+      new Request("https://example.com/api/bootstrap"),
+    )).toBe(false);
+    expect(bypassesBootstrapCache(
+      new Request("https://example.com/api/bootstrap?refresh=1", { method: "POST" }),
+    )).toBe(false);
   });
 
   it("invalidates dashboard cache only for state-changing subscription actions", () => {

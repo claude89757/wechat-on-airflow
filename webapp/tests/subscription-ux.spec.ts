@@ -154,3 +154,88 @@ test("keeps the success message but suppresses fireworks for reduced motion", as
   await expect(page.locator(".app-toast")).toContainText("订阅已创建");
   await expect(page.getByTestId("subscription-celebration")).toBeHidden();
 });
+
+test("prioritizes personal metrics while marking the global health metric", async ({ page }) => {
+  await page.goto("/");
+
+  const metrics = page.locator(".metric");
+  await expect(metrics.nth(0)).toContainText("我的有效订阅");
+  await expect(metrics.nth(1)).toContainText("我的今日送达");
+  await expect(metrics.nth(2)).toContainText("全站巡检正常");
+  await expect(page.locator(".coffee-button")).toContainText("支持 Zacks");
+});
+
+test("manual refresh bypasses the normal bootstrap cache", async ({ page }) => {
+  let forcedRefreshes = 0;
+  await page.route("**/api/bootstrap?refresh=1", async (route) => {
+    forcedRefreshes += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboard),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "获取最新状态", exact: true }).click();
+
+  await expect.poll(() => forcedRefreshes).toBe(1);
+  await expect(page.locator(".app-toast")).toContainText("已获取最新数据");
+});
+
+test("requires confirmation before cancelling a subscription", async ({ page }) => {
+  const subscriptionId = "9d1aca70-e4de-4c91-b3eb-1f4b26ce9181";
+  const dashboardWithSubscription = {
+    ...dashboard,
+    identity: {
+      ...dashboard.identity,
+      activeSubscriptionCount: 1,
+      remainingSubscriptions: 4,
+    },
+    subscriptions: [{
+      id: subscriptionId,
+      venueIds: ["szw"],
+      weekdays: [6, 7],
+      startTime: "18:00",
+      endTime: "22:00",
+      durationDays: 7,
+      termCode: "7d",
+      autoRenew: false,
+      eligible: true,
+      activeUntil: "2026-09-05T12:00:00.000Z",
+      active: true,
+      createdAt: "2026-08-29T12:00:00.000Z",
+    }],
+  };
+  await page.route("**/api/bootstrap", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(dashboardWithSubscription),
+    });
+  });
+
+  let cancellationCalls = 0;
+  await page.route("**/api/subscriptions/" + subscriptionId, async (route) => {
+    cancellationCalls += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ success: true }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "更多功能" }).click();
+  await page.getByRole("menuitem", { name: "我的订阅" }).click();
+  const cancelButton = page.getByRole("button", { name: "取消订阅" });
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("确认取消这个订阅吗");
+    await dialog.dismiss();
+  });
+  await cancelButton.click();
+  expect(cancellationCalls).toBe(0);
+
+  page.once("dialog", async (dialog) => dialog.accept());
+  await cancelButton.click();
+  await expect.poll(() => cancellationCalls).toBe(1);
+  await expect(page.locator(".app-toast")).toContainText("订阅已取消");
+});

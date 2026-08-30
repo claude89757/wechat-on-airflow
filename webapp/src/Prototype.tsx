@@ -337,10 +337,10 @@ export default function Prototype() {
     setCoffeeError("");
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      const next = await getDashboard(receipt);
+      const next = await getDashboard(receipt, { force });
       setDashboard(next);
       setServiceOnline(true);
       setHasSuccessfulDashboard(true);
@@ -349,6 +349,7 @@ export default function Prototype() {
         setReceipts(removeReceipt(receipt.token));
         setReceipt(null);
       }
+      if (force) setToast("已获取最新数据");
     } catch {
       setServiceOnline(import.meta.env.DEV);
       setRefreshFailed(true);
@@ -465,11 +466,11 @@ export default function Prototype() {
           ? "这是你此前领取且仍可使用的邀请码。"
           : "谢谢你的咖啡，送你一个优先用户邀请码。";
   const availability = resolveDashboardAvailability({ hasSuccessfulDashboard, loading, refreshFailed });
-  const statusLabel = availability === "loading" ? "正在读取服务状态"
+  const statusLabel = availability === "loading" ? "正在读取状态数据"
     : availability === "unknown" ? "暂时无法读取状态"
-    : availability === "stale" ? "刷新失败，显示上次数据" : "服务运行正常";
+    : availability === "stale" ? "刷新失败，显示上次数据" : "状态数据已更新";
   const statusDetail = hasSuccessfulDashboard
-    ? `更新于 ${formatUpdatedAt(dashboard.generatedAt)}`
+    ? `数据生成于 ${formatUpdatedAt(dashboard.generatedAt)}`
     : loading ? "正在获取最新数据" : "请稍后点击刷新";
   const quotaPercent = dashboard.identity.dailyLimit > 0
     ? Math.min(100, Math.round(dashboard.identity.remindersToday / dashboard.identity.dailyLimit * 100)) : 0;
@@ -719,6 +720,10 @@ export default function Prototype() {
 
   const cancelExistingSubscription = async (subscriptionId: string) => {
     if (!receipt) return;
+    const confirmed = window.confirm(
+      "确认取消这个订阅吗？取消后将不再收到该条件的场地提醒。",
+    );
+    if (!confirmed) return;
     setFormBusy(true);
     setFormError("");
     try {
@@ -738,7 +743,7 @@ export default function Prototype() {
     if (panel === "priority") return "提醒档位";
     if (panel === "community") return "用户社区";
     if (panel === "admin") return "管理后台";
-    if (panel === "coffee") return "请作者喝咖啡";
+    if (panel === "coffee") return "支持 Zacks";
     return receipt ? "创建订阅" : "验证邮箱";
   }, [panel, receipt]);
 
@@ -760,12 +765,12 @@ export default function Prototype() {
               <button
                 className="coffee-button"
                 type="button"
-                aria-label="请作者喝咖啡，支持项目维护"
-                title="请作者喝咖啡"
+                aria-label="支持 Zacks，请作者喝咖啡"
+                title="支持 Zacks"
                 onClick={() => openPanel("coffee")}
               >
                 <span aria-hidden="true">☕</span>
-                <span>支持作者</span>
+                <span>支持 Zacks</span>
               </button>
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
@@ -842,9 +847,9 @@ export default function Prototype() {
             <span>{statusDetail}</span>
             <button
               type="button"
-              aria-label="刷新状态"
-              title="刷新状态"
-              onClick={() => void refresh()}
+              aria-label="获取最新状态"
+              title="获取最新状态"
+              onClick={() => void refresh(true)}
               disabled={loading}
             >
               <ArrowsClockwiseIcon className={loading ? "is-spinning" : ""} size={18} />
@@ -864,17 +869,28 @@ export default function Prototype() {
             </div>
           ) : null}
 
-          <section className="metric-band" aria-label="运行概况">
+          <section
+            className="metric-band"
+            aria-label={activeIdentity ? "我的提醒与全站运行概况" : "全站运行概况"}
+          >
             <Metric
               icon={<UsersThreeIcon size={25} weight="fill" />}
-              value={hasSuccessfulDashboard ? dashboard.metrics.activeSubscriptions : "—"}
-              label="个有效订阅"
+              value={hasSuccessfulDashboard
+                ? activeIdentity
+                  ? dashboard.identity.activeSubscriptionCount
+                  : dashboard.metrics.activeSubscriptions
+                : "—"}
+              label={activeIdentity ? "我的有效订阅" : "全站有效订阅"}
               tone="teal"
             />
             <Metric
               icon={<EnvelopeSimpleIcon size={25} weight="fill" />}
-              value={hasSuccessfulDashboard ? dashboard.metrics.remindersToday : "—"}
-              label="今日提醒"
+              value={hasSuccessfulDashboard
+                ? activeIdentity
+                  ? dashboard.identity.deliveredToday
+                  : dashboard.metrics.remindersToday
+                : "—"}
+              label={activeIdentity ? "我的今日送达" : "全站今日提醒"}
               tone="blue"
             />
             <Metric
@@ -882,7 +898,7 @@ export default function Prototype() {
               value={hasSuccessfulDashboard
                 ? `${dashboard.metrics.healthyVenues}/${dashboard.metrics.totalVenues}`
                 : `—/${dashboard.metrics.totalVenues}`}
-              label="场地巡检正常"
+              label="全站巡检正常"
               tone="green"
             />
           </section>
@@ -965,9 +981,9 @@ export default function Prototype() {
             <div className="section-heading">
               <div>
                 <h2 id="venue-heading">场地运行状态</h2>
-                <p>热门优先 · 时间为最近一次状态同步</p>
+                <p>热门优先 · 每 30 秒刷新显示 · 数据最长缓存 2 分钟</p>
               </div>
-              <span><ArrowsClockwiseIcon size={17} />30 秒刷新显示</span>
+              <span><ArrowsClockwiseIcon size={17} />可手动刷新</span>
             </div>
 
             <div className="venue-list">
@@ -1165,7 +1181,7 @@ export default function Prototype() {
                 <button
                   type="button"
                   aria-label="取消订阅"
-                  title="取消订阅"
+                  title="取消订阅（需要确认）"
                   disabled={formBusy}
                   onClick={() => void cancelExistingSubscription(subscription.id)}
                 >

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSubscription,
   DASHBOARD_CLIENT_CACHE_MS,
+  EMPTY_DASHBOARD,
   FALLBACK_DASHBOARD,
   getDashboard,
   invalidateDashboardCache,
@@ -47,6 +48,27 @@ describe("dashboard client cache", () => {
     vi.advanceTimersByTime(1);
     await getDashboard(null);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("bypasses client and edge caches for an explicit manual refresh", async () => {
+    const fetchMock = dashboardFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getDashboard(null);
+    await getDashboard(null, { force: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/bootstrap?refresh=1");
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "GET",
+      cache: "no-store",
+    });
+  });
+
+  it("keeps fallback and empty venue totals aligned with the venue catalog", () => {
+    expect(FALLBACK_DASHBOARD.metrics.totalVenues).toBe(FALLBACK_DASHBOARD.venues.length);
+    expect(FALLBACK_DASHBOARD.metrics.healthyVenues).toBe(FALLBACK_DASHBOARD.venues.length);
+    expect(EMPTY_DASHBOARD.metrics.totalVenues).toBe(EMPTY_DASHBOARD.venues.length);
   });
 
   it("coalesces concurrent refreshes for the same identity", async () => {

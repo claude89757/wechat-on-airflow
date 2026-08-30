@@ -340,7 +340,7 @@
   html body .venue-health span {
     display: block;
     margin-top: 3px;
-    font-size: 9px;
+    font-size: 11px;
   }
 
   html body .venue-mail {
@@ -362,7 +362,7 @@
 
   html body .venue-mail span {
     margin: 0;
-    font-size: 9px;
+    font-size: 11px;
   }
 
   html body .subscriptions-link {
@@ -607,7 +607,7 @@
   }
 
   html body .metric span {
-    font-size: 9px;
+    font-size: 10px;
   }
 
   html body .create-card {
@@ -629,7 +629,7 @@
   html body .feature-line span {
     padding-right: 5px;
     padding-left: 5px;
-    font-size: 9px;
+    font-size: 10px;
   }
 
   html body .venue-mail span {
