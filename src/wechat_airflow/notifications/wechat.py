@@ -14,6 +14,7 @@ from wechat_airflow.notifications.booking_links import (
     plan_booking_link,
     restore_sent,
 )
+from wechat_airflow.notifications.webapp import wechat_delivery_allowed
 
 JsonDict = dict[str, Any]
 
@@ -29,6 +30,35 @@ DEFAULT_RETRY_COUNT = 4
 DEVICE_BUSY_ERROR = "device_busy"
 DEVICE_BUSY_RETRY_LIMIT = 4
 DEVICE_BUSY_RETRY_DELAY_SECONDS = 15.0
+
+VENUE_DEDUPE_CACHE_KEYS: dict[str, str] = {
+    "szw": "深圳湾网球场",
+    "gba": "大湾区网球场",
+    "dsh_free": "大沙河免费场",
+    "dsh": "大沙河国际网球中心",
+    "sysh": "上越沙河网球场",
+    "tops": "TOPS科技园网球场",
+    "fsb": "泛思博特福中福网球场",
+    "jdwx": "金地威新网球场",
+    "ppba": "PICKLEPOP宝安网球场",
+    "tyzx": "深圳市体育中心网球场",
+    "fsb_shenyun": "泛思博特深云网球场",
+    "fsb_shekou": "泛思博特蛇口网球场",
+    "fsb_xinan": "泛思博特新安网球场",
+    "fsb_zhengzhong": "泛思博特正中网球场",
+    "fsb_atuoshan": "泛思博特安托山网球场",
+    "fsb_zonglvquan": "泛思博特棕榈泉网球场",
+    "fsb_guanhu": "泛思博特观湖网球场",
+    "fsb_bantian": "泛思博特坂田网球场",
+    "fsb_shahe": "泛思博特沙河网球场",
+    "fsb_baoshui": "泛思博特保税网球场",
+    "fsb_nanyou": "泛思博特南油网球场",
+    "fsb_xinqiao": "泛思博特新桥网球场",
+    "fsb_yifangcheng": "泛思博特壹方城网球场",
+    "fsb_qilin": "泛思博特麒麟网球场",
+    "fsb_maozhouhe": "泛思博特茅洲河网球场",
+    "fft_qianhai": "FFTENNIS前海国际网球中心",
+}
 
 
 class WeChatSendApiError(Exception):
@@ -98,6 +128,33 @@ def _get_float_variable(key: str, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _release_subscription_gate_dedupe(venue_id: str, message: str) -> bool:
+    """Undo watcher pre-claim for a message suppressed by the Web subscription gate."""
+    cache_key = VENUE_DEDUPE_CACHE_KEYS.get(venue_id)
+    if not cache_key:
+        print(f"[WEBAPP_WECHAT_GATE] no dedupe cache mapping for venue={venue_id}")
+        return False
+    try:
+        current = _get_variable(cache_key, default=[], deserialize_json=True)
+        if not isinstance(current, list):
+            current = []
+        suppressed = {line.strip() for line in message.splitlines() if line.strip()}
+        retained = [item for item in current if str(item).strip() not in suppressed]
+        if retained != current:
+            _set_variable(cache_key, retained, serialize_json=True)
+        print(
+            f"[WEBAPP_WECHAT_GATE] released dedupe venue={venue_id}, "
+            f"cache={cache_key}, removed={len(current) - len(retained)}"
+        )
+        return True
+    except Exception as exc:
+        print(
+            f"[WEBAPP_WECHAT_GATE] dedupe release failed venue={venue_id}, "
+            f"cache={cache_key}, error={str(exc)[:200]}"
+        )
+        return False
 
 
 def _is_device_busy_error(error: WeChatSendApiError) -> bool:
@@ -340,7 +397,26 @@ def send_wechat_text_to_chatrooms_best_effort(
     results: list[JsonDict] = []
     chatroom_list = _normalize_chatrooms(chatrooms)
     normalized_source = str(source).strip() or "unknown"
+    normalized_venue_id = str(booking_venue_id or "").strip()
     print(f"[WECHAT_SEND_FALLBACK] target_chatrooms={chatroom_list}, source={normalized_source}")
+
+    if normalized_venue_id and not wechat_delivery_allowed(normalized_venue_id):
+        released = _release_subscription_gate_dedupe(normalized_venue_id, message)
+        print(
+            f"[WEBAPP_WECHAT_GATE] suppressed venue={normalized_venue_id}, "
+            f"source={normalized_source}, dedupe_released={released}"
+        )
+        targets = chatroom_list or [""]
+        return [
+            {
+                "success": True,
+                "receiver": chatroom,
+                "suppressed": True,
+                "reason": "no_active_web_subscription",
+                "dedupe_released": released,
+            }
+            for chatroom in targets
+        ]
 
     for chatroom in chatroom_list:
         plan = _plan_outbound_booking_link(chatroom, message, booking_venue_id)
