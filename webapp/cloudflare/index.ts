@@ -1,4 +1,5 @@
 import {
+  ALL_WEEKDAY_MASK,
   VENUES,
   formatNotificationDigest,
   formatSlotLine,
@@ -8,8 +9,11 @@ import {
   randomVerificationCode,
   sha256Hex,
   slotMatchesTimeRange,
+  slotMatchesWeekday,
   validateSlotObservation,
   validateSubscriptionInput,
+  weekdayMaskFromDays,
+  weekdaysFromMask,
   type SlotObservation,
   type VenueId,
 } from "./domain";
@@ -104,6 +108,7 @@ type SubscriptionRow = {
   venue_ids: string;
   start_time: string;
   end_time: string;
+  weekday_mask: number;
   duration_days: number;
   term_code: SubscriptionTerm;
   auto_renew: number;
@@ -487,7 +492,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
          v.last_inspection_at,
          v.last_notification_at,
          (
-           SELECT COUNT(*)
+           SELECT COUNT(DISTINCT s.email)
              FROM subscriptions s, json_each(s.venue_ids) selected
             WHERE s.active = 1
               AND s.active_until > ?
@@ -503,7 +508,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
               AND selected.value = v.venue_id
          ) AS subscriber_count
        FROM venue_status v
-       ORDER BY v.last_inspection_at DESC, v.venue_id`,
+       ORDER BY subscriber_count DESC, v.venue_name COLLATE NOCASE, v.venue_id`,
     ).bind(nowIso),
   ]);
 
@@ -535,7 +540,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
   if (identity) {
     const identityResults = await env.DB.batch([
       env.DB.prepare(
-        `SELECT id, email, venue_ids, start_time, end_time, duration_days,
+        `SELECT id, email, venue_ids, start_time, end_time, weekday_mask, duration_days,
                 term_code, auto_renew, dedupe_key, active_until, active, created_at
            FROM subscriptions
           WHERE email = ? AND active = 1 AND active_until > ?
@@ -639,6 +644,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
       venueIds: JSON.parse(subscription.venue_ids),
       startTime: subscription.start_time,
       endTime: subscription.end_time,
+      weekdays: weekdaysFromMask(subscription.weekday_mask),
       durationDays: subscription.duration_days,
       termCode: subscription.term_code,
       autoRenew: Boolean(subscription.auto_renew),
@@ -820,24 +826,40 @@ async function createSubscription(request: Request, env: WorkerEnv): Promise<Res
     return errorResponse(new Error(`最多同时保留 ${activeLimit} 个有效订阅`), 409);
   }
 
-  const dedupeKey = await sha256Hex([
+  const sortedVenueIds = [...input.venueIds].sort();
+  const weekdayMask = weekdayMaskFromDays(input.weekdays);
+  const legacyDedupeKey = await sha256Hex([
     identity.email,
-    [...input.venueIds].sort().join(","),
+    sortedVenueIds.join(","),
     input.startTime,
     input.endTime,
   ].join("|"));
+  const dedupeKey = await sha256Hex([
+    identity.email,
+    sortedVenueIds.join(","),
+    input.startTime,
+    input.endTime,
+    String(weekdayMask),
+  ].join("|"));
   const duplicate = await env.DB.prepare(
     `SELECT id FROM subscriptions
-      WHERE email = ? AND active = 1 AND dedupe_key = ? LIMIT 1`,
-  ).bind(identity.email, dedupeKey).first<{ id: string }>();
+      WHERE email = ?
+        AND active = 1
+        AND (
+          dedupe_key = ?
+          OR (? = ${ALL_WEEKDAY_MASK} AND dedupe_key = ?)
+        )
+      LIMIT 1`,
+  ).bind(identity.email, dedupeKey, weekdayMask, legacyDedupeKey).first<{ id: string }>();
   if (duplicate) {
-    return errorResponse(new Error("你已经创建了相同场地和时间条件的订阅"), 409);
+    return errorResponse(new Error("你已经创建了相同场地、星期和时间条件的订阅"), 409);
   }
 
   const resolved = resolveSubscriptionTerm(termCode, now);
   const subscription = {
     id: crypto.randomUUID(),
-    venueIds: input.venueIds,
+    venueIds: sortedVenueIds,
+    weekdays: input.weekdays,
     startTime: input.startTime,
     endTime: input.endTime,
     durationDays: resolved.durationDays,
@@ -849,15 +871,16 @@ async function createSubscription(request: Request, env: WorkerEnv): Promise<Res
   };
   await env.DB.prepare(
     `INSERT INTO subscriptions
-       (id, email, venue_ids, start_time, end_time, duration_days,
+       (id, email, venue_ids, start_time, end_time, weekday_mask, duration_days,
         term_code, auto_renew, dedupe_key, active_until, active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
   ).bind(
     subscription.id,
     identity.email,
     JSON.stringify(subscription.venueIds),
     subscription.startTime,
     subscription.endTime,
+    weekdayMask,
     subscription.durationDays,
     subscription.termCode,
     subscription.autoRenew ? 1 : 0,
@@ -1660,7 +1683,8 @@ async function ingestObservation(
   const subscriptions = observation.healthy
     ? (
       await env.DB.prepare(
-        `SELECT s.id, s.email, s.venue_ids, s.start_time, s.end_time, s.duration_days,
+        `SELECT s.id, s.email, s.venue_ids, s.start_time, s.end_time, s.weekday_mask,
+                s.duration_days,
                 s.term_code, s.auto_renew, s.dedupe_key,
                 s.active_until, s.active, s.created_at
            FROM subscriptions s
@@ -1706,6 +1730,7 @@ async function ingestObservation(
     );
 
     for (const subscription of subscriptions) {
+      if (!slotMatchesWeekday(slot, subscription.weekday_mask)) continue;
       if (!slotMatchesTimeRange(slot, subscription.start_time, subscription.end_time)) continue;
       if (matchedNotifications >= 500) break;
       const line = formatSlotLine(observation.venueName, slot);
