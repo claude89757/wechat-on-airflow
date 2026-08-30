@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ALL_WEEKDAY_MASK,
+  bookingDateWeekday,
   formatNotificationDigest,
   activeUntilIso,
   formatSlotLine,
   maskEmail,
   normalizeEmail,
   slotMatchesTimeRange,
+  slotMatchesWeekday,
   validateSlotObservation,
   validateSubscriptionInput,
+  weekdayMaskFromDays,
+  weekdaysFromMask,
   VENUES,
 } from "./domain";
 
@@ -35,6 +40,63 @@ describe("subscription domain", () => {
         durationDays: 15,
       }),
     ).toThrow("7–14");
+  });
+
+  it("defaults legacy clients to every weekday and validates explicit selections", () => {
+    expect(validateSubscriptionInput({
+      venueIds: ["szw"],
+      startTime: "18:00",
+      endTime: "20:00",
+      durationDays: 7,
+    }).weekdays).toEqual([1, 2, 3, 4, 5, 6, 7]);
+
+    expect(validateSubscriptionInput({
+      venueIds: ["szw"],
+      weekdays: [7, 6, 6],
+      startTime: "18:00",
+      endTime: "20:00",
+      durationDays: 7,
+    }).weekdays).toEqual([6, 7]);
+
+    expect(() => validateSubscriptionInput({
+      venueIds: ["szw"],
+      weekdays: [],
+      startTime: "18:00",
+      endTime: "20:00",
+      durationDays: 7,
+    })).toThrow("至少选择一个星期");
+
+    expect(() => validateSubscriptionInput({
+      venueIds: ["szw"],
+      weekdays: [8],
+      startTime: "18:00",
+      endTime: "20:00",
+      durationDays: 7,
+    })).toThrow("星期选择无效");
+  });
+
+  it("round-trips weekday masks and matches the booking date", () => {
+    const weekendMask = weekdayMaskFromDays([6, 7]);
+    expect(weekendMask).toBe(96);
+    expect(weekdaysFromMask(weekendMask)).toEqual([6, 7]);
+    expect(weekdaysFromMask(null)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(weekdayMaskFromDays([1, 2, 3, 4, 5, 6, 7])).toBe(ALL_WEEKDAY_MASK);
+    expect(bookingDateWeekday("2026-08-29")).toBe(6);
+
+    const saturday = validateSlotObservation({
+      date: "2026-08-29",
+      court_name: "1号场",
+      start_time: "18:00",
+      end_time: "19:00",
+    });
+    const monday = validateSlotObservation({
+      date: "2026-08-31",
+      court_name: "1号场",
+      start_time: "18:00",
+      end_time: "19:00",
+    });
+    expect(slotMatchesWeekday(saturday, weekendMask)).toBe(true);
+    expect(slotMatchesWeekday(monday, weekendMask)).toBe(false);
   });
 
   it("accepts Greater Bay Area subscriptions", () => {
