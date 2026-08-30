@@ -51,8 +51,9 @@ and cannot fail a DAG. Airflow has no fixed recipient lists and does not send
 venue email directly. The Worker stores verified-email receipts, subscriptions,
 observed slot event keys, and a retrying email outbox in D1. A
 `(subscription_id, event_key)` uniqueness contract prevents duplicate
-subscriber notifications. User-selected time windows are independent of the
-legacy weekday/weekend filters retained only for WeChat.
+subscriber notifications. User-selected weekdays and time windows are matched
+against the booking slot's Asia/Shanghai calendar date and are independent of
+the legacy weekday/weekend filters retained only for WeChat.
 
 The Dashah River adapter is calendar-gated because free courts are not released
 for every date. It publishes only zero-price availability from dates that are
