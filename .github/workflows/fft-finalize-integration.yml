@@ -1,0 +1,43 @@
+name: Finalize FFT integration
+
+on:
+  push:
+    branches:
+      - feat/fft-qianhai-release-final
+    paths:
+      - .github/workflows/fft-finalize-integration.yml
+      - .tmp/fft-final.patch.gz.b64.part*
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify and apply final integration patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .tmp/fft-final.patch.gz.b64.part* > /tmp/fft-final.patch.gz.b64
+          echo "4abc615a777cf35cc264b098add27d02170a66f6bbc09f47feaecf71f4a9c71e  /tmp/fft-final.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/fft-final.patch.gz.b64 | gunzip > /tmp/fft-final.patch
+          echo "4c2675471a7b8ac2446896fedaf112abe28faa1a949bec57c2460a48c243f724  /tmp/fft-final.patch" | sha256sum --check
+          git apply --check /tmp/fft-final.patch
+          git apply --whitespace=error-all /tmp/fft-final.patch
+
+          rm -f .tmp/fft-final.patch.gz.b64.part*
+          rm -f .github/workflows/fft-finalize-integration.yml
+          rmdir .tmp 2>/dev/null || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: integrate FFTENNIS Qianhai venue"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
