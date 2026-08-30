@@ -61,10 +61,12 @@ both on sale and backed by a non-empty free-court list. The Web application
 therefore never infers a free release from an ordinary empty calendar date.
 Best-effort WeChat for this venue goes only to `Zacks_大沙河限定免费`.
 
-TOPS, 泛思博特福中福, and PICKLE POP宝安 share the public PosPal appointment
-API. Each adapter carries its own store ID and project UID. PICKLE POP宝安
-publishes tennis courts only and never treats pickleball rooms as tennis
-availability. WeChat for these paid venues uses the shared
+TOPS, 泛思博特福中福, PICKLE POP宝安, and the Fansibote chain stores share the
+public PosPal appointment API. Each adapter carries its own store ID and
+project UID. The chain stores share one project UID and drop 小场, 匹克, 练习,
+非标, and 发球机 rooms so only standard tennis / 风雨场 courts are published.
+PICKLE POP宝安 publishes tennis courts only and never treats pickleball rooms
+as tennis availability. WeChat for these paid venues uses the shared
 `SZ_TENNIS_CHATROOMS` list.
 
 Dashah International Tennis Center is a paid YDMap H5 venue. Airflow does not
