@@ -1,0 +1,367 @@
+name: Dependabot Overnight Continuation
+run-name: overnight/dependabot/${{ github.run_id }}
+
+on:
+  schedule:
+    # GitHub cron is UTC. The local-time guard retains a 01:00 start and
+    # follows the queue every 15 minutes through 04:45 across DST changes.
+    - cron: "0,15,30,45 8-13 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/dependabot-overnight-continuation.yml"
+
+permissions:
+  actions: write
+  checks: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: dependabot-overnight-continuation
+  cancel-in-progress: true
+
+jobs:
+  approve-and-continue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Approve trusted CI and continue the nightly maintainer
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ github.token }}
+          retries: 3
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const repository = `${owner}/${repo}`;
+            const localTimeZone = "America/Los_Angeles";
+            const workflowFile = "dependabot-overnight-continuation.yml";
+            const maintainerWorkflow = "nightly-dependabot-maintenance.yml";
+            const dependabotEmail = "49699333+dependabot[bot]]@users.noreply.github.com";
+            const maintenanceHours = new Set(["01", "02", "03", "04"]);
+
+            function timeParts(value) {
+              return Object.fromEntries(
+                new Intl.DateTimeFormat("en-US", {
+                  timeZone: localTimeZone,
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hourCycle: "h23",
+                })
+                  .formatToParts(new Date(value))
+                  .filter((part) => part.type !== "literal")
+                  .map((part) => [part.type, part.value]),
+              );
+            }
+
+            function localSlot(value) {
+              const parts = timeParts(value);
+              return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+            }
+
+            const nowParts = timeParts(new Date());
+            const currentSlot = localSlot(new Date());
+            if (context.eventName === "schedule" && !maintenanceHours.has(nowParts.hour)) {
+              core.info(`Skipping UTC companion schedule at ${currentSlot} ${localTimeZone}.`);
+              return;
+            }
+
+            if (context.eventName === "schedule") {
+              const scheduleRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner,
+                repo,
+                workflow_id: workflowFile,
+                event: "schedule",
+                per_page: 100,
+              });
+              const duplicate = scheduleRuns.some((run) => {
+                if (run.id === context.runId || localSlot(run.created_at) !== currentSlot) return false;
+                return ["queued", "in_progress"].includes(run.status) || run.conclusion === "success";
+              });
+              if (duplicate) {
+                core.info(`A continuation run already owns ${currentSlot} ${localTimeZone}.`);
+                return;
+              }
+            }
+
+            const labels = [
+              ["maintenance:nightly", "1d76db", "Managed by the authorized nightly Dependabot maintainer"],
+              ["maintenance:retrying", "fbca04", "Nightly maintainer is retrying or rebuilding this dependency update"],
+              ["maintenance:needs-repair", "b60205", "Dependency update still fails after bounded automatic recovery"],
+              ["maintenance:awaiting-ci", "c5def5", "Dependency update is waiting for exact-head CI"],
+            ];
+
+            async function ensureLabel(name, color, description) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ owner, repo, name, color, description });
+              }
+            }
+            for (const [name, color, description] of labels) {
+              await ensureLabel(name, color, description);
+            }
+
+            async function addLabel(number, name) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [name] });
+            }
+
+            async function removeLabel(number, name) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+            async function commentOnce(number, marker, body) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: number,
+                per_page: 100,
+              });
+              if (comments.some((comment) => (comment.body ?? "").includes(marker))) return;
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: number,
+                body: `${body}\n\n${marker}`,
+              });
+            }
+
+            const dependencyPathPatterns = [
+              /^pyproject[.]toml$/,
+              /^(?:uv|poetry)[.]lock$/,
+              /^Pipfile(?:[.]lock)?$/,
+              /^requirements(?:-[^/]+)?[.]txt$/,
+              /^requirements[/].+[.]txt$/,
+              /^webapp[/](?:package[.]json|package-lock[.]json|npm-shrinkwrap[.]json)$/,
+              /^(?:docker[/][^/]+[/])?Dockerfile(?:[.].+)?$/,
+              /^[.]github[/]workflows[/][^/]+[.]ya?ml$/,
+              /^[.]github[/]actions[/].+[/]action[.]ya?ml$/,
+            ];
+
+            function pathsAreBounded(files) {
+              return files.every((file) =>
+                dependencyPathPatterns.some((pattern) => pattern.test(file.filename)),
+              );
+            }
+
+            function changedLines(patch) {
+              return (patch ?? "")
+                .split("\n")
+                .filter((line) => line.startsWith("+") || line.startsWith("-"))
+                .filter((line) => !line.startsWith("+++") && !line.startsWith("---"))
+                .map((line) => line.slice(1));
+            }
+
+            function controlPlanePatchesAreBounded(files) {
+              for (const file of files) {
+                const isWorkflow = /^[.]github[/]workflows[/][^/]+[.]ya?ml$/.test(file.filename);
+                const isAction = /^[.]github[/]actions[/].+[/]action[.]ya?ml$/.test(file.filename);
+                const isDockerfile = /(?:^|[/])Dockerfile(?:[.].+)?$/.test(file.filename);
+                if (!isWorkflow && !isAction && !isDockerfile) continue;
+                if (!file.patch) return false;
+                const lines = changedLines(file.patch);
+                if (lines.length === 0) return false;
+                if (
+                  (isWorkflow || isAction) &&
+                  !lines.every((line) => /^\s*(?:-\s*)?uses:\s+\S+@\S+(?:\s+#.*)?$/.test(line))
+                ) {
+                  return false;
+                }
+                if (
+                  isDockerfile &&
+                  !lines.every((line) =>
+                    /^\s*FROM\s+(?:--platform=\S+\s+)?\S+(?:\s+[Aa][Ss]\s+\S+)?\s*$/.test(
+                      line,
+                    ),
+                  )
+                ) {
+                  return false;
+                }
+              }
+              return true;
+            }
+
+            function commitIsTrusted(commit) {
+              const dependabotCommit =
+                commit.author?.login === "dependabot[bot]" ||
+                commit.commit?.author?.email === dependabotEmail;
+              const maintainerSyncCommit =
+                commit.author?.login === "github-actions[bot]" &&
+                /^Merge branch 'main' into dependabot[/]/.test(commit.commit?.message ?? "") &&
+                Array.isArray(commit.parents) &&
+                commit.parents.length === 2;
+              return dependabotCommit || maintainerSyncCommit;
+            }
+
+            async function latestExactHeadCi(headSha) {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner,
+                repo,
+                workflow_id: "ci.yml",
+                head_sha: headSha,
+                event: "pull_request",
+                per_page: 100,
+              });
+              return runs
+                .filter((run) => run.head_sha === headSha)
+                .sort((left, right) => left.run_number - right.run_number)
+                .at(-1);
+            }
+
+            const counters = {
+              inspected: 0,
+              approved: 0,
+              approvalFailed: 0,
+              boundaryRejected: 0,
+              dispatched: 0,
+            };
+            const summary = [];
+
+            const openPulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "open",
+              base: "main",
+              sort: "created",
+              direction: "asc",
+              per_page: 100,
+            });
+            const dependabotPulls = openPulls.filter(
+              (pull) => pull.user?.login === "dependabot[bot]",
+            );
+
+            for (const pull of dependabotPulls) {
+              const number = pull.number;
+              counters.inspected += 1;
+              const current = (
+                await github.rest.pulls.get({ owner, repo, pull_number: number })
+              ).data;
+
+              if (
+                current.state !== "open" ||
+                current.draft ||
+                current.user?.login !== "dependabot[bot]" ||
+                current.base?.ref !== "main" ||
+                current.head?.repo?.full_name !== repository ||
+                !current.head?.ref?.startsWith("dependabot/")
+              ) {
+                continue;
+              }
+
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner,
+                repo,
+                pull_number: number,
+                per_page: 100,
+              });
+              const commits = await github.paginate(github.rest.pulls.listCommits, {
+                owner,
+                repo,
+                pull_number: number,
+                per_page: 100,
+              });
+              const metadataComplete =
+                files.length === current.changed_files && commits.length === current.commits;
+              const boundaryOk =
+                metadataComplete &&
+                !(current.body ?? "").includes("Maintainer changes") &&
+                pathsAreBounded(files) &&
+                controlPlanePatchesAreBounded(files) &&
+                commits.every(commitIsTrusted);
+
+              if (!boundaryOk) {
+                counters.boundaryRejected += 1;
+                summary.push(`- #${number}: approval skipped because the dependency-only boundary failed.`);
+                continue;
+              }
+
+              const ciRun = await latestExactHeadCi(current.head.sha);
+              if (!ciRun || ciRun.status !== "completed" || ciRun.conclusion !== "action_required") {
+                continue;
+              }
+
+              try {
+                await github.request("POST /repos/{owner}/{repo}/actions/runs/{run_id}/approve", {
+                  owner,
+                  repo,
+                  run_id: ciRun.id,
+                });
+                await addLabel(number, "maintenance:nightly");
+                await addLabel(number, "maintenance:retrying");
+                await addLabel(number, "maintenance:awaiting-ci");
+                await removeLabel(number, "maintenance:needs-repair");
+                counters.approved += 1;
+                summary.push(`- #${number}: approved exact-head CI run ${ciRun.id}.`);
+              } catch (error) {
+                const refreshed = await github.rest.actions.getWorkflowRun({
+                  owner,
+                  repo,
+                  run_id: ciRun.id,
+                });
+                if (
+                  refreshed.data.status !== "completed" ||
+                  refreshed.data.conclusion !== "action_required"
+                ) {
+                  await addLabel(number, "maintenance:awaiting-ci");
+                  summary.push(`- #${number}: CI left action-required state during approval.`);
+                  continue;
+                }
+
+                const marker = `<!-- nightly-dependabot-approval:${current.head.sha} -->`;
+                await addLabel(number, "maintenance:needs-repair");
+                await removeLabel(number, "maintenance:retrying");
+                await commentOnce(
+                  number,
+                  marker,
+                  `Automatic CI approval failed with GitHub status ${error.status ?? "unknown"}. The PR remains blocked and will not be merged.`,
+                );
+                counters.approvalFailed += 1;
+                summary.push(`- #${number}: exact-head CI approval failed.`);
+              }
+            }
+
+            if (
+              dependabotPulls.length > 0 &&
+              counters.approved === 0 &&
+              counters.approvalFailed === 0
+            ) {
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: maintainerWorkflow,
+                ref: "main",
+                inputs: { max_pull_requests: "25" },
+              });
+              counters.dispatched += 1;
+              summary.push("- Dispatched the authoritative nightly maintainer for the next reconciliation pass.");
+            } else if (counters.approved > 0) {
+              summary.push("- Approved CI runs are starting; the next 15-minute pass will continue reconciliation.");
+            }
+
+            await core.summary
+              .addHeading("Dependabot overnight continuation")
+              .addRaw(
+                [
+                  `- Local slot: \`${currentSlot}\``,
+                  `- Timezone: \`${localTimeZone}\``,
+                  `- Inspected: \`${counters.inspected}\``,
+                  `- CI approvals: \`${counters.approved}\``,
+                  `- Approval failures: \`${counters.approvalFailed}\``,
+                  `- Boundary rejections: \`${counters.boundaryRejected}\``,
+                  `- Maintainer dispatches: \`${counters.dispatched}\``,
+                  "",
+                  ...summary,
+                ].join("\n"),
+              )
+              .write();
