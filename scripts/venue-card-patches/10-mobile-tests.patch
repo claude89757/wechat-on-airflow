@@ -1,0 +1,68 @@
+--- a/webapp/tests/mobile-v2.spec.ts
++++ b/webapp/tests/mobile-v2.spec.ts
+@@ -38,11 +38,17 @@
+       expect(metricBox?.height ?? 0).toBeGreaterThanOrEqual(90);
+     }
+ 
+-    const firstVenue = page.locator(".venue-row").first();
+-    await expect(firstVenue).toBeVisible();
+-    const venueBox = await firstVenue.boundingBox();
+-    expect(venueBox?.height ?? 0).toBeGreaterThanOrEqual(78);
+-    await expect(firstVenue.locator(".venue-mail")).toHaveCSS("display", "flex");
++    const venueCards = page.locator(".venue-card");
++    expect(await venueCards.count()).toBeGreaterThan(3);
++    const venueBoxes = await Promise.all(
++      [0, 1, 2, 3].map((index) => venueCards.nth(index).boundingBox()),
++    );
++    expect(venueBoxes[0]?.height ?? 0).toBeGreaterThanOrEqual(116);
++    expect(venueBoxes[0]?.width ?? 0).toBeGreaterThanOrEqual(100);
++    expect(Math.abs((venueBoxes[0]?.y ?? 0) - (venueBoxes[1]?.y ?? 0))).toBeLessThan(2);
++    expect(Math.abs((venueBoxes[0]?.y ?? 0) - (venueBoxes[2]?.y ?? 0))).toBeLessThan(2);
++    expect(venueBoxes[3]?.y ?? 0).toBeGreaterThan((venueBoxes[0]?.y ?? 0) + 40);
++    await expect(venueCards.first().locator(".venue-card-mail")).toBeVisible();
+ 
+     const surfaceOverflow = await page.evaluate(() => {
+       const viewportWidth = document.documentElement.clientWidth;
+@@ -258,6 +264,33 @@
+     expect(coffeePanelFits).toBe(true);
+   });
+ 
++  test("uses two venue columns on a 320px screen without hiding metrics", async ({ page }) => {
++    await page.setViewportSize({ width: 320, height: 720 });
++    await page.goto("/");
++
++    const venueCards = page.locator(".venue-card");
++    expect(await venueCards.count()).toBeGreaterThan(2);
++    const first = await venueCards.nth(0).boundingBox();
++    const second = await venueCards.nth(1).boundingBox();
++    const third = await venueCards.nth(2).boundingBox();
++
++    expect(first?.width ?? 0).toBeGreaterThanOrEqual(130);
++    expect(Math.abs((first?.y ?? 0) - (second?.y ?? 0))).toBeLessThan(2);
++    expect(third?.y ?? 0).toBeGreaterThan((first?.y ?? 0) + 40);
++    await expect(venueCards.first().locator(".venue-card-status")).toBeVisible();
++    await expect(venueCards.first().locator(".venue-card-meta")).toBeVisible();
++    await expect(venueCards.first().locator(".venue-card-mail")).toBeVisible();
++
++    const gridFits = await page.locator(".venue-grid").evaluate((grid) => {
++      const viewportWidth = document.documentElement.clientWidth;
++      const rect = grid.getBoundingClientRect();
++      return document.documentElement.scrollWidth <= viewportWidth
++        && rect.left >= -0.5
++        && rect.right <= viewportWidth + 0.5;
++    });
++    expect(gridFits).toBe(true);
++  });
++
+   test("shows visible keyboard focus and keeps key status text readable", async ({ page }) => {
+     await page.goto("/");
+ 
+@@ -271,7 +304,7 @@
+     expect(focusIsVisible).toBe(true);
+ 
+     const keyTextSizes = await page.locator(
+-      ".metric span, .venue-health span, .venue-mail span",
++      ".metric span, .venue-card-status strong, .venue-card-status small, .venue-card-meta, .venue-card-mail",
+     ).evaluateAll((elements) => elements.map((element) =>
+       parseFloat(getComputedStyle(element).fontSize),
+     ));
