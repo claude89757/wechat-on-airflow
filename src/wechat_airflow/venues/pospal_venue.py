@@ -31,7 +31,7 @@ FSB_PROXY_CACHE_KEY = "FSB_PROXY_CACHE"
 LOOKAHEAD_DAYS = 3
 MAX_CACHED_PROXIES = 10
 MAX_CACHED_MESSAGES = 100
-EXCLUDED_COURT_TOKENS = ("小场", "匹克", "练习")
+EXCLUDED_COURT_TOKENS = ("小场", "匹克", "练习", "非标", "发球机")
 
 
 class NotificationCourt(TypedDict):
@@ -94,10 +94,106 @@ FSB_ATUOSHAN = PosPalVenue(
     cache_key="泛思博特安托山网球场",
     dag_id="泛思博特安托山网球场巡检",
 )
+FSB_ZONGLVQUAN = PosPalVenue(
+    venue_id="fsb_zonglvquan",
+    venue_name="泛思博特棕榈泉",
+    store_id="6003756",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特棕榈泉网球场",
+    dag_id="泛思博特棕榈泉网球场巡检",
+)
+FSB_GUANHU = PosPalVenue(
+    venue_id="fsb_guanhu",
+    venue_name="泛思博特观湖",
+    store_id="6019554",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特观湖网球场",
+    dag_id="泛思博特观湖网球场巡检",
+)
+FSB_BANTIAN = PosPalVenue(
+    venue_id="fsb_bantian",
+    venue_name="泛思博特坂田",
+    store_id="6019542",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特坂田网球场",
+    dag_id="泛思博特坂田网球场巡检",
+)
+FSB_SHAHE = PosPalVenue(
+    venue_id="fsb_shahe",
+    venue_name="泛思博特沙河",
+    store_id="6003754",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特沙河网球场",
+    dag_id="泛思博特沙河网球场巡检",
+)
+FSB_BAOSHUI = PosPalVenue(
+    venue_id="fsb_baoshui",
+    venue_name="泛思博特保税",
+    store_id="6019577",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特保税网球场",
+    dag_id="泛思博特保税网球场巡检",
+)
+FSB_NANYOU = PosPalVenue(
+    venue_id="fsb_nanyou",
+    venue_name="泛思博特南油",
+    store_id="6019557",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特南油网球场",
+    dag_id="泛思博特南油网球场巡检",
+)
+FSB_XINQIAO = PosPalVenue(
+    venue_id="fsb_xinqiao",
+    venue_name="泛思博特新桥",
+    store_id="6019571",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特新桥网球场",
+    dag_id="泛思博特新桥网球场巡检",
+)
+FSB_YIFANGCHENG = PosPalVenue(
+    venue_id="fsb_yifangcheng",
+    venue_name="泛思博特壹方城",
+    store_id="6019568",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特壹方城网球场",
+    dag_id="泛思博特壹方城网球场巡检",
+)
+FSB_QILIN = PosPalVenue(
+    venue_id="fsb_qilin",
+    venue_name="泛思博特麒麟",
+    store_id="6019569",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特麒麟网球场",
+    dag_id="泛思博特麒麟网球场巡检",
+)
+FSB_MAOZHOUHE = PosPalVenue(
+    venue_id="fsb_maozhouhe",
+    venue_name="泛思博特茅洲河",
+    store_id="6019555",
+    project_uid=FSB_CHAIN_PROJECT_UID,
+    cache_key="泛思博特茅洲河网球场",
+    dag_id="泛思博特茅洲河网球场巡检",
+)
 
 CHAIN_VENUES: dict[str, PosPalVenue] = {
     venue.venue_id: venue
-    for venue in (FSB_SHENYUN, FSB_SHEKOU, FSB_XINAN, FSB_ZHENGZHONG, FSB_ATUOSHAN)
+    for venue in (
+        FSB_SHENYUN,
+        FSB_SHEKOU,
+        FSB_XINAN,
+        FSB_ZHENGZHONG,
+        FSB_ATUOSHAN,
+        FSB_ZONGLVQUAN,
+        FSB_GUANHU,
+        FSB_BANTIAN,
+        FSB_SHAHE,
+        FSB_BAOSHUI,
+        FSB_NANYOU,
+        FSB_XINQIAO,
+        FSB_YIFANGCHENG,
+        FSB_QILIN,
+        FSB_MAOZHOUHE,
+    )
 }
 
 
