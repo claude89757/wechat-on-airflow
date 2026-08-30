@@ -883,6 +883,41 @@ active_dags:
       - wechat_dedupe_cache_written_before_wechat_delivery
       - webapp_observation_precedes_wechat
 
+  - dag_id: FFTENNIS前海国际网球中心巡检
+    file: dags/tennis_dags/sz_tennis/fft_qianhai_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FFT_PROXY_CACHE
+      - FFT_QIANHAI_NOTIFICATION_BASELINE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - FFTENNIS前海国际网球中心
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fft_qianhai_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fft_qianhai_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect FFTENNIS Qianhai standard double-court availability, excluding non-standard singles and ball-machine courts; warm-start the first WeChat notification baseline without delivery.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - first_successful_observation_seeds_notification_baseline_without_delivery
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
   - dag_id: 深圳市体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/tyzx_watcher.py
     schedule: every_1_minutes
