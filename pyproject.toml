@@ -20,14 +20,14 @@ dependencies = [
 [project.optional-dependencies]
 sender = [
   "Appium-Python-Client==5.3.1",
-  "fastapi==0.139.2",
+  "fastapi==0.141.1",
   "Pillow==12.3.0",
   "pydantic==2.13.4",
   "selenium==4.46.0",
   "uvicorn==0.51.0",
 ]
 dev = [
-  "fastapi==0.139.2",
+  "fastapi==0.141.1",
   "httpx==0.28.1",
   "mypy==1.17.1",
   "pre-commit==4.6.2",
