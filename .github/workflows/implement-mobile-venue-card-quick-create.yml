@@ -12,7 +12,6 @@ concurrency:
   group: implement-mobile-venue-card-quick-create
   cancel-in-progress: false
 
-# The implementation logic lives in an auditable repository script.
 jobs:
   implement:
     if: ${{ !contains(github.event.head_commit.message, '[venue-card-ux-prepared]') }}
@@ -32,8 +31,14 @@ jobs:
           cache: npm
           cache-dependency-path: webapp/package-lock.json
 
-      - name: Apply mobile venue-card implementation
-        run: python scripts/patch_mobile_venue_cards.py
+      - name: Apply audited mobile venue-card patches
+        run: |
+          set -euo pipefail
+          for patch in scripts/venue-card-patches/*.patch; do
+            echo "Applying $patch"
+            git apply --check "$patch"
+            git apply "$patch"
+          done
 
       - name: Validate source changes
         run: |
