@@ -20,9 +20,10 @@ test.describe("mobile v2 presentation", () => {
     const primaryButton = await page.locator(".primary-button").boundingBox();
     expect(primaryButton?.height ?? 0).toBeGreaterThanOrEqual(52);
 
-    const helpButton = await page.locator(".icon-button").boundingBox();
-    expect(helpButton?.width ?? 0).toBeGreaterThanOrEqual(44);
-    expect(helpButton?.height ?? 0).toBeGreaterThanOrEqual(44);
+    const moreButton = page.getByRole("button", { name: "更多功能", exact: true });
+    const moreButtonBox = await moreButton.boundingBox();
+    expect(moreButtonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(moreButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 
     const coffeeButton = page.getByRole("button", { name: "请作者喝咖啡", exact: true });
     await expect(coffeeButton).toBeVisible();
@@ -215,12 +216,14 @@ test.describe("mobile v2 presentation", () => {
     expect(sessionCalls).toBe(0);
   });
 
-  test("keeps both header actions inside a 320px viewport", async ({ page }) => {
+  test("keeps the merged header actions inside a 320px viewport", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
     await page.goto("/");
 
     await expect(page.getByRole("button", { name: "请作者喝咖啡", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "查看帮助", exact: true })).toBeVisible();
+    const moreButton = page.getByRole("button", { name: "更多功能", exact: true });
+    await expect(moreButton).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看帮助", exact: true })).toHaveCount(0);
     const headerFits = await page.locator(".product-header").evaluate((header) => {
       const viewportWidth = document.documentElement.clientWidth;
       const bounds = [header, ...Array.from(header.children)].map((element) => element.getBoundingClientRect());
@@ -228,6 +231,15 @@ test.describe("mobile v2 presentation", () => {
         && bounds.every((rect) => rect.left >= -0.5 && rect.right <= viewportWidth + 0.5);
     });
     expect(headerFits).toBe(true);
+
+    await moreButton.click();
+    const helpItem = page.getByRole("menuitem", { name: "查看帮助", exact: true });
+    await expect(helpItem).toBeVisible();
+    await helpItem.click();
+    const helpDialog = page.getByRole("dialog");
+    await expect(helpDialog.getByText("提醒如何工作", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(helpDialog).toBeHidden();
 
     await page.getByRole("button", { name: "请作者喝咖啡", exact: true }).click();
     const qrImage = page.getByRole("img", { name: "微信支付收款二维码，收款人 Tt（**添）" });
