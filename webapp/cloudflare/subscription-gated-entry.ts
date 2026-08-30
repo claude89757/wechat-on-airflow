@@ -95,7 +95,8 @@ export default {
     env: GateEnv,
     context: ExecutionContext,
   ): Promise<void> {
-    context.waitUntil(refreshSafely(env, `scheduled:${controller.cron || "unknown"}`));
+    const cron = (controller as ScheduledController & { cron?: string }).cron;
+    context.waitUntil(refreshSafely(env, `scheduled:${cron || "unknown"}`));
     await worker.scheduled(controller, env as never, context);
   },
 } satisfies ExportedHandler<GateEnv>;
