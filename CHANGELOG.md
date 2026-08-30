@@ -5,6 +5,8 @@ and operational changes.
 
 ## Unreleased
 
+## [0.6.2] - 2026-08-30
+
 ### Added
 
 - Let Web subscribers choose one or more weekdays, including one-tap daily,
@@ -20,6 +22,15 @@ and operational changes.
 - Order the public venue list and subscription selector by unique active
   follower count, with a deterministic name/ID tie-breaker and visible
   popularity labels.
+
+### Fixed
+
+- Distinguish each venue's configured Airflow inspection cadence from the most
+  recent Cloudflare-backed status synchronization time, so a cached “4 minutes
+  ago” record is not mistaken for a missed one-minute poll.
+- Keep the display correction within the existing five-minute observation
+  heartbeat and 120-second edge/client dashboard caches, adding no Worker route,
+  D1 read/write, cron, or venue polling change.
 
 ## [0.6.1] - 2026-08-30
 
