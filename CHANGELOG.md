@@ -5,6 +5,22 @@ and operational changes.
 
 ## Unreleased
 
+### Added
+
+- Let Web subscribers choose one or more weekdays, including one-tap daily,
+  weekday, and weekend presets. Existing subscriptions continue to run every
+  day.
+- Celebrate successful subscription creation with a short reduced-motion-aware
+  firework effect, and add clear spam-folder guidance for verification and
+  reminder email.
+- Add the public GitHub repository to the header More menu.
+
+### Changed
+
+- Order the public venue list and subscription selector by unique active
+  follower count, with a deterministic name/ID tie-breaker and visible
+  popularity labels.
+
 ## [0.5.3] - 2026-08-30
 
 ### Added
