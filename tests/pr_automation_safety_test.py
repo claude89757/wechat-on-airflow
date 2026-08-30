@@ -110,11 +110,11 @@ def test_nightly_maintenance_runs_at_local_one_and_covers_every_dependabot_pr() 
     assert 'cron: "0 8,9 * * *"' in nightly
     assert 'const localTimeZone = "America/Los_Angeles"' in nightly
     assert 'context.eventName === "schedule" && localHour !== "01"' in nightly
-    assert 'workflow_id: workflowFile' in nightly
+    assert "workflow_id: workflowFile" in nightly
     assert 'workflows: ["CI"]' in nightly
-    assert 'github.rest.pulls.list' in nightly
+    assert "github.rest.pulls.list" in nightly
     assert 'pull.user?.login === "dependabot[bot]"' in nightly
-    assert 'current.head?.repo?.full_name !== repository' in nightly
+    assert "current.head?.repo?.full_name !== repository" in nightly
     assert 'current.head?.ref?.startsWith("dependabot/")' in nightly
 
 
@@ -151,10 +151,7 @@ def test_nightly_maintenance_accepts_only_its_bounded_sync_commits() -> None:
 def test_nightly_maintenance_uses_pinned_github_script_without_checkout() -> None:
     nightly = (WORKFLOWS / "nightly-dependabot-maintenance.yml").read_text()
 
-    assert (
-        "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
-        in nightly
-    )
+    assert "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3" in nightly
     assert "actions/checkout" not in nightly
 
 
