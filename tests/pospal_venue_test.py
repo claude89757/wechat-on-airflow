@@ -304,10 +304,7 @@ class PosPalVenueTest(unittest.TestCase):
         )
 
     def test_fft_first_successful_observation_warm_starts_without_wechat(self) -> None:
-        expected_msg = (
-            "【FFTENNIS前海国际网球中心1号（双打场）】"
-            "星期日(08-30)空场: 16:00-18:00"
-        )
+        expected_msg = "【FFTENNIS前海国际网球中心1号（双打场）】星期日(08-30)空场: 16:00-18:00"
         original_load_proxy = pospal_venue.load_proxy_list
         original_get_availability = pospal_venue.get_tennis_court_availability
         original_publish = pospal_venue.publish_venue_observation

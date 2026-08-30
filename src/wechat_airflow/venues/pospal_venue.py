@@ -321,9 +321,7 @@ def parse_availability(
         if appt_info.get("canApptOrNot") is not True:
             continue
         court_name = str(slot.get("classRoomName") or "未知场地")
-        if not is_standard_tennis_court(
-            court_name, excluded_court_tokens, allowed_court_numbers
-        ):
+        if not is_standard_tennis_court(court_name, excluded_court_tokens, allowed_court_numbers):
             print(f"skip non-standard court: {court_name}")
             continue
         begin_datetime = slot.get("beginDatetime")
