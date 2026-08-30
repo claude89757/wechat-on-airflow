@@ -80,9 +80,15 @@ class PosPalVenueTest(unittest.TestCase):
         self.assertTrue(pospal_venue.is_standard_tennis_court("1号场"))
         self.assertTrue(pospal_venue.is_standard_tennis_court("9号风雨场"))
         self.assertTrue(pospal_venue.is_standard_tennis_court("3号场【常用】"))
+        self.assertTrue(pospal_venue.is_standard_tennis_court("2号红土风雨场"))
+        self.assertTrue(pospal_venue.is_standard_tennis_court("标准场"))
         self.assertFalse(pospal_venue.is_standard_tennis_court("网球小场"))
         self.assertFalse(pospal_venue.is_standard_tennis_court("1号匹克球场"))
         self.assertFalse(pospal_venue.is_standard_tennis_court("练习场【常用】"))
+        self.assertFalse(pospal_venue.is_standard_tennis_court("E栋3号场（非标场）"))
+        self.assertFalse(pospal_venue.is_standard_tennis_court("4号非标准场"))
+        self.assertFalse(pospal_venue.is_standard_tennis_court("室内发球机"))
+        self.assertFalse(pospal_venue.is_standard_tennis_court("1号场室内发球机"))
 
     def test_parse_availability_keeps_only_standard_bookable_courts(self) -> None:
         result = pospal_venue.parse_availability(
@@ -117,6 +123,18 @@ class PosPalVenueTest(unittest.TestCase):
                         },
                         {
                             "classRoomName": "练习场",
+                            "beginDatetime": "2026-08-29 18:00:00",
+                            "endDatetime": "2026-08-29 18:59:00",
+                            "apptInfo": {"canApptOrNot": True},
+                        },
+                        {
+                            "classRoomName": "4号非标准场",
+                            "beginDatetime": "2026-08-29 18:00:00",
+                            "endDatetime": "2026-08-29 18:59:00",
+                            "apptInfo": {"canApptOrNot": True},
+                        },
+                        {
+                            "classRoomName": "室内发球机",
                             "beginDatetime": "2026-08-29 18:00:00",
                             "endDatetime": "2026-08-29 18:59:00",
                             "apptInfo": {"canApptOrNot": True},
@@ -158,6 +176,8 @@ class PosPalVenueTest(unittest.TestCase):
                 "网球小场": [["16:00", "18:00"]],
                 "1号匹克球场": [["16:00", "18:00"]],
                 "练习场": [["16:00", "18:00"]],
+                "4号非标准场": [["16:00", "18:00"]],
+                "室内发球机": [["16:00", "18:00"]],
             },
         )
 
@@ -175,6 +195,16 @@ class PosPalVenueTest(unittest.TestCase):
                 "fsb_xinan": "6019579",
                 "fsb_zhengzhong": "6019533",
                 "fsb_atuoshan": "6019581",
+                "fsb_zonglvquan": "6003756",
+                "fsb_guanhu": "6019554",
+                "fsb_bantian": "6019542",
+                "fsb_shahe": "6003754",
+                "fsb_baoshui": "6019577",
+                "fsb_nanyou": "6019557",
+                "fsb_xinqiao": "6019571",
+                "fsb_yifangcheng": "6019568",
+                "fsb_qilin": "6019569",
+                "fsb_maozhouhe": "6019555",
             },
         )
         self.assertTrue(
