@@ -9,10 +9,7 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
     policy = yaml.safe_load((ROOT / "config/venue-schedule-policy.yaml").read_text())
     source = (ROOT / "webapp/src/venue-inspection-display.ts").read_text()
 
-    assert (
-        f"DEFAULT_INSPECTION_CADENCE_SECONDS = {policy['default_interval_seconds']}"
-        in source
-    )
+    assert f"DEFAULT_INSPECTION_CADENCE_SECONDS = {policy['default_interval_seconds']}" in source
 
     exception_ids = {
         "深圳湾网球场巡检": "szw",
