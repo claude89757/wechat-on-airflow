@@ -1,0 +1,775 @@
+name: Nightly Dependabot Maintenance
+run-name: nightly/dependabot/${{ github.run_id }}
+
+on:
+  schedule:
+    # GitHub cron is UTC. Running at both UTC candidates plus the timezone
+    # guard below keeps the task at 01:00 in America/Los_Angeles across DST.
+    - cron: "0 8,9 * * *"
+  workflow_dispatch:
+    inputs:
+      max_pull_requests:
+        description: Maximum Dependabot pull requests to process in this run
+        required: false
+        default: "25"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/nightly-dependabot-maintenance.yml"
+
+permissions:
+  actions: write
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: write
+  statuses: read
+
+concurrency:
+  group: nightly-dependabot-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Reconcile every same-repository Dependabot pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          MAX_PULL_REQUESTS_INPUT: ${{ inputs.max_pull_requests }}
+          WORKFLOW_FILE: nightly-dependabot-maintenance.yml
+        run: |
+          set -euo pipefail
+
+          readonly LOCAL_TZ="America/Los_Angeles"
+          readonly LOCAL_DATE="$(TZ="$LOCAL_TZ" date +%F)"
+          readonly LOCAL_HOUR="$(TZ="$LOCAL_TZ" date +%H)"
+          readonly START_EPOCH="$(date +%s)"
+          readonly DEADLINE_EPOCH="$((START_EPOCH + 9600))"
+          readonly CI_WAIT_SECONDS=1200
+          readonly HEAD_WAIT_SECONDS=360
+          readonly DEPENDABOT_EMAIL="49699333+dependabot[bot]@users.noreply.github.com"
+
+          MAX_PULL_REQUESTS="${MAX_PULL_REQUESTS_INPUT:-25}"
+          if [[ ! "$MAX_PULL_REQUESTS" =~ ^[0-9]+$ ]] ||
+             ((MAX_PULL_REQUESTS < 1 || MAX_PULL_REQUESTS > 100)); then
+            echo "max_pull_requests must be an integer between 1 and 100" >&2
+            exit 2
+          fi
+
+          if [[ "$EVENT_NAME" == "schedule" && "$LOCAL_HOUR" != "01" ]]; then
+            echo "Skipping UTC companion schedule; local time is $LOCAL_HOUR:00 $LOCAL_TZ."
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            duplicate_run=false
+            while IFS=$'\t' read -r run_id status conclusion created_at; do
+              [[ -n "$run_id" && "$run_id" != "$GITHUB_RUN_ID" ]] || continue
+              run_local_date="$(TZ="$LOCAL_TZ" date -d "$created_at" +%F)"
+              if [[ "$run_local_date" == "$LOCAL_DATE" &&
+                    ("$status" == "in_progress" ||
+                     "$status" == "queued" ||
+                     "$conclusion" == "success") ]]; then
+                duplicate_run=true
+                break
+              fi
+            done < <(
+              gh api \
+                "repos/$REPO/actions/workflows/$WORKFLOW_FILE/runs?event=schedule&per_page=20" \
+                --jq '.workflow_runs[] | [
+                  (.id | tostring),
+                  .status,
+                  (.conclusion // ""),
+                  .created_at
+                ] | @tsv'
+            )
+            if [[ "$duplicate_run" == "true" ]]; then
+              echo "A nightly maintenance run already owns $LOCAL_DATE in $LOCAL_TZ."
+              exit 0
+            fi
+          fi
+
+          ensure_label() {
+            local name="$1"
+            local color="$2"
+            local description="$3"
+            gh label create "$name" \
+              --repo "$REPO" \
+              --color "$color" \
+              --description "$description" \
+              --force >/dev/null
+          }
+
+          add_label() {
+            gh issue edit "$1" --repo "$REPO" --add-label "$2" >/dev/null
+          }
+
+          remove_label() {
+            gh issue edit "$1" \
+              --repo "$REPO" \
+              --remove-label "$2" >/dev/null 2>&1 || true
+          }
+
+          has_comment_marker() {
+            local number="$1"
+            local marker="$2"
+            local comments_json=""
+            comments_json="$(
+              gh api --paginate \
+                "repos/$REPO/issues/$number/comments?per_page=100"
+            )"
+            jq -e -s --arg marker "$marker" '
+              [.[][] | (.body // "") | contains($marker)] | any
+            ' <<< "$comments_json" >/dev/null
+          }
+
+          comment_once() {
+            local number="$1"
+            local marker="$2"
+            local body="$3"
+            if ! has_comment_marker "$number" "$marker"; then
+              gh pr comment "$number" \
+                --repo "$REPO" \
+                --body "$body" >/dev/null
+            fi
+          }
+
+          latest_ci() {
+            local sha="$1"
+            gh api \
+              "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$sha&event=pull_request&per_page=100" \
+              --jq '
+                if (.workflow_runs | length) == 0 then
+                  ""
+                else
+                  .workflow_runs
+                  | sort_by(.run_number)
+                  | last
+                  | [
+                      (.id | tostring),
+                      .status,
+                      (.conclusion // ""),
+                      (.run_number | tostring)
+                    ]
+                  | @tsv
+                end
+              '
+          }
+
+          wait_for_ci() {
+            local sha="$1"
+            local timeout_seconds="$2"
+            local wait_deadline="$(( $(date +%s) + timeout_seconds ))"
+            local row=""
+            while (($(date +%s) < wait_deadline)); do
+              row="$(latest_ci "$sha")"
+              if [[ -n "$row" ]]; then
+                IFS=$'\t' read -r run_id status conclusion run_number <<< "$row"
+                if [[ "$status" == "completed" ]]; then
+                  printf '%s\t%s\t%s\t%s\n' \
+                    "$run_id" "$status" "$conclusion" "$run_number"
+                  return 0
+                fi
+              fi
+              sleep 15
+            done
+            if [[ -n "$row" ]]; then
+              printf '%s\n' "$row"
+            else
+              printf '0\tmissing\t\t0\n'
+            fi
+          }
+
+          wait_for_head_change() {
+            local number="$1"
+            local old_sha="$2"
+            local timeout_seconds="$3"
+            local wait_deadline="$(( $(date +%s) + timeout_seconds ))"
+            while (($(date +%s) < wait_deadline)); do
+              current_head="$(
+                gh api "repos/$REPO/pulls/$number" --jq '.head.sha // ""'
+              )"
+              if [[ -n "$current_head" && "$current_head" != "$old_sha" ]]; then
+                printf '%s\n' "$current_head"
+                return 0
+              fi
+              sleep 15
+            done
+            return 1
+          }
+
+          dependency_paths_are_bounded() {
+            local files_json="$1"
+            local path=""
+            while IFS= read -r path; do
+              case "$path" in
+                pyproject.toml|uv.lock|poetry.lock|Pipfile|Pipfile.lock)
+                  ;;
+                requirements.txt|requirements-*.txt|requirements/*.txt)
+                  ;;
+                webapp/package.json|webapp/package-lock.json|webapp/npm-shrinkwrap.json)
+                  ;;
+                docker/*/Dockerfile|docker/*/Dockerfile.*|Dockerfile|Dockerfile.*)
+                  ;;
+                .github/workflows/*.yml|.github/workflows/*.yaml)
+                  ;;
+                .github/actions/*/action.yml|.github/actions/*/action.yaml)
+                  ;;
+                *)
+                  echo "unexpected dependency-update path: $path" >&2
+                  return 1
+                  ;;
+              esac
+            done < <(jq -r -s '[.[][]] | .[].filename' <<< "$files_json")
+          }
+
+          control_plane_patches_are_bounded() {
+            local files_json="$1"
+            local item=""
+            local filename=""
+            local patch=""
+            local line=""
+            local changed_line=""
+
+            while IFS= read -r item; do
+              filename="$(
+                base64 --decode <<< "$item" |
+                  jq -r '.filename'
+              )"
+              patch="$(
+                base64 --decode <<< "$item" |
+                  jq -r '.patch // ""'
+              )"
+              [[ -n "$patch" ]] || return 1
+
+              while IFS= read -r line; do
+                case "$line" in
+                  "+++"*|"---"*|"@@"*)
+                    continue
+                    ;;
+                  "+"*|"-"*)
+                    changed_line="${line:1}"
+                    case "$filename" in
+                      .github/workflows/*.yml|.github/workflows/*.yaml)
+                        [[ "$changed_line" =~ ^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]+[^[:space:]]+@[^[:space:]#]+([[:space:]]+\#.*)?$ ]] ||
+                          return 1
+                        ;;
+                      .github/actions/*/action.yml|.github/actions/*/action.yaml)
+                        [[ "$changed_line" =~ ^[[:space:]]*(uses:|-[[:space:]]+uses:)[[:space:]]+[^[:space:]]+@[^[:space:]#]+([[:space:]]+\#.*)?$ ]] ||
+                          return 1
+                        ;;
+                      docker/*/Dockerfile|docker/*/Dockerfile.*|Dockerfile|Dockerfile.*)
+                        [[ "$changed_line" =~ ^[[:space:]]*FROM[[:space:]]+(--platform=[^[:space:]]+[[:space:]]+)?[^[:space:]]+([[:space:]]+[Aa][Ss][[:space:]]+[^[:space:]]+)?[[:space:]]*$ ]] ||
+                          return 1
+                        ;;
+                    esac
+                    ;;
+                esac
+              done <<< "$patch"
+            done < <(
+              jq -r -s '
+                [.[][]]
+                | .[]
+                | select(
+                    (.filename | startswith(".github/workflows/"))
+                    or (.filename | startswith(".github/actions/"))
+                    or (.filename | test("(^|/)Dockerfile([.].*)?$"))
+                  )
+                | @base64
+              ' <<< "$files_json"
+            )
+          }
+
+          commits_are_dependabot_only() {
+            local number="$1"
+            local expected_count="$2"
+            local commits_json=""
+            local returned_count=""
+            local non_bot_count=""
+            commits_json="$(
+              gh api --paginate \
+                "repos/$REPO/pulls/$number/commits?per_page=100"
+            )"
+            returned_count="$(jq -r -s '[.[][]] | length' <<< "$commits_json")"
+            [[ "$returned_count" == "$expected_count" ]] || return 1
+            non_bot_count="$(
+              jq -r -s --arg email "$DEPENDABOT_EMAIL" '
+                [.[][]]
+                | map(
+                    select(
+                      (.author.login // "") != "dependabot[bot]"
+                      and (.commit.author.email // "") != $email
+                    )
+                  )
+                | length
+              ' <<< "$commits_json"
+            )"
+            [[ "$non_bot_count" == "0" ]]
+          }
+
+          diagnose_ci() {
+            local run_id="$1"
+            gh api "repos/$REPO/actions/runs/$run_id/jobs?filter=latest&per_page=100" \
+              --jq '
+                [
+                  .jobs[]
+                  | select(.conclusion == "failure")
+                  | "- `" + .name + "`: " +
+                    (
+                      [
+                        .steps[]
+                        | select(.conclusion == "failure")
+                        | .name
+                      ]
+                      | if length == 0 then "job failed" else join(", ") end
+                    )
+                ]
+                | if length == 0 then "- Failure details were not returned by GitHub." else .[] end
+              '
+          }
+
+          ensure_label \
+            "maintenance:nightly" \
+            "1d76db" \
+            "Managed by the authorized nightly Dependabot maintainer"
+          ensure_label \
+            "maintenance:retrying" \
+            "fbca04" \
+            "Nightly maintainer is retrying or rebuilding this dependency update"
+          ensure_label \
+            "maintenance:needs-repair" \
+            "b60205" \
+            "Dependency update still fails after bounded automatic recovery"
+          ensure_label \
+            "maintenance:awaiting-ci" \
+            "c5def5" \
+            "Dependency update is waiting for exact-head CI"
+
+          summary_file="/tmp/nightly-dependabot-summary.md"
+          blocked_file="/tmp/nightly-dependabot-blocked.md"
+          : > "$blocked_file"
+          {
+            echo "## Nightly Dependabot maintenance"
+            echo
+            echo "- Local maintenance date: \`$LOCAL_DATE\`"
+            echo "- Timezone: \`$LOCAL_TZ\`"
+            echo "- Maximum PRs: \`$MAX_PULL_REQUESTS\`"
+            echo
+          } > "$summary_file"
+
+          processed=0
+          merged=0
+          updated=0
+          recreated=0
+          rerun=0
+          awaiting=0
+          blocked=0
+          skipped=0
+
+          mapfile -t pull_requests < <(
+            gh api --paginate \
+              "repos/$REPO/pulls?state=open&base=main&per_page=100" |
+              jq -r -s '
+                [.[][]]
+                | map(
+                    select(
+                      .user.login == "dependabot[bot]"
+                      and .base.ref == "main"
+                    )
+                  )
+                | sort_by(.created_at)
+                | .[].number
+              '
+          )
+
+          if ((${#pull_requests[@]} == 0)); then
+            echo "No open Dependabot pull requests target main." |
+              tee -a "$summary_file"
+          fi
+
+          for number in "${pull_requests[@]}"; do
+            ((processed >= MAX_PULL_REQUESTS)) && break
+            (($(date +%s) < DEADLINE_EPOCH)) || {
+              echo "- Runtime budget reached before PR #$number." >> "$summary_file"
+              break
+            }
+            [[ "$number" =~ ^[0-9]+$ ]] || continue
+            ((processed += 1))
+
+            resolved=false
+            for attempt in 1 2 3; do
+              pr_json=""
+              for _ in 1 2 3 4 5; do
+                pr_json="$(gh api "repos/$REPO/pulls/$number")"
+                mergeable_state="$(
+                  jq -r '.mergeable_state // "unknown"' <<< "$pr_json"
+                )"
+                mergeable="$(
+                  jq -r '
+                    if .mergeable == null then
+                      "unknown"
+                    else
+                      (.mergeable | tostring)
+                    end
+                  ' <<< "$pr_json"
+                )"
+                if [[ "$mergeable_state" != "unknown" &&
+                      "$mergeable" != "unknown" ]]; then
+                  break
+                fi
+                sleep 2
+              done
+              state="$(jq -r '.state' <<< "$pr_json")"
+              draft="$(jq -r '.draft' <<< "$pr_json")"
+              author="$(jq -r '.user.login' <<< "$pr_json")"
+              base_ref="$(jq -r '.base.ref' <<< "$pr_json")"
+              head_repo="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
+              head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
+              reported_changed_files="$(jq -r '.changed_files // -1' <<< "$pr_json")"
+              reported_commits="$(jq -r '.commits // -1' <<< "$pr_json")"
+              body="$(jq -r '.body // ""' <<< "$pr_json")"
+
+              if [[ "$state" != "open" ||
+                    "$draft" != "false" ||
+                    "$author" != "dependabot[bot]" ||
+                    "$base_ref" != "main" ||
+                    "$head_repo" != "$REPO" ]]; then
+                ((skipped += 1))
+                echo "- Skipped #$number because its identity or state changed." \
+                  >> "$summary_file"
+                resolved=true
+                break
+              fi
+
+              if [[ ! "$reported_changed_files" =~ ^[0-9]+$ ||
+                    ! "$reported_commits" =~ ^[0-9]+$ ||
+                    "$body" == *"Maintainer changes"* ]]; then
+                add_label "$number" "maintenance:needs-repair"
+                untrusted_marker="<!-- nightly-dependabot-untrusted:$head_sha -->"
+                untrusted_body="$(
+                  printf '%s\n\n%s\n' \
+                    "Nightly maintenance stopped because GitHub metadata was incomplete or the branch reports maintainer changes." \
+                    "$untrusted_marker"
+                )"
+                comment_once \
+                  "$number" \
+                  "$untrusted_marker" \
+                  "$untrusted_body"
+                ((blocked += 1))
+                echo "- #$number: incomplete or maintainer-modified metadata." \
+                  | tee -a "$blocked_file" >> "$summary_file"
+                resolved=true
+                break
+              fi
+
+              files_json="$(
+                gh api --paginate \
+                  "repos/$REPO/pulls/$number/files?per_page=100"
+              )"
+              returned_changed_files="$(
+                jq -r -s '[.[][]] | length' <<< "$files_json"
+              )"
+
+              if [[ "$returned_changed_files" != "$reported_changed_files" ]] ||
+                 ! dependency_paths_are_bounded "$files_json" ||
+                 ! control_plane_patches_are_bounded "$files_json" ||
+                 ! commits_are_dependabot_only "$number" "$reported_commits"; then
+                add_label "$number" "maintenance:needs-repair"
+                boundary_marker="<!-- nightly-dependabot-boundary:$head_sha -->"
+                boundary_body="$(
+                  printf '%s\n\n%s\n' \
+                    "Nightly maintenance refused to mutate or merge this branch because its commits or changed-file listing were outside the dependency-only safety boundary." \
+                    "$boundary_marker"
+                )"
+                comment_once \
+                  "$number" \
+                  "$boundary_marker" \
+                  "$boundary_body"
+                ((blocked += 1))
+                echo "- #$number: dependency-only boundary validation failed." \
+                  | tee -a "$blocked_file" >> "$summary_file"
+                resolved=true
+                break
+              fi
+
+              add_label "$number" "maintenance:nightly"
+
+              if [[ "$mergeable_state" == "behind" ]]; then
+                if gh api --method PUT \
+                  "repos/$REPO/pulls/$number/update-branch" \
+                  -f expected_head_sha="$head_sha" >/dev/null; then
+                  add_label "$number" "maintenance:retrying"
+                  remove_label "$number" "maintenance:needs-repair"
+                  ((updated += 1))
+                  echo "- #$number: synchronized with the latest main." \
+                    >> "$summary_file"
+                  if new_head="$(
+                    wait_for_head_change \
+                      "$number" "$head_sha" "$HEAD_WAIT_SECONDS"
+                  )"; then
+                    head_sha="$new_head"
+                    continue
+                  fi
+                fi
+                ((awaiting += 1))
+                add_label "$number" "maintenance:awaiting-ci"
+                echo "- #$number: branch synchronization is still settling." \
+                  >> "$summary_file"
+                resolved=true
+                break
+              fi
+
+              if [[ "$mergeable_state" == "unknown" ||
+                    "$mergeable" == "unknown" ]]; then
+                ((awaiting += 1))
+                add_label "$number" "maintenance:awaiting-ci"
+                echo "- #$number: GitHub mergeability is still being computed." \
+                  >> "$summary_file"
+                resolved=true
+                break
+              fi
+
+              if [[ "$mergeable_state" == "dirty" || "$mergeable" != "true" ]]; then
+                recreate_marker="<!-- nightly-dependabot-recreate:$head_sha:$LOCAL_DATE -->"
+                if ! has_comment_marker "$number" "$recreate_marker"; then
+                  recreate_body="$(
+                    printf '%s\n\n%s\n\n%s\n' \
+                      "@dependabot recreate" \
+                      "The authorized nightly maintainer requested a clean rebuild against the current \`main\`." \
+                      "$recreate_marker"
+                  )"
+                  gh pr comment "$number" \
+                    --repo "$REPO" \
+                    --body "$recreate_body" >/dev/null
+                  add_label "$number" "maintenance:retrying"
+                  ((recreated += 1))
+                  echo "- #$number: requested a clean Dependabot rebuild." \
+                    >> "$summary_file"
+                  if new_head="$(
+                    wait_for_head_change \
+                      "$number" "$head_sha" "$HEAD_WAIT_SECONDS"
+                  )"; then
+                    head_sha="$new_head"
+                    continue
+                  fi
+                fi
+                ((awaiting += 1))
+                add_label "$number" "maintenance:awaiting-ci"
+                echo "- #$number: waiting for Dependabot to rebuild the branch." \
+                  >> "$summary_file"
+                resolved=true
+                break
+              fi
+
+              IFS=$'\t' read -r \
+                ci_run_id ci_status ci_conclusion ci_run_number < <(
+                  wait_for_ci "$head_sha" "$CI_WAIT_SECONDS"
+                )
+
+              if [[ "$ci_status" != "completed" ]]; then
+                add_label "$number" "maintenance:awaiting-ci"
+                ((awaiting += 1))
+                echo "- #$number: exact-head CI is still ${ci_status:-missing}." \
+                  >> "$summary_file"
+                resolved=true
+                break
+              fi
+
+              if [[ "$ci_conclusion" != "success" ]]; then
+                rerun_marker="<!-- nightly-dependabot-rerun:$head_sha:$LOCAL_DATE -->"
+                if ! has_comment_marker "$number" "$rerun_marker"; then
+                  if gh run rerun "$ci_run_id" --failed --repo "$REPO"; then
+                    rerun_body="$(
+                      printf '%s\n\n%s\n' \
+                        "Nightly maintenance is retrying failed CI jobs once before rebuilding the dependency branch." \
+                        "$rerun_marker"
+                    )"
+                    gh pr comment "$number" \
+                      --repo "$REPO" \
+                      --body "$rerun_body" >/dev/null
+                    add_label "$number" "maintenance:retrying"
+                    ((rerun += 1))
+                    sleep 15
+                    IFS=$'\t' read -r \
+                      ci_run_id ci_status ci_conclusion ci_run_number < <(
+                        wait_for_ci "$head_sha" "$CI_WAIT_SECONDS"
+                      )
+                  fi
+                fi
+              fi
+
+              if [[ "$ci_status" == "completed" &&
+                    "$ci_conclusion" == "success" ]]; then
+                latest_pr_json="$(gh api "repos/$REPO/pulls/$number")"
+                latest_head_sha="$(jq -r '.head.sha' <<< "$latest_pr_json")"
+                latest_mergeable="$(jq -r '.mergeable // false' <<< "$latest_pr_json")"
+                latest_state="$(jq -r '.state' <<< "$latest_pr_json")"
+                if [[ "$latest_state" != "open" ||
+                      "$latest_head_sha" != "$head_sha" ||
+                      "$latest_mergeable" != "true" ]]; then
+                  continue
+                fi
+
+                merge_response="$(
+                  gh api --method PUT \
+                    "repos/$REPO/pulls/$number/merge" \
+                    -f sha="$head_sha" \
+                    -f merge_method="squash" 2>/dev/null || true
+                )"
+                [[ -n "$merge_response" ]] || merge_response='{}'
+                if [[ "$(jq -r '.merged // false' <<< "$merge_response")" == "true" ]]; then
+                  ((merged += 1))
+                  remove_label "$number" "maintenance:retrying"
+                  remove_label "$number" "maintenance:awaiting-ci"
+                  remove_label "$number" "maintenance:needs-repair"
+                  echo "- #$number: merged exact head \`$head_sha\` after CI success." \
+                    >> "$summary_file"
+                  resolved=true
+                  break
+                fi
+
+                merge_message="$(
+                  jq -r '.message // "GitHub rejected the merge"' \
+                    <<< "$merge_response"
+                )"
+                echo "- #$number: merge rejected: $merge_message." \
+                  >> "$summary_file"
+                continue
+              fi
+
+              failure_recreate_marker="<!-- nightly-dependabot-failure-recreate:$number:$LOCAL_DATE -->"
+              if ! has_comment_marker "$number" "$failure_recreate_marker"; then
+                failure_recreate_body="$(
+                  printf '%s\n\n%s\n\n%s\n' \
+                    "@dependabot recreate" \
+                    "Exact-head CI still failed after one retry. The authorized nightly maintainer is rebuilding the branch once before declaring a compatibility repair." \
+                    "$failure_recreate_marker"
+                )"
+                gh pr comment "$number" \
+                  --repo "$REPO" \
+                  --body "$failure_recreate_body" >/dev/null
+                add_label "$number" "maintenance:retrying"
+                ((recreated += 1))
+                if new_head="$(
+                  wait_for_head_change \
+                    "$number" "$head_sha" "$HEAD_WAIT_SECONDS"
+                )"; then
+                  head_sha="$new_head"
+                  continue
+                fi
+              fi
+
+              add_label "$number" "maintenance:needs-repair"
+              remove_label "$number" "maintenance:retrying"
+              remove_label "$number" "maintenance:awaiting-ci"
+              failure_marker="<!-- nightly-dependabot-failure:$head_sha -->"
+              failure_details="$(diagnose_ci "$ci_run_id")"
+              failure_body="$(
+                printf '%s\n\n%s\n%s\n%s\n%s\n\n%s\n\n%s\n\n%s\n' \
+                  "Nightly maintenance exhausted the bounded recovery sequence for this exact head:" \
+                  "1. synchronize or recreate against current \`main\`;" \
+                  "2. run the full exact-head CI;" \
+                  "3. retry failed jobs once;" \
+                  "4. recreate the Dependabot branch once." \
+                  "Persistent failing checks:" \
+                  "$failure_details" \
+                  "The PR remains open and is marked \`maintenance:needs-repair\`; it will never be merged while CI is failing." \
+                  "$failure_marker"
+              )"
+              comment_once \
+                "$number" \
+                "$failure_marker" \
+                "$failure_body"
+              ((blocked += 1))
+              {
+                echo "- #$number at \`$head_sha\`:"
+                echo "$failure_details"
+              } | tee -a "$blocked_file" >> "$summary_file"
+              resolved=true
+              break
+            done
+
+            if [[ "$resolved" != "true" ]]; then
+              ((awaiting += 1))
+              add_label "$number" "maintenance:awaiting-ci"
+              echo "- #$number: deferred after bounded attempts." \
+                >> "$summary_file"
+            fi
+          done
+
+          {
+            echo
+            echo "### Result"
+            echo
+            echo "- Processed: \`$processed\`"
+            echo "- Merged: \`$merged\`"
+            echo "- Synchronized: \`$updated\`"
+            echo "- Recreated: \`$recreated\`"
+            echo "- CI reruns: \`$rerun\`"
+            echo "- Awaiting external completion: \`$awaiting\`"
+            echo "- Persistent repair cases: \`$blocked\`"
+            echo "- Skipped after state changes: \`$skipped\`"
+          } | tee -a "$summary_file" >> "$GITHUB_STEP_SUMMARY"
+
+          backlog_title="[automation] Dependabot maintenance backlog"
+          backlog_number="$(
+            gh issue list \
+              --repo "$REPO" \
+              --state all \
+              --search "$backlog_title in:title" \
+              --json number,title \
+              --jq '
+                map(
+                  select(
+                    .title == "[automation] Dependabot maintenance backlog"
+                  )
+                )
+                | first
+                | .number // ""
+              '
+          )"
+
+          if ((blocked > 0)); then
+            {
+              echo "# Dependabot maintenance backlog"
+              echo
+              echo "Last nightly run: **$LOCAL_DATE** (\`$LOCAL_TZ\`)"
+              echo
+              echo "These PRs passed identity and dependency-only boundary checks,"
+              echo "but still need a compatibility repair because exact-head CI"
+              echo "failed after the bounded retry and branch-rebuild sequence."
+              echo
+              cat "$blocked_file"
+              echo
+              echo "Authoritative run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            } > /tmp/nightly-dependabot-backlog.md
+
+            if [[ -z "$backlog_number" ]]; then
+              backlog_url="$(
+                gh issue create \
+                  --repo "$REPO" \
+                  --title "$backlog_title" \
+                  --body-file /tmp/nightly-dependabot-backlog.md \
+                  --label "maintenance:needs-repair"
+              )"
+              backlog_number="${backlog_url##*/}"
+            else
+              gh issue reopen "$backlog_number" \
+                --repo "$REPO" >/dev/null 2>&1 || true
+              gh issue edit "$backlog_number" \
+                --repo "$REPO" \
+                --body-file /tmp/nightly-dependabot-backlog.md \
+                --add-label "maintenance:needs-repair" >/dev/null
+            fi
+            echo "- Backlog issue: #$backlog_number" >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -n "$backlog_number" ]]; then
+            gh issue close "$backlog_number" \
+              --repo "$REPO" \
+              --comment "Nightly maintenance found no persistent Dependabot repair cases on $LOCAL_DATE." \
+              >/dev/null 2>&1 || true
+          fi
