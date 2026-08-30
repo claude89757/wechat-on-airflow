@@ -1,71 +1,37 @@
 version: 2
+
+# Stability-first dependency policy:
+# - routine version-update pull requests are disabled for every ecosystem;
+# - security-update pull requests can still be created when Dependabot security
+#   updates are enabled in the repository settings;
+# - broader dependency refreshes happen only in an explicit maintenance window.
 updates:
   - package-ecosystem: pip
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    groups:
-      python-patch:
-        patterns:
-          - "*"
-        update-types:
-          - patch
-      # Development tools exercised directly by CI stay grouped for immediate
-      # low-risk automation. Runtime libraries and rule engines stay individual
-      # so the authorized nightly maintainer validates each exact PR head.
-      python-dev-minor:
-        dependency-type: development
-        patterns:
-          - "httpx"
-          - "mypy"
-          - "pre-commit"
-          - "pytest"
-          - "pytest-cov"
-          - "types-paramiko"
-          - "types-requests"
-        update-types:
-          - minor
+      interval: monthly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: /webapp
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    groups:
-      webapp-patch:
-        patterns:
-          - "*"
-        update-types:
-          - patch
-      # Build, type-check, unit-test, and browser-test tooling may move within
-      # the current major after the exact PR head passes the complete Web gate.
-      # Wrangler remains individual for nightly control-plane validation.
-      webapp-dev-minor:
-        dependency-type: development
-        patterns:
-          - "@cloudflare/workers-types"
-          - "@playwright/test"
-          - "@types/react"
-          - "@types/react-dom"
-          - "@vitejs/plugin-react"
-          - "typescript"
-          - "vite"
-          - "vitest"
-        update-types:
-          - minor
+      interval: monthly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: docker
     directory: /docker/airflow
     schedule:
       interval: monthly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: docker
     directory: /docker/sender
     schedule:
       interval: monthly
+    open-pull-requests-limit: 0
