@@ -165,7 +165,7 @@ def test_dependabot_ci_approval_only_approves_verified_exact_head_runs() -> None
     assert 'cron: "*/5 * * * *"' in approval
     assert 'run.conclusion !== "action_required"' in approval
     assert 'allowedActors = new Set(["dependabot[bot]", "github-actions[bot]"])' in approval
-    assert 'github.event.workflow_run.name == \'Nightly Dependabot Maintenance\'' in approval
+    assert "github.event.workflow_run.name == 'Nightly Dependabot Maintenance'" in approval
     assert 'context.eventName === "pull_request_target"' in approval
     assert "waitForExactHeadActionRequired" in approval
     assert "currentDependabotHeads" in approval
