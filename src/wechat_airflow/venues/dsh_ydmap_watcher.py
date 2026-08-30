@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import time
 from typing import TypedDict
+from zoneinfo import ZoneInfo
 
 from airflow.sdk import Variable
 
@@ -26,6 +27,8 @@ CACHE_KEY = "大沙河国际网球中心"
 DAG_ID = "大沙河国际网球中心巡检"
 LOOKAHEAD_DAYS = DEFAULT_DAYS
 MAX_CACHED_MESSAGES = 100
+LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
+FARTHEST_BOOKING_DATE_OPEN_TIME = datetime.time(12, 0)
 
 
 class NotificationCourt(TypedDict):
@@ -47,6 +50,21 @@ def _as_str_list(value: object) -> list[str]:
 
 def _load_device_config() -> PiDeviceConfig:
     return PiDeviceConfig.from_value(Variable.get(CONFIG_VARIABLE, deserialize_json=True))
+
+
+def _local_now() -> datetime.datetime:
+    return datetime.datetime.now(LOCAL_TIMEZONE)
+
+
+def inspection_days_for(now: datetime.datetime) -> int:
+    """Return the currently released booking horizon.
+
+    The rolling fifth date is visible in the mini program before it becomes
+    bookable, but its disabled cells must not be interpreted as availability.
+    """
+    if LOOKAHEAD_DAYS <= 1 or now.time() >= FARTHEST_BOOKING_DATE_OPEN_TIME:
+        return LOOKAHEAD_DAYS
+    return LOOKAHEAD_DAYS - 1
 
 
 def merge_time_ranges(data: list[list[str]]) -> list[list[str]]:
@@ -163,22 +181,28 @@ def print_court_data(input_date: str, court_data: CourtAvailability) -> None:
 
 
 def run_check_tennis_courts() -> None:
-    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
+    now = _local_now()
+    if datetime.time(0, 0) <= now.time() < datetime.time(8, 0):
         print("每天0点-8点不巡检")
         publish_venue_observation(VENUE_ID, VENUE_NAME, [], healthy=True)
         return
 
     run_start_time = time.time()
+    inspection_days = inspection_days_for(now)
+    if inspection_days < LOOKAHEAD_DAYS:
+        farthest_date = (now.date() + datetime.timedelta(days=LOOKAHEAD_DAYS - 1)).isoformat()
+        print_with_timestamp(
+            f"{farthest_date} 为最远可预订日期，12:00前尚未开放，本轮跳过该日期"
+        )
+
     print_with_timestamp(f"start to check {VENUE_NAME}...")
     webapp_slots: list[dict[str, str]] = []
     up_for_send_data_list: list[NotificationCourt] = []
     try:
-        payload = fetch_inspect_payload(_load_device_config(), days=LOOKAHEAD_DAYS)
+        payload = fetch_inspect_payload(_load_device_config(), days=inspection_days)
         availability = parse_inspect_payload(payload)
-        for offset in range(LOOKAHEAD_DAYS):
-            input_date = (datetime.datetime.now() + datetime.timedelta(days=offset)).strftime(
-                "%Y-%m-%d"
-            )
+        for offset in range(inspection_days):
+            input_date = (now.date() + datetime.timedelta(days=offset)).isoformat()
             court_data = availability.get(input_date, {})
             webapp_slots.extend(flatten_court_slots(input_date, court_data))
             print_court_data(input_date, court_data)
@@ -198,7 +222,11 @@ def run_check_tennis_courts() -> None:
 
     if up_for_send_data_list:
         sended_msg_list = _as_str_list(Variable.get(CACHE_KEY, deserialize_json=True, default=[]))
-        up_for_send_msg_list = build_new_notifications(up_for_send_data_list, sended_msg_list)
+        up_for_send_msg_list = build_new_notifications(
+            up_for_send_data_list,
+            sended_msg_list,
+            current_year=now.year,
+        )
         if up_for_send_msg_list:
             sended_msg_list.extend(up_for_send_msg_list)
             Variable.set(
@@ -206,7 +234,7 @@ def run_check_tennis_courts() -> None:
                 value=sended_msg_list[-MAX_CACHED_MESSAGES:],
                 description=(
                     f"{VENUE_NAME}网球场场地通知 - 最后更新: "
-                    f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    f"{now.strftime('%Y-%m-%d %H:%M:%S')}"
                 ),
                 serialize_json=True,
             )
