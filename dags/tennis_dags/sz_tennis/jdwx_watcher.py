@@ -19,7 +19,7 @@ dag = DAG(
     "深圳金地网球场巡检",
     default_args=DEFAULT_ARGS,
     description="金地威新网球场巡检",
-    schedule=timedelta(seconds=30),
+    schedule=timedelta(minutes=1),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,

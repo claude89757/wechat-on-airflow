@@ -1,0 +1,21 @@
+schema_version: 1
+scope:
+  dag_path_prefix: dags/tennis_dags/sz_tennis/
+  description: Production tennis venue inspection DAGs.
+default_schedule: every_1_minutes
+default_interval_seconds: 60
+exceptions:
+  深圳湾网球场巡检:
+    schedule: every_15_seconds
+    interval_seconds: 15
+    reason: Existing business-approved low-latency polling exception.
+  大沙河国际网球中心巡检:
+    schedule: every_3_minutes
+    interval_seconds: 180
+    reason: Raspberry Pi Chromium scraping needs a slower resource-safe cadence.
+change_control:
+  new_venues_use_default: true
+  exceptions_require:
+    - explicit_policy_entry
+    - documented_rationale
+    - regression_test_update
