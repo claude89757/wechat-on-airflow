@@ -153,6 +153,66 @@ class DshYdmapWatcherTest(unittest.TestCase):
             ],
         )
 
+    def test_inspection_horizon_opens_fifth_day_at_noon(self) -> None:
+        before_open = dsh_watcher.datetime.datetime(2026, 8, 30, 11, 59, 59)
+        at_open = dsh_watcher.datetime.datetime(2026, 8, 30, 12, 0, 0)
+
+        self.assertEqual(dsh_watcher.inspection_days_for(before_open), 4)
+        self.assertEqual(dsh_watcher.inspection_days_for(at_open), 5)
+
+    def test_before_noon_ignores_farthest_date_false_positive(self) -> None:
+        original_fetch = dsh_watcher.fetch_inspect_payload
+        original_publish = dsh_watcher.publish_venue_observation
+        original_enqueue = dsh_watcher.enqueue_wechat_message
+        original_datetime = dsh_watcher.datetime
+
+        class FixedDatetime(original_datetime.datetime):
+            @classmethod
+            def now(cls, tz: object = None) -> FixedDatetime:
+                return cls(2026, 8, 30, 8, 23, 0)
+
+        class FixedDatetimeModule:
+            datetime = FixedDatetime
+            time = original_datetime.time
+            timedelta = original_datetime.timedelta
+
+        published: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+        def fake_fetch(config: object, *, days: int) -> dict[str, object]:
+            self.assertEqual(days, 4)
+            return {
+                "ok": True,
+                "days": [
+                    {
+                        "date": "2026-09-03",
+                        "courts": {"1号风雨场": [["18:00", "22:00"]]},
+                    }
+                ],
+            }
+
+        def fake_publish(*args: object, **kwargs: object) -> dict[str, bool]:
+            published.append((args, kwargs))
+            return {"success": True}
+
+        def fail_wechat(msg: str) -> object:
+            raise AssertionError(f"unreleased farthest date must not notify: {msg}")
+
+        dsh_watcher.fetch_inspect_payload = fake_fetch
+        dsh_watcher.publish_venue_observation = fake_publish
+        dsh_watcher.enqueue_wechat_message = fail_wechat
+        dsh_watcher.datetime = FixedDatetimeModule
+        try:
+            dsh_watcher.run_check_tennis_courts()
+            self.assertEqual(len(published), 1)
+            self.assertEqual(published[0][0][:3], ("dsh", "大沙河国际网球中心", []))
+            self.assertEqual(published[0][1], {"healthy": True})
+            self.assertNotIn(dsh_watcher.CACHE_KEY, FakeVariable.values)
+        finally:
+            dsh_watcher.fetch_inspect_payload = original_fetch
+            dsh_watcher.publish_venue_observation = original_publish
+            dsh_watcher.enqueue_wechat_message = original_enqueue
+            dsh_watcher.datetime = original_datetime
+
     def test_check_tennis_courts_publishes_webapp_before_wechat(self) -> None:
         expected_msg = "【大沙河国际网球中心1号风雨场】星期日(08-30)空场: 16:00-18:00"
         original_fetch = dsh_watcher.fetch_inspect_payload
