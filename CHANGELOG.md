@@ -5,6 +5,16 @@ and operational changes.
 
 ## Unreleased
 
+## [0.6.3] - 2026-08-30
+
+### Changed
+
+- Merge the standalone header help button into the existing More menu, keeping
+  the same help sheet while simplifying the narrow-screen header to support
+  author and More actions only.
+- Add mobile interaction coverage for opening Help from More and preserving the
+  320px header layout.
+
 ## [0.6.2] - 2026-08-30
 
 ### Added
