@@ -157,6 +157,10 @@ export type CoffeeInvite = {
 const RECEIPTS_KEY = "zacks-tennis-verified-emails-v1";
 export const DASHBOARD_CLIENT_CACHE_MS = 120_000;
 
+export type DashboardFetchOptions = {
+  force?: boolean;
+};
+
 type DashboardClientCache = {
   identityKey: string;
   expiresAt: number;
@@ -210,7 +214,12 @@ const DEFAULT_TERMS: Dashboard["subscriptionTerms"] = {
 export const FALLBACK_DASHBOARD: Dashboard = {
   generatedAt: "2026-07-29T10:42:00+08:00",
   weatherEmailGate: { suppressed: false, precipitationMm: null, thresholdMm: 25 },
-  metrics: { activeSubscriptions: 128, remindersToday: 6, healthyVenues: 15, totalVenues: 15 },
+  metrics: {
+    activeSubscriptions: 128,
+    remindersToday: 6,
+    healthyVenues: FALLBACK_VENUES.length,
+    totalVenues: FALLBACK_VENUES.length,
+  },
   deliveryTiers: { standard: 10, priority: 100 },
   subscriptionTerms: DEFAULT_TERMS,
   subscriptionLimits: { standard: 5, priority: 20 },
@@ -236,7 +245,12 @@ export const FALLBACK_DASHBOARD: Dashboard = {
 export const EMPTY_DASHBOARD: Dashboard = {
   ...FALLBACK_DASHBOARD,
   generatedAt: new Date().toISOString(),
-  metrics: { activeSubscriptions: 0, remindersToday: 0, healthyVenues: 0, totalVenues: 15 },
+  metrics: {
+    activeSubscriptions: 0,
+    remindersToday: 0,
+    healthyVenues: 0,
+    totalVenues: FALLBACK_VENUES.length,
+  },
   venues: FALLBACK_VENUES.map((venue) => ({
     ...venue,
     healthy: false,
@@ -315,18 +329,25 @@ export function removeReceipt(token: string): VerificationReceipt[] {
   return next;
 }
 
-export async function getDashboard(receipt?: VerificationReceipt | null): Promise<Dashboard> {
+export async function getDashboard(
+  receipt?: VerificationReceipt | null,
+  options: DashboardFetchOptions = {},
+): Promise<Dashboard> {
+  if (options.force) invalidateDashboardCache();
+
   const identityKey = dashboardIdentityKey(receipt);
   const now = Date.now();
   if (
-    dashboardCache
+    !options.force
+    && dashboardCache
     && dashboardCache.identityKey === identityKey
     && (dashboardCache.expiresAt > now || pageIsHidden())
   ) {
     return dashboardCache.value;
   }
   if (
-    dashboardRequest
+    !options.force
+    && dashboardRequest
     && dashboardRequest.identityKey === identityKey
     && dashboardRequest.epoch === dashboardCacheEpoch
   ) {
@@ -334,7 +355,11 @@ export async function getDashboard(receipt?: VerificationReceipt | null): Promis
   }
 
   const epoch = dashboardCacheEpoch;
-  const promise = jsonRequest<Dashboard>("/api/bootstrap", { method: "GET" }, receipt)
+  const requestPath = options.force ? "/api/bootstrap?refresh=1" : "/api/bootstrap";
+  const requestInit: RequestInit = options.force
+    ? { method: "GET", cache: "no-store" }
+    : { method: "GET" };
+  const promise = jsonRequest<Dashboard>(requestPath, requestInit, receipt)
     .then((value) => {
       if (dashboardCacheEpoch === epoch) {
         dashboardCache = {

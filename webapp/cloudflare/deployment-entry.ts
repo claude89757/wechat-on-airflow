@@ -99,6 +99,13 @@ export function invalidatesBootstrap(method: string, pathname: string): boolean 
   );
 }
 
+export function bypassesBootstrapCache(request: Request): boolean {
+  const url = new URL(request.url);
+  return request.method === "GET"
+    && url.pathname === "/api/bootstrap"
+    && url.searchParams.get("refresh") === "1";
+}
+
 function withInviteSecrets(env: DeploymentEnv) {
   return {
     ...env,
@@ -338,7 +345,11 @@ export default {
       }
     }
 
-    if (request.method === "GET" && url.pathname === "/api/bootstrap") {
+    if (
+      request.method === "GET"
+      && url.pathname === "/api/bootstrap"
+      && !bypassesBootstrapCache(request)
+    ) {
       const cached = await cachedBootstrap(request, env);
       if (cached) return cached;
     }

@@ -25,8 +25,9 @@ test.describe("mobile v2 presentation", () => {
     expect(moreButtonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
     expect(moreButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 
-    const coffeeButton = page.getByRole("button", { name: "请作者喝咖啡", exact: true });
+    const coffeeButton = page.getByRole("button", { name: "支持 Zacks，请作者喝咖啡", exact: true });
     await expect(coffeeButton).toBeVisible();
+    await expect(coffeeButton).toContainText("支持 Zacks");
     const coffeeButtonBox = await coffeeButton.boundingBox();
     expect(coffeeButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 
@@ -51,7 +52,6 @@ test.describe("mobile v2 presentation", () => {
         ".metric-band",
         ".create-card",
         ".venue-section",
-        ".subscriptions-link",
       ];
 
       return selectors.some((selector) => {
@@ -166,7 +166,7 @@ test.describe("mobile v2 presentation", () => {
     });
 
     await page.goto("/");
-    await page.getByRole("button", { name: "请作者喝咖啡", exact: true }).click();
+    await page.getByRole("button", { name: "支持 Zacks，请作者喝咖啡", exact: true }).click();
 
     const qrImage = page.getByRole("img", { name: "微信支付收款二维码，收款人 Tt（**添）" });
     await expect(qrImage).toBeVisible();
@@ -199,7 +199,7 @@ test.describe("mobile v2 presentation", () => {
     });
 
     await page.goto("/");
-    await page.getByRole("button", { name: "请作者喝咖啡", exact: true }).click();
+    await page.getByRole("button", { name: "支持 Zacks，请作者喝咖啡", exact: true }).click();
     const qrImage = page.getByRole("img", { name: "微信支付收款二维码，收款人 Tt（**添）" });
     await expect.poll(() => qrImage.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
     await page.clock.fastForward(32);
@@ -220,7 +220,7 @@ test.describe("mobile v2 presentation", () => {
     await page.setViewportSize({ width: 320, height: 720 });
     await page.goto("/");
 
-    await expect(page.getByRole("button", { name: "请作者喝咖啡", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "支持 Zacks，请作者喝咖啡", exact: true })).toBeVisible();
     const moreButton = page.getByRole("button", { name: "更多功能", exact: true });
     await expect(moreButton).toBeVisible();
     await expect(page.getByRole("button", { name: "查看帮助", exact: true })).toHaveCount(0);
@@ -241,7 +241,7 @@ test.describe("mobile v2 presentation", () => {
     await page.keyboard.press("Escape");
     await expect(helpDialog).toBeHidden();
 
-    await page.getByRole("button", { name: "请作者喝咖啡", exact: true }).click();
+    await page.getByRole("button", { name: "支持 Zacks，请作者喝咖啡", exact: true }).click();
     const qrImage = page.getByRole("img", { name: "微信支付收款二维码，收款人 Tt（**添）" });
     await expect(qrImage).toBeVisible();
     const coffeePanelFits = await page.locator(".coffee-panel").evaluate((panel) => {
@@ -256,5 +256,25 @@ test.describe("mobile v2 presentation", () => {
         });
     });
     expect(coffeePanelFits).toBe(true);
+  });
+
+  test("shows visible keyboard focus and keeps key status text readable", async ({ page }) => {
+    await page.goto("/");
+
+    const primaryButton = page.locator(".primary-button");
+    await primaryButton.focus();
+    const focusIsVisible = await primaryButton.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0)
+        || style.boxShadow !== "none";
+    });
+    expect(focusIsVisible).toBe(true);
+
+    const keyTextSizes = await page.locator(
+      ".metric span, .venue-health span, .venue-mail span",
+    ).evaluateAll((elements) => elements.map((element) =>
+      parseFloat(getComputedStyle(element).fontSize),
+    ));
+    expect(Math.min(...keyTextSizes)).toBeGreaterThanOrEqual(10);
   });
 });
