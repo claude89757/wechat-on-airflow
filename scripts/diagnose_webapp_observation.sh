@@ -169,8 +169,7 @@ printf '%s\n' '__WEBAPP_LOGS__'
 for candidate in airflow-worker worker; do
   if compose ps --services --status running | grep -qx "$candidate"; then
     compose_with_timeout 12s exec -T "$candidate" sh -lc '
-      find /opt/airflow/logs -type f -mmin -180 -size -5M -print0 2>/dev/null \
-        | head -z -n 400 \
+      find /opt/airflow/logs -type f -path "*dsh_ydmap_watcher*" -mmin -180 -size -5M -print0 2>/dev/null \
         | xargs -0 -r grep -hE "\[WEBAPP\]|Error checking 大沙河国际网球中心|start to check 大沙河国际网球中心" 2>/dev/null \
         | tail -n 240
     ' || true
