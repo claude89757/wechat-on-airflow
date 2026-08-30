@@ -1,5 +1,49 @@
 # Production Baseline
 
+## Fansibote Chain Ten More Stores On 2026-08-30
+
+Named release `0.6.0` is
+`8ec8f53b978f1a7cdb3131b5b088124e357cbb93` (PR #155). Web still runs that
+SHA. Airflow was shipped on the same SHA, then a concurrent apply advanced
+it to `11783bf6c510eb9ccde982ac4bb68d06a7cca3de` (PR #153, 1-minute venue
+default) which still contains the ten new venues. Sender was out of scope
+and was not redeployed.
+
+The ten additional PosPal chain tennis venues are on the public catalog:
+棕榈泉 (`fsb_zonglvquan` / `泛思博特棕榈泉网球场巡检`), 观湖
+(`fsb_guanhu` / `泛思博特观湖网球场巡检`), 坂田 (`fsb_bantian` /
+`泛思博特坂田网球场巡检`), 沙河 (`fsb_shahe` / `泛思博特沙河网球场巡检`),
+保税 (`fsb_baoshui` / `泛思博特保税网球场巡检`), 南油 (`fsb_nanyou` /
+`泛思博特南油网球场巡检`), 新桥 (`fsb_xinqiao` /
+`泛思博特新桥网球场巡检`), 壹方城 (`fsb_yifangcheng` /
+`泛思博特壹方城网球场巡检`), 麒麟 (`fsb_qilin` /
+`泛思博特麒麟网球场巡检`), and 茅洲河 (`fsb_maozhouhe` /
+`泛思博特茅洲河网球场巡检`). Unauthenticated `/api/bootstrap` returns
+twenty-five venues and no email address. Creating a subscription still
+requires email verification; no verification email or live WeChat probe was
+sent.
+
+Only standard tennis / 风雨场 courts are published. 小场, 匹克, 练习, 非标,
+and 发球机 courts are dropped before Web observation or WeChat. 沙河 is a
+distinct store from 上越沙河 (`sysh`).
+
+CI `verify` on the exact `0.6.0` SHA is run `33289008505`. Ship
+`33289113704` applied D1 migration `0014_add_fsb_ten_more_venues.sql`,
+uploaded the Worker, and replaced Airflow application containers. Post-ship
+Web health `33289693249` reported twenty-five venues and the exact
+`0.6.0` SHA. After the later 1-minute Airflow apply, health
+`33290178426` passed on `11783bf6c510eb9ccde982ac4bb68d06a7cca3de` with no
+paused DAGs, no missing Variables, no import errors, and no recent-run
+failures. All ten new DAGs produced three consecutive natural successes
+around `03:18`–`03:24` UTC and stayed unpaused. Historical WeChat fallback
+outbox records remain (`200`) and were not replayed.
+
+Rollback of the named `0.6.0` Web identity remains the previous named
+release `0.5.2` (`c962f89b697e9415c85e2ba9164181d667cc126a`). Airflow
+rollback of the subsequent 1-minute apply is that same `0.6.0` SHA, not
+`0.5.2`. D1 already contains the ten venue rows; rolling Web back hides
+them from the catalog but does not delete the rows.
+
 ## Fansibote Chain Five Stores On 2026-08-29
 
 Release `0.5.2` is
