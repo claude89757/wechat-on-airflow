@@ -25,10 +25,13 @@ each venue watcher publishes raw slots to the Worker before attempting WeChat
 delivery. Publication is bearer-authenticated, bounded by a short timeout, and
 best effort. It never changes the WeChat deduplication cache or DAG result.
 
-The Worker matches slot overlap against active subscriptions and writes a
-unique `(subscription_id, event_key)` before sending. Email delivery uses a
-leased retry outbox with bounded attempts. Subscription alerts contain only
-venue, date, weekday, and time.
+The Worker matches venue, selected ISO weekdays, and slot overlap against
+active subscriptions, then writes a unique `(subscription_id, event_key)`
+before sending. Weekdays are stored as a seven-bit mask (Monday through
+Sunday); existing subscriptions default to all seven days. Matching uses the
+booking slot's Shenzhen calendar date rather than the observation timestamp.
+Email delivery uses a leased retry outbox with bounded attempts. Subscription
+alerts contain only venue, date, weekday, and time.
 
 Email ownership produces an opaque 180-day receipt. The browser stores up to
 three receipts locally, while D1 stores only receipt hashes. Public dashboard
@@ -38,7 +41,8 @@ responses contain aggregate counts and masked email addresses only.
 
 - A Cloudflare outage does not fail venue DAGs or block best-effort WeChat
   delivery, but subscriber email waits for a later successful observation.
-- Arbitrary user time ranges are independent of legacy venue filters.
+- Arbitrary user weekday and time ranges are independent of legacy venue
+  filters.
 - Existing slots can notify a newly created subscription on its next scan, but
   the same subscription-slot event cannot be sent twice.
 - D1 is the authoritative subscription and email-delivery store; Airflow
