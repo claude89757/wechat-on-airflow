@@ -159,15 +159,17 @@ def test_nightly_maintenance_uses_pinned_github_script_without_checkout() -> Non
 def test_dependabot_ci_approval_only_approves_verified_exact_head_runs() -> None:
     approval = (WORKFLOWS / "dependabot-ci-approval.yml").read_text()
 
-    assert 'workflows: ["CI"]' in approval
+    assert 'workflows: ["CI", "Nightly Dependabot Maintenance"]' in approval
     assert "pull_request_target:" in approval
     assert "types: [opened, reopened, synchronize]" in approval
     assert 'cron: "*/5 * * * *"' in approval
     assert 'run.conclusion !== "action_required"' in approval
     assert 'allowedActors = new Set(["dependabot[bot]", "github-actions[bot]"])' in approval
+    assert 'github.event.workflow_run.name == \'Nightly Dependabot Maintenance\'' in approval
     assert 'context.eventName === "pull_request_target"' in approval
     assert "waitForExactHeadActionRequired" in approval
     assert "currentDependabotHeads" in approval
+    assert "currentExactHeadActionRequiredRuns" in approval
     assert 'current.user?.login !== "dependabot[bot]"' in approval
     assert "current.head.sha !== run.head_sha" in approval
     assert "metadataComplete" in approval
