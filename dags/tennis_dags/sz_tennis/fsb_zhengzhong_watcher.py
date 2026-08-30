@@ -19,7 +19,7 @@ dag = DAG(
     "泛思博特正中网球场巡检",
     default_args=DEFAULT_ARGS,
     description="泛思博特正中网球场巡检 - Pospal平台",
-    schedule=timedelta(seconds=30),
+    schedule=timedelta(minutes=1),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
