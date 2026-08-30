@@ -23,12 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Update and merge eligible patch updates
+      - name: Update and merge verified low-risk dependency updates
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
@@ -43,7 +43,7 @@ jobs:
               --force >/dev/null
           }
 
-          ensure_label "automerge:patch" "0e8a16" "Patch-only Dependabot update eligible for protected automatic merge"
+          ensure_label "automerge:dependency" "0e8a16" "Verified low-risk dependency update eligible for protected automatic merge"
           ensure_label "automerge:blocked" "b60205" "Automatic dependency processing is blocked"
           ensure_label "needs-manual-review" "d93f0b" "Dependency update requires manual compatibility review"
 
@@ -55,7 +55,7 @@ jobs:
           else
             mapfile -t pull_requests < <(
               gh api --method GET --paginate "search/issues" \
-                -f q="repo:$REPO is:pr is:open label:\"automerge:patch\"" \
+                -f q="repo:$REPO is:pr is:open label:\"automerge:dependency\"" \
                 -f per_page=100 \
                 --jq '.items[].number'
             )
@@ -74,15 +74,15 @@ jobs:
 
             pr_json="$(gh api "repos/$REPO/pulls/$number")"
 
-            state="$(jq -r '.state' <<<"$pr_json")"
-            draft="$(jq -r '.draft' <<<"$pr_json")"
-            author="$(jq -r '.user.login' <<<"$pr_json")"
-            base_ref="$(jq -r '.base.ref' <<<"$pr_json")"
-            head_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
-            head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
-            body="$(jq -r '.body // ""' <<<"$pr_json")"
+            state="$(jq -r '.state' <<< "$pr_json")"
+            draft="$(jq -r '.draft' <<< "$pr_json")"
+            author="$(jq -r '.user.login' <<< "$pr_json")"
+            base_ref="$(jq -r '.base.ref' <<< "$pr_json")"
+            head_repo="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
+            head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
+            body="$(jq -r '.body // ""' <<< "$pr_json")"
             has_eligible_label="$(
-              jq -r '[.labels[].name] | index("automerge:patch") != null' <<<"$pr_json"
+              jq -r '[.labels[].name] | index("automerge:dependency") != null' <<< "$pr_json"
             )"
 
             if [[ "$state" != "open" ||
@@ -95,10 +95,16 @@ jobs:
               continue
             fi
 
+            if [[ "$EVENT_NAME" == "workflow_run" &&
+                  "$WORKFLOW_HEAD_SHA" != "$head_sha" ]]; then
+              echo "Skipping #$number because CI completed for ${WORKFLOW_HEAD_SHA:-unknown}, not current head $head_sha."
+              continue
+            fi
+
             if [[ "$body" == *"Maintainer changes"* ]]; then
               gh issue edit "$number" \
                 --repo "$REPO" \
-                --remove-label "automerge:patch" >/dev/null 2>&1 || true
+                --remove-label "automerge:dependency" >/dev/null 2>&1 || true
               gh issue edit "$number" \
                 --repo "$REPO" \
                 --add-label "needs-manual-review" >/dev/null
@@ -141,7 +147,7 @@ jobs:
                   -z "$manifest_kind" ]]; then
               gh issue edit "$number" \
                 --repo "$REPO" \
-                --remove-label "automerge:patch" >/dev/null 2>&1 || true
+                --remove-label "automerge:dependency" >/dev/null 2>&1 || true
               gh issue edit "$number" \
                 --repo "$REPO" \
                 --add-label "needs-manual-review" >/dev/null
@@ -151,25 +157,31 @@ jobs:
 
             safe_status="$(
               gh api "repos/$REPO/commits/$head_sha/status" \
-                --jq '[.statuses[] | select(.context == "dependabot-safe-patch")][0].state // ""'
+                --jq '[.statuses[] | select(.context == "dependabot-safe-update")][0].state // ""'
             )"
             if [[ "$safe_status" != "success" ]]; then
-              echo "Skipping #$number because its current head has not passed patch classification."
+              echo "Skipping #$number because its current head has not passed dependency classification."
               continue
             fi
 
             mergeable_state="unknown"
             for _ in 1 2 3; do
               pr_json="$(gh api "repos/$REPO/pulls/$number")"
-              mergeable_state="$(jq -r '.mergeable_state // "unknown"' <<<"$pr_json")"
-              head_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+              mergeable_state="$(jq -r '.mergeable_state // "unknown"' <<< "$pr_json")"
+              head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
               [[ "$mergeable_state" != "unknown" ]] && break
               sleep 2
             done
 
+            if [[ "$EVENT_NAME" == "workflow_run" &&
+                  "$WORKFLOW_HEAD_SHA" != "$head_sha" ]]; then
+              echo "Skipping #$number because its head moved after the completed CI run."
+              continue
+            fi
+
             safe_status="$(
               gh api "repos/$REPO/commits/$head_sha/status" \
-                --jq '[.statuses[] | select(.context == "dependabot-safe-patch")][0].state // ""'
+                --jq '[.statuses[] | select(.context == "dependabot-safe-update")][0].state // ""'
             )"
             if [[ "$safe_status" != "success" ]]; then
               echo "Skipping #$number because its head changed after classification."
@@ -202,23 +214,35 @@ jobs:
               clean)
                 ;;
               *)
-                if [[ "$EVENT_NAME" == "workflow_run" &&
-                      "$WORKFLOW_CONCLUSION" != "success" ]]; then
-                  gh issue edit "$number" \
-                    --repo "$REPO" \
-                    --add-label "automerge:blocked" >/dev/null
-                fi
                 echo "Leaving #$number open; mergeable state is $mergeable_state."
                 continue
                 ;;
             esac
 
-            if [[ "$EVENT_NAME" == "workflow_run" &&
-                  "$WORKFLOW_CONCLUSION" != "success" ]]; then
+            # This check is mandatory for workflow_run, schedule, and manual
+            # dispatch paths. Branch protection is intentionally not assumed.
+            ci_runs_json="$(
+              gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$head_sha&event=pull_request&per_page=100"
+            )"
+            ci_conclusion="$(
+              jq -r --arg sha "$head_sha" \
+                '[.workflow_runs[] | select(.head_sha == $sha and .status == "completed")] | sort_by(.run_number) | last | .conclusion // ""' \
+                <<< "$ci_runs_json"
+            )"
+
+            if [[ "$ci_conclusion" != "success" ]]; then
               gh issue edit "$number" \
                 --repo "$REPO" \
                 --add-label "automerge:blocked" >/dev/null
-              echo "Leaving #$number open because CI concluded $WORKFLOW_CONCLUSION."
+              echo "Leaving #$number open because exact-head CI is ${ci_conclusion:-missing}."
+              continue
+            fi
+
+            latest_head_sha="$(
+              gh api "repos/$REPO/pulls/$number" --jq '.head.sha'
+            )"
+            if [[ "$latest_head_sha" != "$head_sha" ]]; then
+              echo "Skipping #$number because its head moved after exact-head CI verification."
               continue
             fi
 
@@ -227,15 +251,21 @@ jobs:
                 -f sha="$head_sha" \
                 -f merge_method="squash" 2>/dev/null || true
             )"
-            merged="$(jq -r '.merged // false' <<<"${merge_response:-{}}")"
+            if [[ -z "$merge_response" ]]; then
+              merge_response='{}'
+            fi
+            merged="$(jq -r '.merged // false' <<< "$merge_response")"
 
             if [[ "$merged" == "true" ]]; then
-              echo "Merged #$number after protected branch checks passed."
+              gh issue edit "$number" \
+                --repo "$REPO" \
+                --remove-label "automerge:blocked" >/dev/null 2>&1 || true
+              echo "Merged #$number after exact-head CI and dependency policy checks passed."
             else
               gh issue edit "$number" \
                 --repo "$REPO" \
                 --add-label "automerge:blocked" >/dev/null
-              message="$(jq -r '.message // "GitHub rejected the merge"' <<<"${merge_response:-{}}")"
+              message="$(jq -r '.message // "GitHub rejected the merge"' <<< "$merge_response")"
               echo "Left #$number open: $message"
             fi
           done

@@ -29,7 +29,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
 
-      - name: Classify patch-only manifest changes
+      - name: Classify verified dependency updates
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -38,6 +38,8 @@ jobs:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
           DEPENDENCY_GROUP: ${{ steps.metadata.outputs.dependency-group }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+          DIRECTORY: ${{ steps.metadata.outputs.directory }}
           TARGET_BRANCH: ${{ steps.metadata.outputs.target-branch }}
           MAINTAINER_CHANGES: ${{ steps.metadata.outputs.maintainer-changes }}
         run: |
@@ -54,24 +56,90 @@ jobs:
               --force >/dev/null
           }
 
-          ensure_label "automerge:patch" "0e8a16" "Patch-only Dependabot update eligible for protected automatic merge"
+          trim() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "$value"
+          }
+
+          all_dependencies_allowed() {
+            local allowlist="$1"
+            local raw name
+            local saw_dependency=false
+            local -a dependency_names=()
+
+            IFS=',' read -ra dependency_names <<< "$DEPENDENCY_NAMES"
+            for raw in "${dependency_names[@]}"; do
+              name="$(trim "$raw")"
+              [[ -n "$name" ]] || continue
+              saw_dependency=true
+              if [[ "|$allowlist|" != *"|$name|"* ]]; then
+                reasons+=("dependency is not in the low-risk minor allowlist: $name")
+                return 1
+              fi
+            done
+
+            if [[ "$saw_dependency" != "true" ]]; then
+              reasons+=("verified dependency metadata did not contain a package name")
+              return 1
+            fi
+          }
+
+          ensure_label "automerge:dependency" "0e8a16" "Verified low-risk dependency update eligible for protected automatic merge"
           ensure_label "automerge:blocked" "b60205" "Automatic dependency processing is blocked"
           ensure_label "needs-manual-review" "d93f0b" "Dependency update requires manual compatibility review"
 
-          eligible=true
+          # Ruff is deliberately absent: its minor releases can alter lint and
+          # formatting behavior across files outside the dependency manifest.
+          python_minor_allowlist='httpx|mypy|pre-commit|pytest|pytest-cov|types-paramiko|types-requests'
+          webapp_minor_allowlist='@cloudflare/workers-types|@playwright/test|@types/react|@types/react-dom|@vitejs/plugin-react|typescript|vite|vitest'
+
+          eligible=false
+          profile="manual review"
           reasons=()
 
-          if [[ "$UPDATE_TYPE" != "version-update:semver-patch" ]]; then
-            eligible=false
-            reasons+=("highest update type is ${UPDATE_TYPE:-unknown}")
-          fi
-
-          case "$PACKAGE_ECOSYSTEM:$DEPENDENCY_GROUP" in
-            pip:python-patch|npm_and_yarn:webapp-patch)
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch)
+              case "$PACKAGE_ECOSYSTEM:$DEPENDENCY_GROUP:$DIRECTORY" in
+                pip:python-patch:/)
+                  eligible=true
+                  profile="Python patch group"
+                  ;;
+                npm_and_yarn:webapp-patch:/webapp)
+                  eligible=true
+                  profile="Web patch group"
+                  ;;
+                *)
+                  reasons+=("patch update is outside an approved patch group")
+                  ;;
+              esac
+              ;;
+            version-update:semver-minor)
+              case "$PACKAGE_ECOSYSTEM:$DIRECTORY" in
+                pip:/)
+                  if [[ -n "$DEPENDENCY_GROUP" && "$DEPENDENCY_GROUP" != "python-dev-minor" ]]; then
+                    reasons+=("Python minor update belongs to an unapproved group: $DEPENDENCY_GROUP")
+                  elif all_dependencies_allowed "$python_minor_allowlist"; then
+                    eligible=true
+                    profile="allowlisted Python development minor"
+                  fi
+                  ;;
+                npm_and_yarn:/webapp)
+                  if [[ -n "$DEPENDENCY_GROUP" && "$DEPENDENCY_GROUP" != "webapp-dev-minor" ]]; then
+                    reasons+=("Web minor update belongs to an unapproved group: $DEPENDENCY_GROUP")
+                  elif all_dependencies_allowed "$webapp_minor_allowlist"; then
+                    eligible=true
+                    profile="allowlisted Web development minor"
+                  fi
+                  ;;
+                *)
+                  reasons+=("minor update ecosystem or directory is not approved")
+                  ;;
+              esac
               ;;
             *)
-              eligible=false
-              reasons+=("update is outside an approved patch group")
+              reasons+=("highest update type is ${UPDATE_TYPE:-unknown}")
               ;;
           esac
 
@@ -85,21 +153,49 @@ jobs:
             reasons+=("the Dependabot branch contains maintainer changes")
           fi
 
+          pr_json="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
+          current_head_sha="$(jq -r '.head.sha // ""' <<< "$pr_json")"
+          reported_changed_files="$(jq -r '.changed_files // -1' <<< "$pr_json")"
+
+          if [[ "$current_head_sha" != "$HEAD_SHA" ]]; then
+            eligible=false
+            reasons+=("pull request head moved while classification was running")
+          fi
+
+          if [[ ! "$reported_changed_files" =~ ^[0-9]+$ ]]; then
+            eligible=false
+            reasons+=("GitHub reported an invalid changed-file count")
+            reported_changed_files=-1
+          fi
+
+          files_json="$(
+            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100"
+          )"
+          returned_changed_files="$(jq -s '[.[][]] | length' <<< "$files_json")"
           mapfile -t changed_files < <(
-            gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" \
-              --jq '.[].filename'
+            jq -r -s '[.[][]] | .[].filename' <<< "$files_json"
           )
+
+          if ((reported_changed_files < 0 || returned_changed_files != reported_changed_files)); then
+            eligible=false
+            reasons+=("GitHub returned an incomplete changed-file listing")
+          fi
 
           if ((${#changed_files[@]} == 0)); then
             eligible=false
             reasons+=("no changed files were returned")
           fi
 
+          has_primary_manifest=false
           for path in "${changed_files[@]}"; do
             case "$PACKAGE_ECOSYSTEM:$path" in
               pip:pyproject.toml)
+                has_primary_manifest=true
                 ;;
-              npm_and_yarn:webapp/package.json|npm_and_yarn:webapp/package-lock.json)
+              npm_and_yarn:webapp/package.json)
+                has_primary_manifest=true
+                ;;
+              npm_and_yarn:webapp/package-lock.json)
                 ;;
               *)
                 eligible=false
@@ -107,6 +203,11 @@ jobs:
                 ;;
             esac
           done
+
+          if [[ "$has_primary_manifest" != "true" ]]; then
+            eligible=false
+            reasons+=("primary dependency manifest is missing")
+          fi
 
           if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             eligible=false
@@ -116,7 +217,10 @@ jobs:
           if [[ "$eligible" == "true" ]]; then
             gh issue edit "$PR_NUMBER" \
               --repo "$REPO" \
-              --add-label "automerge:patch" >/dev/null
+              --add-label "automerge:dependency" >/dev/null
+            gh issue edit "$PR_NUMBER" \
+              --repo "$REPO" \
+              --remove-label "automerge:patch" >/dev/null 2>&1 || true
             gh issue edit "$PR_NUMBER" \
               --repo "$REPO" \
               --remove-label "automerge:blocked" >/dev/null 2>&1 || true
@@ -126,19 +230,24 @@ jobs:
 
             gh api --method POST "repos/$REPO/statuses/$HEAD_SHA" \
               -f state="success" \
-              -f context="dependabot-safe-patch" \
-              -f description="Verified patch-only Dependabot manifest update" >/dev/null
+              -f context="dependabot-safe-update" \
+              -f description="Verified low-risk dependency update" >/dev/null
 
             {
               echo "### Dependabot classification"
               echo
               echo "- Eligible: yes"
+              echo "- Profile: $profile"
               echo "- Ecosystem: \`$PACKAGE_ECOSYSTEM\`"
-              echo "- Group: \`$DEPENDENCY_GROUP\`"
+              echo "- Dependencies: \`$DEPENDENCY_NAMES\`"
+              echo "- Group: \`${DEPENDENCY_GROUP:-individual}\`"
               echo "- Update type: \`$UPDATE_TYPE\`"
               echo "- Approved head: \`$HEAD_SHA\`"
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            gh issue edit "$PR_NUMBER" \
+              --repo "$REPO" \
+              --remove-label "automerge:dependency" >/dev/null 2>&1 || true
             gh issue edit "$PR_NUMBER" \
               --repo "$REPO" \
               --remove-label "automerge:patch" >/dev/null 2>&1 || true
@@ -153,6 +262,7 @@ jobs:
               echo "### Dependabot classification"
               echo
               echo "- Eligible: no"
+              echo "- Dependencies: \`${DEPENDENCY_NAMES:-unknown}\`"
               for reason in "${reasons[@]}"; do
                 echo "- $reason"
               done

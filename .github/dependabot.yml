@@ -11,6 +11,21 @@ updates:
           - "*"
         update-types:
           - patch
+      # Development tools exercised directly by CI stay grouped for immediate
+      # low-risk automation. Runtime libraries and rule engines stay individual
+      # so the authorized nightly maintainer validates each exact PR head.
+      python-dev-minor:
+        dependency-type: development
+        patterns:
+          - "httpx"
+          - "mypy"
+          - "pre-commit"
+          - "pytest"
+          - "pytest-cov"
+          - "types-paramiko"
+          - "types-requests"
+        update-types:
+          - minor
 
   - package-ecosystem: github-actions
     directory: /
@@ -28,6 +43,22 @@ updates:
           - "*"
         update-types:
           - patch
+      # Build, type-check, unit-test, and browser-test tooling may move within
+      # the current major after the exact PR head passes the complete Web gate.
+      # Wrangler remains individual for nightly control-plane validation.
+      webapp-dev-minor:
+        dependency-type: development
+        patterns:
+          - "@cloudflare/workers-types"
+          - "@playwright/test"
+          - "@types/react"
+          - "@types/react-dom"
+          - "@vitejs/plugin-react"
+          - "typescript"
+          - "vite"
+          - "vitest"
+        update-types:
+          - minor
 
   - package-ecosystem: docker
     directory: /docker/airflow
