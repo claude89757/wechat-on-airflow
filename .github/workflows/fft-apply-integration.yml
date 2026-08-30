@@ -6,7 +6,7 @@ on:
       - feat/fft-qianhai-release-20260830
     paths:
       - .github/workflows/fft-apply-integration.yml
-      - .tmp/fft-integration.patch.gz.b64
+      - .tmp/fft-integration.patch.gz.b64.part*
 
 permissions:
   contents: write
@@ -20,16 +20,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply integration patch and remove workbench files
+      - name: Assemble, verify, and apply integration patch
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .tmp/fft-integration.patch.gz.b64 | gunzip > /tmp/fft-integration.patch
+          cat .tmp/fft-integration.patch.gz.b64.part* > /tmp/fft-integration.patch.gz.b64
+          echo "d8a68b387ba14586725c07c1a0625fcef5c56570ff11bb4b4fff4cb9a8111b07  /tmp/fft-integration.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/fft-integration.patch.gz.b64 | gunzip > /tmp/fft-integration.patch
+          echo "2bedf2c32c03512d56f2eea5e18627f06e45792ab7914b9a70f4e561c8e562e3  /tmp/fft-integration.patch" | sha256sum --check
           git apply --check /tmp/fft-integration.patch
           git apply --whitespace=error-all /tmp/fft-integration.patch
-          rm -f .tmp/fft-integration.patch.gz.b64
-          rm -f .github/workflows/fft-apply-integration.yml
-          rmdir .tmp 2>/dev/null || true
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
