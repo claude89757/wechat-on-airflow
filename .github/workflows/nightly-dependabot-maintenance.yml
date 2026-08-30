@@ -642,7 +642,7 @@ jobs:
                 continue
               fi
 
-              failure_recreate_marker="<!-- nightly-dependabot-failure-recreate:$head_sha:$LOCAL_DATE -->"
+              failure_recreate_marker="<!-- nightly-dependabot-failure-recreate:$number:$LOCAL_DATE -->"
               if ! has_comment_marker "$number" "$failure_recreate_marker"; then
                 failure_recreate_body="$(
                   printf '%s\n\n%s\n\n%s\n' \
