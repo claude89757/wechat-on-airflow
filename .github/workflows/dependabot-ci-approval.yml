@@ -7,7 +7,7 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["CI", "Nightly Dependabot Maintenance"]
     types: [completed]
   workflow_dispatch:
   push:
@@ -24,6 +24,7 @@ jobs:
   approve:
     if: >-
       (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.name == 'Nightly Dependabot Maintenance' ||
        github.event.workflow_run.conclusion == 'action_required') &&
       (github.event_name != 'pull_request_target' ||
        github.event.pull_request.user.login == 'dependabot[bot]')
@@ -239,17 +240,24 @@ jobs:
               return [];
             }
 
+            async function currentExactHeadActionRequiredRuns() {
+              const currentHeads = await currentDependabotHeads();
+              return (await actionRequiredRuns()).filter((run) =>
+                currentHeads.has(run.head_sha),
+              );
+            }
+
             let runs;
-            if (context.eventName === "workflow_run") {
+            if (
+              context.eventName === "workflow_run" &&
+              context.payload.workflow_run.name === "CI"
+            ) {
               runs = [context.payload.workflow_run];
             } else if (context.eventName === "pull_request_target") {
               const pull = context.payload.pull_request;
               runs = await waitForExactHeadActionRequired(pull.head.sha);
             } else {
-              const currentHeads = await currentDependabotHeads();
-              runs = (await actionRequiredRuns()).filter((run) =>
-                currentHeads.has(run.head_sha),
-              );
+              runs = await currentExactHeadActionRequiredRuns();
             }
 
             runs = [...new Map(runs.map((run) => [run.id, run])).values()]
