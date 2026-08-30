@@ -108,30 +108,54 @@ def test_nightly_maintenance_runs_at_local_one_and_covers_every_dependabot_pr() 
     nightly = (WORKFLOWS / "nightly-dependabot-maintenance.yml").read_text()
 
     assert 'cron: "0 8,9 * * *"' in nightly
-    assert 'LOCAL_TZ="America/Los_Angeles"' in nightly
-    assert '"$EVENT_NAME" == "schedule" && "$LOCAL_HOUR" != "01"' in nightly
-    assert "actions/workflows/$WORKFLOW_FILE/runs?event=schedule" in nightly
-    assert "pulls?state=open&base=main&per_page=100" in nightly
-    assert '.user.login == "dependabot[bot]"' in nightly
-    assert 'head_repo" != "$REPO"' in nightly
+    assert 'const localTimeZone = "America/Los_Angeles"' in nightly
+    assert 'context.eventName === "schedule" && localHour !== "01"' in nightly
+    assert 'workflow_id: workflowFile' in nightly
+    assert 'workflows: ["CI"]' in nightly
+    assert 'github.rest.pulls.list' in nightly
+    assert 'pull.user?.login === "dependabot[bot]"' in nightly
+    assert 'current.head?.repo?.full_name !== repository' in nightly
+    assert 'current.head?.ref?.startsWith("dependabot/")' in nightly
 
 
 def test_nightly_maintenance_has_bounded_recovery_and_exact_head_merge() -> None:
     nightly = (WORKFLOWS / "nightly-dependabot-maintenance.yml").read_text()
 
-    assert "reported_changed_files" in nightly
-    assert "returned_changed_files" in nightly
-    assert "dependency_paths_are_bounded" in nightly
-    assert "control_plane_patches_are_bounded" in nightly
-    assert "commits_are_dependabot_only" in nightly
-    assert "pulls/$number/update-branch" in nightly
+    assert "metadataComplete" in nightly
+    assert "pathsAreBounded" in nightly
+    assert "controlPlanePatchesAreBounded" in nightly
+    assert "commits.every(commitIsTrusted)" in nightly
+    assert 'github.request("PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch"' in nightly
     assert "@dependabot recreate" in nightly
-    assert 'gh run rerun "$ci_run_id" --failed' in nightly
-    assert "actions/workflows/ci.yml/runs?head_sha=$sha&event=pull_request" in nightly
-    assert '-f sha="$head_sha"' in nightly
-    assert '-f merge_method="squash"' in nightly
+    assert "reRunWorkflowFailedJobs" in nightly
+    assert 'workflow_id: "ci.yml"' in nightly
+    assert "head_sha: headSha" in nightly
+    assert "sha: current.head.sha" in nightly
+    assert 'merge_method: "squash"' in nightly
     assert "maintenance:needs-repair" in nightly
-    assert 'if [[ "$ci_conclusion" != "success" ]]' in nightly
+    assert 'ciRun.conclusion === "success"' in nightly
+    assert "recoveryGraceMs" in nightly
+    assert "cancel-in-progress: true" in nightly
+
+
+def test_nightly_maintenance_accepts_only_its_bounded_sync_commits() -> None:
+    nightly = (WORKFLOWS / "nightly-dependabot-maintenance.yml").read_text()
+
+    assert 'commit.author?.login === "github-actions[bot]"' in nightly
+    assert "^Merge branch 'main' into dependabot[/]" in nightly
+    assert "commit.parents.length === 2" in nightly
+    assert 'commit.author?.login === "dependabot[bot]"' in nightly
+    assert 'removeLabel(number, "maintenance:needs-repair")' in nightly
+
+
+def test_nightly_maintenance_uses_pinned_github_script_without_checkout() -> None:
+    nightly = (WORKFLOWS / "nightly-dependabot-maintenance.yml").read_text()
+
+    assert (
+        "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3"
+        in nightly
+    )
+    assert "actions/checkout" not in nightly
 
 
 def test_pr_reconciler_requires_a_complete_changed_file_listing() -> None:
