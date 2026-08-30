@@ -43,7 +43,7 @@ def main() -> None:
     ):
         raise SystemExit("expected variables must be a JSON object of string values")
 
-    from airflow.models import Variable
+    from airflow.sdk import Variable
 
     def get_variable(name: str) -> str:
         return str(Variable.get(name))
