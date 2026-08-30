@@ -66,6 +66,7 @@ def test_write_capable_pr_automation_never_executes_pr_code_or_deploys() -> None
     workflow_names = [
         "dependabot-triage.yml",
         "dependabot-reconcile.yml",
+        "dependabot-ci-approval.yml",
         "nightly-dependabot-maintenance.yml",
         "pr-reconciler.yml",
     ]
@@ -153,6 +154,22 @@ def test_nightly_maintenance_uses_pinned_github_script_without_checkout() -> Non
 
     assert "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3" in nightly
     assert "actions/checkout" not in nightly
+
+
+def test_dependabot_ci_approval_only_approves_verified_exact_head_runs() -> None:
+    approval = (WORKFLOWS / "dependabot-ci-approval.yml").read_text()
+
+    assert 'workflows: ["CI"]' in approval
+    assert 'run.conclusion !== "action_required"' in approval
+    assert 'allowedActors = new Set(["dependabot[bot]", "github-actions[bot]"])' in approval
+    assert 'current.user?.login !== "dependabot[bot]"' in approval
+    assert "current.head.sha !== run.head_sha" in approval
+    assert "metadataComplete" in approval
+    assert "pathsAreBounded(files)" in approval
+    assert "controlPlanePatchesAreBounded(files)" in approval
+    assert "commits.every(commitIsTrusted)" in approval
+    assert '"POST /repos/{owner}/{repo}/actions/runs/{run_id}/approve"' in approval
+    assert "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3" in approval
 
 
 def test_pr_reconciler_requires_a_complete_changed_file_listing() -> None:
