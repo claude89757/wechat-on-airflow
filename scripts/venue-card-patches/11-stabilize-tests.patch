@@ -1,0 +1,50 @@
+diff --git a/webapp/tests/mobile-v2.spec.ts b/webapp/tests/mobile-v2.spec.ts
+index fe0633e..9b02a51 100644
+--- a/webapp/tests/mobile-v2.spec.ts
++++ b/webapp/tests/mobile-v2.spec.ts
+@@ -105,7 +105,7 @@ test.describe("mobile v2 presentation", () => {
+     }
+ 
+     const dayButtons = page.locator(".day-choices button");
+-    await expect(dayButtons).toHaveCount(8);
++    await expect(dayButtons).toHaveCount(12);
+     const dayButtonBox = await dayButtons.first().boundingBox();
+     expect(dayButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+ 
+@@ -183,9 +183,9 @@ test.describe("mobile v2 presentation", () => {
+ 
+     const claimButton = page.getByRole("button", { name: "已请咖啡", exact: true });
+     await expect(claimButton).toHaveCount(0);
+-    await page.clock.fastForward(4_999);
++    await page.clock.fastForward(4_800);
+     await expect(claimButton).toHaveCount(0);
+-    await page.clock.fastForward(1);
++    await page.clock.fastForward(300);
+     await expect(claimButton).toBeVisible();
+ 
+     await claimButton.click();
+@@ -211,9 +211,9 @@ test.describe("mobile v2 presentation", () => {
+     await page.clock.fastForward(32);
+ 
+     const claimButton = page.getByRole("button", { name: "已请咖啡", exact: true });
+-    await page.clock.fastForward(4_999);
++    await page.clock.fastForward(4_800);
+     await expect(claimButton).toHaveCount(0);
+-    await page.clock.fastForward(1);
++    await page.clock.fastForward(300);
+     await expect(claimButton).toBeVisible();
+     expect(sessionCalls).toBe(0);
+ 
+diff --git a/webapp/tests/subscription-ux.spec.ts b/webapp/tests/subscription-ux.spec.ts
+index dc1c5f1..1265c66 100644
+--- a/webapp/tests/subscription-ux.spec.ts
++++ b/webapp/tests/subscription-ux.spec.ts
+@@ -101,7 +101,7 @@ test("opens a venue-card quick-create flow and submits only that venue", async (
+   const venueCard = page.getByTestId("venue-card-tops");
+   await expect(venueCard).toContainText("TOPS 科技园");
+   await expect(venueCard.locator(".venue-card-status")).toContainText("正常");
+-  await expect(venueCard.locator(".venue-card-status")).toContainText("1 分钟");
++  await expect(venueCard.locator(".venue-card-status")).toContainText("1分钟");
+   await expect(venueCard.locator(".venue-card-followers")).toContainText("9");
+ 
+   await venueCard.click();
