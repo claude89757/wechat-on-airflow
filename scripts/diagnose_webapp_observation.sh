@@ -18,6 +18,15 @@ compose() {
     docker-compose "$@"
   fi
 }
+compose_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+  if docker compose version >/dev/null 2>&1; then
+    timeout "$timeout_seconds" docker compose "$@"
+  else
+    timeout "$timeout_seconds" docker-compose "$@"
+  fi
+}
 service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
 airflow_python() {
   compose exec -T "$service" sh -c '
@@ -159,11 +168,12 @@ PY
 printf '%s\n' '__WEBAPP_LOGS__'
 for candidate in airflow-worker worker; do
   if compose ps --services --status running | grep -qx "$candidate"; then
-    timeout 8s compose exec -T "$candidate" sh -lc '
-      find /opt/airflow/logs -type f -mmin -10 -size -2M -print0 2>/dev/null \
-        | head -z -n 80 \
-        | xargs -0 -r grep -hF "[WEBAPP]" 2>/dev/null \
-        | tail -n 80
+    compose_with_timeout 12s exec -T "$candidate" sh -lc '
+      find /opt/airflow/logs -type f \
+        \( -path "*大沙河国际网球中心巡检*" -o -path "*dsh_ydmap_watcher*" \) \
+        -mmin -180 -size -5M -print0 2>/dev/null \
+        | xargs -0 -r grep -hE "\[WEBAPP\]|Error checking 大沙河国际网球中心|start to check 大沙河国际网球中心" 2>/dev/null \
+        | tail -n 240
     ' || true
   fi
 done
