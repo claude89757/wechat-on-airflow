@@ -1,0 +1,100 @@
+--- a/webapp/tests/subscription-ux.spec.ts
++++ b/webapp/tests/subscription-ux.spec.ts
+@@ -66,9 +66,95 @@
+   await expect(repositoryLink).toHaveAttribute("rel", "noopener noreferrer");
+   await page.keyboard.press("Escape");
+ 
+-  const venueNames = await page.locator(".venue-list .venue-name h3").allTextContents();
++  const venueNames = await page.locator(".venue-grid .venue-card-name").allTextContents();
+   expect(venueNames).toEqual(["TOPS 科技园", "金地威新", "深圳湾"]);
+-  await expect(page.locator(".venue-list .venue-name p").first()).toHaveText("9 人关注");
++  await expect(page.locator(".venue-grid .venue-card-followers").first()).toContainText("9");
++});
++
++test("opens a venue-card quick-create flow and submits only that venue", async ({ page }) => {
++  let submittedPayload: Record<string, unknown> | null = null;
++  await page.route("**/api/subscriptions", async (route) => {
++    submittedPayload = route.request().postDataJSON() as Record<string, unknown>;
++    await route.fulfill({
++      status: 201,
++      contentType: "application/json",
++      body: JSON.stringify({
++        subscription: {
++          id: "quick-tops-subscription",
++          venueIds: ["tops"],
++          weekdays: [1, 2, 3, 4, 5, 6, 7],
++          startTime: "18:00",
++          endTime: "22:00",
++          durationDays: 7,
++          termCode: "7d",
++          autoRenew: false,
++          eligible: true,
++          activeUntil: "2026-09-05T12:00:00.000Z",
++          active: true,
++          createdAt: "2026-08-29T12:00:00.000Z",
++        },
++      }),
++    });
++  });
++
++  await page.goto("/");
++  const venueCard = page.getByTestId("venue-card-tops");
++  await expect(venueCard).toContainText("TOPS 科技园");
++  await expect(venueCard.locator(".venue-card-status")).toContainText("正常");
++  await expect(venueCard.locator(".venue-card-status")).toContainText("1 分钟");
++  await expect(venueCard.locator(".venue-card-followers")).toContainText("9");
++
++  await venueCard.click();
++  const dialog = page.getByRole("dialog");
++  await expect(dialog.getByText("创建TOPS 科技园提醒", { exact: true })).toBeVisible();
++  await expect(dialog.locator(".quick-venue-selection")).toContainText("TOPS 科技园");
++  await expect(dialog.locator(".venue-choices")).toHaveCount(0);
++
++  await dialog.getByRole("button", { name: "创建TOPS 科技园提醒", exact: true }).click();
++  await expect.poll(() => submittedPayload).not.toBeNull();
++  expect(submittedPayload).toMatchObject({ venueIds: ["tops"] });
++  await expect(page.locator(".app-toast")).toContainText("TOPS 科技园提醒已创建");
++});
++
++test("marks existing venue subscriptions and blocks an exact duplicate", async ({ page }) => {
++  const dashboardWithSubscription = {
++    ...dashboard,
++    identity: {
++      ...dashboard.identity,
++      activeSubscriptionCount: 1,
++      remainingSubscriptions: 4,
++    },
++    subscriptions: [{
++      id: "existing-tops-subscription",
++      venueIds: ["tops"],
++      weekdays: [1, 2, 3, 4, 5, 6, 7],
++      startTime: "18:00",
++      endTime: "22:00",
++      durationDays: 7,
++      termCode: "7d",
++      autoRenew: false,
++      eligible: true,
++      activeUntil: "2026-09-05T12:00:00.000Z",
++      active: true,
++      createdAt: "2026-08-29T12:00:00.000Z",
++    }],
++  };
++  await page.route("**/api/bootstrap", async (route) => {
++    await route.fulfill({
++      contentType: "application/json",
++      body: JSON.stringify(dashboardWithSubscription),
++    });
++  });
++
++  await page.goto("/");
++  const venueCard = page.getByTestId("venue-card-tops");
++  await expect(venueCard.locator(".venue-card-action")).toHaveText("✓1");
++  await venueCard.click();
++
++  const dialog = page.getByRole("dialog");
++  await expect(dialog.locator(".quick-subscription-notice")).toContainText("已有");
++  await expect(dialog.locator(".duplicate-subscription")).toBeVisible();
++  await expect(dialog.getByRole("button", { name: "创建TOPS 科技园提醒", exact: true })).toBeDisabled();
+ });
+ 
+ test("creates a weekend subscription with a summary and one-shot celebration", async ({ page }) => {
