@@ -17,6 +17,8 @@ export const VENUE_IDS = [
 ] as const;
 
 export type VenueId = (typeof VENUE_IDS)[number];
+export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
 export type DeliveryTier = "standard" | "priority";
 export type SubscriptionTerm =
   | "7d" | "8d" | "9d" | "10d" | "11d" | "12d" | "13d" | "14d"
@@ -34,6 +36,7 @@ export type VenueStatus = {
 export type Subscription = {
   id: string;
   venueIds: VenueId[];
+  weekdays: Weekday[];
   startTime: string;
   endTime: string;
   durationDays: number;
@@ -350,6 +353,7 @@ export async function createSubscription(
   receipt: VerificationReceipt,
   payload: {
     venueIds: VenueId[];
+    weekdays: Weekday[];
     startTime: string;
     endTime: string;
     termCode: SubscriptionTerm;

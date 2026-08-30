@@ -678,6 +678,32 @@
   font-weight: 400;
 }
 
+.choice-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -2px 0 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.choice-toolbar > div {
+  display: flex;
+  gap: 5px;
+}
+
+.choice-toolbar button {
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid #dce1e6;
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--teal-dark);
+  font: inherit;
+  font-weight: 700;
+}
+
 .venue-choices,
 .day-choices {
   display: flex;
@@ -705,6 +731,78 @@
   background: #eaf8f7;
   color: #087f7c;
   font-weight: 600;
+}
+
+.venue-choices button span {
+  min-width: 0;
+}
+
+.venue-choices button small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.venue-choices button.selected small {
+  color: #278f8b;
+}
+
+.weekday-presets {
+  display: flex;
+  gap: 7px;
+}
+
+.weekday-presets button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid #dce1e6;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #596371;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.weekday-presets button.selected {
+  border-color: var(--teal);
+  background: #eaf8f7;
+  color: #087f7c;
+}
+
+.weekday-choices {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.weekday-choices button {
+  display: grid;
+  min-width: 0;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid #dce1e6;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #596371;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.weekday-choices button.selected {
+  border-color: var(--teal);
+  background: var(--teal);
+  color: #ffffff;
+  box-shadow: 0 5px 12px rgba(6, 155, 152, 0.18);
+}
+
+.field-help {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .time-range {
@@ -754,6 +852,35 @@
   line-height: 1.4;
 }
 
+.subscription-summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px 13px;
+  border: 1px solid rgba(6, 155, 152, 0.16);
+  border-radius: 10px;
+  background: #f3fbfa;
+}
+
+.subscription-summary > span {
+  color: var(--teal-dark);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.subscription-summary strong {
+  color: #24413f;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.subscription-summary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 .sheet-primary {
   min-height: 50px;
   font-size: 15px;
@@ -793,6 +920,28 @@
   color: var(--muted);
   font-size: 11px;
   line-height: 1.5;
+}
+
+.email-delivery-tip {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid #d9e5ef;
+  border-radius: 10px;
+  background: #f5f9fc;
+  color: #466276;
+}
+
+.email-delivery-tip svg {
+  margin-top: 1px;
+  color: var(--blue);
+}
+
+.email-delivery-tip p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .help-row {
@@ -905,6 +1054,72 @@
   line-height: 1.4;
   text-align: center;
   pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.subscription-celebration {
+  position: fixed;
+  z-index: 80;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: min(100%, 520px);
+  overflow: hidden;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.firework-burst {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+}
+
+.firework-burst-left { top: 30%; left: 22%; }
+.firework-burst-center { top: 22%; left: 50%; }
+.firework-burst-right { top: 36%; left: 78%; }
+
+.firework-burst i {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #13a6a1;
+  opacity: 0;
+  animation: firework-particle 1.25s cubic-bezier(0.16, 0.82, 0.42, 1) var(--firework-delay) forwards;
+}
+
+.firework-burst i:nth-child(3n + 2) { background: #ffb13b; }
+.firework-burst i:nth-child(3n) { background: #4a8ff2; }
+
+@keyframes firework-particle {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--firework-angle)) translateX(0) scale(0.2);
+  }
+  15% { opacity: 1; }
+  78% { opacity: 0.95; }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--firework-angle)) translateX(var(--firework-distance)) scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subscription-celebration {
+    display: none;
+  }
 }
 
 /* Present the mobile runtime as a real responsive web app, not a device mock. */
@@ -1304,6 +1519,45 @@
 .invite-create-card{display:grid;gap:10px;padding:14px;border-radius:16px;background:#f7faf9}.invite-create-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.invite-create-row label,.admin-user-times{display:grid;gap:5px;color:#697a77;font-size:11px}.invite-create-row input,.invite-create-card .field input{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid rgba(42,112,105,.16);border-radius:11px;background:#fff;color:#234d48}.invite-meta,.admin-user-times{display:flex;flex-wrap:wrap;gap:6px 12px;color:#758481;font-size:10px}.invite-actions{display:flex;flex-wrap:wrap;gap:7px}.invite-actions button{display:inline-flex;align-items:center;gap:4px;padding:7px 10px;border:1px solid rgba(42,112,105,.14);border-radius:10px;background:#f7fbfa;color:#2a6d65;font-size:11px;font-weight:700}.invite-actions button.danger{color:#b45249}.admin-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 
 @media (max-width: 520px) {
+  html body .choice-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  html body .choice-toolbar > div {
+    width: 100%;
+  }
+
+  html body .choice-toolbar button {
+    flex: 1;
+  }
+
+  html body .weekday-choices {
+    gap: 4px;
+  }
+
+  html body .weekday-presets {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  html body .weekday-presets button,
+  html body .weekday-choices button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  html body .venue-choices button span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  html body .venue-choices button small {
+    flex: 0 0 auto;
+  }
+
   html body .brand-lockup {
     flex: 1 1 auto;
     overflow: hidden;
