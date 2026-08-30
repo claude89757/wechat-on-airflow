@@ -44,8 +44,7 @@ class VenueSchedulePolicyTest(TestCase):
 
         exceptions = cast(dict[str, dict[str, Any]], policy.get("exceptions") or {})
         exception_schedules = {
-            dag_id: str(config.get("schedule") or "")
-            for dag_id, config in exceptions.items()
+            dag_id: str(config.get("schedule") or "") for dag_id, config in exceptions.items()
         }
         self.assertEqual(exception_schedules, EXPECTED_EXCEPTIONS)
         for config in exceptions.values():
