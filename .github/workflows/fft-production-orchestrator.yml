@@ -1,0 +1,293 @@
+name: Orchestrate FFT Qianhai production release
+
+on:
+  push:
+    branches:
+      - feat/fft-qianhai-release-prep-20260830
+    paths:
+      - .github/workflows/fft-production-orchestrator.yml
+
+permissions:
+  contents: write
+  actions: write
+  checks: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      ORCHESTRATOR_BRANCH: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Establish exact release identity and CI gate
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha=$(git rev-parse HEAD)
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$target_sha"
+          test -f src/wechat_airflow/venues/fft_qianhai_watcher.py
+          test -f dags/tennis_dags/sz_tennis/fft_qianhai_watcher.py
+          grep -R -q 'fft_qianhai' webapp/src
+          grep -q 'expected_venue_count: 16' config/runtime-target.yaml
+
+          for attempt in $(seq 1 180); do
+            runs=$(gh api "repos/$GH_REPO/commits/$target_sha/check-runs?per_page=100")
+            status=$(jq -r '[.check_runs[] | select(.name == "verify")][0].status // empty' <<<"$runs")
+            conclusion=$(jq -r '[.check_runs[] | select(.name == "verify")][0].conclusion // empty' <<<"$runs")
+            if [[ "$status" == completed ]]; then
+              [[ "$conclusion" == success ]]
+              break
+            fi
+            sleep 10
+          done
+          [[ "${status:-}" == completed && "${conclusion:-}" == success ]]
+
+          current_health=$(curl --fail --silent --show-error --retry 3 --max-time 20 \
+            https://zacks.claude89757.cc/api/healthz)
+          current_sha=$(CURRENT_HEALTH="$current_health" python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import re
+
+          payload = json.loads(os.environ["CURRENT_HEALTH"])
+          sha_pattern = re.compile(r"^[0-9a-f]{40}$")
+          preferred: list[str] = []
+          fallback: list[str] = []
+
+          def walk(value: object, path: tuple[str, ...] = ()) -> None:
+              if isinstance(value, dict):
+                  for key, item in value.items():
+                      walk(item, (*path, str(key).lower()))
+              elif isinstance(value, list):
+                  for item in value:
+                      walk(item, path)
+              elif isinstance(value, str) and sha_pattern.fullmatch(value):
+                  if any("commit" in key or "release" in key or "sha" == key for key in path):
+                      preferred.append(value)
+                  else:
+                      fallback.append(value)
+
+          walk(payload)
+          candidates = preferred or fallback
+          if not candidates:
+              raise SystemExit("production health did not expose a full commit SHA")
+          print(candidates[0])
+          PY
+          )
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "current_sha=$current_sha" >> "$GITHUB_OUTPUT"
+          echo "Exact release SHA: $target_sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pre-change production SHA: $current_sha" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate local release and rollback contracts
+        run: |
+          make ship-check
+          make deploy-check
+          make rollback-check
+
+      - name: Run baseline health, preflight, apply, and post health
+        id: operations
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha='${{ steps.release.outputs.target_sha }}'
+          current_sha='${{ steps.release.outputs.current_sha }}'
+          result_dir=/tmp/fft-release
+          mkdir -p "$result_dir"
+          printf '[]\n' > "$result_dir/runs.json"
+
+          list_production_runs() {
+            gh api "repos/$GH_REPO/actions/runs?event=workflow_dispatch&per_page=100" \
+              --jq '.workflow_runs[] | select(.path | startswith(".github/workflows/production-")) | .id' \
+              | sort -n
+          }
+
+          wait_run() {
+            local run_id=$1
+            local label=$2
+            for attempt in $(seq 1 540); do
+              run=$(gh api "repos/$GH_REPO/actions/runs/$run_id")
+              status=$(jq -r '.status' <<<"$run")
+              if [[ "$status" == completed ]]; then
+                conclusion=$(jq -r '.conclusion' <<<"$run")
+                jq --arg label "$label" \
+                   --argjson run "$run" \
+                   '. + [{label: $label, id: $run.id, name: $run.name, path: $run.path, html_url: $run.html_url, head_sha: $run.head_sha, conclusion: $run.conclusion, created_at: $run.created_at, updated_at: $run.updated_at}]' \
+                   "$result_dir/runs.json" > "$result_dir/runs.next.json"
+                mv "$result_dir/runs.next.json" "$result_dir/runs.json"
+                [[ "$conclusion" == success ]]
+                return
+              fi
+              sleep 10
+            done
+            echo "Timed out waiting for production run $run_id ($label)" >&2
+            return 1
+          }
+
+          run_and_wait() {
+            local label=$1
+            shift
+            local before after new_ids first_seen=0
+            before=$(mktemp)
+            list_production_runs > "$before"
+            "$@"
+            for attempt in $(seq 1 90); do
+              after=$(mktemp)
+              list_production_runs > "$after"
+              new_ids=$(comm -13 "$before" "$after" || true)
+              rm -f "$after"
+              if [[ -n "$new_ids" ]]; then
+                first_seen=1
+                break
+              fi
+              sleep 5
+            done
+            [[ "$first_seen" == 1 ]]
+            sleep 8
+            after=$(mktemp)
+            list_production_runs > "$after"
+            new_ids=$(comm -13 "$before" "$after" || true)
+            rm -f "$before" "$after"
+            [[ -n "$new_ids" ]]
+            while read -r run_id; do
+              [[ -n "$run_id" ]] || continue
+              wait_run "$run_id" "$label"
+            done <<<"$new_ids"
+          }
+
+          run_and_wait baseline-health \
+            make production-health PRODUCTION_HEALTH_ARGS="--target-commit $current_sha"
+
+          run_and_wait release-preflight \
+            make ship SHIP_ARGS="--target-commit $target_sha"
+
+          run_and_wait release-apply \
+            make ship SHIP_ARGS="--apply --target-commit $target_sha"
+
+          echo "Waiting for natural 30-second inspection cycles..." >> "$GITHUB_STEP_SUMMARY"
+          sleep 210
+
+          run_and_wait post-release-health \
+            make production-health PRODUCTION_HEALTH_ARGS="--target-commit $target_sha"
+
+          cp "$result_dir/runs.json" /tmp/fft-production-runs.json
+
+      - name: Verify public Web catalog and natural FFT observation
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha='${{ steps.release.outputs.target_sha }}'
+          mkdir -p /tmp/fft-release-evidence
+
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 --max-time 20 \
+            https://zacks.claude89757.cc/api/healthz \
+            > /tmp/fft-release-evidence/healthz.json
+          grep -q "$target_sha" /tmp/fft-release-evidence/healthz.json
+
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 --max-time 20 \
+            https://zacks.claude89757.cc/api/bootstrap \
+            > /tmp/fft-release-evidence/bootstrap.json
+
+          jq -e '.venues | length == 16' /tmp/fft-release-evidence/bootstrap.json >/dev/null
+          jq -e '
+            [
+              .. | objects |
+              select(
+                (.id? == "fft_qianhai") or
+                (.venueId? == "fft_qianhai") or
+                (.venue_id? == "fft_qianhai") or
+                (.slug? == "fft_qianhai")
+              )
+            ] as $venues |
+            ($venues | length >= 1) and
+            ([$venues[] | (.name? // .venueName? // .venue_name? // "") | select(. == "FFTENNIS前海国际网球中心")] | length >= 1) and
+            ([$venues[] | (.lastInspectionAt? // .last_inspection_at? // "") | select(type == "string" and length > 0)] | length >= 1)
+          ' /tmp/fft-release-evidence/bootstrap.json >/dev/null
+
+          if grep -Eiq '[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}' /tmp/fft-release-evidence/bootstrap.json; then
+            echo 'Public bootstrap unexpectedly contains an email address' >&2
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 --max-time 20 \
+            https://zacks.claude89757.cc/ \
+            > /tmp/fft-release-evidence/index.html
+
+          cp /tmp/fft-production-runs.json /tmp/fft-release-evidence/production-runs.json
+          TARGET_SHA="$target_sha" CURRENT_SHA='${{ steps.release.outputs.current_sha }}' python - <<'PY'
+          from __future__ import annotations
+
+          import datetime as dt
+          import json
+          import os
+          from pathlib import Path
+
+          output = {
+              "accepted_at": dt.datetime.now(dt.UTC).isoformat(),
+              "target_sha": os.environ["TARGET_SHA"],
+              "previous_production_sha": os.environ["CURRENT_SHA"],
+              "web_health_exact_commit": True,
+              "bootstrap_venue_count": 16,
+              "fft_qianhai_present": True,
+              "fft_natural_observation_present": True,
+              "public_bootstrap_email_free": True,
+              "real_email_or_wechat_probe_sent": False,
+              "production_runs": json.loads(
+                  Path("/tmp/fft-production-runs.json").read_text(encoding="utf-8")
+              ),
+          }
+          Path("/tmp/fft-release-evidence/acceptance.json").write_text(
+              json.dumps(output, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload production acceptance evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fft-qianhai-production-acceptance-${{ steps.release.outputs.target_sha }}
+          path: /tmp/fft-release-evidence
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 9
+
+      - name: Record completion summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha='${{ steps.release.outputs.target_sha }}'
+          echo "## FFTENNIS Qianhai production acceptance" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Exact production commit: \`$target_sha\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Web catalog: 16 venues, including \`fft_qianhai\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- FFT natural inspection timestamp: present" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Public bootstrap email addresses: none" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Real email/WeChat acceptance probe: not sent" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "- \(.label): run \(.id) / \(.name) / \(.conclusion)"' \
+            /tmp/fft-production-runs.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove temporary orchestrator from feature branch
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin "$ORCHESTRATOR_BRANCH"
+          git switch -C "$ORCHESTRATOR_BRANCH" "origin/$ORCHESTRATOR_BRANCH"
+          rm -f .github/workflows/fft-production-orchestrator.yml
+          git add -A
+          git diff --cached --check
+          git commit -m 'chore: remove temporary FFT production orchestrator'
+          git push origin HEAD:"$ORCHESTRATOR_BRANCH"
