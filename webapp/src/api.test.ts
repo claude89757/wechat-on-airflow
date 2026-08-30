@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createSubscription,
   DASHBOARD_CLIENT_CACHE_MS,
   FALLBACK_DASHBOARD,
   getDashboard,
@@ -82,5 +83,60 @@ describe("dashboard client cache", () => {
     invalidateDashboardCache();
     await getDashboard(null);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("subscription client", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    invalidateDashboardCache();
+  });
+
+  it("sends the selected ISO weekdays to the Worker", async () => {
+    const receipt: VerificationReceipt = {
+      token: "receipt-token",
+      email: "person@example.com",
+      maskedEmail: "p***@example.com",
+      verifiedAt: "2026-08-27T02:00:00.000Z",
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Response(JSON.stringify({
+        subscription: {
+          id: "subscription-id",
+          venueIds: ["szw"],
+          weekdays: [6, 7],
+          startTime: "18:00",
+          endTime: "22:00",
+          durationDays: 7,
+          termCode: "7d",
+          autoRenew: false,
+          eligible: true,
+          activeUntil: "2026-09-03T02:00:00.000Z",
+          active: true,
+          createdAt: "2026-08-27T02:00:00.000Z",
+        },
+      }), { status: 201, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createSubscription(receipt, {
+      venueIds: ["szw"],
+      weekdays: [6, 7],
+      startTime: "18:00",
+      endTime: "22:00",
+      termCode: "7d",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/subscriptions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({
+        venueIds: ["szw"],
+        weekdays: [6, 7],
+        startTime: "18:00",
+        endTime: "22:00",
+        termCode: "7d",
+      }),
+      headers: expect.objectContaining({ Authorization: "Bearer receipt-token" }),
+    }));
   });
 });

@@ -110,6 +110,11 @@ D1 migration commands are intentionally unsupported.
   network requests per 24 hours; a hidden page stops periodic network refreshes
   after it has a cached dashboard.
 - Browser layout and the create-subscription flow pass mobile visual checks.
+- Weekday subscriptions persist a non-empty ISO weekday selection, existing
+  subscriptions remain all-days, and matching uses the booking slot's
+  Asia/Shanghai calendar weekday.
+- Venue status and selection surfaces are ordered by unique active follower
+  count with deterministic ties.
 - Cloudflare Worker `exceededCpu` stays at zero during the observation window.
 - Total Worker requests stay below the 80,000/day operational warning threshold.
 - D1 daily rows read and written remain below the configured free-tier safety
