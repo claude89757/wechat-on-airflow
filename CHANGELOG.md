@@ -216,7 +216,7 @@ and operational changes.
 - Keep venue recipient lists independent and make email and WeChat failure
   outboxes explicit.
 - Add Agent-Native manifests, deterministic verification commands, production
-  health checks, migration runbooks, configuration, and decisions.
+  health checks, migration runbooks, and CI.
 - Run the synchronous WeChat sender as an independent, exact-commit, non-root
   systemd service with automatic startup, restart, and readiness checks; retain
   Compose as an alternate development runtime.
