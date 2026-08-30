@@ -12,7 +12,7 @@
 
 ## ✨ Features
 
-- **Multi-venue polling**: 15 Shenzhen venue DAGs (Shenzhen Bay at 15s intervals, Greater Bay Area, Dashah River free courts, Dashah International Tennis Center, Jindi, Shangyue Shahe, TOPS, Fansibote Fuzhongfu plus Shenyun/Shekou/Xinan/Zhengzhong/Antuoshan, PICKLE POP Bao'an, Sports Center) + HTTPS proxy watchers + daily device maintenance
+- **Multi-venue polling**: 16 Shenzhen venue DAGs (Shenzhen Bay at 15s intervals, Greater Bay Area, Dashah River free courts, Dashah International Tennis Center, Jindi, Shangyue Shahe, TOPS, Fansibote Fuzhongfu plus Shenyun/Shekou/Xinan/Zhengzhong/Antuoshan, FFTENNIS Qianhai International Tennis Center, PICKLE POP Bao'an, Sports Center) + HTTPS proxy watchers + daily device maintenance
 - **Email subscriptions**: a Cloudflare Worker web app owns email verification, subscription matching, event deduplication, and retries (delivered via Tencent SES)
 - **WeChat alerts**: an independent sender on the Android device host (systemd + Appium) delivers best-effort messages; failures are isolated per chat and never block the email path
 - **Configuration as contract**: machine-readable component/config/runtime contracts under `config/`; DAGs only wire schedules while business logic lives in `src/`
@@ -33,7 +33,7 @@ flowchart TB
         SZ["Shenzhen Bay / GBA booking API"]
         NSWTT["NSWTT Dashah River free courts"]
         YDMAP["YDMap Dashah International Tennis Center (Raspberry Pi browser)"]
-        VENUES["Jindi / Shangyue Shahe / TOPS / Fansibote chain / PICKLE POP Bao'an / Sports Center"]
+        VENUES["Jindi / Shangyue Shahe / TOPS / Fansibote chain / FFTENNIS Qianhai / PICKLE POP Bao'an / Sports Center"]
         PROXY["Public proxy sources + GitHub proxy repo"]
     end
 

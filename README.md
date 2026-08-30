@@ -12,7 +12,7 @@
 
 ## ✨ 功能特性
 
-- **多场馆自动巡检**：15 个深圳场馆巡检 DAG（深圳湾 15s 高频、大湾区、大沙河免费场、大沙河国际网球中心、金地、上越沙河、TOPS、泛思博特福中福、深云、蛇口、新安、正中、安托山、PICKLE POP宝安、体育中心）+ HTTPS 代理巡检 + 每日设备维护
+- **多场馆自动巡检**：16 个深圳场馆巡检 DAG（深圳湾 15s 高频、大湾区、大沙河免费场、大沙河国际网球中心、金地、上越沙河、TOPS、泛思博特福中福、深云、蛇口、新安、正中、安托山、FFTENNIS前海国际网球中心、PICKLE POP宝安、体育中心）+ HTTPS 代理巡检 + 每日设备维护
 - **邮箱订阅推送**：Cloudflare Worker Web 应用全权负责邮箱验证、订阅匹配、事件去重与失败重试（Tencent SES 投递）
 - **微信群提醒**：Android 设备宿主上的独立 WeChat Sender（systemd + Appium），best-effort 投递，失败按群隔离记录，不影响邮件链路
 - **代码即契约**：`config/` 下的机器可读组件/配置/运行时契约；DAG 仅做调度编排，业务实现全部位于 `src/` 包
@@ -33,7 +33,7 @@ flowchart TB
         SZ["深圳湾 / 大湾区订场 API"]
         NSWTT["NSWTT 大沙河免费场"]
         YDMAP["YDMap 大沙河国际网球中心（树莓派浏览器）"]
-        VENUES["金地 / 上越沙河 / TOPS / 泛思博特连锁 / PICKLE POP宝安 / 体育中心"]
+        VENUES["金地 / 上越沙河 / TOPS / 泛思博特连锁 / FFTENNIS前海 / PICKLE POP宝安 / 体育中心"]
         PROXY["公共代理源 + GitHub 代理仓库"]
     end
 

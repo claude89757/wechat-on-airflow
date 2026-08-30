@@ -67,6 +67,20 @@ variables:
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve
+  FFT_PROXY_CACHE:
+    type: json_list
+    required_by: [FFTENNIS前海国际网球中心巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  FFT_QIANHAI_NOTIFICATION_BASELINE:
+    type: json_object
+    required_by: [FFTENNIS前海国际网球中心巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: {}
   PPBA_PROXY_CACHE:
     type: json_list
     required_by: [PICKLEPOP宝安网球场巡检]
@@ -93,6 +107,7 @@ variables:
       - 泛思博特新安网球场巡检
       - 泛思博特正中网球场巡检
       - 泛思博特安托山网球场巡检
+      - FFTENNIS前海国际网球中心巡检
       - PICKLEPOP宝安网球场巡检
       - 大沙河国际网球中心巡检
     sensitive: true
@@ -198,6 +213,13 @@ variables:
   泛思博特安托山网球场:
     type: json_list
     required_by: [泛思博特安托山网球场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  FFTENNIS前海国际网球中心:
+    type: json_list
+    required_by: [FFTENNIS前海国际网球中心巡检]
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve

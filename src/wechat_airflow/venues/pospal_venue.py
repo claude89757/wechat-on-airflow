@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import random
+import re
 import time
 from dataclasses import dataclass
 from typing import TypedDict, cast
@@ -27,11 +28,15 @@ PROXY_LIST_URL = (
     "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
 )
 FSB_CHAIN_PROJECT_UID = "1768357901249380361"
+FFT_QIANHAI_PROJECT_UID = "1756717886546691955"
 FSB_PROXY_CACHE_KEY = "FSB_PROXY_CACHE"
+FFT_PROXY_CACHE_KEY = "FFT_PROXY_CACHE"
+FFT_NOTIFICATION_BASELINE_KEY = "FFT_QIANHAI_NOTIFICATION_BASELINE"
 LOOKAHEAD_DAYS = 3
 MAX_CACHED_PROXIES = 10
 MAX_CACHED_MESSAGES = 100
 EXCLUDED_COURT_TOKENS = ("小场", "匹克", "练习")
+COURT_NUMBER_PATTERN = re.compile(r"^\s*(\d+)\s*号")
 
 
 class NotificationCourt(TypedDict):
@@ -52,6 +57,13 @@ class PosPalVenue:
     cache_key: str
     dag_id: str
     proxy_cache_key: str = FSB_PROXY_CACHE_KEY
+    excluded_court_tokens: tuple[str, ...] = EXCLUDED_COURT_TOKENS
+    allowed_court_numbers: frozenset[int] | None = None
+    try_direct_first: bool = False
+    verify_tls: bool = False
+    include_user_id: bool = False
+    extra_headers: tuple[tuple[str, str], ...] = ()
+    notification_baseline_key: str | None = None
 
 
 FSB_SHENYUN = PosPalVenue(
@@ -94,6 +106,26 @@ FSB_ATUOSHAN = PosPalVenue(
     cache_key="泛思博特安托山网球场",
     dag_id="泛思博特安托山网球场巡检",
 )
+FFT_QIANHAI = PosPalVenue(
+    venue_id="fft_qianhai",
+    venue_name="FFTENNIS前海国际网球中心",
+    store_id="5934657",
+    project_uid=FFT_QIANHAI_PROJECT_UID,
+    cache_key="FFTENNIS前海国际网球中心",
+    dag_id="FFTENNIS前海国际网球中心巡检",
+    proxy_cache_key=FFT_PROXY_CACHE_KEY,
+    excluded_court_tokens=EXCLUDED_COURT_TOKENS + ("非标", "发球机"),
+    allowed_court_numbers=frozenset(range(1, 7)),
+    try_direct_first=True,
+    verify_tls=True,
+    include_user_id=True,
+    extra_headers=(
+        ("PSPLVISITORAUTO", "API"),
+        ("APPTYPE", "1"),
+        ("VERSIONINFO", "NC|2026.07.25"),
+    ),
+    notification_baseline_key=FFT_NOTIFICATION_BASELINE_KEY,
+)
 
 CHAIN_VENUES: dict[str, PosPalVenue] = {
     venue.venue_id: venue
@@ -118,11 +150,18 @@ def _as_str_list(value: object) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
-def is_standard_tennis_court(court_name: str) -> bool:
+def is_standard_tennis_court(
+    court_name: str,
+    excluded_court_tokens: tuple[str, ...] = EXCLUDED_COURT_TOKENS,
+    allowed_court_numbers: frozenset[int] | None = None,
+) -> bool:
     normalized = court_name.strip()
-    if not normalized:
+    if not normalized or any(token in normalized for token in excluded_court_tokens):
         return False
-    return not any(token in normalized for token in EXCLUDED_COURT_TOKENS)
+    if allowed_court_numbers is None:
+        return True
+    match = COURT_NUMBER_PATTERN.match(normalized)
+    return match is not None and int(match.group(1)) in allowed_court_numbers
 
 
 def normalize_time(time_str: str) -> str:
@@ -167,7 +206,11 @@ def parse_slot_time(begin_datetime: str, end_datetime: str) -> list[str]:
     return [normalize_time(start_time), normalize_time(end_time)]
 
 
-def parse_availability(json_data: object) -> CourtAvailability:
+def parse_availability(
+    json_data: object,
+    excluded_court_tokens: tuple[str, ...] = EXCLUDED_COURT_TOKENS,
+    allowed_court_numbers: frozenset[int] | None = None,
+) -> CourtAvailability:
     payload = _as_mapping(json_data)
     result = _as_mapping(payload.get("result"))
     slots = result.get("slots")
@@ -181,7 +224,9 @@ def parse_availability(json_data: object) -> CourtAvailability:
         if appt_info.get("canApptOrNot") is not True:
             continue
         court_name = str(slot.get("classRoomName") or "未知场地")
-        if not is_standard_tennis_court(court_name):
+        if not is_standard_tennis_court(
+            court_name, excluded_court_tokens, allowed_court_numbers
+        ):
             print(f"skip non-standard court: {court_name}")
             continue
         begin_datetime = slot.get("beginDatetime")
@@ -227,7 +272,11 @@ def filter_court_data_for_notification(
         target_end = datetime.datetime.strptime("22:00", "%H:%M")
 
     for court_name, free_slots in court_data.items():
-        if not free_slots or not is_standard_tennis_court(court_name):
+        if not free_slots or not is_standard_tennis_court(
+            court_name,
+            venue.excluded_court_tokens,
+            venue.allowed_court_numbers,
+        ):
             continue
         filtered_slots: list[list[str]] = []
         for slot in free_slots:
@@ -294,12 +343,83 @@ def update_proxy_cache(proxy_cache_key: str, proxy: str, success: bool) -> list[
     return cached_proxies
 
 
+def _request_availability(
+    venue: PosPalVenue,
+    date: str,
+    proxy: str | None,
+) -> requests.Response | None:
+    headers = {
+        "STOREID": venue.store_id,
+        "Content-Type": "application/json",
+        **dict(venue.extra_headers),
+    }
+    payload: dict[str, object] = {
+        "dateTime": date,
+        "projectUid": venue.project_uid,
+    }
+    if venue.include_user_id:
+        payload["userId"] = int(venue.store_id)
+
+    target_name = proxy or "direct"
+    try:
+        if proxy is None:
+            candidate = requests.post(
+                POSPAL_API_URL,
+                headers=headers,
+                json=payload,
+                verify=venue.verify_tls,
+                timeout=8,
+            )
+        else:
+            candidate = requests.post(
+                POSPAL_API_URL,
+                headers=headers,
+                json=payload,
+                proxies={"https": proxy},
+                verify=venue.verify_tls,
+                timeout=8,
+            )
+        if candidate.status_code != 200:
+            print(f"请求失败: {target_name}, HTTP状态码: {candidate.status_code}")
+            if proxy is not None:
+                update_proxy_cache(venue.proxy_cache_key, proxy, False)
+            return None
+        json_data = cast(object, candidate.json())
+        payload_data = _as_mapping(json_data)
+        if payload_data.get("successed") is not True or payload_data.get("status") != "success":
+            print(f"请求失败: {target_name}, API返回错误: {payload_data.get('status')}")
+            if proxy is not None:
+                update_proxy_cache(venue.proxy_cache_key, proxy, False)
+            return None
+        result_data = _as_mapping(payload_data.get("result"))
+        slots = result_data.get("slots")
+        rooms = result_data.get("validClassRooms")
+        print(
+            f"{venue.venue_name} API返回成功 via {target_name}: "
+            f"slots={len(slots) if isinstance(slots, list) else 0}, "
+            f"rooms={len(rooms) if isinstance(rooms, list) else 0}"
+        )
+        return candidate
+    except Exception as error:
+        print(f"请求异常: {target_name}, 错误: {error}")
+        if proxy is not None:
+            update_proxy_cache(venue.proxy_cache_key, proxy, False)
+        return None
+
+
 def get_tennis_court_availability(
     venue: PosPalVenue, date: str, proxy_list: list[str]
 ) -> CourtAvailability:
-    got_response = False
-    response: requests.Response | None = None
-    successful_proxy: str | None = None
+    if venue.try_direct_first:
+        direct_response = _request_availability(venue, date, None)
+        if direct_response is not None:
+            time.sleep(1)
+            return parse_availability(
+                cast(object, direct_response.json()),
+                venue.excluded_court_tokens,
+                venue.allowed_court_numbers,
+            )
+
     try:
         cached_proxies = _as_str_list(
             Variable.get(venue.proxy_cache_key, deserialize_json=True, default=[])
@@ -315,56 +435,18 @@ def get_tennis_court_availability(
         f"(缓存: {len(cached_proxies)}, 其他: {len(remaining_proxies)})"
     )
 
-    headers = {
-        "STOREID": venue.store_id,
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "dateTime": date,
-        "projectUid": venue.project_uid,
-    }
-
     for index, proxy in enumerate(all_proxies_to_try):
         print(f"尝试第 {index + 1} 个代理: {proxy}")
-        try:
-            candidate = requests.post(
-                POSPAL_API_URL,
-                headers=headers,
-                json=payload,
-                proxies={"https": proxy},
-                verify=False,
-                timeout=8,
-            )
-            if candidate.status_code != 200:
-                print(f"代理失败: {proxy}, HTTP状态码: {candidate.status_code}")
-                update_proxy_cache(venue.proxy_cache_key, proxy, False)
-                continue
-            json_data = cast(object, candidate.json())
-            payload_data = _as_mapping(json_data)
-            if payload_data.get("successed") is True and payload_data.get("status") == "success":
-                result_data = _as_mapping(payload_data.get("result"))
-                slots = result_data.get("slots")
-                rooms = result_data.get("validClassRooms")
-                print(
-                    f"{venue.venue_name} API返回成功: "
-                    f"slots={len(slots) if isinstance(slots, list) else 0}, "
-                    f"rooms={len(rooms) if isinstance(rooms, list) else 0}"
-                )
-                got_response = True
-                successful_proxy = proxy
-                response = candidate
-                time.sleep(1)
-                break
-            print(f"代理失败: {proxy}, API返回错误: {payload_data.get('status')}")
-            update_proxy_cache(venue.proxy_cache_key, proxy, False)
-        except Exception as error:
-            print(f"代理异常: {proxy}, 错误: {error}")
-            update_proxy_cache(venue.proxy_cache_key, proxy, False)
-
-    if successful_proxy:
-        update_proxy_cache(venue.proxy_cache_key, successful_proxy, True)
-    if got_response and response is not None:
-        return parse_availability(cast(object, response.json()))
+        candidate = _request_availability(venue, date, proxy)
+        if candidate is None:
+            continue
+        update_proxy_cache(venue.proxy_cache_key, proxy, True)
+        time.sleep(1)
+        return parse_availability(
+            cast(object, candidate.json()),
+            venue.excluded_court_tokens,
+            venue.allowed_court_numbers,
+        )
     raise Exception("all proxies failed")
 
 
@@ -440,13 +522,24 @@ def run_check(venue: PosPalVenue) -> None:
             print(f"Error checking date {input_date}: {error}")
             webapp_errors.append(str(error))
 
-    publish_venue_observation(
+    observation_result = publish_venue_observation(
         venue.venue_id,
         venue.venue_name,
         webapp_slots,
         healthy=not webapp_errors,
         error="; ".join(webapp_errors) or None,
     )
+
+    baseline_initialized = True
+    if venue.notification_baseline_key:
+        baseline_state = _as_mapping(
+            Variable.get(
+                venue.notification_baseline_key,
+                deserialize_json=True,
+                default={},
+            )
+        )
+        baseline_initialized = baseline_state.get("initialized") is True
 
     if up_for_send_data_list:
         sended_msg_list = _as_str_list(
@@ -464,6 +557,28 @@ def run_check(venue: PosPalVenue) -> None:
                 ),
                 serialize_json=True,
             )
-            enqueue_wechat_message(venue, "\n".join(up_for_send_msg_list))
+            if baseline_initialized:
+                enqueue_wechat_message(venue, "\n".join(up_for_send_msg_list))
+            else:
+                print_with_timestamp(
+                    f"{venue.venue_name} first successful observation initialized "
+                    f"{len(up_for_send_msg_list)} notification baselines without delivery"
+                )
+
+    if (
+        venue.notification_baseline_key
+        and not baseline_initialized
+        and not webapp_errors
+        and observation_result.get("success") is True
+    ):
+        Variable.set(
+            key=venue.notification_baseline_key,
+            value={
+                "initialized": True,
+                "initialized_at": datetime.datetime.now().isoformat(),
+            },
+            description=f"{venue.venue_name} notification warm-start marker",
+            serialize_json=True,
+        )
 
     print_with_timestamp(f"Total cost time: {time.time() - run_start_time:.2f}s")

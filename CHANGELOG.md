@@ -5,8 +5,16 @@ and operational changes.
 
 ## Unreleased
 
+## [0.6.0] - 2026-08-30
+
 ### Added
 
+- Add FFTENNIS Qianhai International Tennis Center (`fft_qianhai`) to the Web
+  subscription catalog and a one-minute Airflow inspection DAG backed by its
+  public, TLS-verified PosPal V2 availability API.
+- Publish only courts 1–6 / standard double courts from FFTENNIS and exclude
+  non-standard singles and ball-machine courts before Web observation or
+  WeChat. Warm-start the first WeChat notification baseline without delivery.
 - Let Web subscribers choose one or more weekdays, including one-tap daily,
   weekday, and weekend presets. Existing subscriptions continue to run every
   day.

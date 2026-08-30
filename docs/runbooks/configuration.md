@@ -58,17 +58,20 @@ not an email event. Only zero-price slices with `status=200` are published.
 
 ## PosPal Venue Booking
 
-TOPS, 泛思博特福中福, PICKLE POP宝安, and the five Fansibote chain courts
-(深云, 蛇口, 新安, 正中, 安托山) query the same public PosPal appointment
-endpoint with a store ID and project UID that live in the adapter. They do not
-use a login token or visitor header, so no additional Airflow secret is
-required when the venue is added. The chain-court adapter keeps only standard
+TOPS, 泛思博特福中福, PICKLE POP宝安, FFTENNIS前海国际网球中心, and the
+five Fansibote chain courts (深云, 蛇口, 新安, 正中, 安托山) query the same
+public PosPal appointment service with a store ID and project UID that live in
+the adapter. No login token, cookie, openid, or session key is required.
+FFTENNIS uses the mini-program's documented public request headers and performs
+a TLS-verified direct request first, falling back to the shared HTTPS proxy pool
+only when direct access fails. It publishes only 1–6号双打场 and drops 7–8号
+非标单打场 plus 9–10号发球机场. The chain-court adapter keeps only standard
 tennis / 风雨场 names and drops 小场, 匹克, and 练习 courts. A successful V2
 payload with zero bookable rooms is a healthy empty result. PICKLE POP宝安
 publishes tennis courts only and drops pickleball rooms. WeChat alerts use the
 shared `SZ_TENNIS_CHATROOMS` list. Application-managed `TOPS_PROXY_CACHE`,
-`FSB_PROXY_CACHE`, `PPBA_PROXY_CACHE`, and the venue dedupe caches are created
-on the first successful run.
+`FSB_PROXY_CACHE`, `FFT_PROXY_CACHE`, `PPBA_PROXY_CACHE`, notification baseline,
+and venue dedupe caches are created on the first successful run.
 
 ## Raspberry Pi YDMap Scraper
 

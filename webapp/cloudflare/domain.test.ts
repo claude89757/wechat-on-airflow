@@ -132,6 +132,17 @@ describe("subscription domain", () => {
     ).toEqual(["fsb_shenyun", "fsb_shekou", "fsb_xinan", "fsb_zhengzhong", "fsb_atuoshan"]);
   });
 
+  it("accepts FFTENNIS Qianhai subscriptions", () => {
+    expect(
+      validateSubscriptionInput({
+        venueIds: ["fft_qianhai"],
+        startTime: "18:00",
+        endTime: "22:00",
+        durationDays: 7,
+      }).venueIds,
+    ).toEqual(["fft_qianhai"]);
+  });
+
   it("accepts PICKLE POP Bao'an subscriptions", () => {
     expect(
       validateSubscriptionInput({
@@ -143,8 +154,8 @@ describe("subscription domain", () => {
     ).toEqual(["ppba"]);
   });
 
-  it("registers fifteen venues including Fansibote chain courts", () => {
-    expect(Object.keys(VENUES)).toHaveLength(15);
+  it("registers sixteen venues including FFTENNIS Qianhai", () => {
+    expect(Object.keys(VENUES)).toHaveLength(16);
     expect(VENUES.ppba).toBe("PICKLE POP宝安");
     expect(VENUES.dsh).toBe("大沙河国际网球中心");
     expect(VENUES.fsb_shenyun).toBe("泛思博特深云");
@@ -152,6 +163,7 @@ describe("subscription domain", () => {
     expect(VENUES.fsb_xinan).toBe("泛思博特新安");
     expect(VENUES.fsb_zhengzhong).toBe("泛思博特正中");
     expect(VENUES.fsb_atuoshan).toBe("泛思博特安托山");
+    expect(VENUES.fft_qianhai).toBe("FFTENNIS前海国际网球中心");
   });
 
   it("accepts Dashah International Tennis Center subscriptions", () => {
