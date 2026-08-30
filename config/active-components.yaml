@@ -45,6 +45,11 @@ shared_contracts:
       - raw_slots_are_not_filtered_by_legacy_notification_windows
       - webapp_is_the_only_email_delivery_owner
       - no_secrets_or_email_addresses_are_logged
+  venue_inspection_cadence:
+    policy_file: config/venue-schedule-policy.yaml
+    invariants:
+      - one_minute_default_for_new_venues
+      - exceptions_are_explicit_and_tested
 
 active_dags:
   - dag_id: HTTPS可用代理巡检
@@ -125,7 +130,7 @@ active_dags:
 
   - dag_id: 大湾区网球场巡检
     file: dags/tennis_dags/sz_tennis/gba_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_and_notify_day_0
       - check_and_notify_day_1
@@ -158,7 +163,7 @@ active_dags:
 
   - dag_id: 大沙河免费场巡检
     file: dags/tennis_dags/sz_tennis/dashahe_free_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_free_courts
     variables:
@@ -225,7 +230,7 @@ active_dags:
 
   - dag_id: 深圳金地网球场巡检
     file: dags/tennis_dags/sz_tennis/jdwx_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -257,7 +262,7 @@ active_dags:
 
   - dag_id: 上越沙河网球场巡检
     file: dags/tennis_dags/sz_tennis/sysh_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -289,7 +294,7 @@ active_dags:
 
   - dag_id: TOPS科技园网球场巡检
     file: dags/tennis_dags/sz_tennis/tops_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -321,7 +326,7 @@ active_dags:
 
   - dag_id: 泛思博特福中福网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -353,7 +358,7 @@ active_dags:
 
   - dag_id: PICKLEPOP宝安网球场巡检
     file: dags/tennis_dags/sz_tennis/ppba_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -385,7 +390,7 @@ active_dags:
 
   - dag_id: 泛思博特深云网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_shenyun_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -418,7 +423,7 @@ active_dags:
 
   - dag_id: 泛思博特蛇口网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_shekou_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -451,7 +456,7 @@ active_dags:
 
   - dag_id: 泛思博特新安网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_xinan_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -484,7 +489,7 @@ active_dags:
 
   - dag_id: 泛思博特正中网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_zhengzhong_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -517,7 +522,7 @@ active_dags:
 
   - dag_id: 泛思博特安托山网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_atuoshan_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -550,7 +555,7 @@ active_dags:
 
   - dag_id: 深圳市体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/tyzx_watcher.py
-    schedule: "*/1 * * * *"
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
