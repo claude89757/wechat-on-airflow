@@ -14,7 +14,7 @@ dag = DAG(
         "start_date": datetime.datetime(2025, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
     },
     description="深圳市体育中心网球场巡检",
-    schedule="*/1 * * * *",
+    schedule=timedelta(minutes=1),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,

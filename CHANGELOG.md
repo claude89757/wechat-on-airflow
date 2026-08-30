@@ -21,6 +21,19 @@ and operational changes.
   follower count, with a deterministic name/ID tie-breaker and visible
   popularity labels.
 
+## [0.6.0] - 2026-08-30
+
+### Added
+
+- Add ten Fansibote chain tennis venues to the Web subscription catalog and
+  30-second Airflow inspection DAGs: 棕榈泉, 观湖, 坂田, 沙河, 保税, 南油,
+  新桥, 壹方城, 麒麟, and 茅洲河.
+
+### Changed
+
+- Drop 非标 and 发球机 courts from the shared PosPal adapter, in addition to
+  小场, 匹克, and 练习, so only standard tennis / 风雨场 courts are published.
+
 ## [0.5.3] - 2026-08-30
 
 ### Added

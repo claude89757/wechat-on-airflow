@@ -45,6 +45,11 @@ shared_contracts:
       - raw_slots_are_not_filtered_by_legacy_notification_windows
       - webapp_is_the_only_email_delivery_owner
       - no_secrets_or_email_addresses_are_logged
+  venue_inspection_cadence:
+    policy_file: config/venue-schedule-policy.yaml
+    invariants:
+      - one_minute_default_for_new_venues
+      - exceptions_are_explicit_and_tested
 
 active_dags:
   - dag_id: HTTPS可用代理巡检
@@ -125,7 +130,7 @@ active_dags:
 
   - dag_id: 大湾区网球场巡检
     file: dags/tennis_dags/sz_tennis/gba_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_and_notify_day_0
       - check_and_notify_day_1
@@ -158,7 +163,7 @@ active_dags:
 
   - dag_id: 大沙河免费场巡检
     file: dags/tennis_dags/sz_tennis/dashahe_free_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_free_courts
     variables:
@@ -225,7 +230,7 @@ active_dags:
 
   - dag_id: 深圳金地网球场巡检
     file: dags/tennis_dags/sz_tennis/jdwx_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -257,7 +262,7 @@ active_dags:
 
   - dag_id: 上越沙河网球场巡检
     file: dags/tennis_dags/sz_tennis/sysh_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -289,7 +294,7 @@ active_dags:
 
   - dag_id: TOPS科技园网球场巡检
     file: dags/tennis_dags/sz_tennis/tops_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -321,7 +326,7 @@ active_dags:
 
   - dag_id: 泛思博特福中福网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -353,7 +358,7 @@ active_dags:
 
   - dag_id: PICKLEPOP宝安网球场巡检
     file: dags/tennis_dags/sz_tennis/ppba_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -385,7 +390,7 @@ active_dags:
 
   - dag_id: 泛思博特深云网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_shenyun_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -418,7 +423,7 @@ active_dags:
 
   - dag_id: 泛思博特蛇口网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_shekou_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -451,7 +456,7 @@ active_dags:
 
   - dag_id: 泛思博特新安网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_xinan_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -484,7 +489,7 @@ active_dags:
 
   - dag_id: 泛思博特正中网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_zhengzhong_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -517,7 +522,7 @@ active_dags:
 
   - dag_id: 泛思博特安托山网球场巡检
     file: dags/tennis_dags/sz_tennis/fsb_atuoshan_watcher.py
-    schedule: every_30_seconds
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
@@ -548,9 +553,339 @@ active_dags:
       - wechat_dedupe_cache_written_before_wechat_delivery
       - webapp_observation_precedes_wechat
 
+  - dag_id: 泛思博特棕榈泉网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_zonglvquan_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特棕榈泉网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_zonglvquan_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Zonglvquan tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特观湖网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_guanhu_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特观湖网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_guanhu_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Guanhu tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特坂田网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_bantian_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特坂田网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_bantian_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Bantian tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特沙河网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_shahe_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特沙河网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_shahe_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Shahe tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特保税网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_baoshui_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特保税网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_baoshui_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Baoshui tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特南油网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_nanyou_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特南油网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_nanyou_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Nanyou tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特新桥网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_xinqiao_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特新桥网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_xinqiao_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Xinqiao tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特壹方城网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_yifangcheng_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特壹方城网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_yifangcheng_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Yifangcheng tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特麒麟网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_qilin_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特麒麟网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_qilin_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Qilin tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
+  - dag_id: 泛思博特茅洲河网球场巡检
+    file: dags/tennis_dags/sz_tennis/fsb_maozhouhe_watcher.py
+    schedule: every_1_minutes
+    tasks:
+      - check_tennis_courts
+    variables:
+      - FSB_PROXY_CACHE
+      - SZ_TENNIS_CHATROOMS
+      - WEBAPP_OBSERVATION_API_TOKEN
+      - WEBAPP_OBSERVATION_API_URL
+      - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
+      - 泛思博特茅洲河网球场
+    connections: []
+    direct_modules:
+      - wechat_airflow.venues.fsb_maozhouhe_watcher
+      - wechat_airflow.venues.pospal_venue
+      - wechat_airflow.notifications.webapp
+      - wechat_airflow.notifications.wechat
+    external_services:
+      - fsb_booking_api
+      - public_proxy_list
+      - zacks_tennis_webapp
+      - wechat_sender_api
+    notifications:
+      - webapp_observation
+      - wechat
+    purpose: Detect and notify Fansibote Maozhouhe tennis availability.
+    verification:
+      - dag_imports
+      - recent_runs_succeed
+      - wechat_dedupe_cache_written_before_wechat_delivery
+      - webapp_observation_precedes_wechat
+
   - dag_id: 深圳市体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/tyzx_watcher.py
-    schedule: "*/1 * * * *"
+    schedule: every_1_minutes
     tasks:
       - check_tennis_courts
     variables:
