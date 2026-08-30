@@ -5,6 +5,25 @@ and operational changes.
 
 ## Unreleased
 
+## [0.6.4] - 2026-08-30
+
+### Changed
+
+- Keep the normal 30-second Web display refresh on the existing 120-second
+  client and edge cache path, while making an explicit manual refresh fetch
+  current dashboard data and report completion to the user.
+- Prioritize verified users' personal subscription and delivered-email metrics,
+  label global metrics explicitly, and rename the first-level support action to
+  ‘支持 Zacks’.
+
+### Fixed
+
+- Derive fallback venue totals from the full 26-venue catalog so initial and
+  degraded states no longer display the obsolete 15-venue total.
+- Require confirmation before cancelling a subscription, restore visible
+  keyboard focus, increase key mobile status text above 9px, and align browser
+  and source contracts with the removed subscriptions footer entry.
+
 ## [0.6.3] - 2026-08-30
 
 ### Changed
