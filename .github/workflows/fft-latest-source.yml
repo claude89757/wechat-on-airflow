@@ -1,0 +1,33 @@
+name: FFT latest source snapshot
+
+on:
+  push:
+    branches:
+      - chore/fft-latest-source-20260830
+    paths:
+      - .github/workflows/fft-latest-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Export latest main source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=zip --output latest-main.zip 11783bf6c510eb9ccde982ac4bb68d06a7cca3de
+      - name: Upload source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fft-latest-main-${{ github.sha }}
+          path: latest-main.zip
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
