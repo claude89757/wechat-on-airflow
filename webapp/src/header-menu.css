@@ -70,6 +70,13 @@
   user-select: none;
   outline: none;
   cursor: pointer;
+  text-decoration: none;
+}
+
+.more-menu-separator {
+  height: 1px;
+  margin: 5px 8px;
+  background: rgba(20, 25, 35, 0.08);
 }
 
 .more-menu-item svg {
