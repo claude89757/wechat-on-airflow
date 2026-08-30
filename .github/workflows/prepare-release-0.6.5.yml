@@ -40,24 +40,20 @@ jobs:
 
           changelog = Path("CHANGELOG.md")
           text = changelog.read_text(encoding="utf-8")
-          section = """## [0.6.5] - 2026-08-30
-
-### Added
-
-- Replace the mobile venue status rows with compact, touch-friendly cards that
-  retain inspection health, configured cadence, status-sync age, follower count,
-  and the latest confirmed reminder delivery.
-- Open a venue-prefilled quick subscription flow directly from each card while
-  preserving email verification, weekday, time-window, and term controls.
-
-### Changed
-
-- Use three venue-card columns on typical phones and two below 360px, with
-  keyboard activation, visible focus, subscription-count and limit states, and
-  post-creation card highlighting.
-- Keep the existing full multi-venue creation flow available through “添加其他场地”.
-
-"""
+          section = (
+              "## [0.6.5] - 2026-08-30\n\n"
+              "### Added\n\n"
+              "- Replace the mobile venue status rows with compact, touch-friendly cards that\n"
+              "  retain inspection health, configured cadence, status-sync age, follower count,\n"
+              "  and the latest confirmed reminder delivery.\n"
+              "- Open a venue-prefilled quick subscription flow directly from each card while\n"
+              "  preserving email verification, weekday, time-window, and term controls.\n\n"
+              "### Changed\n\n"
+              "- Use three venue-card columns on typical phones and two below 360px, with\n"
+              "  keyboard activation, visible focus, subscription-count and limit states, and\n"
+              "  post-creation card highlighting.\n"
+              "- Keep the existing full multi-venue creation flow available through “添加其他场地”.\n\n"
+          )
           marker = "## Unreleased\n\n"
           if "## [0.6.5] - " not in text:
               if marker not in text:
