@@ -175,8 +175,8 @@ describe("subscription domain", () => {
     ).toEqual(["ppba"]);
   });
 
-  it("registers twenty-five venues including Fansibote chain courts", () => {
-    expect(Object.keys(VENUES)).toHaveLength(25);
+  it("registers twenty-six venues including Fansibote chain courts and FFTENNIS Qianhai", () => {
+    expect(Object.keys(VENUES)).toHaveLength(26);
     expect(VENUES.ppba).toBe("PICKLE POP宝安");
     expect(VENUES.dsh).toBe("大沙河国际网球中心");
     expect(VENUES.fsb_shenyun).toBe("泛思博特深云");
@@ -194,6 +194,7 @@ describe("subscription domain", () => {
     expect(VENUES.fsb_yifangcheng).toBe("泛思博特壹方城");
     expect(VENUES.fsb_qilin).toBe("泛思博特麒麟");
     expect(VENUES.fsb_maozhouhe).toBe("泛思博特茅洲河");
+    expect(VENUES.fft_qianhai).toBe("FFTENNIS前海国际网球中心");
   });
 
   it("accepts Dashah International Tennis Center subscriptions", () => {

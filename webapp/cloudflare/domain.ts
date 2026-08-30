@@ -21,6 +21,7 @@ export const VENUES = {
   fsb_yifangcheng: "泛思博特壹方城",
   fsb_qilin: "泛思博特麒麟",
   fsb_maozhouhe: "泛思博特茅洲河",
+  fft_qianhai: "FFTENNIS前海国际网球中心",
   ppba: "PICKLE POP宝安",
   tyzx: "深圳市体育中心",
   jdwx: "金地威新",
