@@ -1,0 +1,42 @@
+name: Restore Protected Web Runtime
+
+on:
+  push:
+    branches:
+      - fix/web-ux-refresh-a11y-20260830
+
+permissions:
+  contents: write
+
+concurrency:
+  group: restore-protected-web-runtime
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    if: ${{ !contains(github.event.head_commit.message, '[runtime-restored]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/web-ux-refresh-a11y-20260830
+          fetch-depth: 0
+
+      - name: Restore protected runtime file from main
+        run: |
+          git fetch origin main
+          git checkout origin/main -- webapp/src/styles.css
+          git diff --check
+          git diff --quiet -- webapp/src/styles.css && {
+            echo "protected runtime already matches main"
+            exit 0
+          }
+
+      - name: Commit restored runtime
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add webapp/src/styles.css
+          git commit -m "fix(web): restore protected runtime stylesheet [runtime-restored]"
+          git push origin HEAD:fix/web-ux-refresh-a11y-20260830
