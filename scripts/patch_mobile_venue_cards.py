@@ -76,7 +76,7 @@ source = replace_once(
     previousReminderCount.current = null;
     setNotificationBurst(false);
   }, [receipt?.token]);
-  ''',
+''',
     '''  useEffect(() => {
     if (!highlightedVenueId) return;
     const timer = window.setTimeout(() => setHighlightedVenueId(null), 1800);
@@ -87,7 +87,7 @@ source = replace_once(
     previousReminderCount.current = null;
     setNotificationBurst(false);
   }, [receipt?.token]);
-  ''',
+''',
     "card highlight effect",
 )
 
