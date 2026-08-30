@@ -191,9 +191,7 @@ def run_check_tennis_courts() -> None:
     inspection_days = inspection_days_for(now)
     if inspection_days < LOOKAHEAD_DAYS:
         farthest_date = (now.date() + datetime.timedelta(days=LOOKAHEAD_DAYS - 1)).isoformat()
-        print_with_timestamp(
-            f"{farthest_date} 为最远可预订日期，12:00前尚未开放，本轮跳过该日期"
-        )
+        print_with_timestamp(f"{farthest_date} 为最远可预订日期，12:00前尚未开放，本轮跳过该日期")
 
     print_with_timestamp(f"start to check {VENUE_NAME}...")
     webapp_slots: list[dict[str, str]] = []
@@ -233,8 +231,7 @@ def run_check_tennis_courts() -> None:
                 key=CACHE_KEY,
                 value=sended_msg_list[-MAX_CACHED_MESSAGES:],
                 description=(
-                    f"{VENUE_NAME}网球场场地通知 - 最后更新: "
-                    f"{now.strftime('%Y-%m-%d %H:%M:%S')}"
+                    f"{VENUE_NAME}网球场场地通知 - 最后更新: {now.strftime('%Y-%m-%d %H:%M:%S')}"
                 ),
                 serialize_json=True,
             )
