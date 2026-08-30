@@ -17,6 +17,12 @@ test("moving from More into its menu does not drag or rubber-band the page", asy
 
   const firstItem = page.getByRole("menuitem", { name: "我的订阅", exact: true });
   await expect(firstItem).toBeVisible();
+  const repositoryItem = page.getByRole("menuitem", { name: "项目开源地址", exact: true });
+  await expect(repositoryItem).toHaveAttribute(
+    "href",
+    "https://github.com/claude89757/wechat-on-airflow",
+  );
+  await expect(repositoryItem).toHaveAttribute("rel", "noopener noreferrer");
   await expect(trigger).toHaveAttribute("data-scroll-drag", "ignore");
 
   const itemBox = await firstItem.boundingBox();
