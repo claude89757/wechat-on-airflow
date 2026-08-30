@@ -1,0 +1,38 @@
+name: FFT rebase snapshots
+
+on:
+  push:
+    branches:
+      - chore/fft-rebase-snapshot-20260830
+    paths:
+      - .github/workflows/fft-rebase-snapshot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Export base, latest main, and FFT feature trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          git archive --format=zip --output artifacts/base.zip ce934413d34fc27bddd903d152fb39169f982e19
+          git archive --format=zip --output artifacts/main.zip 8ec8f53b978f1a7cdb3131b5b088124e357cbb93
+          git archive --format=zip --output artifacts/feature.zip df7eb475d213ac1918f1394d823b9e1851a43c28
+
+      - name: Upload snapshots
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fft-three-way-snapshots-${{ github.sha }}
+          path: artifacts
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
