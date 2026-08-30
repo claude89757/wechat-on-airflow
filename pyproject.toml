@@ -23,7 +23,7 @@ sender = [
   "fastapi==0.139.2",
   "Pillow==12.3.0",
   "pydantic==2.13.4",
-  "selenium==4.46.0",
+  "selenium==4.47.0",
   "uvicorn==0.51.0",
 ]
 dev = [
