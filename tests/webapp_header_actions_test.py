@@ -3,7 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_footer_actions_move_into_accessible_header_menu():
+def test_footer_actions_and_help_move_into_accessible_header_menu():
     source = (ROOT / "webapp/src/Prototype.tsx").read_text(encoding="utf-8")
 
     assert 'aria-label="更多功能"' in source
@@ -11,11 +11,16 @@ def test_footer_actions_move_into_accessible_header_menu():
     assert 'onSelect={() => openPanel("subscriptions")}' in source
     assert 'onSelect={() => openPanel("community")}' in source
     assert 'onSelect={() => openPanel("admin")}' in source
+    assert 'onSelect={() => openPanel("help")}' in source
+    assert "<span>查看帮助</span>" in source
+    assert "<QuestionIcon size={20}" in source
     assert "href={GITHUB_REPOSITORY_URL}" in source
     assert 'target="_blank"' in source
     assert 'rel="noopener noreferrer"' in source
     assert "项目开源地址" in source
     assert 'className="subscriptions-link"' not in source
+    assert 'className="icon-button"' not in source
+    assert 'aria-label="查看帮助"' not in source
 
 
 def test_more_menu_pointer_transfer_cannot_start_mobile_scroll_drag():
