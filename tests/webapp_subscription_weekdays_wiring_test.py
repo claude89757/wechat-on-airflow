@@ -19,7 +19,7 @@ def test_public_venue_popularity_uses_unique_followers_and_stable_order():
 
     assert "COUNT(DISTINCT s.email)" in worker
     assert "ORDER BY subscriber_count DESC" in worker
-    assert "热门优先 · 按关注人数从高到低排序" in ui
+    assert "热门优先 · 时间为最近一次状态同步" in ui
     assert "right.subscriberCount - left.subscriberCount" in ui
 
 

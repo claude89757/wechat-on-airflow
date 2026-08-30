@@ -49,6 +49,7 @@ import { LULU_LABELS, resolveLuluState } from "./lulu";
 import { AdminPanel, CommunityPanel } from "./OperationsPanel";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
 import { isTextEntry, useNativeKeyboardViewport } from "./nativeKeyboard";
+import { formatInspectionCadence } from "./venue-inspection-display";
 
 type Panel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | "coffee" | null;
 
@@ -966,9 +967,9 @@ export default function Prototype() {
             <div className="section-heading">
               <div>
                 <h2 id="venue-heading">场地运行状态</h2>
-                <p>热门优先 · 按关注人数从高到低排序</p>
+                <p>热门优先 · 时间为最近一次状态同步</p>
               </div>
-              <span><ArrowsClockwiseIcon size={17} />30 秒自动更新</span>
+              <span><ArrowsClockwiseIcon size={17} />30 秒刷新显示</span>
             </div>
 
             <div className="venue-list">
@@ -976,6 +977,7 @@ export default function Prototype() {
                 (() => {
                   const VenueIcon = VENUE_ICONS[venue.id];
                   const venueState = resolveVenueDisplayState(availability, venue.healthy);
+                  const inspectionCadence = formatInspectionCadence(venue.id);
                   return (
                     <article className="venue-row" key={venue.id}>
                       <span className={`venue-icon venue-icon-${VENUE_ACCENTS[venue.id]}`}>
@@ -985,13 +987,17 @@ export default function Prototype() {
                         <h3>{venue.name}</h3>
                         <p>{venue.subscriberCount > 0 ? `${venue.subscriberCount} 人关注` : "暂无关注"}</p>
                       </div>
-                      <div className="venue-health">
+                      <div
+                        className="venue-health"
+                        title={venueState === "unknown" ? undefined
+                          : `实际巡检频率：${inspectionCadence}；页面时间为最近一次状态同步记录`}
+                      >
                         <strong className={venueState}><CheckCircleIcon size={16} weight="fill" />
                           {venueState === "unknown" ? (availability === "loading" ? "正在读取" : "状态未知")
-                            : venueState === "healthy" ? "巡检正常" : "巡检异常"}
+                            : venueState === "healthy" ? `正常 · ${inspectionCadence}` : `异常 · ${inspectionCadence}`}
                         </strong>
                         <span>{venueState === "unknown" ? (availability === "loading" ? "请稍候" : "点击刷新重试")
-                          : formatRelative(venue.lastInspectionAt)}</span>
+                          : `状态同步 ${formatRelative(venue.lastInspectionAt)}`}</span>
                       </div>
                       <div className="venue-mail">
                         <strong className={venue.lastNotificationAt ? "" : "muted"}>
@@ -1113,7 +1119,12 @@ export default function Prototype() {
             </div>
             <div className="help-row">
               <span>2</span>
-              <div><strong>系统持续巡检</strong><p>Airflow 按场地开放节奏检查未来可订情况。</p></div>
+              <div>
+                <strong>巡检与页面同步分开</strong>
+                <p>
+                  场地按 15 秒、1 分钟或 3 分钟持续巡检。为节省 Cloudflare 免费额度，页面复用缓存并低频同步状态；“4 分钟前”表示状态同步时间，不是巡检间隔，空位变化仍会立即进入通知链路。
+                </p>
+              </div>
             </div>
             <div className="help-row">
               <span>3</span>
