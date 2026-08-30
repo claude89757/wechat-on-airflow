@@ -5,6 +5,8 @@ and operational changes.
 
 ## Unreleased
 
+## [0.5.3] - 2026-08-30
+
 ### Added
 
 - Append booking mini-program footers for Dashah International (威逊文体),
@@ -14,6 +16,9 @@ and operational changes.
 
 - Narrow Shenzhen Sports Center WeChat alerts on weekends from 16:00-21:00
   to 17:00-21:00. Weekdays stay 18:00-21:00. Web email windows are unchanged.
+- Before 12:00 Asia/Shanghai, inspect only the four already released Dashah
+  International booking dates. Restore the rolling fifth date at noon so its
+  pre-release disabled cells cannot be published or pushed as false availability.
 
 ## [0.5.2] - 2026-08-29
 
@@ -211,7 +216,7 @@ and operational changes.
 - Keep venue recipient lists independent and make email and WeChat failure
   outboxes explicit.
 - Add Agent-Native manifests, deterministic verification commands, production
-  health checks, migration runbooks, and CI.
+  health checks, migration runbooks, configuration, and decisions.
 - Run the synchronous WeChat sender as an independent, exact-commit, non-root
   systemd service with automatic startup, restart, and readiness checks; retain
   Compose as an alternate development runtime.
