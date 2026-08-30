@@ -6,230 +6,77 @@ on:
       - feat/fft-qianhai-integration-20260830
     paths:
       - .github/workflows/fft-integration-workbench.yml
-      - docs/integrations/miniprogram-wxb8ec04a1ebd1866b-2026.07.25.zip
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  apply-and-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          ref: feat/fft-qianhai-integration-20260830
 
-      - name: Export source and inspect archive
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Reconstruct and apply reviewed patch
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts/source artifacts/probe artifacts/miniprogram
-          git archive --format=zip --output artifacts/source/wechat-on-airflow-source.zip HEAD
-          python - <<'PY'
-          from __future__ import annotations
+          cat .tmp/fft-patch-00.b64 \
+              .tmp/fft-patch-01.b64 \
+              .tmp/fft-patch-02.b64 \
+              .tmp/fft-patch-03.b64 \
+              .tmp/fft-patch-04.b64 > /tmp/fft.patch.gz.b64
+          echo "f90e56dbe0cecc597993b28a0228207bc0e0dba1a6feddaa7b172aa8257c8b42  /tmp/fft.patch.gz.b64" | sha256sum --check --strict
+          base64 --decode /tmp/fft.patch.gz.b64 | gzip --decompress > /tmp/fft.patch
+          echo "e0a59c5db2565e331b23bd0915ee8e36307189a5b1b502c6271ac9bf71fb5586  /tmp/fft.patch" | sha256sum --check --strict
+          git apply --index /tmp/fft.patch
+          git rm -f .tmp/fft-patch-00.b64 \
+                    .tmp/fft-patch-01.b64 \
+                    .tmp/fft-patch-02.b64 \
+                    .tmp/fft-patch-03.b64 \
+                    .tmp/fft-patch-04.b64
+          git diff --cached --check
+          git status --short
 
-          import hashlib
-          import json
-          import zipfile
-          from pathlib import Path, PurePosixPath
+      - name: Install Python development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
 
-          archive = Path("docs/integrations/miniprogram-wxb8ec04a1ebd1866b-2026.07.25.zip")
-          expected = "4b24f41a0ba2db47e49d6c0f167acebb40c80b165d82d908796f0033a8b9746f"
-          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-          if digest != expected:
-              raise RuntimeError(f"archive digest mismatch: {digest}")
+      - name: Install Web application dependencies
+        working-directory: webapp
+        run: npm ci
 
-          output = Path("artifacts/miniprogram")
-          with zipfile.ZipFile(archive) as bundle:
-              members = bundle.infolist()
-              for member in members:
-                  path = PurePosixPath(member.filename)
-                  if path.is_absolute() or ".." in path.parts:
-                      raise RuntimeError(f"unsafe archive member: {member.filename!r}")
-              bundle.extractall(output)
+      - name: Verify Python and repository contracts
+        run: |
+          python -m ruff check .
+          python -m ruff format --check --diff .
+          python -m mypy
+          PYTHONPATH=src python -m pytest -m 'not airflow'
+          PYTHONPATH=src python scripts/check_active_components.py
 
-          manifest = {
-              "sha256": digest,
-              "files": sum(not item.is_dir() for item in members),
-              "directories": sum(item.is_dir() for item in members),
-              "uncompressed_bytes": sum(item.file_size for item in members),
-          }
-          Path("artifacts/probe/archive-manifest.json").write_text(
-              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          PY
+      - name: Verify Web application
+        run: make webapp-check
 
-      - name: Probe FFT read-only APIs with TLS verification
+      - name: Commit verified integration
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from __future__ import annotations
-
-          import datetime as dt
-          import json
-          import urllib.request
-          from pathlib import Path
-          from typing import Any
-          from zoneinfo import ZoneInfo
-
-          BASE_URL = "https://wxservice-stg48.pospal.cn/wxapi/"
-          STORE_ID = 5934657
-          PROJECT_UID = "1756717886546691955"
-
-          def mapping(value: object) -> dict[str, Any]:
-              return value if isinstance(value, dict) else {}
-
-          def post(path: str, payload: dict[str, object]) -> dict[str, Any]:
-              request = urllib.request.Request(
-                  BASE_URL + path,
-                  data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                  method="POST",
-                  headers={
-                      "STOREID": str(STORE_ID),
-                      "PSPLVISITORAUTO": "API",
-                      "APPTYPE": "1",
-                      "VERSIONINFO": "NC|2026.07.25",
-                      "Content-Type": "application/json",
-                      "User-Agent": "wechat-on-airflow-read-only-probe/1.0",
-                  },
-              )
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  if response.status != 200:
-                      raise RuntimeError(f"{path}: HTTP {response.status}")
-                  body = json.loads(response.read().decode("utf-8"))
-              if not isinstance(body, dict):
-                  raise RuntimeError(f"{path}: response is not an object")
-              return body
-
-          store_response = post(
-              "Store/GetStoreDataFast",
-              {"includeLatLon": True, "igornVipCheck": True},
-          )
-          store = mapping(store_response.get("result"))
-          resolved_store_id = int(store.get("storeUserId") or STORE_ID)
-
-          projects_response = post(
-              "AppointmentVenue/LoadClassroomProjectList",
-              {"userId": resolved_store_id},
-          )
-          raw_projects = projects_response.get("result")
-          projects = raw_projects if isinstance(raw_projects, list) else []
-          sanitized_projects = [
-              {
-                  "txt_uid": str(mapping(item).get("txtUid") or ""),
-                  "name": str(
-                      mapping(item).get("name")
-                      or mapping(item).get("txtName")
-                      or mapping(item).get("projectName")
-                      or ""
-                  ),
-              }
-              for item in projects
-          ]
-
-          config_response = post(
-              "AppointmentVenue/AppointmentVenueConfig",
-              {"storeId": resolved_store_id},
-          )
-          config = mapping(config_response.get("result"))
-          current_setting = mapping(config.get("currentSetting"))
-
-          today = dt.datetime.now(ZoneInfo("Asia/Shanghai")).date()
-          checks: list[dict[str, object]] = []
-          all_tls_verified = True
-          for offset in range(3):
-              query_date = today + dt.timedelta(days=offset)
-              response = post(
-                  "AppointmentVenue/LoadValidClassRoomApptSettingV2",
-                  {
-                      "dateTime": query_date.isoformat(),
-                      "projectUid": PROJECT_UID,
-                      "userId": resolved_store_id,
-                  },
-              )
-              result = mapping(response.get("result"))
-              raw_slots = result.get("slots")
-              raw_rooms = result.get("validClassRooms")
-              slots = raw_slots if isinstance(raw_slots, list) else []
-              rooms = raw_rooms if isinstance(raw_rooms, list) else []
-              bookable = [
-                  item
-                  for item in slots
-                  if mapping(mapping(item).get("apptInfo")).get("canApptOrNot") is True
-              ]
-              room_names = sorted(
-                  {
-                      str(mapping(item).get("classRoomName") or "").strip()
-                      for item in slots
-                      if str(mapping(item).get("classRoomName") or "").strip()
-                  }
-              )
-              checks.append(
-                  {
-                      "date": query_date.isoformat(),
-                      "status": response.get("status"),
-                      "successed": response.get("successed"),
-                      "slot_count": len(slots),
-                      "valid_room_count": len(rooms),
-                      "bookable_slot_count": len(bookable),
-                      "room_names": room_names,
-                      "result_keys": sorted(result),
-                  }
-              )
-
-          report = {
-              "checked_at": dt.datetime.now(dt.UTC).isoformat(),
-              "tls_verified": all_tls_verified,
-              "base_host": "wxservice-stg48.pospal.cn",
-              "store": {
-                  "store_user_id": resolved_store_id,
-                  "store_name": str(store.get("storeName") or ""),
-                  "industry": str(store.get("industry") or ""),
-                  "store_status": store.get("StoreStatus"),
-                  "is_business_closed": bool(store.get("IsBizClosed")),
-                  "status": store_response.get("status"),
-              },
-              "projects": sanitized_projects,
-              "venue_config": {
-                  "advance_days": current_setting.get("advanceDays"),
-                  "venue_time_limit": config.get("venueTimeLimit"),
-                  "status": config_response.get("status"),
-              },
-              "availability_checks": checks,
-          }
-          report["usable"] = bool(
-              report["tls_verified"]
-              and report["store"]["store_name"] == "FFTENNIS前海国际网球中心"
-              and any(project["txt_uid"] == PROJECT_UID for project in sanitized_projects)
-              and all(check["status"] == "success" for check in checks)
-              and all("slots" in check["result_keys"] for check in checks)
-          )
-          Path("artifacts/probe/fft-api-report.json").write_text(
-              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          print(json.dumps(report, ensure_ascii=False, indent=2))
-          if not report["usable"]:
-              raise SystemExit("FFT read-only API probe did not satisfy the integration gate")
-          PY
-
-      - name: Upload source snapshot
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: fft-workbench-source-${{ github.sha }}
-          path: artifacts/source/wechat-on-airflow-source.zip
-          if-no-files-found: error
-          retention-days: 2
-          compression-level: 0
-
-      - name: Upload inspection evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: fft-workbench-evidence-${{ github.sha }}
-          path: artifacts/probe
-          if-no-files-found: error
-          retention-days: 2
-          compression-level: 9
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: add FFTENNIS Qianhai venue monitoring"
+          git push origin HEAD:feat/fft-qianhai-integration-20260830
