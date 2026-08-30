@@ -1,0 +1,91 @@
+name: Prepare FFT Qianhai integration
+
+on:
+  push:
+    branches:
+      - feat/fft-qianhai-release-prep-20260830
+    paths:
+      - .github/workflows/fft-release-prep.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Apply staged integration patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=.tmp/fft-integration.patch.gz.b64
+          test -f "$payload"
+          base64 --decode "$payload" | gzip -dc > /tmp/fft-integration.patch
+          git apply --check /tmp/fft-integration.patch
+          git apply /tmp/fft-integration.patch
+          rm -f "$payload"
+          rm -f .github/workflows/fft-integration-workbench.yml
+          rm -f .github/workflows/fft-release-prep.yml
+
+          test -f src/wechat_airflow/venues/fft_qianhai_watcher.py
+          test -f dags/tennis_dags/sz_tennis/fft_qianhai_watcher.py
+          grep -R -q 'fft_qianhai' webapp/src
+          grep -R -q 'FFTENNIS前海国际网球中心' webapp/src
+          grep -q 'expected_venue_count: 16' config/runtime-target.yaml
+          grep -q 'FFTENNIS前海国际网球中心巡检' config/active-components.yaml
+          grep -q 'FFT_QIANHAI_NOTIFICATION_BASELINE' config/config-contracts.yaml
+          if git diff --name-only | grep -E '^docs/integrations/miniprogram-wxb8ec04a1ebd1866b-2026\.07\.25/' >/dev/null; then
+            echo 'compiled mini-program files must not be committed' >&2
+            exit 1
+          fi
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Python quality gates
+        run: |
+          ruff check .
+          ruff format --check --diff .
+          mypy
+          PYTHONPATH=src pytest -m 'not airflow'
+
+      - name: Install Web dependencies
+        working-directory: webapp
+        run: npm ci
+
+      - name: Web and contract gates
+        run: |
+          make webapp-check
+          PYTHONPATH=src python scripts/check_active_components.py
+          make compose-config
+          make test-dags
+
+      - name: Commit verified integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'feat: add FFTENNIS Qianhai venue monitoring'
+          git push origin HEAD:${GITHUB_REF_NAME}
