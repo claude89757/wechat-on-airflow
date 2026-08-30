@@ -811,6 +811,13 @@ export default function Prototype() {
                         <span>管理后台</span>
                       </DropdownMenu.Item>
                     ) : null}
+                    <DropdownMenu.Item
+                      className="more-menu-item"
+                      onSelect={() => openPanel("help")}
+                    >
+                      <QuestionIcon size={20} weight="bold" aria-hidden="true" />
+                      <span>查看帮助</span>
+                    </DropdownMenu.Item>
                     <DropdownMenu.Separator className="more-menu-separator" />
                     <DropdownMenu.Item className="more-menu-item" asChild>
                       <a
@@ -826,15 +833,6 @@ export default function Prototype() {
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="查看帮助"
-                title="查看帮助"
-                onClick={() => openPanel("help")}
-              >
-                <QuestionIcon size={23} weight="bold" />
-              </button>
             </div>
           </header>
 
