@@ -1,0 +1,60 @@
+name: Repair Mobile Venue Card Workflow
+
+on:
+  push:
+    branches:
+      - feat/mobile-venue-card-quick-create-20260830
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-mobile-venue-card-workflow
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, '[venue-card-workflow-repaired]') && !contains(github.event.head_commit.message, '[venue-card-ux-prepared]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/mobile-venue-card-quick-create-20260830
+          fetch-depth: 0
+
+      - name: Replace fragile celebration marker
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/implement-mobile-venue-card-quick-create.yml')
+          source = path.read_text(encoding='utf-8')
+          start_marker = "          celebration_effect = '''  useEffect(() => {"
+          end_marker = "\n\n          source = replace_once(\n              source,\n              '''  const popularVenues"
+          start = source.find(start_marker)
+          end = source.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('unable to locate celebration patch block')
+
+          replacement = '''          source = replace_once(
+              source,
+              ''' + "'''  useEffect(() => {\n            previousReminderCount.current = null;\n" + '''''',
+              ''' + "'''  useEffect(() => {\n            if (!highlightedVenueId) return;\n            const timer = window.setTimeout(() => setHighlightedVenueId(null), 1800);\n            return () => window.clearTimeout(timer);\n          }, [highlightedVenueId]);\n\n          useEffect(() => {\n            previousReminderCount.current = null;\n" + '''''',
+              "card highlight effect",
+          )'''
+          path.write_text(source[:start] + replacement + source[end:], encoding='utf-8')
+          PY
+
+      - name: Verify repaired workflow syntax marker
+        run: |
+          grep -q 'previousReminderCount.current = null' .github/workflows/implement-mobile-venue-card-quick-create.yml
+          grep -q 'setHighlightedVenueId(null)' .github/workflows/implement-mobile-venue-card-quick-create.yml
+          git diff --check
+
+      - name: Commit repair
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/implement-mobile-venue-card-quick-create.yml
+          git commit -m "ci: repair venue card implementation marker [venue-card-workflow-repaired]"
+          git push origin HEAD:feat/mobile-venue-card-quick-create-20260830
