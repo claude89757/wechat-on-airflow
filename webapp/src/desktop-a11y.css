@@ -5,6 +5,10 @@
   html body .bottom-sheet {
     box-sizing: border-box !important;
     overflow: hidden !important;
+    /* The shared component animates upward like a mobile bottom sheet. On a
+       desktop it is a centered dialog, so keep it anchored to its CSS top. */
+    transform: none !important;
+    will-change: auto !important;
   }
 
   html body .bottom-sheet .sheet-header {
