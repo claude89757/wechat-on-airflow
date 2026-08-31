@@ -1,7 +1,22 @@
-/* Desktop browsers need a visible focus location even though the shared
- * mobile runtime intentionally suppresses focus chrome for touch previews. */
+/* Desktop browsers need a visible focus location and viewport-safe dialogs
+ * even though the shared mobile runtime is optimized for touch previews. */
 
 @media (min-width: 900px) {
+  html body .bottom-sheet {
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  html body .bottom-sheet .sheet-header {
+    flex: 0 0 auto;
+  }
+
+  html body .bottom-sheet .sheet-content {
+    min-height: 0 !important;
+    flex: 1 1 auto;
+    overflow-y: auto !important;
+  }
+
   html body .device-screen :where(
     button,
     a[href],
