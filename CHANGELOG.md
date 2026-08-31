@@ -5,6 +5,26 @@ and operational changes.
 
 ## Unreleased
 
+## [0.6.6] - 2026-08-31
+
+### Added
+
+- Add a dedicated desktop browser workspace for viewports at 900px and above
+  while continuing to use the existing mobile state, validation, API, and
+  subscription logic.
+- Add a 1180px two-column layout with a high-density venue grid and a sticky
+  subscription task pane so users can monitor courts and create reminders in
+  parallel.
+
+### Changed
+
+- Present shared mobile bottom sheets as centered, viewport-safe desktop dialogs
+  with multi-column form controls, internal scrolling, and Escape-key dismissal.
+- Restore desktop pointer, hover, scrollbar, visible keyboard-focus, and reduced-
+  motion behavior without changing the protected narrow-screen runtime.
+- Keep viewports below 900px on the existing compact/mobile interaction model and
+  cover the 899/900px breakpoint plus the 1440px workspace in Chromium tests.
+
 ## [0.6.5] - 2026-08-30
 
 ### Added
