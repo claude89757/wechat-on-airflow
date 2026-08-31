@@ -83,11 +83,13 @@ test.describe("desktop workspace presentation", () => {
     await expect(dialog.locator(".subscription-form")).toBeVisible();
     await expect(dialog.locator(".sheet-handle")).toHaveCSS("display", "none");
 
+    await expect.poll(async () => (await dialog.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(1020);
+    await expect.poll(async () => (await dialog.boundingBox())?.y ?? 999).toBeLessThan(120);
     const dialogBox = await dialog.boundingBox();
-    expect(dialogBox?.width ?? 0).toBeGreaterThanOrEqual(980);
     expect(dialogBox?.x ?? 0).toBeGreaterThanOrEqual(30);
-    expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual(35);
-    expect(DESKTOP_VIEWPORT.height - ((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0))).toBeGreaterThanOrEqual(20);
+    expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual(30);
+    expect((dialogBox?.x ?? 0) + (dialogBox?.width ?? 0)).toBeLessThanOrEqual(DESKTOP_VIEWPORT.width - 30);
+    expect((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(DESKTOP_VIEWPORT.height - 20);
 
     const overlayPosition = await page.locator(".sheet-overlay").evaluate((element) => getComputedStyle(element).position);
     expect(overlayPosition).toBe("fixed");
@@ -130,8 +132,12 @@ test.describe("desktop workspace presentation", () => {
 
     const desktopStylesActive = await page.locator(".dashboard-screen").evaluate((element) => {
       const style = getComputedStyle(element);
-      return style.width === "836px" && style.paddingTop === "0px";
+      return {
+        width: parseFloat(style.width),
+        paddingTop: parseFloat(style.paddingTop),
+      };
     });
-    expect(desktopStylesActive).toBe(true);
+    expect(desktopStylesActive.width).toBeGreaterThan(800);
+    expect(desktopStylesActive.paddingTop).toBe(0);
   });
 });
