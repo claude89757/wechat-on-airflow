@@ -1,0 +1,37 @@
+/*
+ * Site brand logo
+ *
+ * The user-supplied square artwork is the durable brand mark for the public
+ * Web application. Keep it on the shared header element so mobile and desktop
+ * use the same asset without duplicating application logic.
+ */
+
+html body .brand-mark {
+  overflow: hidden;
+  border: 1px solid rgba(52, 42, 68, 0.18);
+  border-radius: 12px;
+  background-color: #82cde7;
+  background-image: url("/assets/zacks-logo.webp");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: transparent;
+  box-shadow: 0 4px 12px rgba(52, 42, 68, 0.2);
+}
+
+html body .brand-mark svg {
+  opacity: 0;
+}
+
+@media (min-width: 900px) {
+  html body .brand-mark {
+    border-radius: 14px;
+    box-shadow: 0 7px 18px rgba(52, 42, 68, 0.2);
+  }
+}
+
+@media (prefers-contrast: more) {
+  html body .brand-mark {
+    border-color: #342a44;
+  }
+}
