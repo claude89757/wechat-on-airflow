@@ -1,0 +1,59 @@
+/* Desktop browsers need a visible focus location and viewport-safe dialogs
+ * even though the shared mobile runtime is optimized for touch previews. */
+
+@media (min-width: 900px) {
+  html body .bottom-sheet {
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    /* The shared component animates upward like a mobile bottom sheet. On a
+       desktop it is a centered dialog, so keep it anchored to its CSS top. */
+    transform: none !important;
+    will-change: auto !important;
+  }
+
+  html body .bottom-sheet .sheet-header {
+    flex: 0 0 auto;
+  }
+
+  html body .bottom-sheet .sheet-content {
+    min-height: 0 !important;
+    flex: 1 1 auto;
+    overflow-y: auto !important;
+  }
+
+  html body .device-screen :where(
+    button,
+    a[href],
+    input,
+    select,
+    textarea,
+    [role="button"],
+    [role="menuitem"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus,
+  html body .device-screen :where(
+    button,
+    a[href],
+    input,
+    select,
+    textarea,
+    [role="button"],
+    [role="menuitem"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+    outline: 3px solid rgba(6, 155, 152, 0.58) !important;
+    outline-offset: 2px !important;
+    box-shadow:
+      0 0 0 2px #ffffff,
+      0 0 0 5px rgba(6, 155, 152, 0.2) !important;
+  }
+
+  html body .device-screen :where(input, select, textarea):focus,
+  html body .device-screen :where(input, select, textarea):focus-visible {
+    border-color: var(--teal) !important;
+  }
+
+  html body .device-screen :where(button, a[href], [role="button"], [role="menuitem"]) {
+    cursor: pointer !important;
+  }
+}
