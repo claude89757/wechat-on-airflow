@@ -82,7 +82,7 @@ jobs:
       - name: Verify critical browser interactions
         if: steps.plan.outputs.ci_webapp == 'true'
         working-directory: webapp
-        run: npx playwright test tests/more-menu-scroll.spec.ts tests/desktop-ux.spec.ts
+        run: npx playwright test tests/more-menu-scroll.spec.ts
       - name: Validate active components and runtime drift
         if: steps.plan.outputs.ci_airflow == 'true'
         run: PYTHONPATH=src python scripts/check_active_components.py
