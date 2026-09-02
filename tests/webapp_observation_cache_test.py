@@ -127,9 +127,23 @@ class WebappObservationCacheTest(TestCase):
         self.assertEqual(changed.action, "forward")
         self.assertEqual(retry.action, "skip_retry")
 
+    def test_failed_change_is_not_hidden_by_an_older_healthy_heartbeat(self) -> None:
+        baseline = decide_observation_delivery(self.payload, now=3_000)
+        record_observation_result(baseline, success=True, gate=self.gate, now=3_000)
+        changed_payload = {**self.payload, "slots": self.payload["slots"][:1]}
+
+        changed = decide_observation_delivery(changed_payload, now=3_010)
+        self.assertEqual(changed.action, "forward")
+        record_observation_result(changed, success=False, gate=self.gate, now=3_010)
+
+        recent = decide_observation_delivery(changed_payload, now=3_060)
+        retry = decide_observation_delivery(changed_payload, now=3_130)
+        self.assertEqual(recent.action, "skip_retry")
+        self.assertEqual(retry.action, "forward")
+
     def test_gate_survives_process_independent_file_roundtrip(self) -> None:
-        decision = decide_observation_delivery(self.payload, now=3_000)
-        record_observation_result(decision, success=True, gate=self.gate, now=3_000)
+        decision = decide_observation_delivery(self.payload, now=4_000)
+        record_observation_result(decision, success=True, gate=self.gate, now=4_000)
 
         self.assertEqual(cached_gate_for_venue("szw"), self.gate)
         stored = json.loads(self.state_path.read_text(encoding="utf-8"))
