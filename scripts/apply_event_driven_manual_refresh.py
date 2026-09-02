@@ -152,7 +152,11 @@ def patch_ui() -> None:
     void refresh();
   }, [refresh]);""",
     )
-    replace_once(path, 'if (force) setToast("已获取最新数据");', 'if (force) setToast("已读取最新记录");')
+    replace_once(
+        path,
+        'if (force) setToast("已获取最新数据");',
+        'if (force) setToast("已读取最新记录");',
+    )
     replace_once(
         path,
         """  const statusLabel = availability === "loading" ? "正在读取状态数据"
@@ -168,9 +172,17 @@ def patch_ui() -> None:
     ? `记录生成于 ${formatUpdatedAt(dashboard.generatedAt)}`
     : loading ? "正在读取最近记录" : "请点击刷新重试";""",
     )
-    replace_once(path, 'aria-label="获取最新状态"\n              title="获取最新状态"', 'aria-label="手动刷新最新记录"\n              title="手动刷新最新记录"')
+    replace_once(
+        path,
+        'aria-label="获取最新状态"\n              title="获取最新状态"',
+        'aria-label="手动刷新最新记录"\n              title="手动刷新最新记录"',
+    )
     replace_once(path, 'label="全站巡检正常"', 'label="最近记录正常"')
-    replace_once(path, '<h2 id="venue-heading">场地运行状态</h2>', '<h2 id="venue-heading">场地最近状态</h2>')
+    replace_once(
+        path,
+        '<h2 id="venue-heading">场地运行状态</h2>',
+        '<h2 id="venue-heading">场地最近状态</h2>',
+    )
     replace_once(
         path,
         '<p>点按卡片快速创建提醒 · 页面每 30 秒更新</p>',
@@ -181,10 +193,21 @@ def patch_ui() -> None:
         '<span><ArrowsClockwiseIcon size={17} />最长缓存 2 分钟</span>',
         '<span><ArrowsClockwiseIcon size={17} />仅在手动刷新时读取</span>',
     )
-    replace_once(path, '<span><CheckCircleIcon size={15} weight="fill" />状态同步</span>', '<span><CheckCircleIcon size={15} weight="fill" />最近状态</span>')
-    replace_once(path, '<span><ClockIcon size={15} weight="fill" />最近检查</span>', '<span><ClockIcon size={15} weight="fill" />状态时间</span>')
-    replace_once(path, 'aria-label={`${venue.name}状态同步`}', 'aria-label={`${venue.name}状态记录`}')
-    replace_once(path, 'healthyAt = "暂无检查记录";', 'healthyAt = "暂无状态记录";')
+    replace_once(
+        path,
+        '<span><i className="venue-status-dot healthy" aria-hidden="true" />巡检</span>',
+        '<span><i className="venue-status-dot healthy" aria-hidden="true" />最近状态</span>',
+    )
+    replace_once(
+        path,
+        '<span><ArrowsClockwiseIcon size={14} aria-hidden="true" />同步</span>',
+        '<span><ArrowsClockwiseIcon size={14} aria-hidden="true" />状态时间</span>',
+    )
+    replace_once(
+        path,
+        "，状态同步${compactRelative}，",
+        "，状态记录${compactRelative}，",
+    )
 
 
 def patch_repository_contracts() -> None:
