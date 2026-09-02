@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  OBSERVATION_HEARTBEAT_MS,
   observationSnapshot,
   shouldSkipObservation,
 } from "./observation-dedupe";
@@ -74,24 +73,16 @@ describe("observation fingerprint", () => {
     if (!restored || !empty) throw new Error("expected valid snapshots");
     expect(shouldSkipObservation(restored, {
       fingerprint: empty.fingerprint,
-      last_forwarded_at: 1_000_000,
-    }, 1_015_000)).toBe(false);
+    })).toBe(false);
   });
 
-  it("keeps an unchanged heartbeat inside the venue freshness window", async () => {
+  it("skips an identical observation without any time-based heartbeat", async () => {
     const observation = await snapshot(baseObservation);
     if (!observation) throw new Error("expected a valid snapshot");
-    const forwardedAt = 1_000_000;
-    const current = {
-      fingerprint: observation.fingerprint,
-      last_forwarded_at: forwardedAt,
-    };
-    expect(shouldSkipObservation(observation, current, forwardedAt + 15_000)).toBe(true);
-    expect(shouldSkipObservation(
-      observation,
-      current,
-      forwardedAt + OBSERVATION_HEARTBEAT_MS,
-    )).toBe(false);
+    const current = { fingerprint: observation.fingerprint };
+
+    expect(shouldSkipObservation(observation, current)).toBe(true);
+    expect(shouldSkipObservation(observation, current)).toBe(true);
   });
 
   it("separates parallel day tasks for the same venue", async () => {
