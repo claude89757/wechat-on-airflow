@@ -8,8 +8,8 @@ import {
 const requestUrl = "https://zacks.claude89757.cc/api/bootstrap?ignored=1";
 
 describe("bootstrap edge cache", () => {
-  it("uses a short bounded freshness window", () => {
-    expect(BOOTSTRAP_CACHE_TTL_SECONDS).toBe(120);
+  it("uses a bounded five-minute freshness window", () => {
+    expect(BOOTSTRAP_CACHE_TTL_SECONDS).toBe(300);
   });
 
   it("separates anonymous and verified dashboard payloads", async () => {

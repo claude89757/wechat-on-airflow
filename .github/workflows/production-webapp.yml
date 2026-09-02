@@ -86,6 +86,33 @@ jobs:
           OPERATION: ${{ inputs.operation }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
         run: |
+          set -euo pipefail
+
+          d1_quota_exhausted() {
+            grep -Eq "exceeded D1's free tier daily row read limit|\[code: 7500\]" <<<"$1"
+          }
+
+          run_d1_command() {
+            local description="$1"
+            shift
+            local output status
+            set +e
+            output="$("$@" 2>&1)"
+            status=$?
+            set -e
+            printf '%s\n' "$output"
+            if [ "$status" -eq 0 ]; then
+              return 0
+            fi
+            if d1_quota_exhausted "$output"; then
+              echo "::warning title=D1 free-tier quota exhausted::$description deferred until the UTC reset; only the quota-specific error was tolerated."
+              return 75
+            fi
+            echo "Unexpected D1 failure during: $description" >&2
+            return "$status"
+          }
+
+          migration_state=not_requested
           case "$OPERATION" in
             health)
               PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
@@ -95,23 +122,60 @@ jobs:
               npm run build
               npx wrangler deploy --dry-run \
                 --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
-              npx wrangler d1 migrations list zacks-tennis-alerts --remote
+              if run_d1_command \
+                "remote migration preflight" \
+                npx wrangler d1 migrations list zacks-tennis-alerts --remote; then
+                migration_state=available
+              else
+                status=$?
+                test "$status" -eq 75
+                migration_state=deferred_quota
+              fi
               ;;
             deploy_apply)
               npm run build
-              # Apply mode includes its own reversible checks so routine releases
-              # do not need a separate preflight workflow run.
               npx wrangler deploy --dry-run \
                 --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
-              npx wrangler d1 migrations list zacks-tennis-alerts --remote
-              npx wrangler d1 migrations apply zacks-tennis-alerts --remote
+              if run_d1_command \
+                "remote migration listing" \
+                npx wrangler d1 migrations list zacks-tennis-alerts --remote; then
+                if run_d1_command \
+                  "remote migration apply" \
+                  npx wrangler d1 migrations apply zacks-tennis-alerts --remote; then
+                  migration_state=applied
+                else
+                  status=$?
+                  test "$status" -eq 75
+                  migration_state=deferred_quota
+                fi
+              else
+                status=$?
+                test "$status" -eq 75
+                migration_state=deferred_quota
+              fi
+
               npx wrangler deploy \
                 --message "GitHub release $TARGET_COMMIT" \
                 --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
-              PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
-                --expected-commit "$TARGET_COMMIT" --format json
+
+              if [ "$migration_state" = applied ]; then
+                PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
+                  --expected-commit "$TARGET_COMMIT" --format json
+              else
+                PYTHONPATH=../scripts python ../scripts/webapp_deployment_identity.py \
+                  --expected-commit "$TARGET_COMMIT" --format json
+              fi
               ;;
             *)
               exit 2
               ;;
           esac
+
+          {
+            echo "## D1 migration state"
+            echo
+            echo "- State: \`$migration_state\`"
+            if [ "$migration_state" = deferred_quota ]; then
+              echo "- Recovery: the deployed Worker will idempotently create the same indexes on the first natural observation or cron after D1 accepts queries again."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -6,6 +6,12 @@ from typing import Any
 
 import requests
 
+from wechat_airflow.notifications.observation_cache import (
+    cached_gate_for_venue,
+    decide_observation_delivery,
+    record_observation_result,
+)
+
 WEBAPP_OBSERVATION_API_URL_VAR = "WEBAPP_OBSERVATION_API_URL"
 WEBAPP_OBSERVATION_API_TOKEN_VAR = "WEBAPP_OBSERVATION_API_TOKEN"
 WEBAPP_OBSERVATION_TIMEOUT_SECONDS_VAR = "WEBAPP_OBSERVATION_TIMEOUT_SECONDS"
@@ -109,6 +115,8 @@ def _cache_gate(venue_id: str, gate: dict[str, Any]) -> None:
         cached = _get_variable(WEBAPP_WECHAT_GATE_CACHE_VAR, default={}, deserialize_json=True)
         if not isinstance(cached, dict):
             cached = {}
+        if _normalize_gate(cached.get(str(venue_id))) == gate:
+            return
         cached[str(venue_id)] = gate
         _set_variable(WEBAPP_WECHAT_GATE_CACHE_VAR, cached, serialize_json=True)
     except Exception as exc:
@@ -116,6 +124,9 @@ def _cache_gate(venue_id: str, gate: dict[str, Any]) -> None:
 
 
 def _cached_gate(venue_id: str) -> dict[str, Any] | None:
+    local_gate = _normalize_gate(cached_gate_for_venue(venue_id))
+    if local_gate is not None:
+        return local_gate
     try:
         cached = _get_variable(WEBAPP_WECHAT_GATE_CACHE_VAR, default={}, deserialize_json=True)
     except Exception:
@@ -219,7 +230,7 @@ def publish_venue_observation(
         str(observation_scope or _current_observation_scope() or "default").strip()[:120]
         or "default"
     )
-    payload = {
+    payload: dict[str, object] = {
         "venue_id": venue_id,
         "venue_name": venue_name,
         "observation_scope": normalized_scope,
@@ -229,6 +240,34 @@ def publish_venue_observation(
         "slots": normalized_slots[:200],
     }
     slot_count = len(normalized_slots[:200])
+    delivery = decide_observation_delivery(payload)
+    cached_gate = _normalize_gate(delivery.gate)
+    if delivery.action == "skip_success":
+        print(
+            f"[WEBAPP] observation locally deduplicated venue={venue_id}, "
+            f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}"
+        )
+        return {
+            "success": True,
+            "slot_count": slot_count,
+            "observation_scope": normalized_scope,
+            "local_deduplicated": True,
+            "wechat_gate": cached_gate,
+        }
+    if delivery.action == "skip_retry":
+        print(
+            f"[WEBAPP] observation retry throttled venue={venue_id}, "
+            f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}"
+        )
+        return {
+            "success": False,
+            "deferred": True,
+            "error": "recent Web publication failure; local retry is throttled",
+            "slot_count": slot_count,
+            "observation_scope": normalized_scope,
+            "wechat_gate": cached_gate,
+        }
+
     try:
         response = requests.post(
             api_url,
@@ -247,6 +286,7 @@ def publish_venue_observation(
         gate = _normalize_gate(
             response_payload.get("wechatGate") if isinstance(response_payload, dict) else None
         )
+        record_observation_result(delivery, success=True, gate=gate)
         if gate is not None:
             _cache_gate(venue_id, gate)
         print(
@@ -258,14 +298,16 @@ def publish_venue_observation(
             "success": True,
             "slot_count": slot_count,
             "observation_scope": normalized_scope,
+            "local_deduplicated": False,
             "wechat_gate": gate,
         }
     except Exception as exc:
+        record_observation_result(delivery, success=False, gate=cached_gate)
         print(f"[WEBAPP] observation publishing failed venue={venue_id}, error={str(exc)[:300]}")
         return {
             "success": False,
             "error": str(exc)[:300],
             "slot_count": slot_count,
             "observation_scope": normalized_scope,
-            "wechat_gate": _cached_gate(venue_id),
+            "wechat_gate": cached_gate or _cached_gate(venue_id),
         }
