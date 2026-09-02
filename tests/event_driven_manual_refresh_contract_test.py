@@ -44,8 +44,11 @@ def test_dashboard_network_refresh_is_user_driven() -> None:
     assert "点击刷新读取最新记录" in ui
     assert "仅在手动刷新时读取" in ui
     assert 'onClick={() => void refresh(true)}' in ui
-    assert 'url.pathname === "/api/bootstrap"' not in api
-    assert 'path = options.force ? "/api/bootstrap?refresh=1" : "/api/bootstrap"' in api
+    assert (
+        'const requestPath = options.force ? "/api/bootstrap?refresh=1" : "/api/bootstrap";'
+        in api
+    )
+    assert 'cache: "no-store"' in api
     assert "DASHBOARD_CLIENT_CACHE_MS = 86_400_000" in api
 
 
