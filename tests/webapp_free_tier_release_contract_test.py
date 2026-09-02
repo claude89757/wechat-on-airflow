@@ -21,9 +21,7 @@ def test_webapp_release_tolerates_only_the_known_d1_quota_error() -> None:
 
 
 def test_deployed_worker_has_an_idempotent_quota_reset_self_heal() -> None:
-    entry = (ROOT / "webapp/cloudflare/subscription-gated-entry.ts").read_text(
-        encoding="utf-8"
-    )
+    entry = (ROOT / "webapp/cloudflare/subscription-gated-entry.ts").read_text(encoding="utf-8")
     schema = (ROOT / "webapp/cloudflare/free-tier-schema.ts").read_text(encoding="utf-8")
 
     assert "ensureFreeTierSchema" in entry
