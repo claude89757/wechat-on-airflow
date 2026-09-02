@@ -73,6 +73,13 @@ class WebappObservationCacheTest(TestCase):
         )
         self.assertEqual(first, second)
 
+    def test_in_flight_reservation_blocks_a_parallel_duplicate(self) -> None:
+        first = decide_observation_delivery(self.empty_payload, now=1_000)
+        parallel = decide_observation_delivery(self.empty_payload, now=1_001)
+
+        self.assertEqual(first.action, "forward")
+        self.assertEqual(parallel.action, "skip_retry")
+
     def test_changed_payload_always_forwards(self) -> None:
         first = decide_observation_delivery(self.empty_payload, now=1_000)
         record_observation_result(first, success=True, gate=self.gate, now=1_000)
