@@ -1,16 +1,18 @@
-import worker from "./subscription-gated-entry";
 import { bootstrapFailureCanUseStale } from "./deployment-entry";
 import { VENUES } from "./domain";
+import worker from "./subscription-gated-entry";
 import {
   degradedDashboardFromVenueSnapshots,
-  loadVenueStatusSnapshots,
-  storeVenueStatusSnapshot,
+  isVenueStatusSnapshot,
   venueStatusSnapshotFromObservation,
   type VenueStatusSnapshot,
 } from "./venue-status-cache";
 
+export { VenueStatusObject } from "./venue-status-object";
+
 type ResilientEnv = Env & {
   AIRFLOW_PUSH_TOKEN: string;
+  VENUE_STATUS_STORE: DurableObjectNamespace;
   STANDARD_DAILY_EMAIL_LIMIT?: string;
   PRIORITY_DAILY_EMAIL_LIMIT?: string;
   STANDARD_ACTIVE_SUBSCRIPTION_LIMIT?: string;
@@ -29,10 +31,13 @@ function constantTimeEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
-function authorizedObservationRequest(request: Request, env: ResilientEnv): boolean {
+function bearerToken(request: Request): string {
   const authorization = request.headers.get("authorization") || "";
-  if (!authorization.startsWith("Bearer ")) return false;
-  const token = authorization.slice(7).trim();
+  return authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+}
+
+function authorizedObservationRequest(request: Request, env: ResilientEnv): boolean {
+  const token = bearerToken(request);
   return Boolean(token) && constantTimeEqual(token, env.AIRFLOW_PUSH_TOKEN);
 }
 
@@ -45,6 +50,10 @@ function jsonResponse(payload: unknown, status = 200): Response {
       "X-Content-Type-Options": "nosniff",
     },
   });
+}
+
+function statusStore(env: ResilientEnv): DurableObjectStub {
+  return env.VENUE_STATUS_STORE.get(env.VENUE_STATUS_STORE.idFromName("global"));
 }
 
 async function captureObservationSnapshot(
@@ -61,9 +70,17 @@ async function captureObservationSnapshot(
   const snapshot = await venueStatusSnapshotFromObservation(payload);
   if (!snapshot) return;
   try {
-    await storeVenueStatusSnapshot(request.url, snapshot);
+    const response = await statusStore(env).fetch(
+      `https://venue-status.internal/snapshots/${snapshot.venueId}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(snapshot),
+      },
+    );
+    if (!response.ok) throw new Error(`status store returned HTTP ${response.status}`);
     console.log(JSON.stringify({
-      event: "airflow_venue_status_snapshot_stored",
+      event: "airflow_venue_status_snapshot_recorded",
       venueId: snapshot.venueId,
       observationScope: snapshot.observationScope,
       healthy: snapshot.healthy,
@@ -77,20 +94,33 @@ async function captureObservationSnapshot(
   }
 }
 
+async function loadVenueStatusSnapshots(
+  env: ResilientEnv,
+): Promise<VenueStatusSnapshot[]> {
+  const response = await statusStore(env).fetch("https://venue-status.internal/snapshots");
+  if (!response.ok) return [];
+  try {
+    const payload = await response.json<{ snapshots?: unknown }>();
+    return Array.isArray(payload.snapshots)
+      ? payload.snapshots.filter(isVenueStatusSnapshot)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function publicSnapshot(snapshot: VenueStatusSnapshot) {
   return {
     venueId: snapshot.venueId,
     venueName: snapshot.venueName,
     healthy: snapshot.healthy,
     checkedAt: snapshot.checkedAt,
-    observationScope: snapshot.observationScope,
-    slotCount: snapshot.slotCount,
     hasError: snapshot.hasError,
   };
 }
 
-async function venueStatusSnapshotResponse(request: Request): Promise<Response> {
-  const snapshots = await loadVenueStatusSnapshots(request.url);
+async function venueStatusSnapshotResponse(env: ResilientEnv): Promise<Response> {
+  const snapshots = await loadVenueStatusSnapshots(env);
   const latest = snapshots.reduce<string | null>(
     (current, snapshot) => !current || snapshot.checkedAt > current
       ? snapshot.checkedAt
@@ -99,7 +129,7 @@ async function venueStatusSnapshotResponse(request: Request): Promise<Response> 
   );
   return jsonResponse({
     ok: snapshots.length > 0,
-    source: "airflow-observation-cache",
+    source: "airflow-durable-status",
     generatedAt: latest,
     snapshotCount: snapshots.length,
     totalSnapshots: Object.keys(VENUES).length,
@@ -111,11 +141,15 @@ async function observationDashboardFallback(
   request: Request,
   env: ResilientEnv,
 ): Promise<Response | null> {
-  const snapshots = await loadVenueStatusSnapshots(request.url);
-  const dashboard = degradedDashboardFromVenueSnapshots(snapshots, env);
+  const snapshots = await loadVenueStatusSnapshots(env);
+  const dashboard = degradedDashboardFromVenueSnapshots(
+    snapshots,
+    env,
+    Boolean(bearerToken(request)),
+  );
   if (!dashboard) return null;
   const response = jsonResponse(dashboard);
-  response.headers.set("X-Zacks-Dashboard-Source", "airflow-observation-cache");
+  response.headers.set("X-Zacks-Dashboard-Source", "airflow-durable-status");
   return response;
 }
 
@@ -137,7 +171,7 @@ export default {
   ): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/api/venue-status-snapshot") {
-      return venueStatusSnapshotResponse(request);
+      return venueStatusSnapshotResponse(env);
     }
 
     const observationRequest = request.method === "POST"
