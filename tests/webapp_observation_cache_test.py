@@ -56,6 +56,7 @@ class WebappObservationCacheTest(TestCase):
                 },
             ],
         }
+        self.empty_payload = {**self.payload, "slots": []}
         self.gate = {
             "allowed": True,
             "evaluated_at": "2026-09-02T09:00:00+00:00",
@@ -75,38 +76,42 @@ class WebappObservationCacheTest(TestCase):
         self.assertEqual(first, second)
 
     def test_changed_payload_always_forwards(self) -> None:
-        first = decide_observation_delivery(self.payload, now=1_000)
+        first = decide_observation_delivery(self.empty_payload, now=1_000)
         record_observation_result(first, success=True, gate=self.gate, now=1_000)
-        changed = decide_observation_delivery(
-            {**self.payload, "slots": self.payload["slots"][:1]},
-            now=1_015,
-        )
+        changed = decide_observation_delivery(self.payload, now=1_015)
         self.assertEqual(changed.action, "forward")
 
-    def test_success_suppresses_unchanged_polls_until_sparse_heartbeat(self) -> None:
+    def test_available_slots_recheck_subscriptions_on_every_natural_poll(self) -> None:
         first = decide_observation_delivery(self.payload, now=1_000)
+        record_observation_result(first, success=True, gate=self.gate, now=1_000)
+
+        next_poll = decide_observation_delivery(self.payload, now=1_015)
+        self.assertEqual(next_poll.action, "forward")
+
+    def test_empty_success_suppresses_polls_until_sparse_heartbeat(self) -> None:
+        first = decide_observation_delivery(self.empty_payload, now=1_000)
         self.assertEqual(first.action, "forward")
         record_observation_result(first, success=True, gate=self.gate, now=1_000)
 
-        recent = decide_observation_delivery(self.payload, now=1_015)
-        heartbeat = decide_observation_delivery(self.payload, now=1_480)
+        recent = decide_observation_delivery(self.empty_payload, now=1_015)
+        heartbeat = decide_observation_delivery(self.empty_payload, now=1_480)
         self.assertEqual(recent.action, "skip_success")
         self.assertEqual(recent.gate, self.gate)
         self.assertEqual(heartbeat.action, "forward")
 
-    def test_parallel_scopes_share_one_venue_heartbeat_budget(self) -> None:
-        day_zero = decide_observation_delivery(self.payload, now=1_000)
+    def test_parallel_empty_scopes_share_one_venue_heartbeat_budget(self) -> None:
+        day_zero = decide_observation_delivery(self.empty_payload, now=1_000)
         record_observation_result(day_zero, success=True, gate=self.gate, now=1_000)
 
         day_one_payload = {
-            **self.payload,
+            **self.empty_payload,
             "observation_scope": "check_and_notify_day_1",
         }
         day_one = decide_observation_delivery(day_one_payload, now=1_001)
         self.assertEqual(day_one.action, "forward")
         record_observation_result(day_one, success=True, gate=self.gate, now=1_001)
 
-        due = decide_observation_delivery(self.payload, now=1_481)
+        due = decide_observation_delivery(self.empty_payload, now=1_481)
         self.assertEqual(due.action, "forward")
         record_observation_result(due, success=True, gate=self.gate, now=1_481)
 
@@ -114,35 +119,38 @@ class WebappObservationCacheTest(TestCase):
         self.assertEqual(coalesced.action, "skip_success")
 
     def test_failure_retries_are_bounded_but_changes_bypass_the_backoff(self) -> None:
-        first = decide_observation_delivery(self.payload, now=2_000)
+        first = decide_observation_delivery(self.empty_payload, now=2_000)
         record_observation_result(first, success=False, gate=None, now=2_000)
 
-        recent = decide_observation_delivery(self.payload, now=2_030)
+        recent = decide_observation_delivery(self.empty_payload, now=2_030)
         changed = decide_observation_delivery(
-            {**self.payload, "healthy": False, "error": "upstream unavailable", "slots": []},
+            {
+                **self.empty_payload,
+                "healthy": False,
+                "error": "upstream unavailable",
+            },
             now=2_030,
         )
-        retry = decide_observation_delivery(self.payload, now=2_120)
+        retry = decide_observation_delivery(self.empty_payload, now=2_120)
         self.assertEqual(recent.action, "skip_retry")
         self.assertEqual(changed.action, "forward")
         self.assertEqual(retry.action, "skip_retry")
 
     def test_failed_change_is_not_hidden_by_an_older_healthy_heartbeat(self) -> None:
-        baseline = decide_observation_delivery(self.payload, now=3_000)
+        baseline = decide_observation_delivery(self.empty_payload, now=3_000)
         record_observation_result(baseline, success=True, gate=self.gate, now=3_000)
-        changed_payload = {**self.payload, "slots": self.payload["slots"][:1]}
 
-        changed = decide_observation_delivery(changed_payload, now=3_010)
+        changed = decide_observation_delivery(self.payload, now=3_010)
         self.assertEqual(changed.action, "forward")
         record_observation_result(changed, success=False, gate=self.gate, now=3_010)
 
-        recent = decide_observation_delivery(changed_payload, now=3_060)
-        retry = decide_observation_delivery(changed_payload, now=3_130)
+        recent = decide_observation_delivery(self.payload, now=3_060)
+        retry = decide_observation_delivery(self.payload, now=3_130)
         self.assertEqual(recent.action, "skip_retry")
         self.assertEqual(retry.action, "forward")
 
     def test_gate_survives_process_independent_file_roundtrip(self) -> None:
-        decision = decide_observation_delivery(self.payload, now=4_000)
+        decision = decide_observation_delivery(self.empty_payload, now=4_000)
         record_observation_result(decision, success=True, gate=self.gate, now=4_000)
 
         self.assertEqual(cached_gate_for_venue("szw"), self.gate)
