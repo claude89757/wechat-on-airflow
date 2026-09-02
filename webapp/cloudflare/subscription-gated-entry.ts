@@ -179,31 +179,28 @@ export default {
       && venueId
       && authorizedObservationRequest(request, env)
     ) {
-      const schemaReady = await ensureSchemaSafely(env, "observation");
-      if (schemaReady) {
-        try {
-          const decision = await applyFreeTierObservationPolicy(env.DB, observationPayload);
-          if (decision.action !== "forward" && decision.envelope) {
-            console.log(JSON.stringify({
-              event: decision.action === "heartbeat"
-                ? "venue_observation_lightweight_heartbeat"
-                : "venue_observation_free_tier_deduplicated",
-              venueId: decision.envelope.venueId,
-              slotCount: decision.envelope.snapshot.slotCount,
-            }));
-            return enrichObservationResponse(
-              optimizedObservationResponse(decision.action, decision.envelope),
-              env,
-              decision.envelope.venueId,
-            );
-          }
-        } catch (error) {
-          console.warn(JSON.stringify({
-            event: "free_tier_observation_policy_failed_open",
-            venueId,
-            reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+      try {
+        const decision = await applyFreeTierObservationPolicy(env.DB, observationPayload);
+        if (decision.action !== "forward" && decision.envelope) {
+          console.log(JSON.stringify({
+            event: decision.action === "heartbeat"
+              ? "venue_observation_lightweight_heartbeat"
+              : "venue_observation_free_tier_deduplicated",
+            venueId: decision.envelope.venueId,
+            slotCount: decision.envelope.snapshot.slotCount,
           }));
+          return enrichObservationResponse(
+            optimizedObservationResponse(decision.action, decision.envelope),
+            env,
+            decision.envelope.venueId,
+          );
         }
+      } catch (error) {
+        console.warn(JSON.stringify({
+          event: "free_tier_observation_policy_failed_open",
+          venueId,
+          reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+        }));
       }
     }
 
