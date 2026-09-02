@@ -44,5 +44,5 @@ def test_delivery_diagnostics_do_not_use_an_unbounded_outbox_aggregate() -> None
     )[0]
     assert "WHERE provider_submitted_at >= day.start_utc" in first_query
     assert "WHERE n.provider_submitted_at >= day.start_utc" in admin_query
-    assert "has_retention_expired" in script
-    assert "retention_expired" not in script
+    assert "AS has_retention_expired" in script
+    assert "AS retention_expired" not in script
