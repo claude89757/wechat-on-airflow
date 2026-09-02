@@ -34,10 +34,11 @@ describe("dashboard client cache", () => {
     invalidateDashboardCache();
   });
 
-  it("turns the 30-second UI refresh loop into one network request per two minutes", async () => {
+  it("keeps automatic UI refreshes in memory for one day", async () => {
     const fetchMock = dashboardFetchMock();
     vi.stubGlobal("fetch", fetchMock);
 
+    expect(DASHBOARD_CLIENT_CACHE_MS).toBe(86_400_000);
     await getDashboard(null);
     vi.advanceTimersByTime(30_000);
     await getDashboard(null);
