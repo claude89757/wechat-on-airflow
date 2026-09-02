@@ -1,6 +1,6 @@
 const BOOTSTRAP_CACHE_PATH = "/__zacks_edge_cache/bootstrap";
 
-export const BOOTSTRAP_CACHE_TTL_SECONDS = 120;
+export const BOOTSTRAP_CACHE_TTL_SECONDS = 300;
 
 type BootstrapCacheEnv = {
   VERIFICATION_PEPPER: string;
