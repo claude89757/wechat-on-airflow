@@ -1,0 +1,38 @@
+name: Debug bootstrap resilience patch
+
+on:
+  push:
+    branches:
+      - fix/bootstrap-degraded-fallback-2026-09-03
+    paths:
+      - .github/workflows/debug-bootstrap-resilience-patch.yml
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/bootstrap-degraded-fallback-2026-09-03
+      - name: Locate failed anchor
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path(".github/workflows/apply-bootstrap-resilience-patch.yml")
+          text = workflow.read_text(encoding="utf-8")
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = text.index(start_marker) + len(start_marker)
+          end = text.index(end_marker, start)
+          lines = text[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+          script = script.replace(
+              'raise SystemExit(f"{path}: expected one match, found {count}")',
+              'raise SystemExit(f"{path}: expected one match, found {count}; anchor={old[:120]!r}")',
+          )
+          exec(compile(script, str(workflow), "exec"), {})
+          PY
