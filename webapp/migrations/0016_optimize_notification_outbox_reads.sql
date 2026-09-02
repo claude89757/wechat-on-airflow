@@ -9,3 +9,5 @@ CREATE INDEX IF NOT EXISTS notification_outbox_submitted_at_lookup_idx
 CREATE INDEX IF NOT EXISTS notification_outbox_delivered_at_lookup_idx
     ON notification_outbox(status, provider_delivered_at, email, message_id)
     WHERE provider_delivered_at IS NOT NULL;
+
+PRAGMA optimize;
