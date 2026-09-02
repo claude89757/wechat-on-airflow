@@ -113,7 +113,7 @@ function invalidateObservationMatchingSafely(
   });
 }
 
-async function ensureSchemaSafely(env: GateEnv, source: string): Promise<void> {
+async function ensureSchemaSafely(env: GateEnv, source: string): Promise<boolean> {
   try {
     const status = await ensureFreeTierSchema(env);
     if (status === "applied") {
@@ -122,12 +122,14 @@ async function ensureSchemaSafely(env: GateEnv, source: string): Promise<void> {
         source,
       }));
     }
+    return true;
   } catch (error) {
     console.warn(JSON.stringify({
       event: "free_tier_schema_unavailable",
       source,
       reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
     }));
+    return false;
   }
 }
 
@@ -177,24 +179,31 @@ export default {
       && venueId
       && authorizedObservationRequest(request, env)
     ) {
-      try {
-        const decision = await applyFreeTierObservationPolicy(env.DB, observationPayload);
-        if (decision.action !== "forward" && decision.envelope) {
-          console.log(JSON.stringify({
-            event: decision.action === "heartbeat"
-              ? "venue_observation_lightweight_heartbeat"
-              : "venue_observation_free_tier_deduplicated",
-            venueId: decision.envelope.venueId,
-            slotCount: decision.envelope.snapshot.slotCount,
+      const schemaReady = await ensureSchemaSafely(env, "observation");
+      if (schemaReady) {
+        try {
+          const decision = await applyFreeTierObservationPolicy(env.DB, observationPayload);
+          if (decision.action !== "forward" && decision.envelope) {
+            console.log(JSON.stringify({
+              event: decision.action === "heartbeat"
+                ? "venue_observation_lightweight_heartbeat"
+                : "venue_observation_free_tier_deduplicated",
+              venueId: decision.envelope.venueId,
+              slotCount: decision.envelope.snapshot.slotCount,
+            }));
+            return enrichObservationResponse(
+              optimizedObservationResponse(decision.action, decision.envelope),
+              env,
+              decision.envelope.venueId,
+            );
+          }
+        } catch (error) {
+          console.warn(JSON.stringify({
+            event: "free_tier_observation_policy_failed_open",
+            venueId,
+            reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
           }));
-          return optimizedObservationResponse(decision.action, decision.envelope);
         }
-      } catch (error) {
-        console.warn(JSON.stringify({
-          event: "free_tier_observation_policy_failed_open",
-          venueId,
-          reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
-        }));
       }
     }
 
