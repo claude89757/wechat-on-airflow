@@ -1,6 +1,4 @@
-const OBSERVATION_KEY_VERSION = "v2";
-
-export const OBSERVATION_HEARTBEAT_MS = 5 * 60_000;
+const OBSERVATION_KEY_VERSION = "v3";
 
 type CanonicalObservationSlot = {
   date: string;
@@ -11,7 +9,6 @@ type CanonicalObservationSlot = {
 
 type ObservationStateRow = {
   fingerprint: string;
-  last_forwarded_at: number;
 };
 
 export type ObservationSnapshot = {
@@ -132,14 +129,8 @@ export async function observationSnapshot(
 export function shouldSkipObservation(
   snapshot: ObservationSnapshot,
   current: ObservationStateRow | null,
-  now: number,
-  heartbeatMs = OBSERVATION_HEARTBEAT_MS,
 ): boolean {
-  return Boolean(
-    current
-    && current.fingerprint === snapshot.fingerprint
-    && now - Number(current.last_forwarded_at) < heartbeatMs,
-  );
+  return Boolean(current && current.fingerprint === snapshot.fingerprint);
 }
 
 export async function decideObservationDedupe(
@@ -150,12 +141,12 @@ export async function decideObservationDedupe(
   const snapshot = await observationSnapshot(payload, now);
   if (!snapshot) return { action: "forward", snapshot: null };
   const current = await db.prepare(
-    `SELECT fingerprint, last_forwarded_at
+    `SELECT fingerprint
        FROM observation_ingest_state
       WHERE observation_key = ?`,
   ).bind(snapshot.key).first<ObservationStateRow>();
   return {
-    action: shouldSkipObservation(snapshot, current, now) ? "skip" : "forward",
+    action: shouldSkipObservation(snapshot, current) ? "skip" : "forward",
     snapshot,
   };
 }
