@@ -4,14 +4,17 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 import yaml
 from _ops import REPO_ROOT, OpsError, emit
 
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+Inspector = Callable[..., dict[str, Any]]
 
 
 def request_json(url: str, *, timeout_seconds: float = 15) -> tuple[int, Any]:
@@ -69,24 +72,68 @@ def inspect_deployment_identity(*, base_url: str, expected_commit: str) -> dict[
     return evaluate_deployment_identity(status, payload, expected_commit)
 
 
+def deployment_is_propagating(payload: dict[str, Any]) -> bool:
+    checks = payload.get("checks")
+    if not isinstance(checks, dict) or checks.get("exact_deployment_commit") is not False:
+        return False
+    other_checks = [
+        value
+        for name, value in checks.items()
+        if name != "exact_deployment_commit"
+    ]
+    return bool(other_checks) and all(value is True for value in other_checks)
+
+
+def wait_for_deployment_identity(
+    *,
+    base_url: str,
+    expected_commit: str,
+    propagation_timeout_seconds: float,
+    retry_interval_seconds: float,
+    inspector: Inspector = inspect_deployment_identity,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    deadline = monotonic() + propagation_timeout_seconds
+    attempts = 0
+    while True:
+        attempts += 1
+        payload = inspector(base_url=base_url, expected_commit=expected_commit)
+        payload = {**payload, "attempts": attempts}
+        if payload["ok"] or not deployment_is_propagating(payload):
+            return payload
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return payload
+        sleeper(min(retry_interval_seconds, remaining))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Verify the deployed Worker identity without querying D1."
     )
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--propagation-timeout-seconds", type=float, default=90)
+    parser.add_argument("--retry-interval-seconds", type=float, default=2)
     args = parser.parse_args()
 
     if not COMMIT_PATTERN.fullmatch(args.expected_commit):
         raise OpsError("expected commit must be a full SHA-1")
+    if args.propagation_timeout_seconds < 0:
+        raise OpsError("propagation timeout must not be negative")
+    if args.retry_interval_seconds <= 0:
+        raise OpsError("retry interval must be positive")
 
     runtime_target = yaml.safe_load(
         (REPO_ROOT / "config" / "runtime-target.yaml").read_text(encoding="utf-8")
     )
     target = runtime_target["managed_services"]["webapp"]
-    payload = inspect_deployment_identity(
+    payload = wait_for_deployment_identity(
         base_url=str(target["public_base_url"]),
         expected_commit=args.expected_commit,
+        propagation_timeout_seconds=args.propagation_timeout_seconds,
+        retry_interval_seconds=args.retry_interval_seconds,
     )
     emit(payload, args.format)
     if not payload["ok"]:
