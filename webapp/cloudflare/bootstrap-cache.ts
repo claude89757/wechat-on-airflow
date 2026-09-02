@@ -1,9 +1,20 @@
 const BOOTSTRAP_CACHE_PATH = "/__zacks_edge_cache/bootstrap";
+const BOOTSTRAP_CACHE_STORED_AT_HEADER = "X-Zacks-Bootstrap-Stored-At";
 
+// Five minutes is the freshness window. A successful payload is retained for
+// two days so a transient D1 outage can show the last known data instead of a
+// blank dashboard. The longer retention is internal to Cache API; clients
+// always receive Cache-Control: no-store.
 export const BOOTSTRAP_CACHE_TTL_SECONDS = 300;
+export const BOOTSTRAP_CACHE_RETENTION_SECONDS = 2 * 24 * 60 * 60;
 
 type BootstrapCacheEnv = {
   VERIFICATION_PEPPER: string;
+};
+
+type BootstrapCacheMatchOptions = {
+  allowStale?: boolean;
+  now?: number;
 };
 
 function requestToken(request: Request): string | null {
@@ -41,7 +52,10 @@ function defaultCache(): Cache {
   return (caches as unknown as { default: Cache }).default;
 }
 
-function clientResponse(response: Response, cacheStatus: "hit" | "miss"): Response {
+function clientResponse(
+  response: Response,
+  cacheStatus: "hit" | "miss" | "stale",
+): Response {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
   headers.set("X-Zacks-Bootstrap-Cache", cacheStatus);
@@ -60,12 +74,27 @@ async function cacheKey(
   return bootstrapCacheRequest(request.url, token, env.VERIFICATION_PEPPER);
 }
 
+export function bootstrapCacheAgeSeconds(
+  response: Response,
+  now = Date.now(),
+): number | null {
+  const storedAt = Date.parse(response.headers.get(BOOTSTRAP_CACHE_STORED_AT_HEADER) || "");
+  if (!Number.isFinite(storedAt)) return null;
+  return Math.max(0, Math.floor((now - storedAt) / 1000));
+}
+
 export async function matchBootstrapCache(
   request: Request,
   env: BootstrapCacheEnv,
+  options: BootstrapCacheMatchOptions = {},
 ): Promise<Response | null> {
   const cached = await defaultCache().match(await cacheKey(request, env));
-  return cached ? clientResponse(cached, "hit") : null;
+  if (!cached) return null;
+
+  const ageSeconds = bootstrapCacheAgeSeconds(cached, options.now);
+  const stale = ageSeconds === null || ageSeconds > BOOTSTRAP_CACHE_TTL_SECONDS;
+  if (stale && !options.allowStale) return null;
+  return clientResponse(cached, stale ? "stale" : "hit");
 }
 
 export async function storeBootstrapCache(
@@ -77,7 +106,8 @@ export async function storeBootstrapCache(
   const headers = new Headers(response.headers);
   headers.delete("Set-Cookie");
   headers.delete("Vary");
-  headers.set("Cache-Control", `public, max-age=${BOOTSTRAP_CACHE_TTL_SECONDS}`);
+  headers.set("Cache-Control", `public, max-age=${BOOTSTRAP_CACHE_RETENTION_SECONDS}`);
+  headers.set(BOOTSTRAP_CACHE_STORED_AT_HEADER, new Date().toISOString());
   headers.set("X-Zacks-Bootstrap-Cache", "miss");
   await defaultCache().put(
     await cacheKey(request, env),

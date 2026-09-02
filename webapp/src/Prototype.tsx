@@ -262,6 +262,10 @@ function formatUpdatedAt(value: string): string {
   }).format(date);
 }
 
+function dataStoreUnavailable(message: string): boolean {
+  return /D1(?:_ERROR)?|daily row read limit|code[:\s]*7500|data_store_unavailable|database (?:is )?(?:unavailable|temporarily unavailable)/i.test(message);
+}
+
 function formatInviteExpiry(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "30 天内";
@@ -323,6 +327,7 @@ export default function Prototype() {
   const [serviceOnline, setServiceOnline] = useState(import.meta.env.DEV);
   const [hasSuccessfulDashboard, setHasSuccessfulDashboard] = useState(import.meta.env.DEV);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
@@ -372,18 +377,21 @@ export default function Prototype() {
     setLoading(true);
     try {
       const next = await getDashboard(receipt, { force });
+      const stale = next.dataStatus?.stale === true;
       setDashboard(next);
       setServiceOnline(true);
       setHasSuccessfulDashboard(true);
-      setRefreshFailed(false);
+      setRefreshFailed(stale);
+      setRefreshError(stale ? "data_store_unavailable" : "");
       if (receipt && !next.identity.verified) {
         setReceipts(removeReceipt(receipt.token));
         setReceipt(null);
       }
-      if (force) setToast("已获取最新数据");
-    } catch {
+      if (force) setToast(stale ? "状态库暂时不可用，已保留上次数据" : "已获取最新数据");
+    } catch (error) {
       setServiceOnline(import.meta.env.DEV);
       setRefreshFailed(true);
+      setRefreshError(error instanceof Error ? error.message : "请求处理失败");
     } finally {
       setLoading(false);
     }
@@ -535,12 +543,20 @@ export default function Prototype() {
           ? "这是你此前领取且仍可使用的邀请码。"
           : "谢谢你的咖啡，送你一个优先用户邀请码。";
   const availability = resolveDashboardAvailability({ hasSuccessfulDashboard, loading, refreshFailed });
+  const storeUnavailable = dashboard.dataStatus?.reason === "data_store_unavailable"
+    || dataStoreUnavailable(refreshError);
   const statusLabel = availability === "loading" ? "正在读取状态数据"
+    : availability === "unknown" && storeUnavailable ? "状态库暂时不可用"
     : availability === "unknown" ? "暂时无法读取状态"
-    : availability === "stale" ? "刷新失败，显示上次数据" : "数据已加载";
+    : availability === "stale" ? "状态库暂时不可用，显示上次数据" : "数据已加载";
   const statusDetail = hasSuccessfulDashboard
-    ? `数据生成于 ${formatUpdatedAt(dashboard.generatedAt)} · 点击右侧按钮手动刷新`
-    : loading ? "正在获取最新数据" : "请稍后点击刷新";
+    ? dashboard.dataStatus?.stale
+      ? `显示 ${formatUpdatedAt(dashboard.generatedAt)} 的上次数据 · 状态库恢复后可手动刷新`
+      : `数据生成于 ${formatUpdatedAt(dashboard.generatedAt)} · 点击右侧按钮手动刷新`
+    : loading ? "正在获取最新数据"
+      : storeUnavailable
+        ? "Airflow 后台巡检仍独立运行；Cloudflare D1 免费额度每天 00:00 UTC 自动重置"
+        : "请求暂时失败，请稍后点击刷新";
   const quotaPercent = dashboard.identity.dailyLimit > 0
     ? Math.min(100, Math.round(dashboard.identity.remindersToday / dashboard.identity.dailyLimit * 100)) : 0;
   const luluState = resolveLuluState({
