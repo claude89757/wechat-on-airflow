@@ -135,10 +135,7 @@ class WebappNotificationOutboxReadMigrationTest(TestCase):
             },
         )
         self.assertTrue(
-            all(
-                " WHERE " in str(definition).upper()
-                for definition in indexes.values()
-            )
+            all(" WHERE " in str(definition).upper() for definition in indexes.values())
         )
 
     def test_daily_and_message_queries_use_bounded_indexes(self) -> None:
