@@ -19,8 +19,8 @@ def test_public_venue_popularity_uses_unique_followers_and_stable_order():
 
     assert "COUNT(DISTINCT s.email)" in worker
     assert "ORDER BY subscriber_count DESC" in worker
-    assert "点按卡片快速创建提醒 · 页面每 30 秒更新" in ui
-    assert "最长缓存 2 分钟" in ui
+    assert "点按卡片快速创建提醒 · 页面数据由用户手动刷新" in ui
+    assert "点击顶部按钮获取最新数据" in ui
     assert "right.subscriberCount - left.subscriberCount" in ui
 
 

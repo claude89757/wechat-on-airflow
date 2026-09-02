@@ -1,7 +1,6 @@
 import worker from "./deployment-entry";
 import {
   applyFreeTierObservationPolicy,
-  type FreeTierObservationAction,
   type FreeTierObservationEnvelope,
 } from "./free-tier-observation";
 import { ensureFreeTierSchema } from "./free-tier-schema";
@@ -131,8 +130,7 @@ async function ensureSchemaSafely(env: GateEnv, source: string): Promise<void> {
   }
 }
 
-function optimizedObservationResponse(
-  action: Exclude<FreeTierObservationAction, "forward">,
+function unchangedObservationResponse(
   envelope: FreeTierObservationEnvelope,
 ): Response {
   return Response.json({
@@ -140,7 +138,6 @@ function optimizedObservationResponse(
     venueId: envelope.venueId,
     slotsAccepted: envelope.snapshot.slotCount,
     deduplicated: true,
-    heartbeat: action === "heartbeat",
     freeTierOptimized: true,
   }, {
     headers: {
@@ -179,15 +176,13 @@ export default {
     ) {
       try {
         const decision = await applyFreeTierObservationPolicy(env.DB, observationPayload);
-        if (decision.action !== "forward" && decision.envelope) {
+        if (decision.action === "skip" && decision.envelope) {
           console.log(JSON.stringify({
-            event: decision.action === "heartbeat"
-              ? "venue_observation_lightweight_heartbeat"
-              : "venue_observation_free_tier_deduplicated",
+            event: "venue_observation_free_tier_deduplicated",
             venueId: decision.envelope.venueId,
             slotCount: decision.envelope.snapshot.slotCount,
           }));
-          return optimizedObservationResponse(decision.action, decision.envelope);
+          return unchangedObservationResponse(decision.envelope);
         }
       } catch (error) {
         console.warn(JSON.stringify({

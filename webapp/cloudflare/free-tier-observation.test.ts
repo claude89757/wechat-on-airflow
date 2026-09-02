@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { OBSERVATION_HEARTBEAT_MS } from "./observation-dedupe";
 import {
   classifyFreeTierObservation,
   freeTierObservationEnvelope,
@@ -41,22 +40,16 @@ describe("free-tier observation policy", () => {
     }, now)).toBeNull();
   });
 
-  it("forwards changes, skips recent duplicates, and emits only a light heartbeat", async () => {
+  it("forwards changes and skips identical observations without a heartbeat", async () => {
     const envelope = await freeTierObservationEnvelope(observation, now);
     if (!envelope) throw new Error("expected a valid envelope");
 
-    expect(classifyFreeTierObservation(envelope.snapshot, null, now)).toBe("forward");
+    expect(classifyFreeTierObservation(envelope.snapshot, null)).toBe("forward");
     expect(classifyFreeTierObservation(envelope.snapshot, {
       fingerprint: "different",
-      last_forwarded_at: now,
-    }, now)).toBe("forward");
+    })).toBe("forward");
     expect(classifyFreeTierObservation(envelope.snapshot, {
       fingerprint: envelope.snapshot.fingerprint,
-      last_forwarded_at: now - 15_000,
-    }, now)).toBe("skip");
-    expect(classifyFreeTierObservation(envelope.snapshot, {
-      fingerprint: envelope.snapshot.fingerprint,
-      last_forwarded_at: now - OBSERVATION_HEARTBEAT_MS,
-    }, now)).toBe("heartbeat");
+    })).toBe("skip");
   });
 });

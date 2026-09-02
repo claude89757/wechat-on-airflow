@@ -157,7 +157,6 @@ const JSON_HEADERS = {
 const MAX_JSON_BYTES = 32_768;
 const RECEIPT_LIFETIME_MS = 180 * 86_400_000;
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
-const INSPECTION_FRESHNESS_MS = 10 * 60_000;
 const MAX_OUTBOX_BATCH_ROWS = 100;
 const DELIVERY_RESERVATION_LIFETIME_MS = 10 * 60_000;
 const INVITE_ATTEMPT_WINDOW_MS = 60 * 60_000;
@@ -522,10 +521,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
   const venues = venueRows.map((venue) => ({
     id: venue.venue_id,
     name: venue.venue_name,
-    healthy:
-      Boolean(venue.healthy)
-      && Boolean(venue.last_inspection_at)
-      && Date.parse(venue.last_inspection_at || "") >= now.getTime() - INSPECTION_FRESHNESS_MS,
+    healthy: Boolean(venue.healthy),
     subscriberCount: Number(venue.subscriber_count || 0),
     lastInspectionAt: venue.last_inspection_at,
     lastNotificationAt: venue.last_notification_at,

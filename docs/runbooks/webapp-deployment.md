@@ -8,38 +8,52 @@ API routes, a D1 binding, and two bounded cron paths. Its custom domain is
 
 Venue DAG polling frequency is an Airflow contract and must not be reduced to
 control Cloudflare usage. Each Airflow task publishes a stable observation
-scope. The Worker suppresses an identical payload after an indexed D1
-fingerprint lookup, while forwarding every real availability, health, or error
-change immediately. An unchanged observation is still forwarded at least every
-five minutes so the ten-minute venue-health freshness contract remains
-satisfied. Older publishers without an explicit scope fail open to a shared
-compatibility scope until the matching Airflow commit is deployed.
+scope. A real availability, health, or error change is forwarded immediately.
+After the first successful publication, an unchanged empty observation remains
+on the Airflow host indefinitely and does not emit a timed heartbeat.
 
-The configured venue schedules produce at most 48,000 observation requests per
-day before task runtime and scheduler overlap reduce the actual count. This is a
-request-budget constraint, not a reason to slow venue polling. Alert at 80,000
-total Worker requests per day so the production account retains margin below the
-Workers Free daily hard limit.
+Observations that still contain available slots keep a cheap indexed rematch
+probe on each natural poll. The Worker normally returns after one fingerprint
+lookup; if a subscription mutation invalidated that fingerprint, the next probe
+runs the complete matching path so a new subscriber can match availability that
+was already open. This probe is a subscription-correctness mechanism, not a
+liveness heartbeat. Older publishers without an explicit scope fail open to a
+shared compatibility scope until the matching Airflow commit is deployed.
+
+Dashboard venue health is the last state reported by the watcher. It is not
+derived from the age of a heartbeat. The card displays the age of the stored
+report, while operational watcher liveness is verified through protected
+Airflow health and diagnosis workflows.
+
+The configured venue schedules produce at most roughly 48,000 observation
+attempts per day before task runtime and scheduler overlap reduce the actual
+count. Stable empty attempts are stopped locally and never reach Cloudflare.
+Persistent available-slot attempts normally perform only an indexed fingerprint
+lookup. Alert at 80,000 total Worker requests per day so the production account
+retains margin below the Workers Free daily hard limit.
 
 The Worker cron paths are intentionally separated:
 
 - `*/5 * * * *` runs the recent-first delivery-status reconciler with a batch of
-  five per queue;
+  five per queue and refreshes the Web-owned WeChat subscription gates;
 - `17 * * * *` runs legacy housekeeping, expiry reminders, outbox maintenance,
   and cleanup once per hour without overlapping the five-minute cron.
 
+These cron paths are delivery and maintenance jobs. They are not venue or
+browser heartbeats.
+
 `/api/bootstrap` responses use a private Cloudflare Cache API key on the Worker
 custom-domain origin, separated by a one-way digest of the verification receipt,
-for at most 120 seconds. The receipt never appears in the cache URL. Browser
-responses remain `Cache-Control: no-store`; the edge cache exists only to avoid
-repeating the same personalized D1 dashboard queries and identity writes during
-the UI's refresh loop.
+for at most five minutes. The receipt never appears in the cache URL. Browser
+responses remain `Cache-Control: no-store`.
 
-The browser client independently coalesces bootstrap network requests for the
-same identity for 120 seconds and reuses the last value while the page is hidden.
-Subscription create/cancel and priority redemption invalidate both client and
-edge caches. Dashboard counters can be up to two minutes old; venue polling and
-notification generation are unaffected.
+The browser loads the dashboard once when the application opens. It does not
+schedule a periodic refresh. The top refresh control requests
+`/api/bootstrap?refresh=1` with `cache: no-store`, bypassing both client and edge
+caches. Verification, identity changes, subscription create/cancel, and priority
+redemption invalidate the relevant caches and refresh as part of the user's
+action. Venue polling and notification generation are independent of dashboard
+reads.
 
 ## Local Verification
 
@@ -66,9 +80,8 @@ The Worker requires:
 - `AIRFLOW_PUSH_TOKEN`
 
 Set them in Cloudflare Worker Secrets through a separately approved
-configuration procedure. The Airflow
-`WEBAPP_OBSERVATION_API_TOKEN` value must exactly match
-`AIRFLOW_PUSH_TOKEN`. Do not print either value.
+configuration procedure. The Airflow `WEBAPP_OBSERVATION_API_TOKEN` value must
+exactly match `AIRFLOW_PUSH_TOKEN`. Do not print either value.
 
 The GitHub `production` Environment separately stores the scoped deployment
 identity names `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Those values
@@ -85,7 +98,7 @@ must never be downloaded to a workstation.
    read-only production probes before Airflow deployment begins.
 5. Observe natural Airflow publication cycles and record the GitHub run.
 
-The Worker and Airflow publisher changes in this repair must ship from the same
+The Worker and Airflow publisher changes in this policy must ship from the same
 exact commit. The short Web-before-Airflow interval is safe: an older publisher
 without `observation_scope` is accepted and forwarded rather than rejected.
 
@@ -100,15 +113,20 @@ D1 migration commands are intentionally unsupported.
 - `/api/healthz` returns `ok: true` and the exact release commit.
 - `/api/bootstrap` returns twenty-six venues and no email addresses.
 - An unauthenticated observation write returns HTTP 401.
-- Natural venue DAG runs keep their existing 15-second, 30-second, and one-minute
-  schedules.
-- A changed slot set reaches D1 immediately; an unchanged set produces at most
-  one full ingest per venue/task observation scope every five minutes.
-- A slot set that disappears and then reappears is forwarded on the first
-  matching poll rather than suppressed by the heartbeat throttle.
-- A continuously open visible browser identity makes no more than 720 bootstrap
-  network requests per 24 hours; a hidden page stops periodic network refreshes
-  after it has a cached dashboard.
+- Natural venue DAG runs keep their configured schedules.
+- A changed slot, health, or error state reaches D1 on the first matching poll.
+- An unchanged empty observation produces no later Cloudflare request merely
+  because time elapsed.
+- An unchanged available-slot observation performs only the indexed rematch
+  path unless a subscription mutation invalidated the Worker fingerprint.
+- A slot set that disappears and later reappears is forwarded on the first
+  matching poll.
+- Opening the page performs one dashboard read; leaving it open schedules no
+  additional reads.
+- Clicking the refresh control requests `/api/bootstrap?refresh=1` and returns a
+  newly generated dashboard.
+- Venue status is shown as last-known state with its report age; it is not marked
+  unhealthy solely because the report is old.
 - Browser layout and the create-subscription flow pass mobile visual checks.
 - Weekday subscriptions persist a non-empty ISO weekday selection, existing
   subscriptions remain all-days, and matching uses the booking slot's
