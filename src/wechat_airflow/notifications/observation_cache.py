@@ -283,8 +283,10 @@ def decide_observation_delivery(
                 OBSERVATION_FAILURE_RETRY_SECONDS_ENV,
                 DEFAULT_OBSERVATION_FAILURE_RETRY_SECONDS,
             )
+            fingerprint_was_forwarded = entry["last_success_at"] > 0
             if (
-                heartbeat["last_success_at"] > 0
+                fingerprint_was_forwarded
+                and heartbeat["last_success_at"] > 0
                 and current_time - heartbeat["last_success_at"] < heartbeat_seconds
             ):
                 action: ObservationAction = "skip_success"
