@@ -7,9 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_production_worker_uses_durable_status_fallback() -> None:
-    wrangler = json.loads(
-        (ROOT / "webapp/wrangler.jsonc").read_text(encoding="utf-8")
-    )
+    wrangler = json.loads((ROOT / "webapp/wrangler.jsonc").read_text(encoding="utf-8"))
     assert wrangler["main"] == "./cloudflare/resilient-entry.ts"
     assert wrangler["durable_objects"]["bindings"] == [
         {
@@ -26,9 +24,7 @@ def test_production_worker_uses_durable_status_fallback() -> None:
 
 
 def test_observation_snapshot_is_recorded_before_d1_processing() -> None:
-    entry = (ROOT / "webapp/cloudflare/resilient-entry.ts").read_text(
-        encoding="utf-8"
-    )
+    entry = (ROOT / "webapp/cloudflare/resilient-entry.ts").read_text(encoding="utf-8")
     capture = entry.index("await captureObservationSnapshot(request, env)")
     d1_processing = entry.index("response = await worker.fetch(request, env as never, context)")
     assert capture < d1_processing
