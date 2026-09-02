@@ -20,13 +20,14 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
         assert f"{venue_id}: {interval}" in source
 
 
-def test_web_labels_status_sync_without_adding_an_api_path() -> None:
+def test_web_labels_last_report_and_manual_refresh_without_adding_an_api_path() -> None:
     prototype = (ROOT / "webapp/src/Prototype.tsx").read_text()
     helper = (ROOT / "webapp/src/venue-inspection-display.ts").read_text()
 
     assert 'from "./venue-inspection-display"' in prototype
-    assert "状态同步${compactRelative}" in prototype
-    assert "巡检与页面同步分开" in prototype
-    assert "页面每 30 秒更新" in prototype
+    assert "记录于${compactRelative}" in prototype
+    assert "后台巡检与页面刷新分开" in prototype
+    assert "页面数据由用户手动刷新" in prototype
+    assert "页面每 30 秒更新" not in prototype
     assert "fetch(" not in helper
     assert "/api/" not in helper
