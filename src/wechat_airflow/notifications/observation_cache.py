@@ -221,7 +221,9 @@ def _reserve_attempt(
         "fingerprint": fingerprint,
         "last_attempt_at": current_time,
         "last_success_at": previous_success_at,
-        "last_failure_at": 0.0,
+        # Treat the reservation as pending until record_observation_result clears it.
+        # This prevents parallel Airflow workers from publishing the same snapshot.
+        "last_failure_at": current_time,
         "gate": gate,
     }
 
