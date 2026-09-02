@@ -17,9 +17,7 @@ OBSERVATION_CACHE_PATH_ENV = "WEBAPP_OBSERVATION_STATE_PATH"
 OBSERVATION_FAILURE_RETRY_SECONDS_ENV = "WEBAPP_OBSERVATION_FAILURE_RETRY_SECONDS"
 # Version the default file path whenever a one-time replay is required. Stable
 # empty observations remain heartbeat-free after the first successful forward.
-DEFAULT_OBSERVATION_CACHE_PATH = Path(
-    "/opt/airflow/logs/webapp-observation-state-v4.json"
-)
+DEFAULT_OBSERVATION_CACHE_PATH = Path("/opt/airflow/logs/webapp-observation-state-v4.json")
 DEFAULT_OBSERVATION_FAILURE_RETRY_SECONDS = 120.0
 _STATE_VERSION = 3
 
