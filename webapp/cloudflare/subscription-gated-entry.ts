@@ -1,7 +1,6 @@
 import worker from "./deployment-entry";
 import {
   applyFreeTierObservationPolicy,
-  type FreeTierObservationAction,
   type FreeTierObservationEnvelope,
 } from "./free-tier-observation";
 import { ensureFreeTierSchema } from "./free-tier-schema";
@@ -89,30 +88,6 @@ function refreshSafely(env: GateEnv, source: string): Promise<void> {
   });
 }
 
-function invalidateObservationMatchingSafely(
-  env: GateEnv,
-  source: string,
-): Promise<void> {
-  const revision = `subscription-change:${Date.now()}`;
-  return env.DB.prepare(
-    `UPDATE observation_ingest_state
-        SET fingerprint = ?, last_forwarded_at = 0
-      WHERE observation_key LIKE 'v2:%'`,
-  ).bind(revision).run().then((result) => {
-    console.log(JSON.stringify({
-      event: "observation_matching_invalidated",
-      source,
-      scopes: Number(result.meta.changes || 0),
-    }));
-  }).catch((error) => {
-    console.warn(JSON.stringify({
-      event: "observation_matching_invalidation_failed",
-      source,
-      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
-    }));
-  });
-}
-
 async function ensureSchemaSafely(env: GateEnv, source: string): Promise<void> {
   try {
     const status = await ensureFreeTierSchema(env);
@@ -132,7 +107,6 @@ async function ensureSchemaSafely(env: GateEnv, source: string): Promise<void> {
 }
 
 function optimizedObservationResponse(
-  action: Exclude<FreeTierObservationAction, "forward">,
   envelope: FreeTierObservationEnvelope,
 ): Response {
   return Response.json({
@@ -140,7 +114,7 @@ function optimizedObservationResponse(
     venueId: envelope.venueId,
     slotsAccepted: envelope.snapshot.slotCount,
     deduplicated: true,
-    heartbeat: action === "heartbeat",
+    eventDriven: true,
     freeTierOptimized: true,
   }, {
     headers: {
@@ -179,15 +153,17 @@ export default {
     ) {
       try {
         const decision = await applyFreeTierObservationPolicy(env.DB, observationPayload);
-        if (decision.action !== "forward" && decision.envelope) {
+        if (decision.action === "skip" && decision.envelope) {
           console.log(JSON.stringify({
-            event: decision.action === "heartbeat"
-              ? "venue_observation_lightweight_heartbeat"
-              : "venue_observation_free_tier_deduplicated",
+            event: "venue_observation_event_deduplicated",
             venueId: decision.envelope.venueId,
             slotCount: decision.envelope.snapshot.slotCount,
           }));
-          return optimizedObservationResponse(decision.action, decision.envelope);
+          return enrichObservationResponse(
+            optimizedObservationResponse(decision.envelope),
+            env,
+            decision.envelope.venueId,
+          );
         }
       } catch (error) {
         console.warn(JSON.stringify({
@@ -205,10 +181,7 @@ export default {
 
     if (response.ok && gateMutation(request.method, url.pathname)) {
       const source = `${request.method}:${url.pathname}`;
-      context.waitUntil(Promise.all([
-        refreshSafely(env, source),
-        invalidateObservationMatchingSafely(env, source),
-      ]).then(() => undefined));
+      context.waitUntil(refreshSafely(env, source));
     }
     return response;
   },
@@ -220,7 +193,6 @@ export default {
   ): Promise<void> {
     const cron = (controller as ScheduledController & { cron?: string }).cron;
     await ensureSchemaSafely(env, `scheduled:${cron || "unknown"}`);
-    context.waitUntil(refreshSafely(env, `scheduled:${cron || "unknown"}`));
     await worker.scheduled(controller, env as never, context);
   },
 } satisfies ExportedHandler<GateEnv>;
