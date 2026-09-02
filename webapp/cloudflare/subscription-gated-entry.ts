@@ -113,7 +113,7 @@ function invalidateObservationMatchingSafely(
   });
 }
 
-async function ensureSchemaSafely(env: GateEnv, source: string): Promise<boolean> {
+async function ensureSchemaSafely(env: GateEnv, source: string): Promise<void> {
   try {
     const status = await ensureFreeTierSchema(env);
     if (status === "applied") {
@@ -122,14 +122,12 @@ async function ensureSchemaSafely(env: GateEnv, source: string): Promise<boolean
         source,
       }));
     }
-    return true;
   } catch (error) {
     console.warn(JSON.stringify({
       event: "free_tier_schema_unavailable",
       source,
       reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
     }));
-    return false;
   }
 }
 
@@ -178,7 +176,6 @@ export default {
       && observationPayload
       && venueId
       && authorizedObservationRequest(request, env)
-      && await ensureSchemaSafely(env, `observation:${venueId}`)
     ) {
       try {
         const decision = await applyFreeTierObservationPolicy(env.DB, observationPayload);
@@ -190,11 +187,7 @@ export default {
             venueId: decision.envelope.venueId,
             slotCount: decision.envelope.snapshot.slotCount,
           }));
-          return enrichObservationResponse(
-            optimizedObservationResponse(decision.action, decision.envelope),
-            env,
-            venueId,
-          );
+          return optimizedObservationResponse(decision.action, decision.envelope);
         }
       } catch (error) {
         console.warn(JSON.stringify({
