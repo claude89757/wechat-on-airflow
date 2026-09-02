@@ -14,12 +14,10 @@ from typing import Any, Literal, TypedDict
 
 OBSERVATION_CACHE_ENABLED_ENV = "WEBAPP_OBSERVATION_LOCAL_DEDUPE_ENABLED"
 OBSERVATION_CACHE_PATH_ENV = "WEBAPP_OBSERVATION_STATE_PATH"
-OBSERVATION_HEARTBEAT_SECONDS_ENV = "WEBAPP_OBSERVATION_HEARTBEAT_SECONDS"
 OBSERVATION_FAILURE_RETRY_SECONDS_ENV = "WEBAPP_OBSERVATION_FAILURE_RETRY_SECONDS"
 DEFAULT_OBSERVATION_CACHE_PATH = Path("/opt/airflow/logs/webapp-observation-state.json")
-DEFAULT_OBSERVATION_HEARTBEAT_SECONDS = 480.0
 DEFAULT_OBSERVATION_FAILURE_RETRY_SECONDS = 120.0
-_STATE_VERSION = 2
+_STATE_VERSION = 3
 
 ObservationAction = Literal["forward", "skip_success", "skip_retry"]
 
@@ -28,18 +26,13 @@ class CacheEntry(TypedDict):
     fingerprint: str
     last_attempt_at: float
     last_success_at: float
+    last_failure_at: float
     gate: dict[str, Any] | None
-
-
-class VenueHeartbeat(TypedDict):
-    last_attempt_at: float
-    last_success_at: float
 
 
 class CacheState(TypedDict):
     version: int
     entries: dict[str, CacheEntry]
-    venues: dict[str, VenueHeartbeat]
 
 
 @dataclass(frozen=True)
@@ -141,7 +134,7 @@ def _entry_gate(entry: object) -> dict[str, Any] | None:
 
 
 def _empty_state() -> CacheState:
-    return {"version": _STATE_VERSION, "entries": {}, "venues": {}}
+    return {"version": _STATE_VERSION, "entries": {}}
 
 
 def _read_state(path: Path) -> CacheState:
@@ -163,25 +156,12 @@ def _read_state(path: Path) -> CacheState:
                     "fingerprint": str(raw_entry.get("fingerprint") or ""),
                     "last_attempt_at": float(raw_entry.get("last_attempt_at") or 0),
                     "last_success_at": float(raw_entry.get("last_success_at") or 0),
+                    "last_failure_at": float(raw_entry.get("last_failure_at") or 0),
                     "gate": _entry_gate(raw_entry),
                 }
             except (TypeError, ValueError):
                 continue
-
-    raw_venues = value.get("venues")
-    venues: dict[str, VenueHeartbeat] = {}
-    if isinstance(raw_venues, dict):
-        for venue_id, raw_heartbeat in raw_venues.items():
-            if not isinstance(raw_heartbeat, Mapping):
-                continue
-            try:
-                venues[str(venue_id)] = {
-                    "last_attempt_at": float(raw_heartbeat.get("last_attempt_at") or 0),
-                    "last_success_at": float(raw_heartbeat.get("last_success_at") or 0),
-                }
-            except (TypeError, ValueError):
-                continue
-    return {"version": _STATE_VERSION, "entries": entries, "venues": venues}
+    return {"version": _STATE_VERSION, "entries": entries}
 
 
 def _write_state(path: Path, state: CacheState) -> None:
@@ -228,12 +208,22 @@ def _latest_gate(state: CacheState, venue_id: str) -> dict[str, Any] | None:
     return max(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
-def _reserve_venue_attempt(state: CacheState, venue_id: str, current_time: float) -> None:
-    heartbeat = state["venues"].setdefault(
-        venue_id,
-        {"last_attempt_at": 0.0, "last_success_at": 0.0},
-    )
-    heartbeat["last_attempt_at"] = current_time
+def _reserve_attempt(
+    state: CacheState,
+    *,
+    key: str,
+    fingerprint: str,
+    gate: dict[str, Any] | None,
+    current_time: float,
+    previous_success_at: float,
+) -> None:
+    state["entries"][key] = {
+        "fingerprint": fingerprint,
+        "last_attempt_at": current_time,
+        "last_success_at": previous_success_at,
+        "last_failure_at": 0.0,
+        "gate": gate,
+    }
 
 
 def decide_observation_delivery(
@@ -261,7 +251,14 @@ def decide_observation_delivery(
             entry = state["entries"].get(key)
             gate = _latest_gate(state, venue_id)
             if entry is None or entry["fingerprint"] != fingerprint:
-                _reserve_venue_attempt(state, venue_id, current_time)
+                _reserve_attempt(
+                    state,
+                    key=key,
+                    fingerprint=fingerprint,
+                    gate=gate,
+                    current_time=current_time,
+                    previous_success_at=0.0,
+                )
                 _write_state(path, state)
                 return ObservationDeliveryDecision(
                     "forward",
@@ -272,40 +269,36 @@ def decide_observation_delivery(
                     venue_id,
                 )
 
-            heartbeat = state["venues"].setdefault(
-                venue_id,
-                {"last_attempt_at": 0.0, "last_success_at": 0.0},
-            )
-            heartbeat_seconds = _configured_seconds(
-                OBSERVATION_HEARTBEAT_SECONDS_ENV,
-                DEFAULT_OBSERVATION_HEARTBEAT_SECONDS,
-            )
             retry_seconds = _configured_seconds(
                 OBSERVATION_FAILURE_RETRY_SECONDS_ENV,
                 DEFAULT_OBSERVATION_FAILURE_RETRY_SECONDS,
             )
-            retry_pending = heartbeat["last_attempt_at"] > heartbeat["last_success_at"]
-            if retry_pending and current_time - heartbeat["last_attempt_at"] < retry_seconds:
+            retry_pending = entry["last_failure_at"] > entry["last_success_at"]
+            if retry_pending and current_time - entry["last_failure_at"] < retry_seconds:
                 action: ObservationAction = "skip_retry"
-            elif has_available_slots:
-                action = "forward"
-                _reserve_venue_attempt(state, venue_id, current_time)
-                _write_state(path, state)
-            elif (
-                entry["last_success_at"] > 0
-                and heartbeat["last_success_at"] > 0
-                and current_time - heartbeat["last_success_at"] < heartbeat_seconds
-            ):
+            elif not has_available_slots and entry["last_success_at"] > 0:
+                # Stable empty observations never cross the network again. A real slot,
+                # health, or error change changes the fingerprint and bypasses this path.
                 action = "skip_success"
             else:
-                action = "forward"
-                _reserve_venue_attempt(state, venue_id, current_time)
+                # Available slots continue with a cheap indexed rematch probe. This is
+                # not a liveness heartbeat: it exists so a new subscription can match
+                # already-open availability after the Worker invalidates its fingerprint.
+                _reserve_attempt(
+                    state,
+                    key=key,
+                    fingerprint=fingerprint,
+                    gate=_entry_gate(entry) or gate,
+                    current_time=current_time,
+                    previous_success_at=entry["last_success_at"],
+                )
                 _write_state(path, state)
+                action = "forward"
             return ObservationDeliveryDecision(
                 action,
                 key,
                 fingerprint,
-                gate,
+                _entry_gate(entry) or gate,
                 True,
                 venue_id,
             )
@@ -337,7 +330,6 @@ def record_observation_result(
             entries = state["entries"]
             current = entries.get(decision.key)
             previous_gate = _entry_gate(current) or _latest_gate(state, venue_id)
-            previous_fingerprint = current["fingerprint"] if current is not None else ""
             previous_success = current["last_success_at"] if current is not None else 0.0
             normalized_gate = (
                 {str(key): value for key, value in gate.items()}
@@ -347,22 +339,10 @@ def record_observation_result(
             entries[decision.key] = {
                 "fingerprint": decision.fingerprint,
                 "last_attempt_at": current_time,
-                "last_success_at": (
-                    current_time
-                    if success
-                    else previous_success
-                    if previous_fingerprint == decision.fingerprint
-                    else 0.0
-                ),
+                "last_success_at": current_time if success else previous_success,
+                "last_failure_at": 0.0 if success else current_time,
                 "gate": normalized_gate,
             }
-            venue = state["venues"].setdefault(
-                venue_id,
-                {"last_attempt_at": 0.0, "last_success_at": 0.0},
-            )
-            venue["last_attempt_at"] = current_time
-            if success:
-                venue["last_success_at"] = current_time
             _write_state(path, state)
     except OSError:
         return
