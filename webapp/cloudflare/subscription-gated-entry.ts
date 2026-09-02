@@ -75,7 +75,7 @@ function gateMutation(method: string, pathname: string): boolean {
     (method === "POST" && pathname === "/api/subscriptions")
     || (method === "DELETE" && /^\/api\/subscriptions\/[0-9a-f-]{36}$/i.test(pathname))
     || (method === "POST" && pathname === "/api/priority/redeem")
-    || pathname.startsWith("/api/admin/")
+    || (!["GET", "HEAD", "OPTIONS"].includes(method) && pathname.startsWith("/api/admin/"))
   );
 }
 
@@ -83,6 +83,30 @@ function refreshSafely(env: GateEnv, source: string): Promise<void> {
   return refreshWechatVenueGates(env).catch((error) => {
     console.warn(JSON.stringify({
       event: "wechat_subscription_gate_refresh_failed",
+      source,
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+  });
+}
+
+function invalidateObservationMatchingSafely(
+  env: GateEnv,
+  source: string,
+): Promise<void> {
+  const revision = `subscription-change:${Date.now()}`;
+  return env.DB.prepare(
+    `UPDATE observation_ingest_state
+        SET fingerprint = ?, last_forwarded_at = 0
+      WHERE observation_key LIKE 'v2:%'`,
+  ).bind(revision).run().then((result) => {
+    console.log(JSON.stringify({
+      event: "observation_matching_invalidated",
+      source,
+      scopes: Number(result.meta.changes || 0),
+    }));
+  }).catch((error) => {
+    console.warn(JSON.stringify({
+      event: "observation_matching_invalidation_failed",
       source,
       reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
     }));
@@ -187,7 +211,11 @@ export default {
     }
 
     if (response.ok && gateMutation(request.method, url.pathname)) {
-      context.waitUntil(refreshSafely(env, `${request.method}:${url.pathname}`));
+      const source = `${request.method}:${url.pathname}`;
+      context.waitUntil(Promise.all([
+        refreshSafely(env, source),
+        invalidateObservationMatchingSafely(env, source),
+      ]).then(() => undefined));
     }
     return response;
   },
