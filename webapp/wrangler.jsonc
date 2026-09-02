@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "zacks-tennis-alerts",
-  "main": "./cloudflare/subscription-gated-entry.ts",
+  "main": "./cloudflare/resilient-entry.ts",
   "compatibility_date": "2026-07-28",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
