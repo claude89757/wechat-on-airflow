@@ -7,12 +7,11 @@ import { VENUES, type VenueId } from "./domain";
 import { freeTierObservationEnvelope } from "./free-tier-observation";
 import { subscriptionTermsForTier } from "./subscription-terms";
 
-const VENUE_STATUS_CACHE_VERSION = 1;
-const VENUE_STATUS_CACHE_PREFIX = "/__zacks_edge_cache/venue-status";
-export const VENUE_STATUS_CACHE_RETENTION_SECONDS = 365 * 24 * 60 * 60;
+const VENUE_STATUS_SNAPSHOT_VERSION = 1;
 
 export type VenueStatusSnapshot = {
-  version: typeof VENUE_STATUS_CACHE_VERSION;
+  version: typeof VENUE_STATUS_SNAPSHOT_VERSION;
+  fingerprint: string;
   venueId: VenueId;
   venueName: string;
   healthy: boolean;
@@ -22,8 +21,6 @@ export type VenueStatusSnapshot = {
   hasError: boolean;
   storedAt: string;
 };
-
-export type VenueStatusCache = Pick<Cache, "match" | "put">;
 
 type SnapshotDashboardEnv = DeliveryTierEnv & {
   STANDARD_ACTIVE_SUBSCRIPTION_LIMIT?: string;
@@ -39,36 +36,29 @@ function configuredPositiveInteger(
   return Number.isInteger(candidate) && candidate > 0 ? candidate : fallback;
 }
 
-function venueStatusCacheRequest(requestUrl: string, venueId: VenueId): Request {
-  const url = new URL(requestUrl);
-  url.pathname = `${VENUE_STATUS_CACHE_PREFIX}/${venueId}`;
-  url.search = "";
-  url.hash = "";
-  return new Request(url.toString(), { method: "GET" });
-}
-
-function isVenueStatusSnapshot(value: unknown): value is VenueStatusSnapshot {
+export function isVenueStatusSnapshot(value: unknown): value is VenueStatusSnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as Partial<VenueStatusSnapshot>;
-  if (
-    candidate.version !== VENUE_STATUS_CACHE_VERSION
-    || typeof candidate.venueId !== "string"
-    || !(candidate.venueId in VENUES)
-    || candidate.venueName !== VENUES[candidate.venueId as VenueId]
-    || typeof candidate.healthy !== "boolean"
-    || typeof candidate.checkedAt !== "string"
-    || !Number.isFinite(Date.parse(candidate.checkedAt))
-    || typeof candidate.observationScope !== "string"
-    || typeof candidate.slotCount !== "number"
-    || !Number.isInteger(candidate.slotCount)
-    || candidate.slotCount < 0
-    || typeof candidate.hasError !== "boolean"
-    || typeof candidate.storedAt !== "string"
-    || !Number.isFinite(Date.parse(candidate.storedAt))
-  ) {
-    return false;
-  }
-  return true;
+  return Boolean(
+    candidate.version === VENUE_STATUS_SNAPSHOT_VERSION
+    && typeof candidate.fingerprint === "string"
+    && /^[0-9a-f]{64}$/i.test(candidate.fingerprint)
+    && typeof candidate.venueId === "string"
+    && candidate.venueId in VENUES
+    && candidate.venueName === VENUES[candidate.venueId as VenueId]
+    && typeof candidate.healthy === "boolean"
+    && typeof candidate.checkedAt === "string"
+    && Number.isFinite(Date.parse(candidate.checkedAt))
+    && typeof candidate.observationScope === "string"
+    && candidate.observationScope.length > 0
+    && candidate.observationScope.length <= 120
+    && typeof candidate.slotCount === "number"
+    && Number.isInteger(candidate.slotCount)
+    && candidate.slotCount >= 0
+    && typeof candidate.hasError === "boolean"
+    && typeof candidate.storedAt === "string"
+    && Number.isFinite(Date.parse(candidate.storedAt))
+  );
 }
 
 export async function venueStatusSnapshotFromObservation(
@@ -78,7 +68,8 @@ export async function venueStatusSnapshotFromObservation(
   const envelope = await freeTierObservationEnvelope(payload, now);
   if (!envelope) return null;
   return {
-    version: VENUE_STATUS_CACHE_VERSION,
+    version: VENUE_STATUS_SNAPSHOT_VERSION,
+    fingerprint: envelope.snapshot.fingerprint,
     venueId: envelope.venueId,
     venueName: envelope.venueName,
     healthy: envelope.healthy,
@@ -88,51 +79,6 @@ export async function venueStatusSnapshotFromObservation(
     hasError: Boolean(envelope.error),
     storedAt: new Date(now).toISOString(),
   };
-}
-
-export async function storeVenueStatusSnapshot(
-  requestUrl: string,
-  snapshot: VenueStatusSnapshot,
-  cache: VenueStatusCache = caches.default,
-): Promise<void> {
-  const response = Response.json(snapshot, {
-    headers: {
-      "Cache-Control": `public, max-age=${VENUE_STATUS_CACHE_RETENTION_SECONDS}`,
-      "Content-Type": "application/json; charset=utf-8",
-      "X-Zacks-Cache-Kind": "airflow-venue-status",
-    },
-  });
-  await cache.put(venueStatusCacheRequest(requestUrl, snapshot.venueId), response);
-}
-
-export async function loadVenueStatusSnapshot(
-  requestUrl: string,
-  venueId: VenueId,
-  cache: VenueStatusCache = caches.default,
-): Promise<VenueStatusSnapshot | null> {
-  const response = await cache.match(venueStatusCacheRequest(requestUrl, venueId));
-  if (!response) return null;
-  try {
-    const payload = await response.json<unknown>();
-    return isVenueStatusSnapshot(payload) ? payload : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function loadVenueStatusSnapshots(
-  requestUrl: string,
-  cache: VenueStatusCache = caches.default,
-): Promise<VenueStatusSnapshot[]> {
-  const venueIds = Object.keys(VENUES) as VenueId[];
-  const snapshots = await Promise.all(venueIds.map(async (venueId) => {
-    try {
-      return await loadVenueStatusSnapshot(requestUrl, venueId, cache);
-    } catch {
-      return null;
-    }
-  }));
-  return snapshots.filter((snapshot): snapshot is VenueStatusSnapshot => Boolean(snapshot));
 }
 
 function nextUtcResetIso(now: Date): string {
@@ -146,6 +92,7 @@ function nextUtcResetIso(now: Date): string {
 export function degradedDashboardFromVenueSnapshots(
   snapshots: readonly VenueStatusSnapshot[],
   env: SnapshotDashboardEnv,
+  hasLocalReceipt: boolean,
   now = new Date(),
 ): Dashboard | null {
   if (!snapshots.length) return null;
@@ -155,17 +102,17 @@ export function degradedDashboardFromVenueSnapshots(
     snapshot,
   ]));
   const venueIds = Object.keys(VENUES) as VenueId[];
-  const venues: VenueStatus[] = venueIds.map((venueId) => {
+  const venues: VenueStatus[] = venueIds.flatMap((venueId) => {
     const snapshot = snapshotByVenue.get(venueId);
-    return {
+    if (!snapshot) return [];
+    return [{
       id: venueId,
       name: VENUES[venueId],
-      healthy: snapshot?.healthy ?? false,
-      statusKnown: Boolean(snapshot),
+      healthy: snapshot.healthy,
       subscriberCount: 0,
-      lastInspectionAt: snapshot?.checkedAt ?? null,
+      lastInspectionAt: snapshot.checkedAt,
       lastNotificationAt: null,
-    };
+    }];
   });
   const generatedAt = snapshots.reduce(
     (latest, snapshot) => snapshot.checkedAt > latest ? snapshot.checkedAt : latest,
@@ -176,21 +123,19 @@ export function degradedDashboardFromVenueSnapshots(
     standard: configuredPositiveInteger(env.STANDARD_ACTIVE_SUBSCRIPTION_LIMIT, 5),
     priority: configuredPositiveInteger(env.PRIORITY_ACTIVE_SUBSCRIPTION_LIMIT, 20),
   };
+  const unavailableMetric = "—" as unknown as number;
 
   return {
     generatedAt,
     dataStatus: {
       stale: true,
-      partial: true,
-      source: "observation-cache",
+      source: "edge-cache",
       reason: "data_store_unavailable",
       retryAt: nextUtcResetIso(now),
-      snapshotCount: snapshots.length,
-      totalSnapshots: venueIds.length,
     },
     metrics: {
-      activeSubscriptions: 0,
-      remindersToday: 0,
+      activeSubscriptions: unavailableMetric,
+      remindersToday: unavailableMetric,
       healthyVenues: snapshots.filter((snapshot) => snapshot.healthy).length,
       totalVenues: venueIds.length,
     },
@@ -202,19 +147,19 @@ export function degradedDashboardFromVenueSnapshots(
     subscriptionLimits,
     venues,
     identity: {
-      verified: false,
-      maskedEmail: null,
-      remindersToday: 0,
-      submittedToday: 0,
-      deliveredToday: 0,
-      failedToday: 0,
+      verified: hasLocalReceipt,
+      maskedEmail: hasLocalReceipt ? "本机已验证邮箱" : null,
+      remindersToday: unavailableMetric,
+      submittedToday: unavailableMetric,
+      deliveredToday: unavailableMetric,
+      failedToday: unavailableMetric,
       tier: "standard",
       isAdmin: false,
-      dailyLimit: tierLimits.standard,
-      remainingToday: tierLimits.standard,
-      activeSubscriptionLimit: subscriptionLimits.standard,
-      activeSubscriptionCount: 0,
-      remainingSubscriptions: subscriptionLimits.standard,
+      dailyLimit: unavailableMetric,
+      remainingToday: unavailableMetric,
+      activeSubscriptionLimit: unavailableMetric,
+      activeSubscriptionCount: unavailableMetric,
+      remainingSubscriptions: unavailableMetric,
     },
     subscriptions: [],
   };
