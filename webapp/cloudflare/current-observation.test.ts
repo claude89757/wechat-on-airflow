@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   currentObservationSnapshotStatement,
@@ -27,9 +27,19 @@ function row(overrides: Partial<CurrentSnapshotRow> = {}): CurrentSnapshotRow {
 
 describe("current observation snapshots", () => {
   it("stores one replaceable snapshot per observation scope", () => {
-    const bound = vi.fn(() => ({}) as D1PreparedStatement);
-    const prepare = vi.fn(() => ({ bind: bound }) as unknown as D1PreparedStatement);
-    const db = { prepare } as unknown as D1Database;
+    const preparedSql: string[] = [];
+    const boundArguments: unknown[][] = [];
+    const db = {
+      prepare(sql: string) {
+        preparedSql.push(sql);
+        return {
+          bind(...values: unknown[]) {
+            boundArguments.push(values);
+            return {} as D1PreparedStatement;
+          },
+        } as D1PreparedStatement;
+      },
+    } as D1Database;
 
     currentObservationSnapshotStatement(db, {
       observationKey: "v3:szw:day-0",
@@ -41,9 +51,9 @@ describe("current observation snapshots", () => {
       slots: [currentSlot],
     }, "2026-09-02T10:00:00.000Z");
 
-    expect(prepare.mock.calls[0][0]).toContain("current_observation_snapshots");
-    expect(prepare.mock.calls[0][0]).toContain("ON CONFLICT(observation_key)");
-    expect(bound).toHaveBeenCalledWith(
+    expect(preparedSql[0]).toContain("current_observation_snapshots");
+    expect(preparedSql[0]).toContain("ON CONFLICT(observation_key)");
+    expect(boundArguments[0]).toEqual([
       "v3:szw:day-0",
       "szw",
       "深圳湾",
@@ -52,7 +62,7 @@ describe("current observation snapshots", () => {
       null,
       JSON.stringify([currentSlot]),
       "2026-09-02T10:00:00.000Z",
-    );
+    ]);
   });
 
   it("matches future current slots and deduplicates parallel scopes", async () => {
