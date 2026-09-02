@@ -7,10 +7,10 @@ import json
 import os
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 OBSERVATION_CACHE_ENABLED_ENV = "WEBAPP_OBSERVATION_LOCAL_DEDUPE_ENABLED"
 OBSERVATION_CACHE_PATH_ENV = "WEBAPP_OBSERVATION_STATE_PATH"
@@ -24,6 +24,18 @@ _STATE_VERSION = 1
 ObservationAction = Literal["forward", "skip_success", "skip_retry"]
 
 
+class CacheEntry(TypedDict):
+    fingerprint: str
+    last_attempt_at: float
+    last_success_at: float
+    gate: dict[str, Any] | None
+
+
+class CacheState(TypedDict):
+    version: int
+    entries: dict[str, CacheEntry]
+
+
 @dataclass(frozen=True)
 class ObservationDeliveryDecision:
     action: ObservationAction
@@ -34,9 +46,12 @@ class ObservationDeliveryDecision:
 
 
 def _configured_seconds(name: str, fallback: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return fallback
     try:
-        value = float(os.environ.get(name, fallback))
-    except (TypeError, ValueError):
+        value = float(raw)
+    except ValueError:
         return fallback
     return min(max(value, 1.0), 3_600.0)
 
@@ -82,11 +97,12 @@ def _canonical_slots(value: object) -> list[dict[str, str]]:
     for item in value:
         if not isinstance(item, Mapping):
             continue
+        candidate = {str(key): item_value for key, item_value in item.items()}
         slot = {
-            "date": str(item.get("date") or "").strip(),
-            "court_name": _string_field(item, "court_name", "courtName"),
-            "start_time": _string_field(item, "start_time", "startTime"),
-            "end_time": _string_field(item, "end_time", "endTime"),
+            "date": str(candidate.get("date") or "").strip(),
+            "court_name": _string_field(candidate, "court_name", "courtName"),
+            "start_time": _string_field(candidate, "start_time", "startTime"),
+            "end_time": _string_field(candidate, "end_time", "endTime"),
         }
         key = "|".join(slot.values())
         slots[key] = slot
@@ -108,21 +124,47 @@ def observation_identity(payload: Mapping[str, object]) -> tuple[str, str]:
     return f"{venue_id}:{scope}", hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def _empty_state() -> dict[str, Any]:
+def _entry_gate(entry: object) -> dict[str, Any] | None:
+    if not isinstance(entry, Mapping):
+        return None
+    gate = entry.get("gate")
+    if not isinstance(gate, Mapping):
+        return None
+    return {str(key): value for key, value in gate.items()}
+
+
+def _empty_state() -> CacheState:
     return {"version": _STATE_VERSION, "entries": {}}
 
 
-def _read_state(path: Path) -> dict[str, Any]:
+def _read_state(path: Path) -> CacheState:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return _empty_state()
-    if not isinstance(value, dict) or not isinstance(value.get("entries"), dict):
+    if not isinstance(value, dict):
         return _empty_state()
-    return {"version": _STATE_VERSION, "entries": dict(value["entries"])}
+    raw_entries = value.get("entries")
+    if not isinstance(raw_entries, dict):
+        return _empty_state()
+
+    entries: dict[str, CacheEntry] = {}
+    for key, raw_entry in raw_entries.items():
+        if not isinstance(raw_entry, Mapping):
+            continue
+        try:
+            entries[str(key)] = {
+                "fingerprint": str(raw_entry.get("fingerprint") or ""),
+                "last_attempt_at": float(raw_entry.get("last_attempt_at") or 0),
+                "last_success_at": float(raw_entry.get("last_success_at") or 0),
+                "gate": _entry_gate(raw_entry),
+            }
+        except (TypeError, ValueError):
+            continue
+    return {"version": _STATE_VERSION, "entries": entries}
 
 
-def _write_state(path: Path, state: Mapping[str, object]) -> None:
+def _write_state(path: Path, state: CacheState) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     file_descriptor, temporary = tempfile.mkstemp(
         prefix=f".{path.name}.",
@@ -143,7 +185,7 @@ def _write_state(path: Path, state: Mapping[str, object]) -> None:
 
 
 @contextlib.contextmanager
-def _locked_state(path: Path):
+def _locked_state(path: Path) -> Iterator[CacheState]:
     lock_path = path.with_name(f"{path.name}.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock:
@@ -152,12 +194,6 @@ def _locked_state(path: Path):
             yield _read_state(path)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-
-
-def _entry_gate(entry: object) -> dict[str, Any] | None:
-    if not isinstance(entry, Mapping) or not isinstance(entry.get("gate"), Mapping):
-        return None
-    return {str(key): value for key, value in entry["gate"].items()}
 
 
 def decide_observation_delivery(
@@ -174,7 +210,7 @@ def decide_observation_delivery(
     try:
         with _locked_state(path) as state:
             entry = state["entries"].get(key)
-            if not isinstance(entry, Mapping) or entry.get("fingerprint") != fingerprint:
+            if entry is None or entry["fingerprint"] != fingerprint:
                 return ObservationDeliveryDecision(
                     "forward",
                     key,
@@ -183,8 +219,8 @@ def decide_observation_delivery(
                     True,
                 )
             gate = _entry_gate(entry)
-            last_success = float(entry.get("last_success_at") or 0)
-            last_attempt = float(entry.get("last_attempt_at") or 0)
+            last_success = entry["last_success_at"]
+            last_attempt = entry["last_attempt_at"]
             heartbeat = _configured_seconds(
                 OBSERVATION_HEARTBEAT_SECONDS_ENV,
                 DEFAULT_OBSERVATION_HEARTBEAT_SECONDS,
@@ -220,14 +256,8 @@ def record_observation_result(
             entries = state["entries"]
             current = entries.get(decision.key)
             previous_gate = _entry_gate(current)
-            previous_fingerprint = (
-                str(current.get("fingerprint") or "") if isinstance(current, Mapping) else ""
-            )
-            previous_success = (
-                float(current.get("last_success_at") or 0)
-                if isinstance(current, Mapping)
-                else 0.0
-            )
+            previous_fingerprint = current["fingerprint"] if current is not None else ""
+            previous_success = current["last_success_at"] if current is not None else 0.0
             normalized_gate = (
                 {str(key): value for key, value in gate.items()} if gate is not None else previous_gate
             )
@@ -257,12 +287,12 @@ def cached_gate_for_venue(venue_id: str) -> dict[str, Any] | None:
             candidates: list[tuple[float, dict[str, Any]]] = []
             prefix = f"{venue_id}:"
             for key, entry in state["entries"].items():
-                if not str(key).startswith(prefix) or not isinstance(entry, Mapping):
+                if not key.startswith(prefix):
                     continue
                 gate = _entry_gate(entry)
                 if gate is None:
                     continue
-                candidates.append((float(entry.get("last_success_at") or 0), gate))
+                candidates.append((entry["last_success_at"], gate))
             return max(candidates, key=lambda item: item[0])[1] if candidates else None
     except OSError:
         return None
