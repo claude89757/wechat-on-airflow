@@ -380,7 +380,7 @@ export default function Prototype() {
         setReceipts(removeReceipt(receipt.token));
         setReceipt(null);
       }
-      if (force) setToast("已获取最新数据");
+      if (force) setToast("已读取最新记录");
     } catch {
       setServiceOnline(import.meta.env.DEV);
       setRefreshFailed(true);
@@ -391,8 +391,6 @@ export default function Prototype() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 30_000);
-    return () => window.clearInterval(timer);
   }, [refresh]);
 
   useEffect(() => {
@@ -537,12 +535,12 @@ export default function Prototype() {
           ? "这是你此前领取且仍可使用的邀请码。"
           : "谢谢你的咖啡，送你一个优先用户邀请码。";
   const availability = resolveDashboardAvailability({ hasSuccessfulDashboard, loading, refreshFailed });
-  const statusLabel = availability === "loading" ? "正在读取状态数据"
+  const statusLabel = availability === "loading" ? "正在读取最近状态"
     : availability === "unknown" ? "暂时无法读取状态"
-    : availability === "stale" ? "刷新失败，显示上次数据" : "状态数据已更新";
+    : availability === "stale" ? "刷新失败，显示上次记录" : "已显示最近状态";
   const statusDetail = hasSuccessfulDashboard
-    ? `数据生成于 ${formatUpdatedAt(dashboard.generatedAt)}`
-    : loading ? "正在获取最新数据" : "请稍后点击刷新";
+    ? `记录生成于 ${formatUpdatedAt(dashboard.generatedAt)}`
+    : loading ? "正在读取最近记录" : "请点击刷新重试";
   const quotaPercent = dashboard.identity.dailyLimit > 0
     ? Math.min(100, Math.round(dashboard.identity.remindersToday / dashboard.identity.dailyLimit * 100)) : 0;
   const luluState = resolveLuluState({
@@ -946,8 +944,8 @@ export default function Prototype() {
             <span>{statusDetail}</span>
             <button
               type="button"
-              aria-label="获取最新状态"
-              title="获取最新状态"
+              aria-label="手动刷新最新记录"
+              title="手动刷新最新记录"
               onClick={() => void refresh(true)}
               disabled={loading}
             >
@@ -997,7 +995,7 @@ export default function Prototype() {
               value={hasSuccessfulDashboard
                 ? `${dashboard.metrics.healthyVenues}/${dashboard.metrics.totalVenues}`
                 : `—/${dashboard.metrics.totalVenues}`}
-              label="全站巡检正常"
+              label="最近记录正常"
               tone="green"
             />
           </section>
@@ -1079,15 +1077,15 @@ export default function Prototype() {
           <section className="venue-section" aria-labelledby="venue-heading">
             <div className="section-heading">
               <div>
-                <h2 id="venue-heading">场地运行状态</h2>
-                <p>点按卡片快速创建提醒 · 页面每 30 秒更新</p>
+                <h2 id="venue-heading">场地最近状态</h2>
+                <p>点按卡片快速创建提醒 · 点击刷新读取最新记录</p>
               </div>
-              <span><ArrowsClockwiseIcon size={17} />最长缓存 2 分钟</span>
+              <span><ArrowsClockwiseIcon size={17} />仅在手动刷新时读取</span>
             </div>
 
             <div className="venue-card-legend" aria-label="卡片指标说明">
-              <span><i className="venue-status-dot healthy" aria-hidden="true" />巡检</span>
-              <span><ArrowsClockwiseIcon size={14} aria-hidden="true" />同步</span>
+              <span><i className="venue-status-dot healthy" aria-hidden="true" />最近状态</span>
+              <span><ArrowsClockwiseIcon size={14} aria-hidden="true" />状态时间</span>
               <span><UsersThreeIcon size={14} aria-hidden="true" />关注</span>
               <span><EnvelopeSimpleIcon size={14} aria-hidden="true" />送达</span>
             </div>
@@ -1130,7 +1128,7 @@ export default function Prototype() {
                     key={venue.id}
                     data-testid={`venue-card-${venue.id}`}
                     data-venue-id={venue.id}
-                    aria-label={`为${venue.name}快速创建提醒；${statusText}，${inspectionCadence}，状态同步${compactRelative}，${venue.subscriberCount}人关注，${mailText}`}
+                    aria-label={`为${venue.name}快速创建提醒；${statusText}，${inspectionCadence}，状态记录${compactRelative}，${venue.subscriberCount}人关注，${mailText}`}
                     onClick={() => openCreatePanel(venue.id)}
                   >
                     <span className="venue-card-heading">

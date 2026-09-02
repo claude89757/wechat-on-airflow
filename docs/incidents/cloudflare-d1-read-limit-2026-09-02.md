@@ -1,5 +1,12 @@
 # Cloudflare D1 Daily Read-Limit Incident — 2026-09-02
 
+
+> Architecture update (2026-09-03): ADR 0015 supersedes the sparse-heartbeat
+> portions of this incident response. Production now forwards only real
+> observation changes, stores bounded current snapshots for new-subscription
+> matching, and uses explicit user-driven dashboard refresh. Browser refresh is
+> not an Airflow liveness signal.
+
 ## Status
 
 Production Airflow host access, SSH authentication, and the public Web entrypoint

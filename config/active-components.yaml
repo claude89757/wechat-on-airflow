@@ -45,6 +45,10 @@ shared_contracts:
       - raw_slots_are_not_filtered_by_legacy_notification_windows
       - webapp_is_the_only_email_delivery_owner
       - no_secrets_or_email_addresses_are_logged
+      - unchanged_observations_never_cross_worker_boundary
+      - current_snapshots_match_new_subscriptions
+      - dashboard_network_refresh_is_user_driven
+      - dashboard_status_is_last_known_not_liveness
   venue_inspection_cadence:
     policy_file: config/venue-schedule-policy.yaml
     invariants:

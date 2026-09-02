@@ -18,6 +18,10 @@ import {
   type VenueId,
 } from "./domain";
 import {
+  currentObservationSnapshotStatement,
+  enqueueCurrentSnapshotMatches,
+} from "./current-observation";
+import {
   deliveryLimitForTier,
   deliveryTierLimits,
   normalizeDeliveryTier,
@@ -157,7 +161,6 @@ const JSON_HEADERS = {
 const MAX_JSON_BYTES = 32_768;
 const RECEIPT_LIFETIME_MS = 180 * 86_400_000;
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
-const INSPECTION_FRESHNESS_MS = 10 * 60_000;
 const MAX_OUTBOX_BATCH_ROWS = 100;
 const DELIVERY_RESERVATION_LIFETIME_MS = 10 * 60_000;
 const INVITE_ATTEMPT_WINDOW_MS = 60 * 60_000;
@@ -522,10 +525,7 @@ async function bootstrap(request: Request, env: WorkerEnv): Promise<Response> {
   const venues = venueRows.map((venue) => ({
     id: venue.venue_id,
     name: venue.venue_name,
-    healthy:
-      Boolean(venue.healthy)
-      && Boolean(venue.last_inspection_at)
-      && Date.parse(venue.last_inspection_at || "") >= now.getTime() - INSPECTION_FRESHNESS_MS,
+    healthy: Boolean(venue.healthy),
     subscriberCount: Number(venue.subscriber_count || 0),
     lastInspectionAt: venue.last_inspection_at,
     lastNotificationAt: venue.last_notification_at,
@@ -800,7 +800,11 @@ async function verifyEmail(request: Request, env: WorkerEnv): Promise<Response> 
 }
 
 
-async function createSubscription(request: Request, env: WorkerEnv): Promise<Response> {
+async function createSubscription(
+  request: Request,
+  env: WorkerEnv,
+  context: ExecutionContext,
+): Promise<Response> {
   const identity = await getIdentity(request, env);
   if (!identity) return errorResponse(new Error("请先验证邮箱"), 401);
 
@@ -889,7 +893,32 @@ async function createSubscription(request: Request, env: WorkerEnv): Promise<Res
     subscription.createdAt,
     subscription.createdAt,
   ).run();
-  return json({ subscription: { ...subscription, eligible: true } }, 201);
+
+  let matchedCurrentAvailability = 0;
+  try {
+    matchedCurrentAvailability = await enqueueCurrentSnapshotMatches(env.DB, {
+      id: subscription.id,
+      email: identity.email,
+      venueIds: subscription.venueIds,
+      weekdayMask,
+      startTime: subscription.startTime,
+      endTime: subscription.endTime,
+    }, now);
+    if (matchedCurrentAvailability > 0) {
+      context.waitUntil(drainOutbox(env));
+    }
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "current_snapshot_subscription_match_failed",
+      subscriptionId: subscription.id,
+      reason: error instanceof Error ? error.message.slice(0, 160) : "unknown",
+    }));
+  }
+
+  return json({
+    subscription: { ...subscription, eligible: true },
+    matchedCurrentAvailability,
+  }, 201);
 }
 
 async function cancelSubscription(
@@ -1613,6 +1642,8 @@ async function authorizeAirflow(request: Request, env: WorkerEnv): Promise<boole
 }
 
 function parseObservationPayload(value: unknown): {
+  observationKey: string;
+  observationScope: string;
   venueId: VenueId;
   venueName: string;
   healthy: boolean;
@@ -1626,6 +1657,12 @@ function parseObservationPayload(value: unknown): {
   if (!(venueId in VENUES)) throw new Error("场地编号无效");
   const venueName = String(candidate.venue_name || candidate.venueName || VENUES[venueId]);
   if (venueName !== VENUES[venueId]) throw new Error("场地名称无效");
+  const observationScope = String(
+    candidate.observation_scope || candidate.observationScope || "default",
+  ).trim();
+  if (!observationScope || observationScope.length > 120) {
+    throw new Error("巡检范围无效");
+  }
   const checkedAt = String(candidate.checked_at || candidate.checkedAt || "");
   if (
     !checkedAt
@@ -1639,6 +1676,8 @@ function parseObservationPayload(value: unknown): {
     throw new Error("场地时段数量无效");
   }
   return {
+    observationKey: `v3:${venueId}:${observationScope}`,
+    observationScope,
     venueId,
     venueName,
     healthy: candidate.healthy === true,
@@ -1660,6 +1699,7 @@ async function ingestObservation(
   const now = new Date();
   const nowIso = now.toISOString();
   const statements: D1PreparedStatement[] = [
+    currentObservationSnapshotStatement(env.DB, observation, nowIso),
     env.DB.prepare(
       `INSERT INTO venue_status
          (venue_id, venue_name, healthy, last_inspection_at, last_error, updated_at)
@@ -2355,7 +2395,7 @@ async function handleRequest(
       return await verifyEmail(request, env);
     }
     if (request.method === "POST" && url.pathname === "/api/subscriptions") {
-      return await createSubscription(request, env);
+      return await createSubscription(request, env, context);
     }
     if (request.method === "POST" && url.pathname === "/api/coffee/session") {
       return await startCoffeeInviteSession(request, env);

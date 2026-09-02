@@ -12,7 +12,10 @@ def source(path: str) -> str:
 def test_airflow_only_forwards_new_or_changed_observations() -> None:
     cache = source("src/wechat_airflow/notifications/observation_cache.py")
 
-    assert 'OBSERVATION_FAILURE_RETRY_SECONDS_ENV = "WEBAPP_OBSERVATION_FAILURE_RETRY_SECONDS"' in cache
+    assert (
+        'OBSERVATION_FAILURE_RETRY_SECONDS_ENV = "WEBAPP_OBSERVATION_FAILURE_RETRY_SECONDS"'
+        in cache
+    )
     assert "OBSERVATION_HEARTBEAT" not in cache
     assert 'ObservationAction = Literal["forward", "skip_success", "skip_retry"]' in cache
     assert 'if entry["last_success_at"] > 0:' in cache
@@ -43,10 +46,9 @@ def test_dashboard_network_refresh_is_user_driven() -> None:
     assert "window.setInterval(() => void refresh(), 30_000)" not in ui
     assert "点击刷新读取最新记录" in ui
     assert "仅在手动刷新时读取" in ui
-    assert 'onClick={() => void refresh(true)}' in ui
+    assert "onClick={() => void refresh(true)}" in ui
     assert (
-        'const requestPath = options.force ? "/api/bootstrap?refresh=1" : "/api/bootstrap";'
-        in api
+        'const requestPath = options.force ? "/api/bootstrap?refresh=1" : "/api/bootstrap";' in api
     )
     assert 'cache: "no-store"' in api
     assert "DASHBOARD_CLIENT_CACHE_MS = 86_400_000" in api
