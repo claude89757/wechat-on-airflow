@@ -90,22 +90,33 @@ The Airflow publisher now keeps an atomic, process-independent fingerprint file
 in the shared Airflow logs volume:
 
 - every real slot, health, or error change bypasses throttling immediately;
-- unchanged polls do not call the Worker;
-- parallel day/task scopes share one venue-level liveness budget;
-- at most one unchanged publication per venue is allowed every eight minutes,
-  below the existing ten-minute venue-health freshness window;
-- after a failed Web publication, unchanged retries are limited to once every
-  two minutes while a new state change still bypasses the backoff;
+- unchanged observations with no available slots do not call the Worker between
+  sparse liveness updates;
+- parallel empty day/task scopes share one venue-level liveness budget;
+- at most one unchanged empty publication per venue is allowed every eight
+  minutes, below the existing ten-minute venue-health freshness window;
+- observations that contain available slots continue to reach the Worker on
+  every natural poll so a newly created subscription can match existing
+  availability immediately;
+- after a failed Web publication, an identical retry is limited to once every
+  two minutes, but a different slot, health, or error fingerprint still bypasses
+  the backoff;
+- a failed changed fingerprint is never hidden by an older successful venue
+  heartbeat;
 - cached WeChat gate state is retained without rewriting the Airflow metadata
   database on every unchanged response.
 
-When an unchanged publication reaches the Worker, it updates only the indexed
-observation timestamp and `venue_status`. It does not rescan subscriptions,
-rewrite observed slots, create Outbox rows, reconcile delivery, or fetch a
-WeChat gate. A changed fingerprint still enters the complete business path.
-Subscription and priority mutations invalidate the observation fingerprints so
-a newly eligible subscriber is matched on the next natural venue poll even when
-the availability payload itself has not changed.
+For available-slot observations, the Worker performs only an indexed fingerprint
+lookup when the state is otherwise unchanged. When a sparse empty heartbeat is
+due, it updates only the indexed observation timestamp and `venue_status`. That
+path does not rescan subscriptions, rewrite observed slots, create Outbox rows,
+reconcile delivery, or fetch a WeChat gate. A changed fingerprint still enters
+the complete business path.
+
+Subscription and priority mutations invalidate the Worker observation
+fingerprints. Because available-slot observations are not suppressed on the
+Airflow host, a newly eligible subscriber is matched on the next natural venue
+poll even when the availability payload itself has not changed.
 
 ### User-driven dashboard network refresh
 
@@ -143,11 +154,12 @@ D1 migration remains authoritative whenever the database is available.
 
 ## Expected Budget
 
-There are currently 26 Web venues. With one unchanged liveness publication per
-venue every eight minutes, the theoretical maximum is 4,680 unchanged Worker
-requests per day before task runtime and inactive periods reduce it. Each uses a
-primary-key state lookup and, only when due, two small state writes. Real changes
-add a comparatively small number of full ingests.
+There are currently 26 Web venues. Empty and unchanged observations are reduced
+to at most 4,680 lightweight Worker requests per day across all venues before
+inactive periods and task runtime reduce the actual count. Observations that
+contain availability intentionally continue at the configured natural polling
+schedule so subscription changes are not starved. Their unchanged Worker path
+uses one indexed state lookup rather than a full business ingest.
 
 The operational acceptance targets remain:
 
@@ -156,7 +168,9 @@ The operational acceptance targets remain:
 - total Worker requests below 80,000 per UTC day;
 - Workers `exceededCpu` equal to zero;
 - no active venue DAG polling schedule changed;
-- availability and health changes visible on the first matching poll.
+- availability and health changes visible on the first matching poll;
+- a subscription created while slots already exist is evaluated on the next
+  natural venue poll.
 
 ## Recovery Procedure
 
