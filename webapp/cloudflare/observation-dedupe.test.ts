@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  OBSERVATION_HEARTBEAT_MS,
   observationSnapshot,
   shouldSkipObservation,
 } from "./observation-dedupe";
@@ -74,40 +73,30 @@ describe("observation fingerprint", () => {
     if (!restored || !empty) throw new Error("expected valid snapshots");
     expect(shouldSkipObservation(restored, {
       fingerprint: empty.fingerprint,
-      last_forwarded_at: 1_000_000,
-    }, 1_015_000)).toBe(false);
+    })).toBe(false);
   });
 
-  it("keeps an unchanged heartbeat inside the venue freshness window", async () => {
+  it("suppresses an unchanged observation without a heartbeat deadline", async () => {
     const observation = await snapshot(baseObservation);
     if (!observation) throw new Error("expected a valid snapshot");
-    const forwardedAt = 1_000_000;
-    const current = {
-      fingerprint: observation.fingerprint,
-      last_forwarded_at: forwardedAt,
-    };
-    expect(shouldSkipObservation(observation, current, forwardedAt + 15_000)).toBe(true);
-    expect(shouldSkipObservation(
-      observation,
-      current,
-      forwardedAt + OBSERVATION_HEARTBEAT_MS,
-    )).toBe(false);
+    const current = { fingerprint: observation.fingerprint };
+    expect(shouldSkipObservation(observation, current)).toBe(true);
   });
 
-  it("separates parallel day tasks for the same venue", async () => {
+  it("bumps the key version and separates parallel day tasks", async () => {
     const first = await snapshot(baseObservation);
     const second = await snapshot({
       ...baseObservation,
       observation_scope: "check_and_notify_day_1",
     });
-    expect(first?.key).toBe("v2:szw:check_and_notify_day_0");
-    expect(second?.key).toBe("v2:szw:check_and_notify_day_1");
+    expect(first?.key).toBe("v3:szw:check_and_notify_day_0");
+    expect(second?.key).toBe("v3:szw:check_and_notify_day_1");
   });
 
   it("uses a safe compatibility scope for old publishers", async () => {
     const { observation_scope: _scope, ...legacyObservation } = baseObservation;
     const observation = await snapshot(legacyObservation);
-    expect(observation?.key).toBe("v2:szw:default");
+    expect(observation?.key).toBe("v3:szw:default");
   });
 
   it("forwards invalid or stale timestamps to the canonical validator", async () => {
