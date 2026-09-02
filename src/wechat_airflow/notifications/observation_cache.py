@@ -243,6 +243,7 @@ def decide_observation_delivery(
 ) -> ObservationDeliveryDecision:
     current_time = time.time() if now is None else now
     venue_id = _string_field(payload, "venue_id", "venueId")
+    has_available_slots = bool(_canonical_slots(payload.get("slots")))
     key, fingerprint = observation_identity(payload)
     if not observation_cache_enabled():
         return ObservationDeliveryDecision(
@@ -283,18 +284,22 @@ def decide_observation_delivery(
                 OBSERVATION_FAILURE_RETRY_SECONDS_ENV,
                 DEFAULT_OBSERVATION_FAILURE_RETRY_SECONDS,
             )
-            fingerprint_was_forwarded = entry["last_success_at"] > 0
+            retry_pending = heartbeat["last_attempt_at"] > heartbeat["last_success_at"]
             if (
-                fingerprint_was_forwarded
+                retry_pending
+                and current_time - heartbeat["last_attempt_at"] < retry_seconds
+            ):
+                action: ObservationAction = "skip_retry"
+            elif has_available_slots:
+                action = "forward"
+                _reserve_venue_attempt(state, venue_id, current_time)
+                _write_state(path, state)
+            elif (
+                entry["last_success_at"] > 0
                 and heartbeat["last_success_at"] > 0
                 and current_time - heartbeat["last_success_at"] < heartbeat_seconds
             ):
-                action: ObservationAction = "skip_success"
-            elif (
-                heartbeat["last_attempt_at"] > heartbeat["last_success_at"]
-                and current_time - heartbeat["last_attempt_at"] < retry_seconds
-            ):
-                action = "skip_retry"
+                action = "skip_success"
             else:
                 action = "forward"
                 _reserve_venue_attempt(state, venue_id, current_time)
