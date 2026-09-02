@@ -106,6 +106,54 @@ export function bypassesBootstrapCache(request: Request): boolean {
     && url.searchParams.get("refresh") === "1";
 }
 
+export function nextD1QuotaResetIso(now = new Date()): string {
+  return new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  )).toISOString();
+}
+
+export function bootstrapFailureCanUseStale(
+  status: number,
+  body: string,
+): boolean {
+  if ([401, 403, 404].includes(status)) return false;
+  if (status === 408 || status === 429 || status >= 500) return true;
+  if (status !== 400) return false;
+  return /D1(?:_ERROR)?|daily row read limit|code[:\s]*7500|database (?:is )?(?:unavailable|temporarily unavailable)/i.test(body);
+}
+
+async function staleBootstrapResponse(
+  response: Response,
+  now = new Date(),
+): Promise<Response> {
+  try {
+    const payload = await response.clone().json<unknown>();
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return response;
+    const headers = new Headers(response.headers);
+    headers.delete("Content-Length");
+    headers.delete("Content-Encoding");
+    headers.set("Cache-Control", "no-store");
+    headers.set("Content-Type", "application/json; charset=utf-8");
+    headers.set("X-Zacks-Bootstrap-Cache", "stale");
+    return new Response(JSON.stringify({
+      ...(payload as Record<string, unknown>),
+      dataStatus: {
+        stale: true,
+        source: "edge-cache",
+        reason: "data_store_unavailable",
+        retryAt: nextD1QuotaResetIso(now),
+      },
+    }), {
+      status: 200,
+      headers,
+    });
+  } catch {
+    return response;
+  }
+}
+
 function withInviteSecrets(env: DeploymentEnv) {
   return {
     ...env,
@@ -201,9 +249,10 @@ async function rewriteBootstrapReminderMetric(
 async function cachedBootstrap(
   request: Request,
   env: DeploymentEnv,
+  allowStale = false,
 ): Promise<Response | null> {
   try {
-    return await matchBootstrapCache(request, env);
+    return await matchBootstrapCache(request, env, { allowStale });
   } catch (error) {
     console.warn(JSON.stringify({
       event: "bootstrap_cache_read_failed",
@@ -345,11 +394,10 @@ export default {
       }
     }
 
-    if (
-      request.method === "GET"
-      && url.pathname === "/api/bootstrap"
-      && !bypassesBootstrapCache(request)
-    ) {
+    const bootstrapRequest = request.method === "GET"
+      && url.pathname === "/api/bootstrap";
+    const bypassBootstrapCache = bootstrapRequest && bypassesBootstrapCache(request);
+    if (bootstrapRequest && !bypassBootstrapCache) {
       const cached = await cachedBootstrap(request, env);
       if (cached) return cached;
     }
@@ -366,10 +414,24 @@ export default {
     }
 
     const response = await worker.fetch(request, withInviteSecrets(env) as never, context);
-    if (response.ok && request.method === "GET" && url.pathname === "/api/bootstrap") {
+    if (response.ok && bootstrapRequest) {
       const corrected = await rewriteBootstrapReminderMetric(response, env);
       context.waitUntil(storeBootstrapSafely(request, env, corrected.clone()));
       return bootstrapCacheMiss(corrected);
+    }
+
+    if (bootstrapRequest && !bypassBootstrapCache && !response.ok) {
+      const body = await response.clone().text().catch(() => "");
+      if (bootstrapFailureCanUseStale(response.status, body)) {
+        const stale = await cachedBootstrap(request, env, true);
+        if (stale) {
+console.warn(JSON.stringify({
+  event: "bootstrap_stale_fallback_served",
+  status: response.status,
+}));
+return staleBootstrapResponse(stale);
+        }
+      }
     }
 
     if (response.ok && observationSnapshot) {

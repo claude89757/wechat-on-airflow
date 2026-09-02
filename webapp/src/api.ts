@@ -99,6 +99,12 @@ export type AdminInvite = {
 
 export type Dashboard = {
   generatedAt: string;
+  dataStatus?: {
+    stale: boolean;
+    source: "live" | "edge-cache" | "browser-cache";
+    reason: "data_store_unavailable" | null;
+    retryAt: string | null;
+  };
   weatherEmailGate?: {
     suppressed: boolean;
     precipitationMm: number | null;
@@ -155,8 +161,10 @@ export type CoffeeInvite = {
 };
 
 const RECEIPTS_KEY = "zacks-tennis-verified-emails-v1";
+const DASHBOARD_SNAPSHOT_KEY_PREFIX = "zacks-tennis-dashboard-snapshot-v1";
 // Automatic UI renders reuse memory; only explicit refreshes and mutations hit the network.
 export const DASHBOARD_CLIENT_CACHE_MS = 86_400_000;
+export const DASHBOARD_SNAPSHOT_RETENTION_MS = 2 * 24 * 60 * 60 * 1_000;
 
 export type DashboardFetchOptions = {
   force?: boolean;
@@ -173,6 +181,23 @@ type DashboardClientRequest = {
   epoch: number;
   promise: Promise<Dashboard>;
 };
+
+type DashboardSnapshot = {
+  version: 1;
+  identityKey: string;
+  storedAt: number;
+  value: Dashboard;
+};
+
+export class ApiRequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+  }
+}
 
 let dashboardCache: DashboardClientCache | null = null;
 let dashboardRequest: DashboardClientRequest | null = null;
@@ -278,7 +303,7 @@ async function jsonRequest<T>(
   });
   const payload = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!response.ok || !payload) {
-    throw new Error(payload?.error || `请求失败 (${response.status})`);
+    throw new ApiRequestError(payload?.error || `请求失败 (${response.status})`, response.status);
   }
   return payload;
 }
@@ -289,6 +314,125 @@ function dashboardIdentityKey(receipt?: VerificationReceipt | null): string {
 
 function pageIsHidden(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+function browserStorage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function dashboardSnapshotKey(identityKey: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < identityKey.length; index += 1) {
+    hash ^= identityKey.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `${DASHBOARD_SNAPSHOT_KEY_PREFIX}:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function isDashboard(value: unknown): value is Dashboard {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.generatedAt === "string"
+    && Boolean(candidate.metrics && typeof candidate.metrics === "object")
+    && Array.isArray(candidate.venues)
+    && Boolean(candidate.identity && typeof candidate.identity === "object")
+    && Array.isArray(candidate.subscriptions);
+}
+
+export function nextD1QuotaResetIso(now = new Date()): string {
+  return new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  )).toISOString();
+}
+
+export function saveDashboardSnapshot(identityKey: string, value: Dashboard): void {
+  const storage = browserStorage();
+  if (!storage) return;
+  const snapshot: DashboardSnapshot = {
+    version: 1,
+    identityKey,
+    storedAt: Date.now(),
+    value,
+  };
+  try {
+    storage.setItem(dashboardSnapshotKey(identityKey), JSON.stringify(snapshot));
+  } catch {
+    // Storage can be disabled or full. The in-memory path remains available.
+  }
+}
+
+export function loadDashboardSnapshot(identityKey: string): Dashboard | null {
+  const storage = browserStorage();
+  if (!storage) return null;
+  const key = dashboardSnapshotKey(identityKey);
+  try {
+    const parsed = JSON.parse(storage.getItem(key) || "null") as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const snapshot = parsed as Partial<DashboardSnapshot>;
+    if (
+      snapshot.version !== 1
+      || snapshot.identityKey !== identityKey
+      || typeof snapshot.storedAt !== "number"
+      || Date.now() - snapshot.storedAt > DASHBOARD_SNAPSHOT_RETENTION_MS
+      || !isDashboard(snapshot.value)
+    ) {
+      storage.removeItem(key);
+      return null;
+    }
+    return snapshot.value;
+  } catch {
+    storage.removeItem(key);
+    return null;
+  }
+}
+
+function removeDashboardSnapshot(identityKey: string): void {
+  const storage = browserStorage();
+  if (!storage) return;
+  try {
+    storage.removeItem(dashboardSnapshotKey(identityKey));
+  } catch {
+    // Ignore private-mode storage failures.
+  }
+}
+
+export function dashboardFailureCanUseSnapshot(error: unknown): boolean {
+  if (!(error instanceof ApiRequestError)) return true;
+  if ([401, 403, 404].includes(error.status)) return false;
+  if (error.status === 408 || error.status === 429 || error.status >= 500) return true;
+  return error.status === 400
+    && /D1(?:_ERROR)?|daily row read limit|code[:\s]*7500|database (?:is )?(?:unavailable|temporarily unavailable)/i.test(error.message);
+}
+
+function withResolvedDashboardStatus(value: Dashboard): Dashboard {
+  if (value.dataStatus) return value;
+  return {
+    ...value,
+    dataStatus: {
+      stale: false,
+      source: "live",
+      reason: null,
+      retryAt: null,
+    },
+  };
+}
+
+function withBrowserSnapshotStatus(value: Dashboard): Dashboard {
+  return {
+    ...value,
+    dataStatus: {
+      stale: true,
+      source: "browser-cache",
+      reason: "data_store_unavailable",
+      retryAt: nextD1QuotaResetIso(),
+    },
+  };
 }
 
 export function invalidateDashboardCache(): void {
@@ -326,6 +470,7 @@ export function saveReceipt(receipt: VerificationReceipt): VerificationReceipt[]
 export function removeReceipt(token: string): VerificationReceipt[] {
   const next = loadReceipts().filter((item) => item.token !== token);
   localStorage.setItem(RECEIPTS_KEY, JSON.stringify(next));
+  removeDashboardSnapshot(token);
   invalidateDashboardCache();
   return next;
 }
@@ -362,14 +507,30 @@ export async function getDashboard(
     : { method: "GET" };
   const promise = jsonRequest<Dashboard>(requestPath, requestInit, receipt)
     .then((value) => {
+      const resolved = withResolvedDashboardStatus(value);
+      saveDashboardSnapshot(identityKey, resolved);
       if (dashboardCacheEpoch === epoch) {
         dashboardCache = {
-          identityKey,
-          expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS,
-          value,
+identityKey,
+expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS,
+value: resolved,
         };
       }
-      return value;
+      return resolved;
+    })
+    .catch((error: unknown) => {
+      if (options.force || !dashboardFailureCanUseSnapshot(error)) throw error;
+      const snapshot = loadDashboardSnapshot(identityKey);
+      if (!snapshot) throw error;
+      const resolved = withBrowserSnapshotStatus(snapshot);
+      if (dashboardCacheEpoch === epoch) {
+        dashboardCache = {
+identityKey,
+expiresAt: Date.now() + DASHBOARD_CLIENT_CACHE_MS,
+value: resolved,
+        };
+      }
+      return resolved;
     })
     .finally(() => {
       if (dashboardRequest?.promise === promise) dashboardRequest = null;

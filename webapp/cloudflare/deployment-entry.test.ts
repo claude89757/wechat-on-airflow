@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyGlobalSubmittedReminderMetric,
+  bootstrapFailureCanUseStale,
   bypassesBootstrapCache,
   deploymentHealth,
   invalidatesBootstrap,
+  nextD1QuotaResetIso,
   scheduledWorkForCron,
   shanghaiDayStartIso,
   shanghaiDeliveryDay,
@@ -86,5 +88,20 @@ describe("free-tier scheduling", () => {
     expect(invalidatesBootstrap("POST", "/api/priority/redeem")).toBe(true);
     expect(invalidatesBootstrap("GET", "/api/bootstrap")).toBe(false);
     expect(invalidatesBootstrap("POST", "/api/internal/observations")).toBe(false);
+  });
+});
+
+
+describe("bootstrap degraded reads", () => {
+  it("uses stale data only for transient storage failures", () => {
+    expect(bootstrapFailureCanUseStale(400, "D1_ERROR: code: 7500")).toBe(true);
+    expect(bootstrapFailureCanUseStale(503, "upstream unavailable")).toBe(true);
+    expect(bootstrapFailureCanUseStale(400, "场地编号无效")).toBe(false);
+    expect(bootstrapFailureCanUseStale(401, "未授权")).toBe(false);
+  });
+
+  it("reports the next midnight UTC quota reset", () => {
+    expect(nextD1QuotaResetIso(new Date("2026-09-02T17:30:00.000Z")))
+      .toBe("2026-09-03T00:00:00.000Z");
   });
 });

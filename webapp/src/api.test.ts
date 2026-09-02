@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createSubscription,
   DASHBOARD_CLIENT_CACHE_MS,
+  DASHBOARD_SNAPSHOT_RETENTION_MS,
   EMPTY_DASHBOARD,
   FALLBACK_DASHBOARD,
   getDashboard,
@@ -21,9 +22,22 @@ function dashboardFetchMock() {
   return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => dashboardResponse());
 }
 
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => { values.delete(key); },
+    setItem: (key, value) => { values.set(key, value); },
+  };
+}
+
 describe("dashboard client cache", () => {
   beforeEach(() => {
     invalidateDashboardCache();
+    vi.stubGlobal("localStorage", memoryStorage());
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-27T02:00:00.000Z"));
   });
@@ -64,6 +78,39 @@ describe("dashboard client cache", () => {
       method: "GET",
       cache: "no-store",
     });
+  });
+
+  it("keeps a two-day browser snapshot for D1 outages", async () => {
+    expect(DASHBOARD_SNAPSHOT_RETENTION_MS).toBe(172_800_000);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(dashboardResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: "D1_ERROR: daily row read limit code: 7500",
+      }), { status: 400, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const live = await getDashboard(null);
+    invalidateDashboardCache();
+    const stale = await getDashboard(null);
+
+    expect(stale.generatedAt).toBe(live.generatedAt);
+    expect(stale.dataStatus).toMatchObject({
+      stale: true,
+      source: "browser-cache",
+      reason: "data_store_unavailable",
+    });
+  });
+
+  it("does not hide a failed explicit refresh behind the browser snapshot", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(dashboardResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: "D1_ERROR: daily row read limit code: 7500",
+      }), { status: 400, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getDashboard(null);
+    await expect(getDashboard(null, { force: true })).rejects.toThrow("D1_ERROR");
   });
 
   it("keeps fallback and empty venue totals aligned with the venue catalog", () => {
