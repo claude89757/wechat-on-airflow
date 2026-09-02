@@ -155,8 +155,7 @@ export type CoffeeInvite = {
 };
 
 const RECEIPTS_KEY = "zacks-tennis-verified-emails-v1";
-// Automatic UI renders reuse memory; only explicit refreshes and mutations hit the network.
-export const DASHBOARD_CLIENT_CACHE_MS = 86_400_000;
+export const DASHBOARD_CLIENT_CACHE_MS = 120_000;
 
 export type DashboardFetchOptions = {
   force?: boolean;
