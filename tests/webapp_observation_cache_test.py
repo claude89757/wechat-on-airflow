@@ -10,7 +10,6 @@ from wechat_airflow.notifications.observation_cache import (
     OBSERVATION_CACHE_ENABLED_ENV,
     OBSERVATION_CACHE_PATH_ENV,
     OBSERVATION_FAILURE_RETRY_SECONDS_ENV,
-    OBSERVATION_HEARTBEAT_SECONDS_ENV,
     cached_gate_for_venue,
     decide_observation_delivery,
     observation_identity,
@@ -28,7 +27,6 @@ class WebappObservationCacheTest(TestCase):
             {
                 OBSERVATION_CACHE_ENABLED_ENV: "true",
                 OBSERVATION_CACHE_PATH_ENV: str(self.state_path),
-                OBSERVATION_HEARTBEAT_SECONDS_ENV: "480",
                 OBSERVATION_FAILURE_RETRY_SECONDS_ENV: "120",
             },
         )
@@ -81,25 +79,27 @@ class WebappObservationCacheTest(TestCase):
         changed = decide_observation_delivery(self.payload, now=1_015)
         self.assertEqual(changed.action, "forward")
 
-    def test_available_slots_recheck_subscriptions_on_every_natural_poll(self) -> None:
-        first = decide_observation_delivery(self.payload, now=1_000)
-        record_observation_result(first, success=True, gate=self.gate, now=1_000)
-
-        next_poll = decide_observation_delivery(self.payload, now=1_015)
-        self.assertEqual(next_poll.action, "forward")
-
-    def test_empty_success_suppresses_polls_until_sparse_heartbeat(self) -> None:
+    def test_unchanged_payload_never_emits_a_heartbeat(self) -> None:
         first = decide_observation_delivery(self.empty_payload, now=1_000)
         self.assertEqual(first.action, "forward")
         record_observation_result(first, success=True, gate=self.gate, now=1_000)
 
         recent = decide_observation_delivery(self.empty_payload, now=1_015)
-        heartbeat = decide_observation_delivery(self.empty_payload, now=1_480)
+        much_later = decide_observation_delivery(self.empty_payload, now=100_000)
         self.assertEqual(recent.action, "skip_success")
-        self.assertEqual(recent.gate, self.gate)
-        self.assertEqual(heartbeat.action, "forward")
+        self.assertEqual(much_later.action, "skip_success")
+        self.assertEqual(much_later.gate, self.gate)
 
-    def test_parallel_empty_scopes_share_one_venue_heartbeat_budget(self) -> None:
+    def test_unchanged_available_slots_are_also_event_driven(self) -> None:
+        first = decide_observation_delivery(self.payload, now=1_000)
+        record_observation_result(first, success=True, gate=self.gate, now=1_000)
+
+        next_poll = decide_observation_delivery(self.payload, now=1_015)
+        next_day = decide_observation_delivery(self.payload, now=86_400)
+        self.assertEqual(next_poll.action, "skip_success")
+        self.assertEqual(next_day.action, "skip_success")
+
+    def test_parallel_task_scopes_remain_independent(self) -> None:
         day_zero = decide_observation_delivery(self.empty_payload, now=1_000)
         record_observation_result(day_zero, success=True, gate=self.gate, now=1_000)
 
@@ -111,18 +111,28 @@ class WebappObservationCacheTest(TestCase):
         self.assertEqual(day_one.action, "forward")
         record_observation_result(day_one, success=True, gate=self.gate, now=1_001)
 
-        due = decide_observation_delivery(self.empty_payload, now=1_481)
-        self.assertEqual(due.action, "forward")
-        record_observation_result(due, success=True, gate=self.gate, now=1_481)
+        self.assertEqual(
+            decide_observation_delivery(self.empty_payload, now=100_000).action,
+            "skip_success",
+        )
+        self.assertEqual(
+            decide_observation_delivery(day_one_payload, now=100_000).action,
+            "skip_success",
+        )
 
-        coalesced = decide_observation_delivery(day_one_payload, now=1_482)
-        self.assertEqual(coalesced.action, "skip_success")
-
-    def test_failure_retries_are_bounded_but_changes_bypass_the_backoff(self) -> None:
+    def test_failure_retries_are_bounded(self) -> None:
         first = decide_observation_delivery(self.empty_payload, now=2_000)
         record_observation_result(first, success=False, gate=None, now=2_000)
 
         recent = decide_observation_delivery(self.empty_payload, now=2_030)
+        retry = decide_observation_delivery(self.empty_payload, now=2_120)
+        self.assertEqual(recent.action, "skip_retry")
+        self.assertEqual(retry.action, "forward")
+
+    def test_real_change_bypasses_failure_backoff(self) -> None:
+        first = decide_observation_delivery(self.empty_payload, now=2_000)
+        record_observation_result(first, success=False, gate=None, now=2_000)
+
         changed = decide_observation_delivery(
             {
                 **self.empty_payload,
@@ -131,12 +141,9 @@ class WebappObservationCacheTest(TestCase):
             },
             now=2_030,
         )
-        retry = decide_observation_delivery(self.empty_payload, now=2_120)
-        self.assertEqual(recent.action, "skip_retry")
         self.assertEqual(changed.action, "forward")
-        self.assertEqual(retry.action, "skip_retry")
 
-    def test_failed_change_is_not_hidden_by_an_older_healthy_heartbeat(self) -> None:
+    def test_failed_change_is_not_hidden_by_an_older_success(self) -> None:
         baseline = decide_observation_delivery(self.empty_payload, now=3_000)
         record_observation_result(baseline, success=True, gate=self.gate, now=3_000)
 
@@ -149,13 +156,36 @@ class WebappObservationCacheTest(TestCase):
         self.assertEqual(recent.action, "skip_retry")
         self.assertEqual(retry.action, "forward")
 
-    def test_gate_survives_process_independent_file_roundtrip(self) -> None:
+    def test_stale_result_cannot_overwrite_a_newer_fingerprint(self) -> None:
+        first = decide_observation_delivery(self.empty_payload, now=3_000)
+        changed = decide_observation_delivery(self.payload, now=3_010)
+        record_observation_result(changed, success=True, gate=self.gate, now=3_011)
+        record_observation_result(first, success=True, gate=None, now=3_012)
+
+        self.assertEqual(
+            decide_observation_delivery(self.payload, now=3_020).action,
+            "skip_success",
+        )
+        self.assertEqual(
+            decide_observation_delivery(self.empty_payload, now=3_020).action,
+            "forward",
+        )
+
+    def test_old_heartbeat_state_forces_one_safe_reseed(self) -> None:
+        self.state_path.write_text(
+            json.dumps({"version": 2, "entries": {}, "venues": {}}),
+            encoding="utf-8",
+        )
         decision = decide_observation_delivery(self.empty_payload, now=4_000)
-        record_observation_result(decision, success=True, gate=self.gate, now=4_000)
+        self.assertEqual(decision.action, "forward")
+
+    def test_gate_survives_process_independent_file_roundtrip(self) -> None:
+        decision = decide_observation_delivery(self.empty_payload, now=5_000)
+        record_observation_result(decision, success=True, gate=self.gate, now=5_000)
 
         self.assertEqual(cached_gate_for_venue("szw"), self.gate)
         stored = json.loads(self.state_path.read_text(encoding="utf-8"))
-        self.assertEqual(stored["version"], 2)
+        self.assertEqual(stored["version"], 3)
         self.assertEqual(len(stored["entries"]), 1)
-        self.assertEqual(len(stored["venues"]), 1)
+        self.assertNotIn("venues", stored)
         self.assertEqual(self.state_path.stat().st_mode & 0o777, 0o600)
