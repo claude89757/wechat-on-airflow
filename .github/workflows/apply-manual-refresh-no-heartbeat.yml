@@ -1,0 +1,94 @@
+name: Apply Manual Refresh Source Patch
+
+on:
+  push:
+    branches:
+      - fix/manual-refresh-no-heartbeat-2026-09-03
+    paths:
+      - .github/workflows/apply-manual-refresh-no-heartbeat.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/manual-refresh-no-heartbeat-2026-09-03
+          fetch-depth: 0
+      - name: Apply exact source replacements
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {count}: {old[:80]!r}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "webapp/cloudflare/index.ts",
+              'const INSPECTION_FRESHNESS_MS = 10 * 60_000;\n',
+              '',
+          )
+          replace_once(
+              "webapp/cloudflare/index.ts",
+              '''    healthy:\n      Boolean(venue.healthy)\n      && Boolean(venue.last_inspection_at)\n      && Date.parse(venue.last_inspection_at || "") >= now.getTime() - INSPECTION_FRESHNESS_MS,\n''',
+              '''    healthy: Boolean(venue.healthy),\n''',
+          )
+
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '''  useEffect(() => {\n    void refresh();\n    const timer = window.setInterval(() => void refresh(), 30_000);\n    return () => window.clearInterval(timer);\n  }, [refresh]);\n''',
+              '''  useEffect(() => {\n    void refresh();\n  }, [refresh]);\n''',
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '''  const statusLabel = availability === "loading" ? "正在读取状态数据"\n    : availability === "unknown" ? "暂时无法读取状态"\n    : availability === "stale" ? "刷新失败，显示上次数据" : "状态数据已更新";\n  const statusDetail = hasSuccessfulDashboard\n    ? `数据生成于 ${formatUpdatedAt(dashboard.generatedAt)}`\n    : loading ? "正在获取最新数据" : "请稍后点击刷新";\n''',
+              '''  const statusLabel = availability === "loading" ? "正在读取状态数据"\n    : availability === "unknown" ? "暂时无法读取状态"\n    : availability === "stale" ? "刷新失败，显示上次数据" : "数据已加载";\n  const statusDetail = hasSuccessfulDashboard\n    ? `数据生成于 ${formatUpdatedAt(dashboard.generatedAt)} · 点击右侧按钮手动刷新`\n    : loading ? "正在获取最新数据" : "请稍后点击刷新";\n''',
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '              label="全站巡检正常"\n',
+              '              label="全站最近上报正常"\n',
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '''                <p>点按卡片快速创建提醒 · 页面每 30 秒更新</p>\n              </div>\n              <span><ArrowsClockwiseIcon size={17} />最长缓存 2 分钟</span>\n''',
+              '''                <p>点按卡片快速创建提醒 · 页面数据由用户手动刷新</p>\n              </div>\n              <span><ArrowsClockwiseIcon size={17} />点击顶部按钮获取最新数据</span>\n''',
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '''              <span><i className="venue-status-dot healthy" aria-hidden="true" />巡检</span>\n              <span><ArrowsClockwiseIcon size={14} aria-hidden="true" />同步</span>\n''',
+              '''              <span><i className="venue-status-dot healthy" aria-hidden="true" />最近上报</span>\n              <span><ArrowsClockwiseIcon size={14} aria-hidden="true" />记录时间</span>\n''',
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '                    aria-label={`为${venue.name}快速创建提醒；${statusText}，${inspectionCadence}，状态同步${compactRelative}，${venue.subscriberCount}人关注，${mailText}`}\n',
+              '                    aria-label={`为${venue.name}快速创建提醒；最近上报${statusText}，后台${inspectionCadence}，记录于${compactRelative}，${venue.subscriberCount}人关注，${mailText}`}\n',
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '''                <strong>巡检与页面同步分开</strong>\n                <p>\n                  场地按 15 秒、1 分钟或 3 分钟持续巡检。为节省 Cloudflare 免费额度，页面复用缓存并低频同步状态；“4 分钟前”表示状态同步时间，不是巡检间隔，空位变化仍会立即进入通知链路。\n                </p>\n''',
+              '''                <strong>后台巡检与页面刷新分开</strong>\n                <p>\n                  场地仍按 15 秒、1 分钟或 3 分钟在后台持续巡检；页面不再自动请求数据，只有首次打开、创建或取消订阅等操作，以及点击顶部刷新按钮时才读取最新状态。卡片时间表示最近一次状态变化上报，真实空位或故障变化仍会立即进入通知链路。\n                </p>\n''',
+          )
+          replace_once(
+              "webapp/src/Prototype.tsx",
+              '  if (!value) return "暂无巡检记录";\n',
+              '  if (!value) return "暂无状态记录";\n',
+          )
+          PY
+      - name: Commit source patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add webapp/cloudflare/index.ts webapp/src/Prototype.tsx
+          git diff --cached --check
+          git commit -m "fix(web): make dashboard refresh fully manual"
+          git push origin HEAD:fix/manual-refresh-no-heartbeat-2026-09-03
