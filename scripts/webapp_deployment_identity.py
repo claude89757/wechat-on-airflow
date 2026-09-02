@@ -76,11 +76,7 @@ def deployment_is_propagating(payload: dict[str, Any]) -> bool:
     checks = payload.get("checks")
     if not isinstance(checks, dict) or checks.get("exact_deployment_commit") is not False:
         return False
-    other_checks = [
-        value
-        for name, value in checks.items()
-        if name != "exact_deployment_commit"
-    ]
+    other_checks = [value for name, value in checks.items() if name != "exact_deployment_commit"]
     return bool(other_checks) and all(value is True for value in other_checks)
 
 
