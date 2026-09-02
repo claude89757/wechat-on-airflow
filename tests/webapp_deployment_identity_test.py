@@ -47,12 +47,8 @@ class WebappDeploymentIdentityTest(TestCase):
         old_commit = self.identity("b" * 40, commit)
         unhealthy = self.identity("b" * 40, commit, healthy=False)
 
-        self.assertTrue(
-            webapp_deployment_identity.deployment_is_propagating(old_commit)
-        )
-        self.assertFalse(
-            webapp_deployment_identity.deployment_is_propagating(unhealthy)
-        )
+        self.assertTrue(webapp_deployment_identity.deployment_is_propagating(old_commit))
+        self.assertFalse(webapp_deployment_identity.deployment_is_propagating(unhealthy))
 
     def test_waits_for_the_exact_commit_during_edge_propagation(self) -> None:
         commit = "a" * 40
