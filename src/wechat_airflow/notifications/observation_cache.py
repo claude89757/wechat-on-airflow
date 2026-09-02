@@ -285,10 +285,7 @@ def decide_observation_delivery(
                 DEFAULT_OBSERVATION_FAILURE_RETRY_SECONDS,
             )
             retry_pending = heartbeat["last_attempt_at"] > heartbeat["last_success_at"]
-            if (
-                retry_pending
-                and current_time - heartbeat["last_attempt_at"] < retry_seconds
-            ):
+            if retry_pending and current_time - heartbeat["last_attempt_at"] < retry_seconds:
                 action: ObservationAction = "skip_retry"
             elif has_available_slots:
                 action = "forward"
