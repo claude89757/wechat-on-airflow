@@ -71,6 +71,7 @@ def test_cutover_keeps_one_email_owner_and_preserves_d1() -> None:
     workflow = read(".github/workflows/production-host-core.yml")
     runbook = read("docs/runbooks/host-core-cutover.md")
 
+    assert "workflow_call:" in workflow
     assert "remote enable-dual" in workflow
     assert "remote migrate --pass-name final" in workflow
     assert "remote cutover" in workflow
