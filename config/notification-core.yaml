@@ -1,0 +1,57 @@
+schema_version: 1
+version: "0.7.0"
+ownership:
+  venue_polling: airflow
+  observation_ingest: airflow_host
+  subscription_matching: airflow_host
+  subscriber_email: airflow_host
+  wechat_delivery: airflow_host
+  durable_state: postgresql
+  ephemeral_coordination: redis
+  public_edge: cloudflare
+cloudflare:
+  allowed_roles:
+    - dns
+    - tls
+    - waf
+    - static_web
+    - tunnel
+    - subscription_enrollment_compatibility
+  forbidden_delivery_roles:
+    - observation_hot_path
+    - subscription_matching
+    - email_outbox
+    - email_send
+    - email_reconcile
+    - wechat_gate_authority
+services:
+  api:
+    compose_service: zacks-notification-api
+    internal_url: http://zacks-notification-api:8091/api/internal/observations
+    health_url: http://127.0.0.1:8091/healthz
+  worker:
+    compose_service: zacks-notification-worker
+    singleton_lock: zacks-notification-core-email-worker
+  database:
+    engine: PostgreSQL
+    schema: zacks_core
+  redis:
+    url: redis://redis:6379/1
+    correctness_dependency: false
+migration:
+  source: cloudflare_d1
+  snapshot_endpoint: /api/internal/subscription-snapshot
+  requires_non_empty_snapshot: true
+  imports_subscription_events: true
+  cutover_variable: WEBAPP_OBSERVATION_API_URL
+  rollback_variable: ZACKS_CORE_PREVIOUS_OBSERVATION_API_URL
+  delivery_mode_variable: ZACKS_CORE_DELIVERY_MODE
+invariants:
+  - no_real_notifications_in_tests
+  - no_polling_schedule_changes
+  - existing_subscriptions_continue_during_cloudflare_outage
+  - redis_loss_cannot_lose_or_duplicate_notifications
+  - unknown_wechat_gate_fails_open
+  - fresh_authoritative_wechat_deny_is_respected
+  - expired_email_processing_lease_is_not_blindly_replayed
+  - exact_commit_production_release
