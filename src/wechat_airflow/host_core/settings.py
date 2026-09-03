@@ -15,14 +15,14 @@ _SECRET_ROOT = Path(os.environ.get("ZACKS_SECRET_DIR", "/run/secrets"))
 def _variable(name: str) -> str | None:
     """Read one Airflow Variable without requiring Airflow during unit imports."""
     try:
-        from airflow.sdk import Variable
+        from airflow.sdk import Variable as SdkVariable
 
-        value = Variable.get(name, default=None)
+        value = SdkVariable.get(name, default=None)
     except Exception:
         try:
-            from airflow.models.variable import Variable  # type: ignore[no-redef]
+            from airflow.models.variable import Variable as ModelVariable
 
-            value = Variable.get(name, default_var=None)
+            value = ModelVariable.get(name, default_var=None)
         except Exception:
             return None
     if value is None:
