@@ -77,10 +77,18 @@ def _boolean(value: object) -> bool:
 def _integer(value: object, default: int) -> int:
     if value is None or value == "":
         return default
-    try:
+    if isinstance(value, bool):
         return int(value)
-    except (TypeError, ValueError):
-        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def _json_list(value: object) -> list[str]:
