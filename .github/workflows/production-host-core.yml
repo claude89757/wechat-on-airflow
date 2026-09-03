@@ -36,7 +36,7 @@ jobs:
       target_commit: ${{ steps.resolve.outputs.target_commit }}
       should_run: ${{ steps.resolve.outputs.should_run }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - id: resolve
@@ -81,7 +81,7 @@ jobs:
       AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
       AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.resolve.outputs.target_commit }}
           fetch-depth: 0
@@ -107,7 +107,7 @@ jobs:
           echo "Timed out waiting for CI / verify" >&2
           exit 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
