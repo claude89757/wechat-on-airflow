@@ -30,45 +30,51 @@ jobs:
 
           path = Path("config/runtime-target.yaml")
           source = path.read_text(encoding="utf-8")
-          old_secrets = '''  runtime_secrets:
-    AIRFLOW_FERNET_KEY: airflow_fernet_key
-    AIRFLOW_API_SECRET_KEY: airflow_api_secret_key
-    AIRFLOW_JWT_SECRET: airflow_jwt_secret
-    AIRFLOW_DATABASE_PASSWORD: airflow_database_password
-    AIRFLOW_PASSWORD: airflow_admin_password
-    TENCENT_SECRET_ID: tencent_secret_id
-    TENCENT_SECRET_KEY: tencent_secret_key
-    TENCENT_REGION: tencent_region
-    EMAIL_FROM_ADDRESS: email_from_address
-    EMAIL_REPLY_TO: email_reply_to
-    EMAIL_TEMPLATE_ID: email_template_id
-'''
-          new_secrets = '''  runtime_secrets:
-    AIRFLOW_FERNET_KEY: airflow_fernet_key
-    AIRFLOW_API_SECRET_KEY: airflow_api_secret_key
-    AIRFLOW_JWT_SECRET: airflow_jwt_secret
-    AIRFLOW_DATABASE_PASSWORD: airflow_database_password
-    AIRFLOW_PASSWORD: airflow_admin_password
-  host_core_secret_files:
-    TENCENT_SECRET_ID: tencent_secret_id
-    TENCENT_SECRET_KEY: tencent_secret_key
-    TENCENT_REGION: tencent_region
-    EMAIL_FROM_ADDRESS: email_from_address
-    EMAIL_REPLY_TO: email_reply_to
-    EMAIL_TEMPLATE_ID: email_template_id
-'''
+          old_lines = [
+              "  runtime_secrets:",
+              "    AIRFLOW_FERNET_KEY: airflow_fernet_key",
+              "    AIRFLOW_API_SECRET_KEY: airflow_api_secret_key",
+              "    AIRFLOW_JWT_SECRET: airflow_jwt_secret",
+              "    AIRFLOW_DATABASE_PASSWORD: airflow_database_password",
+              "    AIRFLOW_PASSWORD: airflow_admin_password",
+              "    TENCENT_SECRET_ID: tencent_secret_id",
+              "    TENCENT_SECRET_KEY: tencent_secret_key",
+              "    TENCENT_REGION: tencent_region",
+              "    EMAIL_FROM_ADDRESS: email_from_address",
+              "    EMAIL_REPLY_TO: email_reply_to",
+              "    EMAIL_TEMPLATE_ID: email_template_id",
+          ]
+          new_lines = [
+              "  runtime_secrets:",
+              "    AIRFLOW_FERNET_KEY: airflow_fernet_key",
+              "    AIRFLOW_API_SECRET_KEY: airflow_api_secret_key",
+              "    AIRFLOW_JWT_SECRET: airflow_jwt_secret",
+              "    AIRFLOW_DATABASE_PASSWORD: airflow_database_password",
+              "    AIRFLOW_PASSWORD: airflow_admin_password",
+              "  host_core_secret_files:",
+              "    TENCENT_SECRET_ID: tencent_secret_id",
+              "    TENCENT_SECRET_KEY: tencent_secret_key",
+              "    TENCENT_REGION: tencent_region",
+              "    EMAIL_FROM_ADDRESS: email_from_address",
+              "    EMAIL_REPLY_TO: email_reply_to",
+              "    EMAIL_TEMPLATE_ID: email_template_id",
+          ]
+          old_secrets = "\n".join(old_lines) + "\n"
+          new_secrets = "\n".join(new_lines) + "\n"
           if old_secrets not in source:
               raise SystemExit("expected runtime secret block was not found")
           source = source.replace(old_secrets, new_secrets, 1)
-          old_tunnel = '''    public_hostname: airflow.claude89757.cc
-    public_base_url: https://airflow.claude89757.cc
-    airflow_origin_base_url: http://127.0.0.1:8080
-'''
-          new_tunnel = '''    public_hostname: airflow.claude89757.cc
-    public_base_url: https://airflow.claude89757.cc
-    origin_base_url: http://127.0.0.1:8080
-    airflow_origin_base_url: http://127.0.0.1:8080
-'''
+          old_tunnel = "\n".join([
+              "    public_hostname: airflow.claude89757.cc",
+              "    public_base_url: https://airflow.claude89757.cc",
+              "    airflow_origin_base_url: http://127.0.0.1:8080",
+          ]) + "\n"
+          new_tunnel = "\n".join([
+              "    public_hostname: airflow.claude89757.cc",
+              "    public_base_url: https://airflow.claude89757.cc",
+              "    origin_base_url: http://127.0.0.1:8080",
+              "    airflow_origin_base_url: http://127.0.0.1:8080",
+          ]) + "\n"
           if old_tunnel not in source:
               raise SystemExit("expected tunnel block was not found")
           path.write_text(source.replace(old_tunnel, new_tunnel, 1), encoding="utf-8")
