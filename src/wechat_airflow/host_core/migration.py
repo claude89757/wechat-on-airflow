@@ -73,6 +73,14 @@ def _boolean(value: object) -> bool:
         return bool(value)
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
+def _integer(value: object, default: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
 
 def _json_list(value: object) -> list[str]:
     if isinstance(value, list):
@@ -317,7 +325,8 @@ def _insert_subscriptions(connection, rows: Iterable[Mapping[str, Any]]) -> set[
     affected: set[str] = set()
     for row in rows:
         venue_ids = _json_list(row.get("venue_ids"))
-        mask = int(row.get("weekday_mask") or ALL_WEEKDAY_MASK)
+        mask = _integer(row.get("weekday_mask"), ALL_WEEKDAY_MASK)
+        duration_days = _integer(row.get("duration_days"), 7)
         email = str(row.get("email") or "")
         dedupe_key = str(row.get("dedupe_key") or "") or subscription_dedupe_key(
             email,
@@ -360,8 +369,8 @@ def _insert_subscriptions(connection, rows: Iterable[Mapping[str, Any]]) -> set[
                 "start_time": row.get("start_time") or "00:00",
                 "end_time": row.get("end_time") or "23:59",
                 "weekday_mask": mask,
-                "duration_days": int(row.get("duration_days") or 7),
-                "term_code": row.get("term_code") or f"{int(row.get('duration_days') or 7)}d",
+                "duration_days": duration_days,
+                "term_code": row.get("term_code") or f"{duration_days}d",
                 "auto_renew": _boolean(row.get("auto_renew")),
                 "dedupe_key": dedupe_key,
                 "active_until": _dt(row.get("active_until"), default=now),
