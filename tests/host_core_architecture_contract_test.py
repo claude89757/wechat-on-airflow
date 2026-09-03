@@ -96,6 +96,8 @@ def test_cutover_keeps_one_email_owner_and_preserves_d1() -> None:
     assert "remote migrate --pass-name final" in workflow
     assert "remote cutover" in workflow
     assert "deploy_edge true false false" in workflow
+    assert ".wrangler-host-core-runtime.json" in workflow
+    assert "--var " not in workflow
     assert "remote rollback" in workflow
     assert "Real test notifications: none" in workflow
     assert "D1" in runbook
