@@ -57,6 +57,7 @@ x-airflow-common: &airflow-common
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
     - airflow-logs:/opt/airflow/logs
+    - ${AIRFLOW_SECRET_DIR:-/etc/wechat-on-airflow/secrets}:/etc/wechat-on-airflow/secrets:ro
   secrets:
     - source: airflow-fernet-key
       target: airflow_fernet_key
@@ -192,6 +193,21 @@ services:
       timeout: 15s
       retries: 5
       start_period: 60s
+
+  zacks-secret-sync:
+    <<: *airflow-common
+    profiles: [maintenance]
+    restart: "no"
+    user: "0:0"
+    command:
+      - python
+      - -m
+      - wechat_airflow.host_core.secret_sync
+      - --secret-dir
+      - /etc/wechat-on-airflow/secrets
+    volumes:
+      - airflow-logs:/opt/airflow/logs
+      - ${AIRFLOW_SECRET_DIR:-/etc/wechat-on-airflow/secrets}:/etc/wechat-on-airflow/secrets:rw
 
   airflow-migrate:
     <<: *airflow-common
