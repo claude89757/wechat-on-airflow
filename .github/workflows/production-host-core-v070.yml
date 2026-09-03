@@ -1,0 +1,42 @@
+name: Production Host Core 0.7.0
+run-name: production/host-core-0.7.0/${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  checks: read
+  contents: write
+
+concurrency:
+  group: production-host-core-0.7.0
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    if: contains(github.event.head_commit.message, 'move notification core to the Airflow host')
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: full-cutover
+      target_commit: ${{ github.sha }}
+    secrets: inherit
+
+  ship:
+    needs: cutover
+    uses: ./.github/workflows/production-ship.yml
+    with:
+      version: 0.7.0
+      target_commit: ${{ github.sha }}
+      scope: auto
+      include_sender: false
+    secrets: inherit
+
+  acceptance:
+    needs: ship
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: health
+      target_commit: ${{ github.sha }}
+    secrets: inherit
