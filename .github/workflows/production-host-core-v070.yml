@@ -2,9 +2,10 @@ name: Production Host Core 0.7.0
 run-name: production/host-core-0.7.0/${{ github.sha }}
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+  schedule:
+    - cron: "5 0 4 9 *"
+    - cron: "25 0 4 9 *"
 
 permissions:
   checks: read
@@ -15,31 +16,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      target_commit: ${{ steps.resolve.outputs.target_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: resolve
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          target_commit="$(git rev-parse origin/main)"
+          should_run=true
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$(date -u +%F)" != "2026-09-04" ]]; then
+            should_run=false
+          fi
+          if git rev-parse --verify --quiet refs/tags/0.7.0 >/dev/null; then
+            should_run=false
+          fi
+          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+
   cutover:
-    if: contains(github.event.head_commit.message, 'move notification core to the Airflow host')
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
     uses: ./.github/workflows/production-host-core.yml
     with:
       operation: full-cutover
-      target_commit: ${{ github.sha }}
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
     secrets: inherit
 
   ship:
-    needs: cutover
+    needs: [resolve, cutover]
+    if: needs.resolve.outputs.should_run == 'true'
     uses: ./.github/workflows/production-ship.yml
     with:
       version: 0.7.0
-      target_commit: ${{ github.sha }}
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
       scope: auto
       include_sender: false
     secrets: inherit
 
   natural_cycles:
-    needs: ship
+    needs: [resolve, ship]
+    if: needs.resolve.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 15
     env:
-      TARGET_COMMIT: ${{ github.sha }}
+      TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
       AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
       AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
       AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
@@ -68,9 +96,10 @@ jobs:
              shadow-evidence --target-commit '$TARGET_COMMIT'"
 
   acceptance:
-    needs: natural_cycles
+    needs: [resolve, natural_cycles]
+    if: needs.resolve.outputs.should_run == 'true'
     uses: ./.github/workflows/production-host-core.yml
     with:
       operation: health
-      target_commit: ${{ github.sha }}
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
     secrets: inherit
