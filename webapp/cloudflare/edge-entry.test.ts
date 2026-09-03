@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  edgeDeploymentHealth,
   hostCoreCutoverEnabled,
   hostCoreMigrationEnabled,
   hostCoreOrigin,
@@ -26,5 +27,23 @@ describe("Airflow-host edge gateway", () => {
     expect(() => hostCoreOrigin("http://127.0.0.1:8090")).toThrow(
       "HOST_CORE_ORIGIN_URL must use HTTPS",
     );
+  });
+
+  it("reports edge identity without consulting D1 or the host origin", () => {
+    expect(edgeDeploymentHealth({
+      DEPLOYMENT_COMMIT: "a".repeat(40),
+      HOST_CORE_CUTOVER: "true",
+      HOST_CORE_QUIESCE: "false",
+      HOST_CORE_MIGRATION_ENABLED: "false",
+    } as never)).toEqual({
+      ok: true,
+      service: "zacks-tennis-edge",
+      runtime: "cloudflare-stateless-edge",
+      deploymentCommit: "a".repeat(40),
+      cutover: true,
+      quiesced: false,
+      migrationEndpoint: false,
+      durableBusinessState: "none",
+    });
   });
 });
