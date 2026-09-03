@@ -56,6 +56,7 @@ target:
     AIRFLOW_JWT_SECRET: airflow_jwt_secret
     AIRFLOW_DATABASE_PASSWORD: airflow_database_password
     AIRFLOW_PASSWORD: airflow_admin_password
+  host_core_secret_files:
     TENCENT_SECRET_ID: tencent_secret_id
     TENCENT_SECRET_KEY: tencent_secret_key
     TENCENT_REGION: tencent_region
@@ -119,6 +120,7 @@ managed_services:
     service_unit: cloudflared.service
     public_hostname: airflow.claude89757.cc
     public_base_url: https://airflow.claude89757.cc
+    origin_base_url: http://127.0.0.1:8080
     airflow_origin_base_url: http://127.0.0.1:8080
     host_core_origin_base_url: http://127.0.0.1:8090
     host_core_path: /zacks-api/*
