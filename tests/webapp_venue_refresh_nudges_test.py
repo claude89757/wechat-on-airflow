@@ -6,9 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_venue_section_avoids_duplicate_refresh_nudges() -> None:
     main = (ROOT / "webapp/src/main.tsx").read_text(encoding="utf-8")
     prototype = (ROOT / "webapp/src/Prototype.tsx").read_text(encoding="utf-8")
-    styles = (ROOT / "webapp/src/venue-section-refresh.css").read_text(
-        encoding="utf-8"
-    )
+    styles = (ROOT / "webapp/src/venue-section-refresh.css").read_text(encoding="utf-8")
 
     assert 'import "./venue-section-refresh.css";' in main
     assert ".venue-section .section-heading > div > p" in styles
