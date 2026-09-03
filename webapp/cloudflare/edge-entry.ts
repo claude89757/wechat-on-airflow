@@ -1,5 +1,8 @@
 import legacyWorker from "./subscription-gated-entry";
-import { hostMigrationExport } from "./host-migration-export";
+import {
+  hostMigrationExport,
+  hostSecretEnvelope,
+} from "./host-migration-export";
 
 type EdgeEnv = Env & {
   ASSETS: Fetcher;
@@ -12,9 +15,11 @@ type EdgeEnv = Env & {
 };
 
 const DEFAULT_ORIGIN = "https://airflow.claude89757.cc/zacks-api";
+const MIGRATION_EXPORT_PATH = "/api/internal/host-migration-export";
+const SECRET_ENVELOPE_PATH = "/api/internal/host-secret-envelope";
 const MIGRATION_PATHS = new Set([
-  "/api/internal/host-migration-export",
-  "/api/internal/host-secret-envelope",
+  MIGRATION_EXPORT_PATH,
+  SECRET_ENVELOPE_PATH,
 ]);
 
 function enabled(value: unknown): boolean {
@@ -142,6 +147,15 @@ export default {
     if (MIGRATION_PATHS.has(url.pathname)) {
       if (!hostCoreMigrationEnabled(env.HOST_CORE_MIGRATION_ENABLED)) {
         return Response.json({ error: "迁移端点未启用" }, { status: 404 });
+      }
+      if (url.pathname === SECRET_ENVELOPE_PATH) {
+        if (request.method !== "POST") {
+          return Response.json({ error: "方法不允许" }, { status: 405 });
+        }
+        return hostSecretEnvelope(request, env);
+      }
+      if (request.method !== "GET") {
+        return Response.json({ error: "方法不允许" }, { status: 405 });
       }
       return hostMigrationExport(request, env);
     }
