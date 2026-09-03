@@ -3,8 +3,6 @@ run-name: production/host-core-0.7.0/${{ github.sha }}
 
 on:
   workflow_dispatch:
-  issue_comment:
-    types: [created]
   schedule:
     - cron: "5 0 4 9 *"
     - cron: "25 0 4 9 *"
@@ -19,11 +17,6 @@ concurrency:
 
 jobs:
   resolve:
-    if: >-
-      github.event_name != 'issue_comment' ||
-      (github.event.issue.number == 39 &&
-       github.event.comment.user.login == github.repository_owner &&
-       github.event.comment.body == '/ops host-core-v070')
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.resolve.outputs.should_run }}
