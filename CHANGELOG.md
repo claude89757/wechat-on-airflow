@@ -5,6 +5,32 @@ and operational changes.
 
 ## Unreleased
 
+## [0.7.0] - 2026-09-04
+
+### Added
+
+- Add the PostgreSQL-backed Airflow-host subscription, observation, notification,
+  migration, and delivery runtime, including an exact-commit API service and a
+  leased notification worker.
+- Add a protected shadow-migration and cutover workflow that transfers existing
+  D1 state and Tencent SES configuration without exposing plaintext credentials
+  to GitHub or sending synthetic notifications.
+- Add a stateless Cloudflare edge gateway that serves the Web assets while
+  proxying API calls to the host after cutover.
+
+### Changed
+
+- Make PostgreSQL schema `zacks` the authoritative durable store for identities,
+  subscriptions, event deduplication, quotas, email Outboxes, and provider state.
+- Move subscriber email matching, Tencent SES delivery, retry, and reconciliation
+  from Cloudflare to the Airflow host.
+- Move the venue-level WeChat subscription gate from D1 to local PostgreSQL while
+  retaining the existing Airflow-to-Android delivery path.
+- Reduce Cloudflare to DNS/TLS/WAF, static assets, a stateless API proxy, and
+  Tunnel ingress; retain D1 read-only for the rollback window.
+- Preserve every active venue polling cadence and isolate existing email and
+  WeChat delivery from Cloudflare D1 availability.
+
 ## [0.6.6] - 2026-08-31
 
 ### Added

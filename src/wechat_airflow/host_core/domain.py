@@ -279,7 +279,15 @@ def normalize_weekdays(value: object) -> tuple[int, ...]:
         return tuple(range(1, 8))
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise ValueError("请至少选择一个星期")
-    weekdays = tuple(sorted({int(item) for item in value}))
+    parsed: set[int] = set()
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (int, str)):
+            raise ValueError("星期选择无效")
+        try:
+            parsed.add(int(item))
+        except ValueError as exc:
+            raise ValueError("星期选择无效") from exc
+    weekdays = tuple(sorted(parsed))
     if not weekdays or any(item < 1 or item > 7 for item in weekdays):
         raise ValueError("星期选择无效")
     return weekdays

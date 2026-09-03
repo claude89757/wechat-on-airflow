@@ -1330,7 +1330,7 @@ def admin_invites(
     now = utc_now()
     invites = []
     for row in rows:
-        code = decrypt_invite_code(row["encrypted_code"], settings.invite_pepper)
+        stored_code = decrypt_invite_code(row["encrypted_code"], settings.invite_pepper)
         status = (
             "deleted"
             if row["deleted_at"]
@@ -1345,9 +1345,9 @@ def admin_invites(
         invites.append(
             {
                 "id": row["id"],
-                "code": code,
+                "code": stored_code,
                 "codeHint": row["code_hint"],
-                "recoverable": bool(code),
+                "recoverable": bool(stored_code),
                 "active": bool(row["active"]),
                 "status": status,
                 "note": row["note"],

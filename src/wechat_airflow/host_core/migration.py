@@ -47,8 +47,12 @@ def _dt(value: object, *, default: datetime | None = None) -> datetime | None:
         return default
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=UTC)
-    if isinstance(value, (int, float)) or str(value).isdigit():
+    number: int | None = None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
         number = int(value)
+    elif isinstance(value, str) and value.isdigit():
+        number = int(value)
+    if number is not None:
         if number > 10_000_000_000:
             number //= 1_000
         try:
@@ -89,9 +93,14 @@ def _fetch_table(
     rows: list[dict[str, Any]] = []
     cursor = 0
     while True:
+        params: dict[str, str | int] = {
+            "table": table,
+            "cursor": cursor,
+            "limit": 500,
+        }
         response = session.get(
             f"{base_url.rstrip('/')}/api/internal/host-migration-export",
-            params={"table": table, "cursor": cursor, "limit": 500},
+            params=params,
             headers={"Authorization": f"Bearer {token}"},
             timeout=30,
         )
