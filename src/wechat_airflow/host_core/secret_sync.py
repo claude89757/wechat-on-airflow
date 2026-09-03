@@ -30,10 +30,30 @@ def _decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * ((4 - len(value) % 4) % 4))
 
 
+def _airflow_variable(name: str) -> str | None:
+    try:
+        from airflow.sdk import Variable as SdkVariable
+
+        value = SdkVariable.get(name, default=None)
+    except Exception:
+        try:
+            from airflow.models.variable import Variable as ModelVariable
+
+            value = ModelVariable.get(name, default_var=None)
+        except Exception:
+            return None
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
 def _migration_token() -> str:
     token = os.environ.get("AIRFLOW_PUSH_TOKEN", "").strip()
     if not token:
-        raise RuntimeError("AIRFLOW_PUSH_TOKEN is required for secret migration")
+        token = _airflow_variable("WEBAPP_OBSERVATION_API_TOKEN") or ""
+    if not token:
+        raise RuntimeError(
+            "AIRFLOW_PUSH_TOKEN or WEBAPP_OBSERVATION_API_TOKEN is required for secret migration"
+        )
     return token
 
 
