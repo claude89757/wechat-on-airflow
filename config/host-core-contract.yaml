@@ -2,12 +2,13 @@ schema_version: 1
 version: 0.7.0
 ownership:
   authoritative_store: postgresql:zacks_schema
+  durable_business_state: postgresql:zacks
   observation_ingestion: airflow_host
   subscription_matching: airflow_host
   subscriber_email: airflow_host
   wechat_delivery: airflow_android_sender
   public_edge: cloudflare_stateless_gateway
-  redis: optional_cache_and_wakeup_only
+  redis: optional_acceleration_only
   d1: read_only_rollback_window
 services:
   zacks-api:
