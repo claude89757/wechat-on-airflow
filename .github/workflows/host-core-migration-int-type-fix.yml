@@ -1,0 +1,69 @@
+name: One-time host-core migration integer typing fix
+
+on:
+  push:
+    branches:
+      - feat/airflow-host-core-v0.7.0-final3
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-host-core-migration-integer-typing-fix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.repository_owner == 'claude89757'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/airflow-host-core-v0.7.0-final3
+          fetch-depth: 0
+      - name: Narrow migrated integer values before conversion
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/wechat_airflow/host_core/migration.py")
+          source = path.read_text(encoding="utf-8")
+          old = """def _integer(value: object, default: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+"""
+          new = """def _integer(value: object, default: int) -> int:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+"""
+          if old not in source:
+              raise SystemExit("expected migration integer helper was not found")
+          path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          PY
+          git rm .github/workflows/host-core-migration-int-type-fix.yml
+      - name: Commit repaired branch
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/wechat_airflow/host_core/migration.py
+          git commit -m "fix(host-core): narrow migrated integers before conversion"
+          git push origin HEAD:feat/airflow-host-core-v0.7.0-final3
