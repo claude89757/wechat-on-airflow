@@ -4,7 +4,9 @@
 
 Move Web subscription state and subscriber-email delivery from Cloudflare D1
 to the PostgreSQL-backed host core without sending a synthetic email or WeChat
-message. D1 is retained read-only for rollback.
+message. D1 is retained read-only as migration evidence and a pre-activation
+rollback source; it is not automatically reactivated after host delivery may
+have begun.
 
 ## Ownership switches
 
@@ -41,36 +43,58 @@ remains the only email sender.
    Worker, then require recent status from at least 20 of the 26 venues.
 7. Freeze legacy mutations and cron.
 8. Wait for in-flight legacy requests and import the final snapshot.
-9. Make the host core the only email owner and the host database the WeChat gate.
-10. Route public API calls to the host and disable migration endpoints.
-11. Verify local and public exact-commit health and readiness.
+9. Switch observations and the WeChat gate to PostgreSQL, explicitly stop the
+   local notification worker, and verify the host API while delivery is paused.
+10. Route public API calls to the host, disable migration endpoints, and verify
+    both the stateless edge identity and the host API before any host delivery.
+11. Make the host core the only email owner and start the local notification
+    worker.
+12. Verify local and public exact-commit health, readiness, and active ownership.
 
-## Rollback
+The delivery pause between steps 9 and 11 is an activation barrier. A failed
+edge deployment can therefore return to the legacy path before the host has
+sent anything. Once host delivery is activated, automated recovery never
+reactivates the now-stale D1 sender.
 
-Rollback always uses this order:
+## Failure recovery and rollback
 
-1. Freeze the legacy edge (`cutover=false`, `quiesce=true`).
+Before host delivery activation, rollback uses this order:
+
+1. Keep or restore the legacy edge in quiesced mode.
 2. Set the host delivery owner to Cloudflare, restore the public legacy
-   observation URL, and restart the host services.
+   observation URL, and start the host services in non-sending mode.
 3. Re-enable the legacy edge only after the host owner has stopped.
 
-If step 2 fails, keep the legacy edge quiesced. This is safer than allowing two
-senders. Do not delete or rewrite the host schema during rollback.
+After host delivery activation, D1 no longer contains authoritative delivery
+state. Re-enabling its sender could duplicate messages that PostgreSQL already
+submitted. The safe automated response is therefore:
+
+1. Keep the public API routed to the PostgreSQL host core.
+2. Set `ZACKS_DELIVERY_OWNER=cloudflare` only as a neutral paused value.
+3. Stop `zacks-notification-worker`.
+4. Preserve all PostgreSQL Outbox and provider state for diagnosis and
+   roll-forward activation.
+
+This post-activation state is a **safe pause**, not a legacy rollback. Do not
+reactivate D1 delivery without an explicit reconciliation plan. Do not delete or
+rewrite the host schema during either recovery path.
 
 ## Verification without real delivery
 
-- `/zacks-api/api/healthz` and public `/api/healthz` report the exact SHA.
+- `/zacks-api/api/healthz` and public `/api/healthz` report the host SHA.
+- `/api/edge-healthz` independently reports the exact stateless edge SHA.
 - `/zacks-api/api/readyz` confirms PostgreSQL and host SES configuration.
 - All 26 venue rows exist and at least 20 have natural observations in the last
   15 minutes before cutover.
 - Active subscription count is non-zero after migration.
-- `zacks-notification-worker` is running but reports shadow mode before cutover.
+- `zacks-notification-worker` is stopped during the public edge activation
+  barrier and running only after `ZACKS_DELIVERY_OWNER=airflow_host`.
 - Worker migration endpoints return 404 after cutover.
 - No test notification is sent. Observe at least three natural schedule cycles.
 
 ## D1 retirement
 
-D1 deletion is deliberately outside this release. After a stable rollback
+D1 deletion is deliberately outside this release. After a stable evidence
 window, export final evidence, remove the binding and cron from a separate
 human-approved change, then delete D1 only under explicit irreversible-operation
 approval.
