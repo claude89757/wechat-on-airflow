@@ -11,7 +11,7 @@ import requests
 from .settings import HostCoreSettings
 
 _CACHE_LOCK = threading.Lock()
-_CACHE: tuple[float, "WeatherDecision"] | None = None
+_CACHE: tuple[float, WeatherDecision] | None = None
 CACHE_SECONDS = 3_600
 
 
