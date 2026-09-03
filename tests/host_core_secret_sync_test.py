@@ -27,6 +27,28 @@ class _Response:
         return self.payload
 
 
+def test_migration_token_prefers_explicit_environment() -> None:
+    with (
+        patch.dict("os.environ", {"AIRFLOW_PUSH_TOKEN": "environment-token"}),
+        patch.object(secret_sync, "_airflow_variable") as variable,
+    ):
+        assert secret_sync._migration_token() == "environment-token"
+    variable.assert_not_called()
+
+
+def test_migration_token_falls_back_to_existing_airflow_variable() -> None:
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch.object(
+            secret_sync,
+            "_airflow_variable",
+            return_value="airflow-variable-token",
+        ) as variable,
+    ):
+        assert secret_sync._migration_token() == "airflow-variable-token"
+    variable.assert_called_once_with("WEBAPP_OBSERVATION_API_TOKEN")
+
+
 def test_secret_bundle_is_hybrid_encrypted_and_installed_without_plaintext_transport(
     tmp_path: Path,
 ) -> None:
