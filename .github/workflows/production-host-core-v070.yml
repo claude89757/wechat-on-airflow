@@ -40,8 +40,24 @@ jobs:
           echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
           echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
 
-  cutover:
+  contract:
     needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Validate version contract before production mutation
+        run: python scripts/release_contract.py --version 0.7.0
+
+  cutover:
+    needs: [resolve, contract]
     if: needs.resolve.outputs.should_run == 'true'
     uses: ./.github/workflows/production-host-core.yml
     with:
@@ -49,19 +65,19 @@ jobs:
       target_commit: ${{ needs.resolve.outputs.target_commit }}
     secrets: inherit
 
-  ship:
+  deploy:
     needs: [resolve, cutover]
     if: needs.resolve.outputs.should_run == 'true'
-    uses: ./.github/workflows/production-ship.yml
+    uses: ./.github/workflows/production-release.yml
     with:
-      version: 0.7.0
+      mode: apply
       target_commit: ${{ needs.resolve.outputs.target_commit }}
       scope: auto
       include_sender: false
     secrets: inherit
 
   natural_cycles:
-    needs: [resolve, ship]
+    needs: [resolve, deploy]
     if: needs.resolve.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     environment: production
@@ -101,5 +117,14 @@ jobs:
     uses: ./.github/workflows/production-host-core.yml
     with:
       operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+    secrets: inherit
+
+  tag:
+    needs: [resolve, acceptance]
+    if: needs.resolve.outputs.should_run == 'true'
+    uses: ./.github/workflows/release-tag-chatops.yml
+    with:
+      version: 0.7.0
       target_commit: ${{ needs.resolve.outputs.target_commit }}
     secrets: inherit
