@@ -39,15 +39,16 @@ def evaluate_weather(settings: HostCoreSettings, now: datetime | None = None) ->
     current = (now or datetime.now(shanghai)).astimezone(shanghai)
     target_date = (current.date() + timedelta(days=1)).isoformat()
     try:
+        params: dict[str, str | float | int] = {
+            "latitude": settings.weather_latitude,
+            "longitude": settings.weather_longitude,
+            "daily": "precipitation_sum",
+            "timezone": "Asia/Shanghai",
+            "forecast_days": 3,
+        }
         response = requests.get(
             "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": settings.weather_latitude,
-                "longitude": settings.weather_longitude,
-                "daily": "precipitation_sum",
-                "timezone": "Asia/Shanghai",
-                "forecast_days": 3,
-            },
+            params=params,
             timeout=8,
         )
         response.raise_for_status()
