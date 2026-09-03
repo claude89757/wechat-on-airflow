@@ -40,6 +40,23 @@ def test_v070_runs_after_the_d1_reset_and_skips_an_existing_release() -> None:
     assert 'cron: "5 0 4 9 *"' in workflow
     assert 'cron: "25 0 4 9 *"' in workflow
     assert "push:" not in workflow.split("permissions:", 1)[0]
+    assert "issue_comment:" not in workflow
     assert "refs/tags/0.7.0" in workflow
     assert "should_run=false" in workflow
     assert 'target_commit="$(git rev-parse origin/main)"' in workflow
+
+
+def test_existing_ship_command_routes_v070_through_the_host_core_transaction() -> None:
+    workflow = (ROOT / ".github/workflows/production-ship.yml").read_text(encoding="utf-8")
+
+    assert "host_core_cutover:" in workflow
+    assert "inputs.version == '0.7.0'" in workflow
+    assert "operation: full-cutover" in workflow
+    assert "Observe three natural one-minute cycles and verify business flow" in workflow
+    assert "shadow-evidence --target-commit" in workflow
+    assert "operation: health" in workflow
+    assert "needs: [deploy, acceptance]" in workflow
+    assert workflow.index("  host_core_cutover:") < workflow.index("  deploy:")
+    assert workflow.index("  deploy:") < workflow.index("  natural_cycles:")
+    assert workflow.index("  natural_cycles:") < workflow.index("  acceptance:")
+    assert workflow.index("  acceptance:") < workflow.index("  tag:")

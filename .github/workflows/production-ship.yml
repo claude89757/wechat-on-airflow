@@ -82,8 +82,21 @@ jobs:
       - name: Validate version before production mutation
         run: python scripts/release_contract.py --version "${{ inputs.version }}"
 
-  deploy:
+  host_core_cutover:
+    if: inputs.version == '0.7.0'
     needs: contract
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: full-cutover
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  deploy:
+    needs: [contract, host_core_cutover]
+    if: >-
+      always() &&
+      needs.contract.result == 'success' &&
+      (inputs.version != '0.7.0' || needs.host_core_cutover.result == 'success')
     uses: ./.github/workflows/production-release.yml
     with:
       mode: apply
@@ -92,8 +105,56 @@ jobs:
       include_sender: ${{ inputs.include_sender }}
     secrets: inherit
 
-  tag:
+  natural_cycles:
+    if: inputs.version == '0.7.0'
     needs: deploy
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      TARGET_COMMIT: ${{ inputs.target_commit }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Observe three natural one-minute cycles and verify business flow
+        run: |
+          set -euo pipefail
+          sleep 180
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'; \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+             shadow-evidence --target-commit '$TARGET_COMMIT'"
+
+  acceptance:
+    if: inputs.version == '0.7.0'
+    needs: natural_cycles
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: health
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  tag:
+    needs: [deploy, acceptance]
+    if: >-
+      always() &&
+      needs.deploy.result == 'success' &&
+      (inputs.version != '0.7.0' || needs.acceptance.result == 'success')
     uses: ./.github/workflows/release-tag-chatops.yml
     with:
       version: ${{ inputs.version }}
@@ -102,7 +163,7 @@ jobs:
 
   record:
     if: always()
-    needs: [contract, deploy, tag]
+    needs: [contract, host_core_cutover, deploy, natural_cycles, acceptance, tag]
     runs-on: ubuntu-latest
     steps:
       - name: Record ship result
@@ -115,7 +176,10 @@ jobs:
           AIRFLOW_PLANNED: ${{ needs.deploy.outputs.deploy_airflow }}
           SENDER_PLANNED: ${{ needs.deploy.outputs.deploy_sender }}
           CONTRACT_RESULT: ${{ needs.contract.result }}
+          HOST_CORE_CUTOVER_RESULT: ${{ needs.host_core_cutover.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
+          NATURAL_CYCLES_RESULT: ${{ needs.natural_cycles.result }}
+          ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
           TAG_RESULT: ${{ needs.tag.result }}
         run: |
           {
@@ -127,9 +191,17 @@ jobs:
             echo "- Resolved scope: \`$RESOLVED_SCOPE\`"
             echo "- Components: webapp=\`$WEBAPP_PLANNED\`, airflow=\`$AIRFLOW_PLANNED\`, sender=\`$SENDER_PLANNED\`"
             echo "- Release contract: \`$CONTRACT_RESULT\`"
+            echo "- Host-core cutover: \`$HOST_CORE_CUTOVER_RESULT\`"
             echo "- Deployment: \`$DEPLOY_RESULT\`"
+            echo "- Three natural cycles: \`$NATURAL_CYCLES_RESULT\`"
+            echo "- Final production acceptance: \`$ACCEPTANCE_RESULT\`"
             echo "- Immutable tag and GitHub Release: \`$TAG_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
           test "$CONTRACT_RESULT" = success
           test "$DEPLOY_RESULT" = success
+          if [ "$VERSION" = 0.7.0 ]; then
+            test "$HOST_CORE_CUTOVER_RESULT" = success
+            test "$NATURAL_CYCLES_RESULT" = success
+            test "$ACCEPTANCE_RESULT" = success
+          fi
           test "$TAG_RESULT" = success
