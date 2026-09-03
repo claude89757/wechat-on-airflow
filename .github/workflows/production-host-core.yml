@@ -178,11 +178,28 @@ jobs:
             local cutover="$1"
             local quiesce="$2"
             local migration="$3"
-            npx wrangler deploy \
-              --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT" \
-              --var "HOST_CORE_CUTOVER:$cutover" \
-              --var "HOST_CORE_QUIESCE:$quiesce" \
-              --var "HOST_CORE_MIGRATION_ENABLED:$migration"
+            local runtime_config=".wrangler-host-core-runtime.json"
+            node - "$cutover" "$quiesce" "$migration" <<'NODE'
+          const fs = require("node:fs");
+          const [, , cutover, quiesce, migration] = process.argv;
+          const config = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
+          config.vars = {
+            ...(config.vars || {}),
+            DEPLOYMENT_COMMIT: process.env.TARGET_COMMIT,
+            HOST_CORE_CUTOVER: cutover,
+            HOST_CORE_QUIESCE: quiesce,
+            HOST_CORE_MIGRATION_ENABLED: migration,
+          };
+          fs.writeFileSync(
+            ".wrangler-host-core-runtime.json",
+            `${JSON.stringify(config, null, 2)}\n`,
+          );
+          NODE
+            if ! npx wrangler deploy --config "$runtime_config"; then
+              rm -f "$runtime_config"
+              return 1
+            fi
+            rm -f "$runtime_config"
           }
 
           if [[ "$OPERATION" == "full-cutover" ]]; then
