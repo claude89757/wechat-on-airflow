@@ -1257,7 +1257,11 @@ def admin_users(request: Request) -> dict[str, Any]:
     }
 
 
-@app.api_route(f"{API_PREFIX}/admin/invites", methods=["GET", "POST"])
+@app.api_route(
+    f"{API_PREFIX}/admin/invites",
+    methods=["GET", "POST"],
+    response_model=None,
+)
 def admin_invites(
     request: Request, payload: dict[str, Any] | None = Body(default=None)
 ) -> JSONResponse | dict[str, Any]:
