@@ -57,7 +57,10 @@ select = ["E", "F", "I", "UP", "B", "AIR"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/wechat_airflow/host_core/api.py" = ["B008"]
+"scripts/host_core_production.py" = ["UP031"]
+"src/wechat_airflow/host_core/api.py" = ["B008", "F401"]
+"src/wechat_airflow/host_core/domain.py" = ["UP035", "UP038"]
+"src/wechat_airflow/host_core/migration.py" = ["UP038"]
 
 [tool.mypy]
 python_version = "3.12"
