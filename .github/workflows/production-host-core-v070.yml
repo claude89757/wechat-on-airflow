@@ -33,8 +33,42 @@ jobs:
       include_sender: false
     secrets: inherit
 
-  acceptance:
+  natural_cycles:
     needs: ship
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      TARGET_COMMIT: ${{ github.sha }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Observe three natural one-minute cycles and verify business flow
+        run: |
+          set -euo pipefail
+          sleep 180
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'; \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+             shadow-evidence --target-commit '$TARGET_COMMIT'"
+
+  acceptance:
+    needs: natural_cycles
     uses: ./.github/workflows/production-host-core.yml
     with:
       operation: health
