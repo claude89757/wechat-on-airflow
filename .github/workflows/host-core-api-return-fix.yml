@@ -28,23 +28,13 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('src/wechat_airflow/host_core/api.py')
-          source = path.read_text(encoding='utf-8')
-          old = '''@app.api_route(f"{API_PREFIX}/admin/invites", methods=["GET", "POST"])
-def admin_invites(
-    request: Request, payload: dict[str, Any] | None = Body(default=None)
-) -> JSONResponse | dict[str, Any]:'''
-          new = '''@app.api_route(
-    f"{API_PREFIX}/admin/invites",
-    methods=["GET", "POST"],
-    response_model=None,
-)
-def admin_invites(
-    request: Request, payload: dict[str, Any] | None = Body(default=None)
-) -> JSONResponse | dict[str, Any]:'''
+          path = Path("src/wechat_airflow/host_core/api.py")
+          source = path.read_text(encoding="utf-8")
+          old = "@app.api_route(f\"{API_PREFIX}/admin/invites\", methods=[\"GET\", \"POST\"])\ndef admin_invites(\n    request: Request, payload: dict[str, Any] | None = Body(default=None)\n) -> JSONResponse | dict[str, Any]:"
+          new = "@app.api_route(\n    f\"{API_PREFIX}/admin/invites\",\n    methods=[\"GET\", \"POST\"],\n    response_model=None,\n)\ndef admin_invites(\n    request: Request, payload: dict[str, Any] | None = Body(default=None)\n) -> JSONResponse | dict[str, Any]:"
           if old not in source:
-              raise SystemExit('expected FastAPI admin_invites declaration was not found')
-          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+              raise SystemExit("expected FastAPI admin_invites declaration was not found")
+          path.write_text(source.replace(old, new, 1), encoding="utf-8")
           PY
           git rm .github/workflows/host-core-api-return-fix.yml
       - name: Commit repaired branch
