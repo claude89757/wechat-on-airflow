@@ -43,3 +43,14 @@ def test_v070_runs_after_the_d1_reset_and_skips_an_existing_release() -> None:
     assert "refs/tags/0.7.0" in workflow
     assert "should_run=false" in workflow
     assert 'target_commit="$(git rev-parse origin/main)"' in workflow
+
+
+def test_owner_only_comment_can_trigger_the_same_release_transaction() -> None:
+    workflow = (ROOT / ".github/workflows/production-host-core-v070.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "issue_comment:" in workflow
+    assert "github.event.issue.number == 39" in workflow
+    assert "github.event.comment.user.login == github.repository_owner" in workflow
+    assert "github.event.comment.body == '/ops host-core-v070'" in workflow
