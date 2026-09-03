@@ -55,9 +55,7 @@ def assert_target(target_commit: str) -> None:
         raise RuntimeError("target commit must be a full SHA")
     head = run(["git", "rev-parse", "HEAD"], capture=True).stdout.strip()
     if head != target_commit:
-        raise RuntimeError(
-            f"worktree commit mismatch: expected {target_commit}, got {head}"
-        )
+        raise RuntimeError(f"worktree commit mismatch: expected {target_commit}, got {head}")
 
 
 def variable_set(name: str, value: str) -> None:
@@ -122,9 +120,7 @@ def preflight(target_commit: str) -> dict[str, Any]:
     disk = os.statvfs(ROOT)
     free_bytes = disk.f_bavail * disk.f_frsize
     if free_bytes < 8_000_000_000:
-        raise RuntimeError(
-            "less than 8 GB is available on the reliable repository filesystem"
-        )
+        raise RuntimeError("less than 8 GB is available on the reliable repository filesystem")
     run([sys.executable, str(ROOT / "scripts" / "configure_zacks_tunnel.py")])
     return {
         "targetCommit": target_commit,
@@ -189,7 +185,8 @@ def sync_secrets(target_commit: str) -> dict[str, Any]:
 
 def migrate(target_commit: str, *, pass_name: str) -> dict[str, Any]:
     assert_target(target_commit)
-    script = """
+    script = (
+        """
 import json
 from wechat_airflow.host_core.migration import fetch_snapshot, import_snapshot
 from wechat_airflow.host_core.settings import load_settings
@@ -197,7 +194,9 @@ settings = load_settings()
 snapshot = fetch_snapshot('https://zacks.claude89757.cc', settings.edge_token)
 counts = import_snapshot(snapshot, source_revision=%r)
 print(json.dumps({'success': True, 'counts': counts}, sort_keys=True))
-""" % target_commit
+"""
+        % target_commit
+    )
     output = host_python(script, capture=True)
     result = json.loads(output.splitlines()[-1])
     if result.get("success") is not True:
@@ -341,9 +340,7 @@ def health(target_commit: str, *, include_public: bool) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Operate the Airflow-host Zacks notification core"
-    )
+    parser = argparse.ArgumentParser(description="Operate the Airflow-host Zacks notification core")
     parser.add_argument(
         "operation",
         choices=[
@@ -367,15 +364,11 @@ def main() -> int:
         "preflight": lambda: preflight(arguments.target_commit),
         "deploy-shadow": lambda: deploy_shadow(arguments.target_commit),
         "sync-secrets": lambda: sync_secrets(arguments.target_commit),
-        "migrate": lambda: migrate(
-            arguments.target_commit, pass_name=arguments.pass_name
-        ),
+        "migrate": lambda: migrate(arguments.target_commit, pass_name=arguments.pass_name),
         "enable-dual": lambda: enable_dual(arguments.target_commit),
         "shadow-evidence": lambda: shadow_evidence(arguments.target_commit),
         "cutover": lambda: cutover(arguments.target_commit),
-        "health": lambda: health(
-            arguments.target_commit, include_public=arguments.include_public
-        ),
+        "health": lambda: health(arguments.target_commit, include_public=arguments.include_public),
         "rollback": lambda: rollback(arguments.target_commit),
     }
     result = operations[arguments.operation]()

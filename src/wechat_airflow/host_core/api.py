@@ -84,9 +84,7 @@ def _constant_time_header(value: str, expected: str) -> bool:
 
 
 def _edge_authorized(request: Request, settings: HostCoreSettings) -> bool:
-    return _constant_time_header(
-        request.headers.get("x-zacks-edge-token", ""), settings.edge_token
-    )
+    return _constant_time_header(request.headers.get("x-zacks-edge-token", ""), settings.edge_token)
 
 
 def _internal_authorized(request: Request, settings: HostCoreSettings) -> bool:
@@ -149,18 +147,22 @@ def _identity(request: Request, *, required: bool = False) -> dict[str, Any] | N
     now = utc_now()
     token_hash = _hash_token(token)
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT email, masked_email
                 FROM zacks.verified_receipts
                 WHERE token_hash = :token_hash
                   AND revoked_at IS NULL
                   AND expires_at > :now
                 """
-            ),
-            {"token_hash": token_hash, "now": now},
-        ).mappings().first()
+                ),
+                {"token_hash": token_hash, "now": now},
+            )
+            .mappings()
+            .first()
+        )
         if not row:
             if required:
                 raise HTTPException(status_code=401, detail="邮箱凭证已失效，请重新验证")
@@ -353,9 +355,10 @@ def bootstrap(request: Request) -> dict[str, Any]:
                 {"day_start": day_start},
             ).scalar_one()
         )
-        venue_rows = connection.execute(
-            text(
-                """
+        venue_rows = (
+            connection.execute(
+                text(
+                    """
                 SELECT
                     status.venue_id,
                     status.venue_name,
@@ -381,9 +384,12 @@ def bootstrap(request: Request) -> dict[str, Any]:
                          status.last_inspection_at, status.last_notification_at
                 ORDER BY subscriber_count DESC, status.venue_name, status.venue_id
                 """
-            ),
-            {"now": now},
-        ).mappings().all()
+                ),
+                {"now": now},
+            )
+            .mappings()
+            .all()
+        )
 
         subscription_rows: list[dict[str, Any]] = []
         submitted_today = delivered_today = failed_today = 0
@@ -409,9 +415,10 @@ def bootstrap(request: Request) -> dict[str, Any]:
                     {"email": email, "now": now},
                 ).mappings()
             ]
-            counts = connection.execute(
-                text(
-                    """
+            counts = (
+                connection.execute(
+                    text(
+                        """
                     SELECT
                         count(DISTINCT message_id) FILTER (
                             WHERE submitted_at >= :day_start
@@ -425,9 +432,12 @@ def bootstrap(request: Request) -> dict[str, Any]:
                     FROM zacks.notification_outbox
                     WHERE email = :email
                     """
-                ),
-                {"email": email, "day_start": day_start},
-            ).mappings().one()
+                    ),
+                    {"email": email, "day_start": day_start},
+                )
+                .mappings()
+                .one()
+            )
             submitted_today = int(counts["submitted"] or 0)
             delivered_today = int(counts["delivered"] or 0)
             failed_today = int(counts["failed"] or 0)
@@ -526,9 +536,7 @@ def bootstrap(request: Request) -> dict[str, Any]:
 
 
 @app.post(f"{API_PREFIX}/email/send-code")
-def send_verification_code(
-    request: Request, payload: dict[str, Any] = Body(...)
-) -> dict[str, Any]:
+def send_verification_code(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     settings = _settings()
     email = normalize_email(payload.get("email"))
     now = utc_now()
@@ -618,9 +626,10 @@ def verify_email(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise ValueError("请输入验证码")
     now = utc_now()
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT email, code_hash, attempts
                 FROM zacks.verification_challenges
                 WHERE id = :id
@@ -628,9 +637,12 @@ def verify_email(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                   AND expires_at > :now
                 FOR UPDATE
                 """
-            ),
-            {"id": challenge_id, "now": now},
-        ).mappings().first()
+                ),
+                {"id": challenge_id, "now": now},
+            )
+            .mappings()
+            .first()
+        )
         if not row or int(row["attempts"] or 0) >= 5:
             raise HTTPException(status_code=400, detail="验证码无效或已过期")
         expected = hash_verification_code(challenge_id, code, settings.verification_pepper)
@@ -719,9 +731,7 @@ def verify_email(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
 
 
 @app.post(f"{API_PREFIX}/subscriptions")
-def create_subscription(
-    request: Request, payload: dict[str, Any] = Body(...)
-) -> JSONResponse:
+def create_subscription(request: Request, payload: dict[str, Any] = Body(...)) -> JSONResponse:
     identity = _identity(request, required=True)
     assert identity is not None
     settings = _settings()
@@ -834,22 +844,24 @@ def cancel_subscription(subscription_id: str, request: Request) -> dict[str, Any
     identity = _identity(request, required=True)
     assert identity is not None
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT venue_ids FROM zacks.subscriptions
                 WHERE id = :id AND email = :email AND active = true
                 FOR UPDATE
                 """
-            ),
-            {"id": subscription_id, "email": identity["email"]},
-        ).mappings().first()
+                ),
+                {"id": subscription_id, "email": identity["email"]},
+            )
+            .mappings()
+            .first()
+        )
         if not row:
             raise HTTPException(status_code=404, detail="订阅不存在")
         venue_ids = (
-            row["venue_ids"]
-            if isinstance(row["venue_ids"], list)
-            else json.loads(row["venue_ids"])
+            row["venue_ids"] if isinstance(row["venue_ids"], list) else json.loads(row["venue_ids"])
         )
         connection.execute(
             text(
@@ -866,9 +878,7 @@ def cancel_subscription(subscription_id: str, request: Request) -> dict[str, Any
 
 
 @app.post(f"{API_PREFIX}/priority/redeem")
-def redeem_priority(
-    request: Request, payload: dict[str, Any] = Body(...)
-) -> dict[str, Any]:
+def redeem_priority(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     identity = _identity(request, required=True)
     assert identity is not None
     settings = _settings()
@@ -876,9 +886,10 @@ def redeem_priority(
     code_hash = hash_invite_code(payload.get("code"), settings.invite_pepper)
     ip_hash = _client_ip_hash(request, settings)
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT id FROM zacks.priority_invite_codes
                 WHERE code_hash = :code_hash
                   AND active = true
@@ -887,9 +898,12 @@ def redeem_priority(
                   AND expires_at > :now
                 FOR UPDATE
                 """
-            ),
-            {"code_hash": code_hash, "now": now},
-        ).mappings().first()
+                ),
+                {"code_hash": code_hash, "now": now},
+            )
+            .mappings()
+            .first()
+        )
         success = bool(row)
         connection.execute(
             text(
@@ -987,9 +1001,7 @@ def coffee_session(request: Request) -> dict[str, Any]:
 
 
 @app.post(f"{API_PREFIX}/coffee/invite")
-def coffee_invite(
-    request: Request, payload: dict[str, Any] = Body(...)
-) -> dict[str, Any]:
+def coffee_invite(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     identity = _identity(request, required=True)
     assert identity is not None
     settings = _settings()
@@ -1000,18 +1012,22 @@ def coffee_invite(
     now = utc_now()
     session_key = f"{session_id}:{_hash_token(secret)}"
     with transaction() as connection:
-        existing = connection.execute(
-            text(
-                """
+        existing = (
+            connection.execute(
+                text(
+                    """
                 SELECT invites.encrypted_code, invites.expires_at, claims.claimed_at,
                        invites.redeemed_at, invites.deleted_at, invites.active
                 FROM zacks.coffee_invite_claims claims
                 JOIN zacks.priority_invite_codes invites ON invites.id = claims.invite_id
                 WHERE claims.email = :email
                 """
-            ),
-            {"email": identity["email"]},
-        ).mappings().first()
+                ),
+                {"email": identity["email"]},
+            )
+            .mappings()
+            .first()
+        )
         if existing:
             code = decrypt_invite_code(existing["encrypted_code"], settings.invite_pepper)
             if not code:
@@ -1034,17 +1050,21 @@ def coffee_invite(
                 "reused": True,
                 "status": status,
             }
-        session = connection.execute(
-            text(
-                """
+        session = (
+            connection.execute(
+                text(
+                    """
                 SELECT id, ip_hash, claimable_at, expires_at, consumed_at
                 FROM zacks.coffee_invite_sessions
                 WHERE id = :id AND email = :email
                 FOR UPDATE
                 """
-            ),
-            {"id": session_key, "email": identity["email"]},
-        ).mappings().first()
+                ),
+                {"id": session_key, "email": identity["email"]},
+            )
+            .mappings()
+            .first()
+        )
         if not session or session["consumed_at"] or session["expires_at"] <= now:
             raise HTTPException(status_code=400, detail="彩蛋会话无效或已过期")
         if session["claimable_at"] > now:
@@ -1106,9 +1126,10 @@ def coffee_invite(
 def community_users(request: Request) -> dict[str, Any]:
     _identity(request, required=True)
     with transaction() as connection:
-        rows = connection.execute(
-            text(
-                """
+        rows = (
+            connection.execute(
+                text(
+                    """
                 SELECT p.email, p.last_active_at,
                        CASE WHEN tiers.tier = 'priority' AND tiers.revoked_at IS NULL
                             THEN 'priority' ELSE 'standard' END AS tier,
@@ -1127,8 +1148,11 @@ def community_users(request: Request) -> dict[str, Any]:
                 ORDER BY p.last_active_at DESC
                 LIMIT 100
                 """
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     now = utc_now()
     users = []
     for row in rows:
@@ -1162,13 +1186,14 @@ def community_users(request: Request) -> dict[str, Any]:
 def admin_users(request: Request) -> dict[str, Any]:
     _require_admin(request)
     now = utc_now()
-    day_start = now.astimezone(SHANGHAI).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    ).astimezone(UTC)
+    day_start = (
+        now.astimezone(SHANGHAI).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+    )
     with transaction() as connection:
-        rows = connection.execute(
-            text(
-                """
+        rows = (
+            connection.execute(
+                text(
+                    """
                 SELECT p.*,
                        CASE WHEN tiers.tier = 'priority' AND tiers.revoked_at IS NULL
                             THEN 'priority' ELSE 'standard' END AS tier,
@@ -1203,9 +1228,12 @@ def admin_users(request: Request) -> dict[str, Any]:
                 ORDER BY p.last_active_at DESC
                 LIMIT 250
                 """
-            ),
-            {"now": now, "day_start": day_start},
-        ).mappings().all()
+                ),
+                {"now": now, "day_start": day_start},
+            )
+            .mappings()
+            .all()
+        )
     return {
         "generatedAt": now.isoformat(),
         "users": [
@@ -1287,14 +1315,18 @@ def admin_invites(
         return JSONResponse({"invites": invites}, status_code=201)
 
     with transaction() as connection:
-        rows = connection.execute(
-            text(
-                """
+        rows = (
+            connection.execute(
+                text(
+                    """
                 SELECT * FROM zacks.priority_invite_codes
                 ORDER BY created_at DESC LIMIT 250
                 """
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     now = utc_now()
     invites = []
     for row in rows:
@@ -1335,15 +1367,19 @@ def update_invite(
     _require_admin(request)
     now = utc_now()
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT active, note, expires_at, redeemed_at, deleted_at
                 FROM zacks.priority_invite_codes WHERE id = :id FOR UPDATE
                 """
-            ),
-            {"id": invite_id},
-        ).mappings().first()
+                ),
+                {"id": invite_id},
+            )
+            .mappings()
+            .first()
+        )
         if not row or row["deleted_at"]:
             raise HTTPException(status_code=404, detail="邀请码不存在")
         if row["redeemed_at"]:

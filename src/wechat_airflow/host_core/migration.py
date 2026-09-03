@@ -112,10 +112,7 @@ def _fetch_table(
 
 def fetch_snapshot(base_url: str, token: str) -> dict[str, list[dict[str, Any]]]:
     with requests.Session() as session:
-        return {
-            table: _fetch_table(session, base_url, token, table)
-            for table in EXPORT_TABLES
-        }
+        return {table: _fetch_table(session, base_url, token, table) for table in EXPORT_TABLES}
 
 
 def _insert_receipts(connection, rows: Iterable[Mapping[str, Any]]) -> None:  # type: ignore[no-untyped-def]
@@ -257,8 +254,12 @@ def _insert_invites(connection, rows: Iterable[Mapping[str, Any]], pepper: str) 
     for row in rows:
         plaintext = str(row.get("plaintext_code") or "").strip() or None
         encrypted = encrypt_invite_code(plaintext, pepper) if plaintext else None
-        code_hash = hash_invite_code(plaintext, pepper) if plaintext else str(row.get("code_hash") or "")
-        active = _boolean(row.get("active")) and (plaintext is not None or bool(row.get("redeemed_at")))
+        code_hash = (
+            hash_invite_code(plaintext, pepper) if plaintext else str(row.get("code_hash") or "")
+        )
+        active = _boolean(row.get("active")) and (
+            plaintext is not None or bool(row.get("redeemed_at"))
+        )
         note = str(row.get("note") or "")[:120] or None
         if not plaintext and not row.get("redeemed_at"):
             note = f"migrated-unrecoverable:{note or ''}"[:120]
@@ -524,7 +525,11 @@ def _insert_notification_outbox(connection, rows: Iterable[Mapping[str, Any]]) -
                 "created_at": _dt(row.get("created_at"), default=now),
                 "updated_at": _dt(row.get("updated_at"), default=now),
                 "submitted_at": _dt(row.get("provider_submitted_at") or row.get("submitted_at")),
-                "delivered_at": _dt(row.get("provider_delivered_at") or row.get("delivered_at") or row.get("sent_at")),
+                "delivered_at": _dt(
+                    row.get("provider_delivered_at")
+                    or row.get("delivered_at")
+                    or row.get("sent_at")
+                ),
                 "failed_at": _dt(row.get("provider_failed_at") or row.get("failed_at")),
                 "message_id": row.get("message_id"),
                 "provider_request_id": row.get("provider_request_id"),
@@ -539,7 +544,9 @@ def _insert_notification_outbox(connection, rows: Iterable[Mapping[str, Any]]) -
 def _insert_system_outbox(connection, rows: Iterable[Mapping[str, Any]]) -> None:  # type: ignore[no-untyped-def]
     now = utc_now()
     for row in rows:
-        status = "retry" if row.get("status") == "processing" else str(row.get("status") or "pending")
+        status = (
+            "retry" if row.get("status") == "processing" else str(row.get("status") or "pending")
+        )
         connection.execute(
             text(
                 """
@@ -709,7 +716,9 @@ def import_snapshot(
         _insert_roles(connection, snapshot.get("user_roles", []))
         _insert_tiers(connection, snapshot.get("user_delivery_tiers", []))
         _insert_receipts(connection, snapshot.get("verified_receipts", []))
-        _insert_invites(connection, snapshot.get("priority_invite_codes", []), settings.invite_pepper)
+        _insert_invites(
+            connection, snapshot.get("priority_invite_codes", []), settings.invite_pepper
+        )
         affected = _insert_subscriptions(connection, snapshot.get("subscriptions", []))
         _insert_venue_status(connection, snapshot.get("venue_status", []))
         _insert_observed_slots(connection, snapshot.get("observed_slots", []))

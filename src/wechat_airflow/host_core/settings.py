@@ -188,12 +188,8 @@ def load_settings() -> HostCoreSettings:
         ),
         standard_daily_email_limit=_positive_int("STANDARD_DAILY_EMAIL_LIMIT", 10),
         priority_daily_email_limit=_positive_int("PRIORITY_DAILY_EMAIL_LIMIT", 100),
-        standard_active_subscription_limit=_positive_int(
-            "STANDARD_ACTIVE_SUBSCRIPTION_LIMIT", 5
-        ),
-        priority_active_subscription_limit=_positive_int(
-            "PRIORITY_ACTIVE_SUBSCRIPTION_LIMIT", 20
-        ),
+        standard_active_subscription_limit=_positive_int("STANDARD_ACTIVE_SUBSCRIPTION_LIMIT", 5),
+        priority_active_subscription_limit=_positive_int("PRIORITY_ACTIVE_SUBSCRIPTION_LIMIT", 20),
         notification_daily_send_limit=_positive_int("NOTIFICATION_DAILY_SEND_LIMIT", 1000),
         weather_gate_enabled=_bool_value("WEATHER_EMAIL_GATE_ENABLED", True),
         weather_threshold_mm=max(threshold, 0.1),

@@ -74,7 +74,9 @@ def test_slot_matching_uses_booking_date_weekday_and_overlap() -> None:
     slot = SlotObservation(date(2026, 9, 4), "1号场", "18:30", "20:00")
     mask = weekday_mask([5])
     assert slot_matches(slot, weekday_mask_value=mask, start_time="19:00", end_time="21:00")
-    assert not slot_matches(slot, weekday_mask_value=weekday_mask([4]), start_time="19:00", end_time="21:00")
+    assert not slot_matches(
+        slot, weekday_mask_value=weekday_mask([4]), start_time="19:00", end_time="21:00"
+    )
     assert not slot_matches(slot, weekday_mask_value=mask, start_time="20:00", end_time="21:00")
 
 
@@ -91,4 +93,6 @@ def test_long_term_subscription_uses_renewable_lease() -> None:
     term = resolve_term("long_term")
     assert term.auto_renew is True
     assert term.duration_days == 0
-    assert (term.active_until - term.active_until.replace(hour=0, minute=0, second=0, microsecond=0)).days >= 0
+    assert (
+        term.active_until - term.active_until.replace(hour=0, minute=0, second=0, microsecond=0)
+    ).days >= 0

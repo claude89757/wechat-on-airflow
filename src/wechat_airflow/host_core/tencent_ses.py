@@ -91,7 +91,9 @@ def _call(
     try:
         document = response.json()
     except ValueError as exc:
-        raise TencentSesError(f"HTTP_{response.status_code}", "腾讯云邮件接口返回非 JSON 数据") from exc
+        raise TencentSesError(
+            f"HTTP_{response.status_code}", "腾讯云邮件接口返回非 JSON 数据"
+        ) from exc
     provider = document.get("Response") if isinstance(document, dict) else None
     if not isinstance(provider, dict):
         raise TencentSesError(f"HTTP_{response.status_code}", "腾讯云邮件接口响应无效")

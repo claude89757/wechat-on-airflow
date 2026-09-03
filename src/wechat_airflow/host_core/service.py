@@ -162,17 +162,21 @@ def ingest_observation(payload: object) -> dict[str, Any]:
     with transaction() as connection:
         _upsert_status(connection, observation, now)
         generation = _generation(connection, observation.venue_id)
-        state = connection.execute(
-            text(
-                """
+        state = (
+            connection.execute(
+                text(
+                    """
                 SELECT fingerprint, subscription_generation
                 FROM zacks.observation_state
                 WHERE observation_key = :observation_key
                 FOR UPDATE
                 """
-            ),
-            {"observation_key": observation_key},
-        ).mappings().first()
+                ),
+                {"observation_key": observation_key},
+            )
+            .mappings()
+            .first()
+        )
         unchanged = bool(
             state
             and state["fingerprint"] == fingerprint
@@ -347,9 +351,7 @@ def record_wechat_incident(
     now = utc_now()
     receiver_hash = hashlib.sha256(receiver.encode()).hexdigest()
     message_hash = hashlib.sha256(message.encode()).hexdigest()
-    incident_id = hashlib.sha256(
-        f"{source}\0{receiver_hash}\0{message_hash}".encode()
-    ).hexdigest()
+    incident_id = hashlib.sha256(f"{source}\0{receiver_hash}\0{message_hash}".encode()).hexdigest()
     reason = str(error)[:1_000]
     try:
         with transaction() as connection:

@@ -97,9 +97,10 @@ def _claim_system(worker_id: str) -> dict[str, Any] | None:
     now = utc_now()
     lease_until = now + timedelta(seconds=LEASE_SECONDS)
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT id, email, email_type, subject, body, attempt_count
                 FROM zacks.system_email_outbox
                 WHERE status IN ('pending', 'retry', 'processing')
@@ -109,9 +110,12 @@ def _claim_system(worker_id: str) -> dict[str, Any] | None:
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """
-            ),
-            {"now": now},
-        ).mappings().first()
+                ),
+                {"now": now},
+            )
+            .mappings()
+            .first()
+        )
         if not row:
             return None
         attempt = int(row["attempt_count"] or 0) + 1
@@ -209,9 +213,10 @@ def _complete_system(row: Mapping[str, Any], worker_id: str) -> None:
 def _next_subscriber_target() -> dict[str, str] | None:
     now = utc_now()
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT email, tier
                 FROM zacks.notification_outbox
                 WHERE status IN ('pending', 'retry', 'processing')
@@ -220,9 +225,12 @@ def _next_subscriber_target() -> dict[str, str] | None:
                 ORDER BY CASE WHEN tier = 'priority' THEN 0 ELSE 1 END, created_at
                 LIMIT 1
                 """
-            ),
-            {"now": now},
-        ).mappings().first()
+                ),
+                {"now": now},
+            )
+            .mappings()
+            .first()
+        )
     if not row:
         return None
     return {"email": str(row["email"]), "tier": str(row["tier"])}
@@ -523,9 +531,10 @@ def _next_provider_check(
     now = utc_now()
     retention_cutoff = now - timedelta(days=PROVIDER_RETENTION_DAYS)
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                f"""
+        row = (
+            connection.execute(
+                text(
+                    f"""
                 SELECT {message_column} AS message_id,
                        min({email_column}) AS email,
                        min(submitted_at) AS submitted_at,
@@ -539,9 +548,12 @@ def _next_provider_check(
                 ORDER BY min(provider_next_check_at), min(submitted_at)
                 LIMIT 1
                 """
-            ),
-            {"retention_cutoff": retention_cutoff, "now": now},
-        ).mappings().first()
+                ),
+                {"retention_cutoff": retention_cutoff, "now": now},
+            )
+            .mappings()
+            .first()
+        )
     return dict(row) if row else None
 
 
@@ -739,17 +751,13 @@ def _reconcile_system_row(row: Mapping[str, Any]) -> None:
 def _reconcile(settings: HostCoreSettings) -> int:
     processed = 0
     for _ in range(RECONCILE_BATCH):
-        subscriber = _next_provider_check(
-            "notification_outbox", "message_id", "email"
-        )
+        subscriber = _next_provider_check("notification_outbox", "message_id", "email")
         if not subscriber:
             break
         _reconcile_subscriber_row(settings, subscriber)
         processed += 1
     for _ in range(RECONCILE_BATCH):
-        system = _next_provider_check(
-            "system_email_outbox", "provider_message_id", "email"
-        )
+        system = _next_provider_check("system_email_outbox", "provider_message_id", "email")
         if not system:
             break
         _reconcile_system_row(system)

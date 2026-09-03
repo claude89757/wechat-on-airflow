@@ -72,24 +72,136 @@ LONG_TERM_RENEW_THRESHOLD_DAYS: Final = 45
 INVITE_PREFIX: Final = "ACE"
 INVITE_ALPHABET: Final = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 INVITE_SCENES: Final = (
-    "SUNNY", "BREEZY", "CLOUD", "MOON", "STAR", "COMET", "AURORA", "OCEAN",
-    "RIVER", "WAVE", "TIDE", "CORAL", "FOREST", "CEDAR", "MAPLE", "BAMBOO",
-    "MEADOW", "GARDEN", "BLOOM", "PEACH", "MANGO", "LEMON", "BERRY", "COCOA",
-    "HONEY", "MINT", "LATTE", "MOCHI", "COOKIE", "JELLY", "SUGAR", "SPICE",
-    "RALLY", "SERVE", "VOLLEY", "SMASH", "SLICE", "SPIN", "LOB", "COURT",
-    "NET", "BASELINE", "MATCH", "SET", "GAME", "BREAK", "FLASH", "TURBO",
-    "ROCKET", "NOVA", "PIXEL", "NEON", "MAGIC", "LUCKY", "HAPPY", "BRAVE",
-    "QUICK", "CHILL", "GLOW", "DREAM", "PARTY", "FIESTA", "SUNSET", "SUNRISE",
+    "SUNNY",
+    "BREEZY",
+    "CLOUD",
+    "MOON",
+    "STAR",
+    "COMET",
+    "AURORA",
+    "OCEAN",
+    "RIVER",
+    "WAVE",
+    "TIDE",
+    "CORAL",
+    "FOREST",
+    "CEDAR",
+    "MAPLE",
+    "BAMBOO",
+    "MEADOW",
+    "GARDEN",
+    "BLOOM",
+    "PEACH",
+    "MANGO",
+    "LEMON",
+    "BERRY",
+    "COCOA",
+    "HONEY",
+    "MINT",
+    "LATTE",
+    "MOCHI",
+    "COOKIE",
+    "JELLY",
+    "SUGAR",
+    "SPICE",
+    "RALLY",
+    "SERVE",
+    "VOLLEY",
+    "SMASH",
+    "SLICE",
+    "SPIN",
+    "LOB",
+    "COURT",
+    "NET",
+    "BASELINE",
+    "MATCH",
+    "SET",
+    "GAME",
+    "BREAK",
+    "FLASH",
+    "TURBO",
+    "ROCKET",
+    "NOVA",
+    "PIXEL",
+    "NEON",
+    "MAGIC",
+    "LUCKY",
+    "HAPPY",
+    "BRAVE",
+    "QUICK",
+    "CHILL",
+    "GLOW",
+    "DREAM",
+    "PARTY",
+    "FIESTA",
+    "SUNSET",
+    "SUNRISE",
 )
 INVITE_MASCOTS: Final = (
-    "PANDA", "OTTER", "TIGER", "LION", "FOX", "WOLF", "BEAR", "KOALA",
-    "RABBIT", "BUNNY", "DEER", "MOOSE", "HORSE", "ZEBRA", "CAMEL", "LLAMA",
-    "ALPACA", "MONKEY", "LEMUR", "SLOTH", "BADGER", "BEAVER", "FERRET", "HEDGEHOG",
-    "RACCOON", "SEAL", "DOLPHIN", "WHALE", "SHARK", "TURTLE", "PENGUIN", "PUFFIN",
-    "EAGLE", "FALCON", "OWL", "ROBIN", "SPARROW", "PARROT", "TOUCAN", "SWAN",
-    "DUCK", "GOOSE", "CRANE", "HERON", "FLAMINGO", "PEACOCK", "GECKO", "IGUANA",
-    "COBRA", "DRAGON", "PHOENIX", "UNICORN", "KITTEN", "PUPPY", "HAMSTER", "CHINCHILLA",
-    "BISON", "YAK", "ANT", "BEE", "BUTTERFLY", "FIREFLY", "LADYBUG", "MANTIS",
+    "PANDA",
+    "OTTER",
+    "TIGER",
+    "LION",
+    "FOX",
+    "WOLF",
+    "BEAR",
+    "KOALA",
+    "RABBIT",
+    "BUNNY",
+    "DEER",
+    "MOOSE",
+    "HORSE",
+    "ZEBRA",
+    "CAMEL",
+    "LLAMA",
+    "ALPACA",
+    "MONKEY",
+    "LEMUR",
+    "SLOTH",
+    "BADGER",
+    "BEAVER",
+    "FERRET",
+    "HEDGEHOG",
+    "RACCOON",
+    "SEAL",
+    "DOLPHIN",
+    "WHALE",
+    "SHARK",
+    "TURTLE",
+    "PENGUIN",
+    "PUFFIN",
+    "EAGLE",
+    "FALCON",
+    "OWL",
+    "ROBIN",
+    "SPARROW",
+    "PARROT",
+    "TOUCAN",
+    "SWAN",
+    "DUCK",
+    "GOOSE",
+    "CRANE",
+    "HERON",
+    "FLAMINGO",
+    "PEACOCK",
+    "GECKO",
+    "IGUANA",
+    "COBRA",
+    "DRAGON",
+    "PHOENIX",
+    "UNICORN",
+    "KITTEN",
+    "PUPPY",
+    "HAMSTER",
+    "CHINCHILLA",
+    "BISON",
+    "YAK",
+    "ANT",
+    "BEE",
+    "BUTTERFLY",
+    "FIREFLY",
+    "LADYBUG",
+    "MANTIS",
 )
 
 
@@ -201,7 +313,11 @@ def validate_subscription(value: object, *, priority: bool) -> SubscriptionInput
     if not isinstance(raw_venues, Sequence) or isinstance(raw_venues, (str, bytes)):
         raise ValueError("请至少选择一个场地")
     venue_ids = tuple(sorted({str(item).strip() for item in raw_venues}))
-    if not venue_ids or len(venue_ids) != len(raw_venues) or any(item not in VENUES for item in venue_ids):
+    if (
+        not venue_ids
+        or len(venue_ids) != len(raw_venues)
+        or any(item not in VENUES for item in venue_ids)
+    ):
         raise ValueError("场地选择无效")
     start_time = str(value.get("startTime") or "")
     end_time = str(value.get("endTime") or "")
@@ -216,7 +332,9 @@ def validate_subscription(value: object, *, priority: bool) -> SubscriptionInput
             raw_term = "7d"
     allowed = PRIORITY_TERMS if priority else STANDARD_TERMS
     if raw_term not in allowed:
-        raise ValueError("该订阅有效期仅限优先用户" if raw_term in PRIORITY_TERMS else "订阅有效期无效")
+        raise ValueError(
+            "该订阅有效期仅限优先用户" if raw_term in PRIORITY_TERMS else "订阅有效期无效"
+        )
     return SubscriptionInput(venue_ids, weekdays, start_time, end_time, raw_term)
 
 
@@ -255,7 +373,9 @@ def validate_observation(value: object) -> VenueObservation:
     if venue_id not in VENUES:
         raise ValueError("场地数据无效")
     venue_name = str(value.get("venue_name") or value.get("venueName") or VENUES[venue_id]).strip()
-    scope = str(value.get("observation_scope") or value.get("observationScope") or "default").strip()[:120]
+    scope = str(
+        value.get("observation_scope") or value.get("observationScope") or "default"
+    ).strip()[:120]
     healthy = value.get("healthy") is True
     raw_checked = value.get("checked_at") or value.get("checkedAt")
     try:
@@ -296,12 +416,20 @@ def observation_fingerprint(observation: VenueObservation) -> str:
 def slot_event_key(venue_id: str, slot: SlotObservation) -> str:
     return hashlib.sha256(
         "|".join(
-            [venue_id, slot.booking_date.isoformat(), slot.court_name, slot.start_time, slot.end_time]
+            [
+                venue_id,
+                slot.booking_date.isoformat(),
+                slot.court_name,
+                slot.start_time,
+                slot.end_time,
+            ]
         ).encode()
     ).hexdigest()
 
 
-def slot_matches(slot: SlotObservation, *, weekday_mask_value: int, start_time: str, end_time: str) -> bool:
+def slot_matches(
+    slot: SlotObservation, *, weekday_mask_value: int, start_time: str, end_time: str
+) -> bool:
     weekday = slot.booking_date.isoweekday()
     return bool(weekday_mask_value & (1 << (weekday - 1))) and (
         parse_time(slot.start_time) < parse_time(end_time)
@@ -311,7 +439,11 @@ def slot_matches(slot: SlotObservation, *, weekday_mask_value: int, start_time: 
 
 def format_slot_line(venue_name: str, slot: SlotObservation) -> str:
     weekday = "一二三四五六日"[slot.booking_date.isoweekday() - 1]
-    location = slot.court_name if slot.court_name.startswith(venue_name) else f"{venue_name}{slot.court_name}"
+    location = (
+        slot.court_name
+        if slot.court_name.startswith(venue_name)
+        else f"{venue_name}{slot.court_name}"
+    )
     return (
         f"{location} {slot.booking_date.strftime('%m-%d')} 星期{weekday} "
         f"{slot.start_time}-{slot.end_time}"
@@ -368,7 +500,9 @@ def normalize_invite_code(value: object) -> str:
 
 def generate_invite_code() -> str:
     suffix = "".join(secrets.choice(INVITE_ALPHABET) for _ in range(6))
-    return f"{INVITE_PREFIX}-{secrets.choice(INVITE_SCENES)}-{secrets.choice(INVITE_MASCOTS)}-{suffix}"
+    return (
+        f"{INVITE_PREFIX}-{secrets.choice(INVITE_SCENES)}-{secrets.choice(INVITE_MASCOTS)}-{suffix}"
+    )
 
 
 def hash_invite_code(code: object, pepper: str) -> str:

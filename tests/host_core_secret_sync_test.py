@@ -44,9 +44,7 @@ def test_secret_bundle_is_hybrid_encrypted_and_installed_without_plaintext_trans
         body = kwargs["json"]
         assert isinstance(body, dict)
         encoded_key = str(body["publicKeySpki"])
-        public_der = base64.urlsafe_b64decode(
-            encoded_key + "=" * ((4 - len(encoded_key) % 4) % 4)
-        )
+        public_der = base64.urlsafe_b64decode(encoded_key + "=" * ((4 - len(encoded_key) % 4) % 4))
         public_key = serialization.load_der_public_key(public_der)
         aes_key = AESGCM.generate_key(bit_length=256)
         iv = b"0123456789ab"
@@ -73,9 +71,7 @@ def test_secret_bundle_is_hybrid_encrypted_and_installed_without_plaintext_trans
         )
 
     with patch.object(secret_sync.requests, "post", side_effect=post):
-        bundle = secret_sync.request_secret_bundle(
-            "https://example.test", "migration-token"
-        )
+        bundle = secret_sync.request_secret_bundle("https://example.test", "migration-token")
 
     assert bundle == expected
     assert secret_sync.install_secret_bundle(tmp_path, bundle) == 6

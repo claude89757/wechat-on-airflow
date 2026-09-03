@@ -28,9 +28,7 @@ def _database_url() -> str:
 
         return str(conf.get("database", "sql_alchemy_conn"))
     except Exception as exc:
-        raise RuntimeError(
-            "ZACKS_DATABASE_URL is required outside the Airflow runtime"
-        ) from exc
+        raise RuntimeError("ZACKS_DATABASE_URL is required outside the Airflow runtime") from exc
 
 
 def get_engine() -> Engine:
@@ -59,7 +57,9 @@ def ensure_schema(engine: Engine | None = None, *, force: bool = False) -> None:
         if _SCHEMA_READY and not force:
             return
         with target.begin() as connection:
-            connection.execute(text("SELECT pg_advisory_xact_lock(hashtext('zacks-host-schema-v1'))"))
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext('zacks-host-schema-v1'))")
+            )
             for statement in (*SCHEMA_STATEMENTS, *SCHEMA_EXTENSION_STATEMENTS):
                 connection.execute(text(statement))
             connection.execute(
@@ -118,9 +118,10 @@ def ping(engine: Engine | None = None) -> dict[str, Any]:
     target = engine or get_engine()
     ensure_schema(target)
     with target.connect() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT
                     current_database() AS database_name,
                     current_setting('server_version_num')::integer AS server_version_num,
@@ -128,9 +129,12 @@ def ping(engine: Engine | None = None) -> dict[str, Any]:
                         SELECT 1 FROM zacks.schema_versions WHERE version = :version
                     ) AS schema_ready
                 """
-            ),
-            {"version": SCHEMA_VERSION},
-        ).mappings().one()
+                ),
+                {"version": SCHEMA_VERSION},
+            )
+            .mappings()
+            .one()
+        )
     return dict(row)
 
 
