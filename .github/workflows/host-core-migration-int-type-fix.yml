@@ -30,30 +30,32 @@ jobs:
 
           path = Path("src/wechat_airflow/host_core/migration.py")
           source = path.read_text(encoding="utf-8")
-          old = """def _integer(value: object, default: int) -> int:
-    if value is None or value == "":
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-"""
-          new = """def _integer(value: object, default: int) -> int:
-    if value is None or value == "":
-        return default
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return default
-    return default
-"""
+          old = "\n".join([
+              "def _integer(value: object, default: int) -> int:",
+              "    if value is None or value == \"\":",
+              "        return default",
+              "    try:",
+              "        return int(value)",
+              "    except (TypeError, ValueError):",
+              "        return default",
+          ])
+          new = "\n".join([
+              "def _integer(value: object, default: int) -> int:",
+              "    if value is None or value == \"\":",
+              "        return default",
+              "    if isinstance(value, bool):",
+              "        return int(value)",
+              "    if isinstance(value, int):",
+              "        return value",
+              "    if isinstance(value, float):",
+              "        return int(value)",
+              "    if isinstance(value, str):",
+              "        try:",
+              "            return int(value)",
+              "        except ValueError:",
+              "            return default",
+              "    return default",
+          ])
           if old not in source:
               raise SystemExit("expected migration integer helper was not found")
           path.write_text(source.replace(old, new, 1), encoding="utf-8")
