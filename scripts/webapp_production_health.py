@@ -75,7 +75,11 @@ def deployment_is_propagating(payload: dict[str, Any]) -> bool:
 
 
 def inspect_production(
-    *, base_url: str, expected_commit: str, expected_venue_count: int
+    *,
+    base_url: str,
+    expected_commit: str,
+    expected_venue_count: int,
+    stateless_edge: bool = False,
 ) -> dict[str, Any]:
     health_status, health = request_json(f"{base_url}/api/healthz")
     bootstrap_status, bootstrap = request_json(f"{base_url}/api/bootstrap")
@@ -84,25 +88,53 @@ def inspect_production(
         method="POST",
         payload={},
     )
+    edge_status = 0
+    edge: Any = None
+    if stateless_edge:
+        edge_status, edge = request_json(f"{base_url}/api/edge-healthz")
 
     venues = bootstrap.get("venues", []) if isinstance(bootstrap, dict) else []
+    identity_payload = edge if stateless_edge else health
     checks = {
         "health_http_ok": health_status == 200,
         "service_healthy": isinstance(health, dict) and health.get("ok") is True,
         "priority_weather_bypass_enabled": isinstance(health, dict)
         and isinstance(health.get("capabilities"), dict)
         and health["capabilities"].get("priorityWeatherBypass") is True,
-        "exact_deployment_commit": isinstance(health, dict)
-        and health.get("deploymentCommit") == expected_commit,
+        "exact_deployment_commit": isinstance(identity_payload, dict)
+        and identity_payload.get("deploymentCommit") == expected_commit,
         "bootstrap_http_ok": bootstrap_status == 200,
         "expected_venue_count": isinstance(venues, list) and len(venues) == expected_venue_count,
         "bootstrap_contains_no_email": not contains_email(bootstrap),
         "observation_requires_authentication": observation_status == 401,
     }
+    if stateless_edge:
+        checks.update(
+            {
+                "edge_health_http_ok": edge_status == 200,
+                "edge_service_healthy": isinstance(edge, dict) and edge.get("ok") is True,
+                "stateless_edge_runtime": isinstance(edge, dict)
+                and edge.get("runtime") == "cloudflare-stateless-edge",
+                "edge_has_no_durable_business_state": isinstance(edge, dict)
+                and edge.get("durableBusinessState") == "none",
+                "host_runtime_airflow": isinstance(health, dict)
+                and health.get("runtime") == "airflow-host",
+                "edge_cutover_enabled": isinstance(edge, dict) and edge.get("cutover") is True,
+                "edge_not_quiesced": isinstance(edge, dict) and edge.get("quiesced") is False,
+                "migration_endpoint_disabled": isinstance(edge, dict)
+                and edge.get("migrationEndpoint") is False,
+            }
+        )
     return {
         "ok": all(checks.values()),
         "expected_commit": expected_commit,
-        "deployed_commit": health.get("deploymentCommit") if isinstance(health, dict) else None,
+        "deployed_commit": (
+            identity_payload.get("deploymentCommit")
+            if isinstance(identity_payload, dict)
+            else None
+        ),
+        "host_commit": health.get("deploymentCommit") if isinstance(health, dict) else None,
+        "edge_commit": edge.get("deploymentCommit") if isinstance(edge, dict) else None,
         "venue_count": len(venues) if isinstance(venues, list) else None,
         "checks": checks,
     }
@@ -115,6 +147,7 @@ def wait_for_production(
     expected_venue_count: int,
     propagation_timeout_seconds: float,
     retry_interval_seconds: float,
+    stateless_edge: bool = False,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + propagation_timeout_seconds
     while True:
@@ -122,6 +155,7 @@ def wait_for_production(
             base_url=base_url,
             expected_commit=expected_commit,
             expected_venue_count=expected_venue_count,
+            stateless_edge=stateless_edge,
         )
         if payload["ok"] or not deployment_is_propagating(payload):
             return payload
@@ -154,6 +188,7 @@ def main() -> None:
     target = runtime_target["managed_services"]["webapp"]
     base_url = str(target["public_base_url"]).rstrip("/")
     expected_venue_count = int(target["expected_venue_count"])
+    stateless_edge = target.get("runtime") == "cloudflare_worker_stateless_edge"
 
     payload = wait_for_production(
         base_url=base_url,
@@ -161,6 +196,7 @@ def main() -> None:
         expected_venue_count=expected_venue_count,
         propagation_timeout_seconds=args.propagation_timeout_seconds,
         retry_interval_seconds=args.retry_interval_seconds,
+        stateless_edge=stateless_edge,
     )
 
     emit(payload, args.format)
