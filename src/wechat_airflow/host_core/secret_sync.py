@@ -22,61 +22,57 @@ SECRET_FILENAMES = {
 }
 
 
-def _b64url_encode(value: bytes) -> str:
+def _encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode().rstrip("=")
 
 
-def _b64url_decode(value: str) -> bytes:
+def _decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * ((4 - len(value) % 4) % 4))
 
 
 def _migration_token() -> str:
-    configured = os.environ.get("ZACKS_MIGRATION_TOKEN", "").strip()
-    if configured:
-        return configured
-    try:
-        from airflow.sdk import Variable
-
-        return str(Variable.get("WEBAPP_OBSERVATION_API_TOKEN")).strip()
-    except Exception as exc:
-        raise RuntimeError("migration token is unavailable") from exc
+    token = os.environ.get("AIRFLOW_PUSH_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("AIRFLOW_PUSH_TOKEN is required for secret migration")
+    return token
 
 
 def request_secret_bundle(base_url: str, token: str) -> dict[str, str]:
-    private_key = rsa.generate_private_key(public_exponent=65_537, key_size=3_072)
-    public_spki = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+    public_der = private_key.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     response = requests.post(
         f"{base_url.rstrip('/')}/api/internal/host-secret-envelope",
+        json={"publicKeySpki": _encode(public_der)},
         headers={"Authorization": f"Bearer {token}"},
-        json={"publicKeySpki": _b64url_encode(public_spki)},
         timeout=30,
     )
     response.raise_for_status()
     envelope = response.json()
-    if not isinstance(envelope, dict) or envelope.get("algorithm") != "RSA-OAEP-256+A256GCM":
-        raise RuntimeError("secret envelope is invalid")
+    if not isinstance(envelope, dict):
+        raise RuntimeError("secret migration returned an invalid envelope")
+    if envelope.get("algorithm") != "RSA-OAEP-256+A256GCM":
+        raise RuntimeError("secret migration returned an unsupported algorithm")
     try:
-        aes_key = private_key.decrypt(
-            _b64url_decode(str(envelope["encryptedKey"])),
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
-        plaintext = AESGCM(aes_key).decrypt(
-            _b64url_decode(str(envelope["iv"])),
-            _b64url_decode(str(envelope["ciphertext"])),
-            None,
-        )
-        payload = json.loads(plaintext)
-    except Exception as exc:
-        raise RuntimeError("secret envelope could not be decrypted") from exc
+        encrypted_key = _decode(str(envelope["encryptedKey"]))
+        iv = _decode(str(envelope["iv"]))
+        ciphertext = _decode(str(envelope["ciphertext"]))
+    except (KeyError, ValueError) as exc:
+        raise RuntimeError("secret migration returned an incomplete envelope") from exc
+    aes_key = private_key.decrypt(
+        encrypted_key,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        ),
+    )
+    plaintext = AESGCM(aes_key).decrypt(iv, ciphertext, None)
+    payload = json.loads(plaintext)
     if not isinstance(payload, dict):
-        raise RuntimeError("secret bundle is invalid")
+        raise RuntimeError("secret migration returned an invalid bundle")
     result: dict[str, str] = {}
     for key in SECRET_FILENAMES:
         value = payload.get(key)
@@ -100,7 +96,8 @@ def _atomic_secret(path: Path, value: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temporary, 0o640)
-        os.chown(temporary, 0, 0)
+        if os.geteuid() == 0:
+            os.chown(temporary, 0, 0)
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
