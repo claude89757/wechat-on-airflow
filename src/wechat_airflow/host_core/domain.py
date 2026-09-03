@@ -305,10 +305,12 @@ def weekday_mask(weekdays: Iterable[int]) -> int:
 
 
 def weekdays_from_mask(value: object) -> list[int]:
-    try:
-        mask = int(value)
-    except (TypeError, ValueError):
-        mask = ALL_WEEKDAY_MASK
+    mask = ALL_WEEKDAY_MASK
+    if isinstance(value, (int, str)) and not isinstance(value, bool):
+        try:
+            mask = int(value)
+        except ValueError:
+            mask = ALL_WEEKDAY_MASK
     if mask < 1 or mask > ALL_WEEKDAY_MASK:
         mask = ALL_WEEKDAY_MASK
     return [weekday for weekday in range(1, 8) if mask & (1 << (weekday - 1))]
