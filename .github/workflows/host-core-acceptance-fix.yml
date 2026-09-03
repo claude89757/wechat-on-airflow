@@ -1,0 +1,157 @@
+name: One-time host-core business acceptance contract
+
+on:
+  push:
+    branches:
+      - feat/airflow-host-core-v0.7.0-final3
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-host-core-business-acceptance
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.repository_owner == 'claude89757'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/airflow-host-core-v0.7.0-final3
+          fetch-depth: 0
+
+      - name: Add delayed natural-cycle acceptance
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow_path = Path('.github/workflows/production-host-core.yml')
+          workflow = workflow_path.read_text(encoding='utf-8')
+
+          if '          - acceptance\n' not in workflow:
+              old_options = '          - health\n          - rollback\n'
+              new_options = '          - health\n          - acceptance\n          - rollback\n'
+              if old_options not in workflow:
+                  raise SystemExit('expected host-core dispatch options were not found')
+              workflow = workflow.replace(old_options, new_options, 1)
+
+          old_regex = '^(preflight|full-cutover|health|rollback)$'
+          new_regex = '^(preflight|full-cutover|health|acceptance|rollback)$'
+          if old_regex in workflow:
+              workflow = workflow.replace(old_regex, new_regex, 1)
+          elif new_regex not in workflow:
+              raise SystemExit('expected host-core operation validation was not found')
+
+          if '            acceptance)\n' not in workflow:
+              old_case = '\n'.join([
+                  '            health)',
+                  '              remote health --include-public',
+                  '              verify_public_edge',
+                  '              ;;',
+                  '            rollback)',
+              ])
+              new_case = '\n'.join([
+                  '            health)',
+                  '              remote health --include-public',
+                  '              verify_public_edge',
+                  '              ;;',
+                  '            acceptance)',
+                  '              remote health --include-public',
+                  '              verify_public_edge',
+                  '              remote shadow-evidence',
+                  '              ;;',
+                  '            rollback)',
+              ])
+              if old_case not in workflow:
+                  raise SystemExit('expected host-core health case was not found')
+              workflow = workflow.replace(old_case, new_case, 1)
+
+          workflow_path.write_text(workflow, encoding='utf-8')
+
+          release_path = Path('.github/workflows/production-host-core-v070.yml')
+          release = release_path.read_text(encoding='utf-8')
+          if '  natural_cycles:\n' not in release:
+              old_acceptance = '\n'.join([
+                  '  acceptance:',
+                  '    needs: ship',
+                  '    uses: ./.github/workflows/production-host-core.yml',
+                  '    with:',
+                  '      operation: health',
+                  '      target_commit: ${{ github.sha }}',
+                  '    secrets: inherit',
+              ])
+              new_acceptance = '\n'.join([
+                  '  natural_cycles:',
+                  '    needs: ship',
+                  '    runs-on: ubuntu-latest',
+                  '    steps:',
+                  '      - name: Observe three natural one-minute cycles',
+                  '        run: sleep 180',
+                  '',
+                  '  acceptance:',
+                  '    needs: natural_cycles',
+                  '    uses: ./.github/workflows/production-host-core.yml',
+                  '    with:',
+                  '      operation: acceptance',
+                  '      target_commit: ${{ github.sha }}',
+                  '    secrets: inherit',
+              ])
+              if old_acceptance not in release:
+                  raise SystemExit('expected 0.7.0 acceptance job was not found')
+              release = release.replace(old_acceptance, new_acceptance, 1)
+          release_path.write_text(release, encoding='utf-8')
+
+          test_path = Path('tests/host_core_business_acceptance_test.py')
+          test_path.write_text(
+              '\n'.join([
+                  'from __future__ import annotations',
+                  '',
+                  'from pathlib import Path',
+                  '',
+                  'ROOT = Path(__file__).resolve().parents[1]',
+                  '',
+                  '',
+                  'def test_host_core_acceptance_checks_natural_business_flow() -> None:',
+                  '    workflow = (',
+                  '        ROOT / ".github/workflows/production-host-core.yml"',
+                  '    ).read_text(encoding="utf-8")',
+                  '    acceptance = workflow.split("            acceptance)", 1)[1].split(',
+                  '        "            rollback)", 1',
+                  '    )[0]',
+                  '',
+                  '    assert "acceptance" in workflow',
+                  '    assert "remote health --include-public" in acceptance',
+                  '    assert "verify_public_edge" in acceptance',
+                  '    assert "remote shadow-evidence" in acceptance',
+                  '',
+                  '',
+                  'def test_v070_waits_for_three_natural_cycles_before_acceptance() -> None:',
+                  '    workflow = (',
+                  '        ROOT / ".github/workflows/production-host-core-v070.yml"',
+                  '    ).read_text(encoding="utf-8")',
+                  '',
+                  '    assert "Observe three natural one-minute cycles" in workflow',
+                  '    assert "run: sleep 180" in workflow',
+                  '    assert "needs: natural_cycles" in workflow',
+                  '    assert "operation: acceptance" in workflow',
+                  '',
+              ]),
+              encoding='utf-8',
+          )
+          PY
+          git rm .github/workflows/host-core-acceptance-fix.yml
+
+      - name: Commit acceptance contract
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/production-host-core.yml \
+            .github/workflows/production-host-core-v070.yml \
+            tests/host_core_business_acceptance_test.py
+          git commit -m "test(release): require natural-cycle business acceptance"
+          git push origin HEAD:feat/airflow-host-core-v0.7.0-final3
