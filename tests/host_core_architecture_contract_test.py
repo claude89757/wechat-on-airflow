@@ -56,6 +56,26 @@ def test_postgresql_host_core_is_the_durable_business_owner() -> None:
     )
 
 
+def test_host_core_provider_secrets_are_not_airflow_runtime_secrets() -> None:
+    runtime = yaml.safe_load(read("config/runtime-target.yaml"))["target"]
+
+    assert set(runtime["runtime_secrets"]) == {
+        "AIRFLOW_FERNET_KEY",
+        "AIRFLOW_API_SECRET_KEY",
+        "AIRFLOW_JWT_SECRET",
+        "AIRFLOW_DATABASE_PASSWORD",
+        "AIRFLOW_PASSWORD",
+    }
+    assert runtime["host_core_secret_files"] == {
+        "TENCENT_SECRET_ID": "tencent_secret_id",
+        "TENCENT_SECRET_KEY": "tencent_secret_key",
+        "TENCENT_REGION": "tencent_region",
+        "EMAIL_FROM_ADDRESS": "email_from_address",
+        "EMAIL_REPLY_TO": "email_reply_to",
+        "EMAIL_TEMPLATE_ID": "email_template_id",
+    }
+
+
 def test_repository_invariants_no_longer_assign_delivery_to_d1() -> None:
     agents = read("AGENTS.md")
     architecture = read("ARCHITECTURE.md")
