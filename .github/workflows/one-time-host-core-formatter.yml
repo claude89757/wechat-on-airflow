@@ -1,10 +1,13 @@
 name: One-Time Host Core Formatter
 
 on:
-  workflow_dispatch:
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
+  pull-requests: read
+  issues: read
 
 concurrency:
   group: one-time-host-core-formatter
@@ -12,7 +15,11 @@ concurrency:
 
 jobs:
   format:
-    if: github.actor == github.repository_owner
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.issue.number == 188 &&
+      github.actor == github.repository_owner &&
+      github.event.comment.body == '/format-host-core-188'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
