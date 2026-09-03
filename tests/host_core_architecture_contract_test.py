@@ -19,6 +19,7 @@ def test_release_version_is_consistent() -> None:
     assert 'version = "0.7.0"' in project
     assert '__version__ = "0.7.0"' in package
     assert "## [0.7.0] - 2026-09-04" in changelog
+    assert not (ROOT / "scripts" / "normalize_host_core_types.py").exists()
 
 
 def test_cloudflare_is_stateless_after_cutover() -> None:
