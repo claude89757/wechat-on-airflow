@@ -25,7 +25,7 @@ def test_webapp_release_tolerates_only_the_known_d1_quota_error() -> None:
 def test_stateless_edge_release_never_reactivates_d1_business_work() -> None:
     workflow = (ROOT / ".github/workflows/production-webapp.yml").read_text(encoding="utf-8")
 
-    assert 'stateless_edge=true' in workflow
+    assert "stateless_edge=true" in workflow
     assert "require_existing_host_cutover" in workflow
     assert "The initial stateless-edge cutover must use Production Host Core" in workflow
     assert ".wrangler-stateless-edge-runtime.json" in workflow
