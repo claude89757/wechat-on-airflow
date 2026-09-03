@@ -6,7 +6,6 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
