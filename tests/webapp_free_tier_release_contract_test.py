@@ -22,6 +22,20 @@ def test_webapp_release_tolerates_only_the_known_d1_quota_error() -> None:
     )
 
 
+def test_stateless_edge_release_never_reactivates_d1_business_work() -> None:
+    workflow = (ROOT / ".github/workflows/production-webapp.yml").read_text(encoding="utf-8")
+
+    assert 'stateless_edge=true' in workflow
+    assert "require_existing_host_cutover" in workflow
+    assert "The initial stateless-edge cutover must use Production Host Core" in workflow
+    assert ".wrangler-stateless-edge-runtime.json" in workflow
+    assert 'HOST_CORE_CUTOVER: "true"' in workflow
+    assert 'HOST_CORE_QUIESCE: "false"' in workflow
+    assert 'HOST_CORE_MIGRATION_ENABLED: "false"' in workflow
+    assert "migration_state=host_core_edge" in workflow
+    assert "Persistence: PostgreSQL on the Airflow host" in workflow
+
+
 def test_deployed_worker_has_an_idempotent_quota_reset_self_heal() -> None:
     entry = (ROOT / "webapp/cloudflare/subscription-gated-entry.ts").read_text(encoding="utf-8")
     schema = (ROOT / "webapp/cloudflare/free-tier-schema.ts").read_text(encoding="utf-8")
