@@ -1,6 +1,16 @@
 name: Production Host Core
 
 on:
+  workflow_call:
+    inputs:
+      operation:
+        description: Host-core lifecycle operation
+        required: true
+        type: string
+      target_commit:
+        description: Exact full commit SHA
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       operation:
@@ -59,6 +69,7 @@ jobs:
             operation="$INPUT_OPERATION"
             target_commit="${INPUT_TARGET:-$(git rev-parse origin/main)}"
           fi
+          [[ "$operation" =~ ^(preflight|full-cutover|health|rollback)$ ]]
           [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
           [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
           echo "should_run=true" >> "$GITHUB_OUTPUT"
