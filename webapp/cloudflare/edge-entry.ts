@@ -24,6 +24,7 @@ type EdgeEnv = Env & {
 };
 
 const DEFAULT_ORIGIN = "https://airflow.claude89757.cc/zacks-api";
+const EDGE_HEALTH_PATH = "/api/edge-healthz";
 const MIGRATION_EXPORT_PATH = "/api/internal/host-migration-export";
 const SECRET_ENVELOPE_PATH = "/api/internal/host-secret-envelope";
 const MIGRATION_PATHS = new Set([
@@ -52,6 +53,23 @@ export function hostCoreOrigin(value: unknown): URL {
   const url = new URL(candidate);
   if (url.protocol !== "https:") throw new Error("HOST_CORE_ORIGIN_URL must use HTTPS");
   return url;
+}
+
+export function edgeDeploymentHealth(env: EdgeEnv): Record<string, unknown> {
+  return {
+    ok: true,
+    service: "zacks-tennis-edge",
+    runtime: "cloudflare-stateless-edge",
+    deploymentCommit:
+      typeof env.DEPLOYMENT_COMMIT === "string"
+        && /^[0-9a-f]{40}$/i.test(env.DEPLOYMENT_COMMIT)
+        ? env.DEPLOYMENT_COMMIT
+        : "unknown",
+    cutover: hostCoreCutoverEnabled(env.HOST_CORE_CUTOVER),
+    quiesced: hostCoreQuiesceEnabled(env.HOST_CORE_QUIESCE),
+    migrationEndpoint: hostCoreMigrationEnabled(env.HOST_CORE_MIGRATION_ENABLED),
+    durableBusinessState: "none",
+  };
 }
 
 function securityHeaders(headers: Headers): Headers {
@@ -154,6 +172,15 @@ export default {
     context: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(request.url);
+    if (["GET", "HEAD"].includes(request.method) && url.pathname === EDGE_HEALTH_PATH) {
+      return Response.json(edgeDeploymentHealth(env), {
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Type": "application/json; charset=utf-8",
+        },
+      });
+    }
+
     if (MIGRATION_PATHS.has(url.pathname)) {
       if (!hostCoreMigrationEnabled(env.HOST_CORE_MIGRATION_ENABLED)) {
         return Response.json({ error: "迁移端点未启用" }, { status: 404 });
