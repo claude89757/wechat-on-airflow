@@ -98,12 +98,8 @@ def test_cutover_keeps_one_email_owner_and_preserves_d1() -> None:
     assert "remote cutover" in workflow
     assert "remote pause-host-delivery" in workflow
     assert "deploy_edge true false false" in workflow
-    assert workflow.index("remote prepare-cutover") < workflow.index(
-        "deploy_edge true false false"
-    )
-    assert workflow.index("deploy_edge true false false") < workflow.index(
-        "remote cutover"
-    )
+    assert workflow.index("remote prepare-cutover") < workflow.index("deploy_edge true false false")
+    assert workflow.index("deploy_edge true false false") < workflow.index("remote cutover")
     assert ".wrangler-host-core-runtime.json" in workflow
     assert "--var " not in workflow
     assert "remote rollback" in workflow
