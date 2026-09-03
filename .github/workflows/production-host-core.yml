@@ -212,7 +212,11 @@ jobs:
               https://zacks.claude89757.cc/api/healthz | jq -r '.runtime // "unknown"' || true)"
             current_commit="$(curl --silent --max-time 10 \
               https://zacks.claude89757.cc/api/healthz | jq -r '.deploymentCommit // "unknown"' || true)"
-            if [[ "$current_runtime" == "airflow-host" && "$current_commit" == "$TARGET_COMMIT" ]]; then
+            current_owner="$(curl --silent --max-time 10 \
+              https://zacks.claude89757.cc/api/healthz | jq -r '.deliveryOwner // "unknown"' || true)"
+            if [[ "$current_runtime" == "airflow-host" \
+              && "$current_commit" == "$TARGET_COMMIT" \
+              && "$current_owner" == "airflow_host" ]]; then
               remote health --include-public
               verify_public_edge
               exit 0
@@ -228,9 +232,20 @@ jobs:
               verify_public_edge
               ;;
             rollback)
-              remote rollback
-              deploy_edge false false false
-              remote health
+              current_runtime="$(curl --silent --max-time 10 \
+                https://zacks.claude89757.cc/api/healthz | jq -r '.runtime // "unknown"' || true)"
+              if [[ "$current_runtime" == "airflow-host" ]]; then
+                # Once host delivery may have occurred, D1 is no longer a safe
+                # automatic sender rollback target. Pause the host sender while
+                # preserving PostgreSQL state and the host-routed API.
+                remote pause-host-delivery
+                verify_public_edge
+              else
+                remote rollback
+                deploy_edge false false false
+                curl --fail --silent --show-error --max-time 15 \
+                  https://zacks.claude89757.cc/api/healthz >/dev/null
+              fi
               ;;
             full-cutover)
               remote preflight
@@ -246,10 +261,15 @@ jobs:
               remote shadow-evidence
 
               rollback_required=true
+              host_pause_required=false
               recover() {
                 status=$?
-                if [[ "$rollback_required" == "true" ]]; then
-                  set +e
+                set +e
+                if [[ "$host_pause_required" == "true" ]]; then
+                  # Never reactivate a stale D1 sender after host delivery may
+                  # have begun. Fail closed and keep all durable work in Postgres.
+                  remote pause-host-delivery
+                elif [[ "$rollback_required" == "true" ]]; then
                   remote rollback
                   deploy_edge false false false
                 fi
@@ -260,11 +280,19 @@ jobs:
               deploy_edge false true true
               sleep 60
               remote migrate --pass-name final
-              remote cutover
+              remote prepare-cutover
+
+              # Route and verify the public API while the local notification
+              # worker is stopped. No email or WeChat can be emitted in this phase.
               deploy_edge true false false
+              verify_public_edge
+
+              rollback_required=false
+              host_pause_required=true
+              remote cutover
               remote health --include-public
               verify_public_edge
-              rollback_required=false
+              host_pause_required=false
               trap - ERR
               ;;
             *)
