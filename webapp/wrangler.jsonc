@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "zacks-tennis-alerts",
-  "main": "./cloudflare/subscription-gated-entry.ts",
+  "main": "./cloudflare/resilient-entry.ts",
   "compatibility_date": "2026-07-28",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
@@ -16,6 +16,20 @@
       "binding": "DB",
       "database_name": "zacks-tennis-alerts",
       "database_id": "389b6709-c261-4039-8ee2-b3aac9eb75f3"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "VENUE_STATUS_STORE",
+        "class_name": "VenueStatusObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "venue-status-v1",
+      "new_sqlite_classes": ["VenueStatusObject"]
     }
   ],
   "routes": [
