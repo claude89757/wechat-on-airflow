@@ -18,10 +18,12 @@ concurrency:
 jobs:
   route:
     if: >-
-      github.event.issue.number == 39 &&
       github.event.comment.user.login == github.repository_owner &&
-      (startsWith(github.event.comment.body, '/release ') ||
-       startsWith(github.event.comment.body, '/ops '))
+      ((github.event.issue.number == 39 &&
+        (startsWith(github.event.comment.body, '/release ') ||
+         startsWith(github.event.comment.body, '/ops '))) ||
+       (github.event.issue.number == 188 &&
+        startsWith(github.event.comment.body, '/format-host-core ')))
     runs-on: ubuntu-latest
     outputs:
       action: ${{ steps.command.outputs.action }}
@@ -116,6 +118,11 @@ jobs:
               outputs["action"] = "wechat_contact_probe"
               outputs["target_commit"] = tokens[2].lower()
               outputs["target_selector"] = f"direct:{tokens[3]}"
+          elif tokens[:1] == ["/format-host-core"]:
+              if len(tokens) != 2 or not sha.fullmatch(tokens[1]):
+                  fail("host-core formatter requires the exact 40-character PR head SHA")
+              outputs["action"] = "format_host_core"
+              outputs["target_commit"] = tokens[1].lower()
           else:
               fail("unsupported production command")
 
@@ -141,6 +148,7 @@ jobs:
           - \`/release tag <version> <40-char-sha>\`
           - \`/ops webapp-observation-diagnose <40-char-sha>\`
           - \`/ops wechat-contact-probe <40-char-sha> <simple-contact-name>\`
+          - on PR #188 only: \`/format-host-core <40-char-pr-head-sha>\`
 
           Run: $RUN_URL
           EOF
@@ -200,6 +208,45 @@ jobs:
       probe_target_membership: ${{ needs.route.outputs.target_selector }}
     secrets: inherit
 
+  format_host_core:
+    if: needs.route.outputs.action == 'format_host_core'
+    needs: route
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: feat/airflow-host-core-v0.7.0-final3
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Require the exact requested PR head
+        env:
+          TARGET_COMMIT: ${{ needs.route.outputs.target_commit }}
+        run: test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+      - name: Apply the repository's pinned Ruff formatter
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check ruff==0.12.11
+          ruff check --fix --unsafe-fixes .
+          ruff format .
+          ruff check .
+          ruff format --check .
+          git diff --check
+      - name: Commit only deterministic formatting changes
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No formatting changes were required."
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          git commit -m "style(host-core): apply repository Ruff formatting"
+          git push origin HEAD:feat/airflow-host-core-v0.7.0-final3
+
   report:
     if: always() && needs.route.result == 'success'
     needs:
@@ -209,6 +256,7 @@ jobs:
       - tag
       - webapp_observation_diagnose
       - wechat_contact_probe
+      - format_host_core
     runs-on: ubuntu-latest
     steps:
       - name: Publish one authoritative result
@@ -233,6 +281,7 @@ jobs:
           TAG_RESULT: ${{ needs.tag.result }}
           WEB_DIAG_RESULT: ${{ needs.webapp_observation_diagnose.result }}
           WECHAT_PROBE_RESULT: ${{ needs.wechat_contact_probe.result }}
+          FORMAT_RESULT: ${{ needs.format_host_core.result }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -272,6 +321,14 @@ jobs:
             wechat_contact_probe)
               result="$WECHAT_PROBE_RESULT"
               label="one-contact WeChat probe"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            format_host_core)
+              result="$FORMAT_RESULT"
+              label="host-core deterministic formatting"
               resolved="n/a"
               webapp=""
               airflow=""
