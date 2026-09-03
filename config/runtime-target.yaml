@@ -19,21 +19,31 @@ target:
     - airflow-dag-processor
     - airflow-worker
     - airflow-triggerer
+    - zacks-api
+    - zacks-notification-worker
     - postgresql
     - redis
   database:
     engine: PostgreSQL
     major_version: 17
-    deployment_strategy: fresh_database
+    deployment_strategy: fresh_airflow_database_with_shared_server
     preserve_airflow2_database: true
     minimum_free_bytes: 8000000000
+    airflow_database: airflow
+    business_schema: zacks
+    business_store_owner: airflow_host
+    business_migrations: wechat_airflow.host_core.schema
+    metadata_cleanup_must_exclude_business_schema: true
     volumes:
       postgresql_env: AIRFLOW_POSTGRESQL_VOLUME
       redis_env: AIRFLOW_REDIS_VOLUME
       logs_env: AIRFLOW_LOGS_VOLUME
   broker:
     engine: Redis
+    database: 0
     visibility_timeout_seconds: 86400
+    durable_business_role: none
+    loss_policy: postgres_polling_and_leases_remain_authoritative
   local_secret_directory: .local/secrets
   local_secret_directory_mode: "0700"
   local_secret_file_mode: "0644"
@@ -46,24 +56,72 @@ target:
     AIRFLOW_JWT_SECRET: airflow_jwt_secret
     AIRFLOW_DATABASE_PASSWORD: airflow_database_password
     AIRFLOW_PASSWORD: airflow_admin_password
+    TENCENT_SECRET_ID: tencent_secret_id
+    TENCENT_SECRET_KEY: tencent_secret_key
+    TENCENT_REGION: tencent_region
+    EMAIL_FROM_ADDRESS: email_from_address
+    EMAIL_REPLY_TO: email_reply_to
+    EMAIL_TEMPLATE_ID: email_template_id
+
 images:
   postgresql: bitnami/postgresql@sha256:42a8200d35971f931b869ef5252d996e137c6beb4b8f1b6d2181dc7d1b6f62e0
   redis: bitnami/redis@sha256:1c41e7028ac48d7a9d79d855a432eef368aa440f37c8073ae1651879b02c72f4
   wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
+  host_core: same_exact_airflow_application_image
+
 managed_services:
   webapp:
-    runtime: cloudflare_worker
+    runtime: cloudflare_worker_stateless_edge
     public_hostname: zacks.claude89757.cc
     public_base_url: https://zacks.claude89757.cc
     health_path: /api/healthz
     expected_venue_count: 26
     deployment_owner: github_actions
+    static_assets: webapp/dist/client
+    api_proxy:
+      public_path: /api/*
+      origin_base_url: https://airflow.claude89757.cc/zacks-api
+      origin_path: /zacks-api/api/*
+      authentication_header: X-Zacks-Edge-Token
+    business_state: none_after_cutover
+    scheduled_notification_work: disabled_after_cutover
+    d1:
+      mode: read_only_rollback_window
+      deletion_in_cutover: false
+      migration_endpoint_enabled_after_cutover: false
+  host_core_api:
+    runtime: docker_compose
+    service: zacks-api
+    module: wechat_airflow.host_core.api
+    listen: 0.0.0.0:8090
+    host_binding: 127.0.0.1:8090
+    public_origin_path: /zacks-api/api/*
+    health_path: /zacks-api/api/healthz
+    durable_store: postgresql:zacks
+    deployment_owner: airflow_host
+  host_core_worker:
+    runtime: docker_compose
+    service: zacks-notification-worker
+    module: wechat_airflow.host_core.worker
+    durable_queue: postgresql:zacks.notification_outbox
+    lease_strategy: for_update_skip_locked
+    redis_required_for_correctness: false
+    deployment_owner: airflow_host
+  host_core_secret_sync:
+    runtime: docker_compose_one_shot
+    service: zacks-secret-sync
+    module: wechat_airflow.host_core.secret_sync
+    execution_window: initial_cutover_only
+    transport: rsa_oaep_256_plus_aes_gcm
+    plaintext_visible_to_github: false
   cloudflare_tunnel:
     runtime: systemd
     service_unit: cloudflared.service
     public_hostname: airflow.claude89757.cc
     public_base_url: https://airflow.claude89757.cc
-    origin_base_url: http://127.0.0.1:8080
+    airflow_origin_base_url: http://127.0.0.1:8080
+    host_core_origin_base_url: http://127.0.0.1:8090
+    host_core_path: /zacks-api/*
     health_path: /api/v2/monitor/health
     deployment_owner: airflow_host
   wechat_sender:
@@ -80,6 +138,7 @@ managed_services:
       WECHAT_ALLOWED_DEVICE_NAME: wechat_allowed_device_name
       WECHAT_APPIUM_URL: wechat_appium_url
     workers_per_device: 1
+
 production_operations:
   control_plane: github_actions
   workstation_authentication: github_only
@@ -87,7 +146,25 @@ production_operations:
   airflow_workflow: production-airflow.yml
   sender_workflow: production-wechat-sender.yml
   webapp_workflow: production-webapp.yml
+  host_core_workflow: production-host-core.yml
   release_workflow: production-release.yml
+  host_core_operations:
+    - preflight
+    - full-cutover
+    - health
+    - rollback
+  host_core_cutover_sequence:
+    - deploy_stateless_edge_with_migration_compatibility
+    - deploy_shadow_api_and_worker
+    - securely_transfer_provider_secrets
+    - import_initial_d1_snapshot
+    - enable_natural_observation_dual_write
+    - verify_shadow_evidence
+    - quiesce_legacy_business_writes
+    - import_final_d1_delta
+    - switch_exactly_one_delivery_owner
+    - deploy_stateless_edge
+    - verify_local_and_public_exact_commit
   airflow_operations:
     - health
     - deploy_preflight
@@ -152,6 +229,7 @@ production_operations:
     - PI_DEVICE_SSH_HOST_KEY_SHA256
     - CLOUDFLARE_ACCOUNT_ID
     - CLOUDFLARE_API_TOKEN
+
 maintenance:
   airflow_metadata_cleanup:
     command: scripts/airflow_db_cleanup.py
@@ -160,6 +238,15 @@ maintenance:
     retention_days: 180
     apply_requires_human_approval: true
     scheduled: false
+    excluded_business_schema: zacks
+  host_core_business_retention:
+    execution_owner: host_core_worker
+    mode: bounded_application_policy
+    destructive_cleanup_in_initial_cutover: false
+  d1_rollback_window:
+    mode: read_only
+    deletion: separately_approved_high_risk_operation
+
 verification:
   authoritative_ci_check: verify
   release_identity: exact_workflow_target_commit
@@ -168,5 +255,14 @@ verification:
     - make test-dags
     - make deploy-check
     - make rollback-check
+  host_core_required_evidence:
+    - exact_commit_local_health
+    - exact_commit_public_health
+    - postgresql_schema_ready
+    - one_delivery_owner
+    - initial_and_final_migration_checkpoints
+    - natural_venue_observations_at_least_20_of_26
+    - no_synthetic_email_or_wechat
+    - rollback_ready_d1_preserved
   production_cycles: 3
   notification_failure_grace_minutes: 30
