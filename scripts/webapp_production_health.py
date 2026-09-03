@@ -129,9 +129,7 @@ def inspect_production(
         "ok": all(checks.values()),
         "expected_commit": expected_commit,
         "deployed_commit": (
-            identity_payload.get("deploymentCommit")
-            if isinstance(identity_payload, dict)
-            else None
+            identity_payload.get("deploymentCommit") if isinstance(identity_payload, dict) else None
         ),
         "host_commit": health.get("deploymentCommit") if isinstance(health, dict) else None,
         "edge_commit": edge.get("deploymentCommit") if isinstance(edge, dict) else None,
