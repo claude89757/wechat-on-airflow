@@ -73,6 +73,7 @@ def _boolean(value: object) -> bool:
         return bool(value)
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
+
 def _integer(value: object, default: int) -> int:
     if value is None or value == "":
         return default
