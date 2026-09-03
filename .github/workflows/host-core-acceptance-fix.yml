@@ -72,6 +72,7 @@ jobs:
 
           workflow_path.write_text(workflow, encoding='utf-8')
 
+          github_sha_expression = '$' + '{{ github.sha }}'
           release_path = Path('.github/workflows/production-host-core-v070.yml')
           release = release_path.read_text(encoding='utf-8')
           if '  natural_cycles:\n' not in release:
@@ -81,7 +82,7 @@ jobs:
                   '    uses: ./.github/workflows/production-host-core.yml',
                   '    with:',
                   '      operation: health',
-                  '      target_commit: ${{ github.sha }}',
+                  f'      target_commit: {github_sha_expression}',
                   '    secrets: inherit',
               ])
               new_acceptance = '\n'.join([
@@ -97,7 +98,7 @@ jobs:
                   '    uses: ./.github/workflows/production-host-core.yml',
                   '    with:',
                   '      operation: acceptance',
-                  '      target_commit: ${{ github.sha }}',
+                  f'      target_commit: {github_sha_expression}',
                   '    secrets: inherit',
               ])
               if old_acceptance not in release:
