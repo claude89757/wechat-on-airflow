@@ -48,6 +48,15 @@ def compose_exec(service: str, *arguments: str, capture: bool = False) -> str:
     return completed.stdout.strip() if capture and completed.stdout else ""
 
 
+def running_services() -> set[str]:
+    return set(
+        run(
+            [*COMPOSE, "ps", "--status", "running", "--services"],
+            capture=True,
+        ).stdout.splitlines()
+    )
+
+
 def assert_target(target_commit: str) -> None:
     if len(target_commit) != 40 or any(
         character not in "0123456789abcdef" for character in target_commit.lower()
@@ -268,14 +277,56 @@ print(json.dumps({
     return {"targetCommit": target_commit, **evidence}
 
 
-def cutover(target_commit: str) -> dict[str, Any]:
+def prepare_cutover(target_commit: str) -> dict[str, Any]:
+    """Move reads and observations to the host while keeping all delivery paused."""
     assert_target(target_commit)
     check_ses_credentials()
+    variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
     variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
     variable_set("ZACKS_OBSERVATION_MODE", "host")
     variable_set("ZACKS_WECHAT_GATE_SOURCE", "host")
     variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
-    variable_set("ZACKS_DELIVERY_OWNER", "airflow_host")
+    compose("stop", "zacks-notification-worker")
+    compose("restart", "zacks-api")
+    health = local_health(target_commit)
+    ready = local_ready()
+    if health.get("deliveryOwner") != "cloudflare":
+        raise RuntimeError("delivery must remain paused before public edge cutover")
+    if health.get("observationMode") != "host":
+        raise RuntimeError("host observation mode did not activate before edge cutover")
+    if "zacks-notification-worker" in running_services():
+        raise RuntimeError("notification worker is still running during delivery pause")
+    return {
+        "targetCommit": target_commit,
+        "deliveryOwner": "cloudflare",
+        "observation": "host",
+        "notificationWorker": "stopped",
+        "localHealth": health,
+        "localReady": ready,
+    }
+
+
+def cutover(target_commit: str) -> dict[str, Any]:
+    """Activate host delivery only after the public edge has been verified."""
+    assert_target(target_commit)
+    check_ses_credentials()
+    health_before = local_health(target_commit)
+    local_ready()
+    if health_before.get("deliveryOwner") == "airflow_host":
+        if "zacks-notification-worker" not in running_services():
+            compose("up", "-d", "zacks-notification-worker")
+        return {
+            "targetCommit": target_commit,
+            "deliveryOwner": "airflow_host",
+            "alreadyActive": True,
+            "localHealth": local_health(target_commit),
+            "localReady": local_ready(),
+        }
+    if health_before.get("deliveryOwner") != "cloudflare":
+        raise RuntimeError("unexpected delivery owner before host activation")
+    if health_before.get("observationMode") != "host":
+        raise RuntimeError("host observation mode must be active before delivery")
+
     mark = """
 from sqlalchemy import text
 from wechat_airflow.host_core.database import transaction
@@ -288,11 +339,14 @@ with transaction() as connection:
     '''), {'now': utc_now()})
 """
     host_python(mark)
-    compose("restart", "zacks-api", "zacks-notification-worker")
+    variable_set("ZACKS_DELIVERY_OWNER", "airflow_host")
+    compose("up", "-d", "zacks-notification-worker")
     health = local_health(target_commit)
     ready = local_ready()
     if health.get("deliveryOwner") != "airflow_host":
         raise RuntimeError("local delivery owner did not switch to airflow_host")
+    if "zacks-notification-worker" not in running_services():
+        raise RuntimeError("host notification worker did not start")
     return {
         "targetCommit": target_commit,
         "deliveryOwner": "airflow_host",
@@ -301,15 +355,46 @@ with transaction() as connection:
     }
 
 
-def rollback(target_commit: str) -> dict[str, Any]:
+def pause_host_delivery(target_commit: str) -> dict[str, Any]:
+    """Fail closed without reactivating a potentially stale D1 sender."""
     assert_target(target_commit)
-    # Stop the host sender first, then restore observation ownership.
+    variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
+    variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
+    variable_set("ZACKS_OBSERVATION_MODE", "host")
+    variable_set("ZACKS_WECHAT_GATE_SOURCE", "host")
+    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
+    compose("stop", "zacks-notification-worker")
+    health = local_health(target_commit)
+    ready = local_ready()
+    if health.get("deliveryOwner") != "cloudflare":
+        raise RuntimeError("host delivery did not enter the safe paused state")
+    if "zacks-notification-worker" in running_services():
+        raise RuntimeError("notification worker remains active after safe pause")
+    return {
+        "targetCommit": target_commit,
+        "deliveryOwner": "cloudflare",
+        "observation": "host",
+        "notificationWorker": "stopped",
+        "safePause": True,
+        "localHealth": health,
+        "localReady": ready,
+    }
+
+
+def rollback(target_commit: str) -> dict[str, Any]:
+    """Restore the legacy path only before host delivery has been activated."""
+    assert_target(target_commit)
+    health = local_health(target_commit)
+    if health.get("deliveryOwner") == "airflow_host":
+        raise RuntimeError(
+            "legacy rollback is unsafe after host delivery activation; use pause-host-delivery"
+        )
     variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
     variable_set("ZACKS_OBSERVATION_MODE", "cloudflare")
     variable_set("ZACKS_WECHAT_GATE_SOURCE", "legacy")
     variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
     variable_set("WEBAPP_OBSERVATION_API_URL", LEGACY_OBSERVATION_URL)
-    compose("restart", "zacks-api", "zacks-notification-worker")
+    compose("up", "-d", "zacks-api", "zacks-notification-worker")
     return {
         "targetCommit": target_commit,
         "deliveryOwner": "cloudflare",
@@ -321,13 +406,12 @@ def health(target_commit: str, *, include_public: bool) -> dict[str, Any]:
     assert_target(target_commit)
     local = local_health(target_commit)
     ready = local_ready()
-    running = run(
-        [*COMPOSE, "ps", "--status", "running", "--services"],
-        capture=True,
-    ).stdout.splitlines()
+    running = running_services()
     required = {"zacks-api", "zacks-notification-worker"}
-    if not required.issubset(set(running)):
+    if not required.issubset(running):
         raise RuntimeError("one or more host-core services are not running")
+    if local.get("deliveryOwner") != "airflow_host":
+        raise RuntimeError("host notification delivery is not active")
     result: dict[str, Any] = {
         "targetCommit": target_commit,
         "local": local,
@@ -350,7 +434,9 @@ def main() -> int:
             "migrate",
             "enable-dual",
             "shadow-evidence",
+            "prepare-cutover",
             "cutover",
+            "pause-host-delivery",
             "health",
             "rollback",
         ],
@@ -367,7 +453,9 @@ def main() -> int:
         "migrate": lambda: migrate(arguments.target_commit, pass_name=arguments.pass_name),
         "enable-dual": lambda: enable_dual(arguments.target_commit),
         "shadow-evidence": lambda: shadow_evidence(arguments.target_commit),
+        "prepare-cutover": lambda: prepare_cutover(arguments.target_commit),
         "cutover": lambda: cutover(arguments.target_commit),
+        "pause-host-delivery": lambda: pause_host_delivery(arguments.target_commit),
         "health": lambda: health(arguments.target_commit, include_public=arguments.include_public),
         "rollback": lambda: rollback(arguments.target_commit),
     }
