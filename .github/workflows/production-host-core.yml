@@ -202,6 +202,11 @@ jobs:
             rm -f "$runtime_config"
           }
 
+          verify_public_edge() {
+            PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
+              --expected-commit "$TARGET_COMMIT" --format json
+          }
+
           if [[ "$OPERATION" == "full-cutover" ]]; then
             current_runtime="$(curl --silent --max-time 10 \
               https://zacks.claude89757.cc/api/healthz | jq -r '.runtime // "unknown"' || true)"
@@ -209,6 +214,7 @@ jobs:
               https://zacks.claude89757.cc/api/healthz | jq -r '.deploymentCommit // "unknown"' || true)"
             if [[ "$current_runtime" == "airflow-host" && "$current_commit" == "$TARGET_COMMIT" ]]; then
               remote health --include-public
+              verify_public_edge
               exit 0
             fi
           fi
@@ -219,6 +225,7 @@ jobs:
               ;;
             health)
               remote health --include-public
+              verify_public_edge
               ;;
             rollback)
               remote rollback
@@ -256,6 +263,7 @@ jobs:
               remote cutover
               deploy_edge true false false
               remote health --include-public
+              verify_public_edge
               rollback_required=false
               trap - ERR
               ;;
