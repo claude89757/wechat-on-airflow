@@ -99,6 +99,7 @@ async function proxyApi(request: Request, env: EdgeEnv): Promise<Response> {
     }));
     return Response.json({
       error: "服务暂时不可用，请稍后再试",
+      source: "airflow-host",
       dataStatus: {
         stale: true,
         source: "browser-cache",
