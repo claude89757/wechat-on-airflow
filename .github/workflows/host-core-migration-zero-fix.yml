@@ -30,64 +30,70 @@ jobs:
 
           path = Path("src/wechat_airflow/host_core/migration.py")
           source = path.read_text(encoding="utf-8")
-          old_helper = '''def _boolean(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-'''
-          new_helper = old_helper + '''def _integer(value: object, default: int) -> int:
-    if value is None or value == "":
-        return default
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-'''
+          old_helper = "\n".join([
+              "def _boolean(value: object) -> bool:",
+              "    if isinstance(value, bool):",
+              "        return value",
+              "    if isinstance(value, (int, float)):",
+              "        return bool(value)",
+              "    return str(value or \"\").strip().lower() in {\"1\", \"true\", \"yes\", \"on\"}",
+              "",
+              "",
+          ])
+          new_helper = old_helper + "\n".join([
+              "def _integer(value: object, default: int) -> int:",
+              "    if value is None or value == \"\":",
+              "        return default",
+              "    try:",
+              "        return int(value)",
+              "    except (TypeError, ValueError):",
+              "        return default",
+              "",
+              "",
+          ])
           if old_helper not in source:
               raise SystemExit("expected migration helper block was not found")
           source = source.replace(old_helper, new_helper, 1)
-          old_values = '''        mask = int(row.get("weekday_mask") or ALL_WEEKDAY_MASK)
-        email = str(row.get("email") or "")
-'''
-          new_values = '''        mask = _integer(row.get("weekday_mask"), ALL_WEEKDAY_MASK)
-        duration_days = _integer(row.get("duration_days"), 7)
-        email = str(row.get("email") or "")
-'''
+          old_values = "\n".join([
+              "        mask = int(row.get(\"weekday_mask\") or ALL_WEEKDAY_MASK)",
+              "        email = str(row.get(\"email\") or \"\")",
+          ])
+          new_values = "\n".join([
+              "        mask = _integer(row.get(\"weekday_mask\"), ALL_WEEKDAY_MASK)",
+              "        duration_days = _integer(row.get(\"duration_days\"), 7)",
+              "        email = str(row.get(\"email\") or \"\")",
+          ])
           if old_values not in source:
               raise SystemExit("expected subscription migration values were not found")
           source = source.replace(old_values, new_values, 1)
-          source = source.replace(
-              '"duration_days": int(row.get("duration_days") or 7),\n',
-              '"duration_days": duration_days,\n',
-              1,
-          )
-          source = source.replace(
-              '"term_code": row.get("term_code") or f"{int(row.get(\'duration_days\') or 7)}d",\n',
-              '"term_code": row.get("term_code") or f"{duration_days}d",\n',
-              1,
-          )
+          duration_old = "                \"duration_days\": int(row.get(\"duration_days\") or 7),"
+          duration_new = "                \"duration_days\": duration_days,"
+          if duration_old not in source:
+              raise SystemExit("expected duration migration assignment was not found")
+          source = source.replace(duration_old, duration_new, 1)
+          term_old = "                \"term_code\": row.get(\"term_code\") or f\"{int(row.get('duration_days') or 7)}d\","
+          term_new = "                \"term_code\": row.get(\"term_code\") or f\"{duration_days}d\","
+          if term_old not in source:
+              raise SystemExit("expected term migration assignment was not found")
+          source = source.replace(term_old, term_new, 1)
           path.write_text(source, encoding="utf-8")
 
-          test_path = Path("tests/host_core_migration_test.py")
-          test_path.write_text(
-              '''from __future__ import annotations
-
-from wechat_airflow.host_core.migration import _integer
-
-
-def test_migration_integer_preserves_legitimate_zero_values() -> None:
-    assert _integer(0, 7) == 0
-    assert _integer("0", 7) == 0
-    assert _integer(None, 7) == 7
-    assert _integer("", 7) == 7
-    assert _integer("invalid", 7) == 7
-''',
+          test_lines = [
+              "from __future__ import annotations",
+              "",
+              "from wechat_airflow.host_core.migration import _integer",
+              "",
+              "",
+              "def test_migration_integer_preserves_legitimate_zero_values() -> None:",
+              "    assert _integer(0, 7) == 0",
+              "    assert _integer(\"0\", 7) == 0",
+              "    assert _integer(None, 7) == 7",
+              "    assert _integer(\"\", 7) == 7",
+              "    assert _integer(\"invalid\", 7) == 7",
+              "",
+          ]
+          Path("tests/host_core_migration_test.py").write_text(
+              "\n".join(test_lines),
               encoding="utf-8",
           )
           PY
