@@ -225,26 +225,29 @@ jobs:
         env:
           TARGET_COMMIT: ${{ needs.route.outputs.target_commit }}
         run: test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
-      - name: Apply the repository's pinned Ruff formatter
+      - name: Apply asserted type normalizations and Ruff
         run: |
           set -euo pipefail
+          test -f scripts/normalize_host_core_types.py
+          python scripts/normalize_host_core_types.py
+          rm scripts/normalize_host_core_types.py
           python -m pip install --disable-pip-version-check ruff==0.12.11
           ruff check --fix --unsafe-fixes .
           ruff format .
           ruff check .
           ruff format --check .
           git diff --check
-      - name: Commit only deterministic formatting changes
+      - name: Commit only deterministic normalization changes
         run: |
           set -euo pipefail
           if git diff --quiet; then
-            echo "No formatting changes were required."
+            echo "No normalization changes were required."
             exit 0
           fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add --all
-          git commit -m "style(host-core): apply repository Ruff formatting"
+          git commit -m "fix(host-core): apply asserted type normalizations"
           git push origin HEAD:feat/airflow-host-core-v0.7.0-final3
 
   report:
@@ -328,7 +331,7 @@ jobs:
               ;;
             format_host_core)
               result="$FORMAT_RESULT"
-              label="host-core deterministic formatting"
+              label="host-core deterministic normalization"
               resolved="n/a"
               webapp=""
               airflow=""
