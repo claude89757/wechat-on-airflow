@@ -6,12 +6,12 @@
 flowchart LR
     Dev["Developer or coding agent"] -->|"GitHub identity only"| PR["Protected GitHub pull request"]
     PR --> CI["CI / verify"]
-    CI --> Release["Production Release workflow"]
-    Release -->|"Environment deployment token"| CF["Cloudflare Worker and D1"]
-    Release -->|"Environment SSH identity"| Airflow["Airflow host"]
+    CI --> Release["Protected production workflows"]
+    Release -->|"Environment deployment token"| Edge["Cloudflare edge"]
+    Release -->|"Environment SSH identity"| Host["Airflow host + host core"]
     Release -->|"Environment SSH identity"| Sender["Android sender host"]
-    CF --> Evidence["GitHub deployment evidence"]
-    Airflow --> Evidence
+    Edge --> Evidence["GitHub deployment evidence"]
+    Host --> Evidence
     Sender --> Evidence
 ```
 
@@ -19,92 +19,175 @@ GitHub is the only development-to-production control plane. A developer
 workstation may authenticate to GitHub but does not hold Cloudflare, SSH,
 Airflow, database, email, or device credentials. `CI / verify` is authoritative
 for an exact commit. The protected `production` Environment releases scoped
-deployment identities only to approved workflows. Component runtime secrets
-remain in Airflow Variables, Cloudflare Worker Secrets, root-owned host Secret
-files, and systemd credentials; they are never downloaded through GitHub.
+deployment identities only to approved workflows.
 
-Cloudflare, Airflow, and sender health checks compare the deployed identity with
-the workflow's explicit full target SHA, never with a workstation checkout.
-Application rollback uses a previously verified release SHA. Database restore
-and metadata deletion remain separate high-risk operations.
+The initial host-core cutover uses `production-host-core.yml`, not the ordinary
+component release path. It installs the exact commit in shadow mode, transfers
+existing Tencent SES settings directly from Worker Secrets to root-owned host
+files through an ephemeral encrypted envelope, imports D1 state twice around a
+short write-quiescence window, switches one delivery owner, and verifies both
+local and public endpoints. Any failure before final acceptance restores the
+legacy owner and edge configuration. D1 records are retained for rollback and
+are not deleted by the cutover.
 
 ## Production Data Flow
 
 ```mermaid
-flowchart LR
-    API["Venue booking APIs"] --> DAG["Venue polling DAGs"]
-    NSWTT["NSWTT calendar and free slices"] --> DAG
-    Proxy["Proxy sources and cache"] --> DAG
-    DAG -->|"best effort, before WeChat"| Worker["Cloudflare Worker"]
-    DAG --> Cache["Airflow Variable WeChat dedupe cache"]
-    Cache --> WeChat["Managed WeChat sender API"]
-    Web["Mobile web app"] --> Worker
-    Worker --> D1[("Cloudflare D1")]
-    Worker --> SubscriberEmail["Tencent SES subscriber email"]
-    SubscriberEmail -. retry .-> D1
-    WeChat -. failure .-> WeChatOutbox["WeChat fallback outbox"]
+flowchart TB
+    subgraph Sources["Booking sources"]
+        APIs["Venue booking APIs"]
+        NSWTT["NSWTT calendar and free slices"]
+        Proxy["Proxy sources and cache"]
+        Pi["Raspberry Pi YDMap browser scraper"]
+    end
+
+    subgraph AirflowHost["Airflow production host"]
+        DAG["Venue polling DAGs"]
+        CoreAPI["zacks-api<br/>FastAPI"]
+        CoreWorker["zacks-notification-worker"]
+        MetaDB[("PostgreSQL 17<br/>Airflow metadata")]
+        AppDB[("PostgreSQL 17<br/>zacks business schema")]
+        Redis[("Redis<br/>Celery broker / optional wake-up")]
+        WeChatClient["Airflow WeChat client"]
+    end
+
+    subgraph Edge["Cloudflare edge after cutover"]
+        Assets["React static assets"]
+        ProxyAPI["Stateless /api proxy"]
+        Tunnel["Cloudflare Tunnel"]
+    end
+
+    subgraph Channels["Delivery channels"]
+        SES["Tencent SES"]
+        Android["Android sender service"]
+        Mailbox["Subscriber mailboxes"]
+        Chat["WeChat groups"]
+    end
+
+    APIs --> DAG
+    NSWTT --> DAG
+    Proxy --> DAG
+    Pi --> DAG
+
+    DAG -->|"normalized observation"| CoreAPI
+    CoreAPI --> AppDB
+    AppDB --> CoreWorker
+    CoreWorker --> SES
+    SES --> Mailbox
+    CoreWorker --> AppDB
+
+    DAG -->|"local PostgreSQL gate"| WeChatClient
+    WeChatClient --> Android
+    Android --> Chat
+
+    DAG --> MetaDB
+    Redis --> DAG
+
+    Browser["Mobile or desktop browser"] --> Assets
+    Browser --> ProxyAPI
+    ProxyAPI --> Tunnel
+    Tunnel --> CoreAPI
 ```
 
-Venue adapters publish raw available slots before attempting WeChat delivery,
-so a device outage cannot delay subscriber email. Publishing is best effort
-and cannot fail a DAG. Airflow has no fixed recipient lists and does not send
-venue email directly. The Worker stores verified-email receipts, subscriptions,
-observed slot event keys, and a retrying email outbox in D1. A
-`(subscription_id, event_key)` uniqueness contract prevents duplicate
-subscriber notifications. User-selected weekdays and time windows are matched
-against the booking slot's Asia/Shanghai calendar date and are independent of
-the legacy weekday/weekend filters retained only for WeChat.
+### Durable ownership
 
-The Dashah River adapter is calendar-gated because free courts are not released
-for every date. It publishes only zero-price availability from dates that are
-both on sale and backed by a non-empty free-court list. The Web application
-therefore never infers a free release from an ordinary empty calendar date.
-Best-effort WeChat for this venue goes only to `Zacks_大沙河限定免费`.
+PostgreSQL schema `zacks` is the sole durable business store after cutover. It
+owns:
 
-TOPS, 泛思博特福中福, PICKLE POP宝安, and the Fansibote chain stores share the
-public PosPal appointment API. Each adapter carries its own store ID and
-project UID. The chain stores share one project UID and drop 小场, 匹克, 练习,
-非标, and 发球机 rooms so only standard tennis / 风雨场 courts are published.
-PICKLE POP宝安 publishes tennis courts only and never treats pickleball rooms
-as tennis availability. WeChat for these paid venues uses the shared
-`SZ_TENNIS_CHATROOMS` list.
+- email identities, verification challenges, browser receipts, profiles, roles,
+  tiers, and invitation lifecycle;
+- subscriptions and normalized subscription-to-venue relations;
+- venue health, observation snapshots, availability event identities, and
+  subscription-event deduplication;
+- subscriber and system email Outboxes, leases, attempts, daily quotas, and
+  Tencent SES submission/delivery state;
+- the venue-level active-subscription generation used by the local WeChat gate;
+- migration checkpoints, delivery-owner state, and operational read models.
 
-Dashah International Tennis Center is a paid YDMap H5 venue. Airflow does not
-open the booking page itself. A Raspberry Pi scrape host runs Chromium on a
-private loopback HTTP service; the venue watcher SSHes to that host, curls
-`http://127.0.0.1:8788/inspect?days=5`, publishes the raw slots to the Web app,
-then sends best-effort WeChat to the shared `SZ_TENNIS_CHATROOMS` list. The
-scrape HTTP port is not public. Runtime SSH settings live in the Airflow
-Variable `PI_DEVICE_SSH`; GitHub `PI_DEVICE_SSH_*` secrets are only the
-protected seed for that Variable.
+The Airflow metadata database and the `zacks` business schema share the existing
+PostgreSQL 17 service but have separate ownership and migration boundaries.
+Host-core schema management must never modify Airflow metadata tables, and
+Airflow metadata cleanup must never target `zacks` business records.
 
-Greater Bay Area WeChat uses the same Zacks chatrooms as Shenzhen Bay, with a
-different hour window: weekdays 18:00-21:00 and weekends 12:00-21:00. The booking
-query ends at 21:00 so a closed 21:00-22:00 hour cannot appear as a free slot.
-Shenzhen Bay WeChat remains weekdays 18:00-22:00 and weekends 16:00-22:00.
-Shenzhen Sports Center WeChat uses weekdays 18:00-21:00 and weekends 17:00-21:00.
+Redis remains the Celery broker and may later be used for wake-up signals,
+short-lived locks, or hot cache entries. It is not authoritative: deleting or
+restarting Redis cannot delete subscriptions, lose durable Outbox work, change a
+quota result, or cause a duplicate delivery.
 
-WeChat availability alerts append the venue booking mini-program as the last
-line of the same send, at most once per chat and mini-program every two hours.
-Shenzhen Bay and Greater Bay Area share the 未来荟 program, so the second venue
-does not repeat that card. Dashah International uses 威逊文体, Fuzhongfu uses
-泛思博特, and PICKLE POP Bao'an uses PICKLEPOP宝安摩天轮馆. Slot dedupe
-caches stay link-free.
+### Observation and matching path
 
-The Airflow WeChat deduplication cache is written before WeChat delivery.
-Its fallback outbox is a deduplicated incident record, not an automatic retry
-queue; blind replay could send stale or duplicate messages.
+Every venue adapter continues at its existing business-approved schedule. It
+normalizes a venue result and calls the local `zacks-api` through the Compose
+network. The API writes the observation, venue status, and semantic fingerprint
+in PostgreSQL before returning. Real availability, health, or error changes are
+visible on the first matching poll.
 
-The public web app never displays current availability and cannot book courts.
-It displays only aggregate subscription counts, notification counts, and
-inspection health. Email addresses are returned only as masked values after a
-valid 180-day browser receipt is presented.
+The local service matches a slot against active subscriptions using normalized
+`subscription_venues`, ISO weekday masks, the slot's Asia/Shanghai booking date,
+and time overlap. A unique subscription/event/channel identity prevents
+repeated notification creation. A newly created subscription increments the
+relevant venue generation so existing open availability can be evaluated on the
+next natural poll without periodic full-table rematching.
 
-The WeChat sender runs on the Android device host as an independent systemd
-service with one process per device. It is not an Airflow component, but it is
-repository-managed and included in production health checks. The health check
-derives `/readyz` from the configured Airflow endpoint without printing the
-endpoint value.
+During migration only, the host API persists locally and forwards the same raw
+observation to the legacy Worker. Cloudflare remains the sole email owner until
+the final owner switch. Dual observation writes are therefore safe; dual email
+ownership is forbidden.
+
+### Subscriber email
+
+The local notification worker leases due Outbox rows with PostgreSQL
+`FOR UPDATE SKIP LOCKED`, groups compatible venue lines into a recipient digest,
+checks tier and global daily limits, evaluates the weather policy, and calls
+Tencent SES. Provider message IDs, request IDs, errors, retries, and terminal
+status are written back to PostgreSQL.
+
+Provider reconciliation uses a bounded backoff and retention window. Verification
+and lifecycle email use their own durable Outbox category so a venue reminder
+backlog cannot block account access. Venue DAGs never contain fixed recipient
+lists or Tencent credentials and never call SES directly.
+
+### WeChat
+
+The actual WeChat channel remains independent of the email worker:
+
+```text
+Airflow venue task -> local subscription gate -> WeChat client
+-> Android sender systemd service -> Appium -> WeChat group
+```
+
+The gate is a local PostgreSQL decision. Cloudflare or D1 outage is not
+interpreted as “no active subscription.” Existing per-venue message deduplication
+and booking mini-program cooldown rules remain in the Airflow/host boundary.
+Failures are isolated per chat and recorded as bounded incident evidence; stale
+messages are never blindly replayed.
+
+The Android sender runs one process per device. It is repository-managed and
+included in production health checks, but it is not an Airflow process and does
+not share the email Outbox.
+
+## Cloudflare Boundary
+
+After cutover, Cloudflare has no durable business ownership. It provides:
+
+- DNS, TLS, WAF, DDoS protection, and static-asset delivery for
+  `zacks.claude89757.cc`;
+- a stateless `/api/*` reverse proxy to
+  `https://airflow.claude89757.cc/zacks-api/api/*`;
+- the existing outbound Cloudflare Tunnel from the Airflow host;
+- exact deployment identity and security headers at the edge.
+
+The Worker does not query D1, match subscriptions, send or reconcile email,
+compute a WeChat gate, or run notification Cron after cutover. D1 is retained
+read-only for a documented rollback window. Migration and secret-envelope
+endpoints are disabled immediately after the successful cutover.
+
+The tunnel contains a specific path rule for `/zacks-api/*` pointing to the
+loopback-bound local API on port 8090. The existing Airflow UI/API rule continues
+to point to port 8080. A Cloudflare/Tunnel outage can prevent browsers from
+loading the site or changing subscriptions, but it cannot stop venue polling,
+matching of existing subscriptions, email delivery, email retries, or WeChat
+sending on the host.
 
 ## Airflow 3 Runtime
 
@@ -112,80 +195,77 @@ endpoint value.
 flowchart TB
     User["Browser or Airflow API client"] --> Edge["Cloudflare edge"]
     Edge --> Tunnel["cloudflared systemd service"]
-    Tunnel --> API
-    API["Airflow API Server"] --> DB[("PostgreSQL")]
-    Scheduler["Scheduler"] --> DB
-    DagProcessor["DAG Processor"] --> DB
+    Tunnel --> API["Airflow API Server"]
+    API --> MetaDB[("PostgreSQL metadata")]
+    Scheduler["Scheduler replicas"] --> MetaDB
+    DagProcessor["DAG Processor"] --> MetaDB
     Triggerer["Triggerer"] --> API
     Scheduler --> Redis[("Redis")]
-    Redis --> Worker["Celery Worker"]
-    Worker --> API
-    Worker --> External["Booking, Web observation, WeChat, SSH/ADB services"]
+    Redis --> Celery["Celery Worker"]
+    Celery --> API
+    Celery --> CoreAPI["zacks-api"]
+    CoreAPI --> AppDB[("zacks schema")]
+    AppDB --> NotificationWorker["zacks-notification-worker"]
 ```
 
-The target runtime uses the official Airflow 3 image, a pinned custom build,
-CeleryExecutor, PostgreSQL, Redis, and FAB Auth Manager. Production DAG source
-is copied into that immutable image with normalized read permissions; services
+The target runtime uses the official Airflow 3.3.0 image, a pinned custom image,
+CeleryExecutor, PostgreSQL 17, Redis, and FAB Auth Manager. Production DAG source
+is copied into the immutable image with normalized read permissions; services
 do not depend on a mutable host DAG mount.
 
-Workers reach the private Execution API through the explicit
-`AIRFLOW_EXECUTION_API_SERVER_URL` setting. Its path must include the public
-`AIRFLOW_BASE_URL` path prefix before `/execution/`.
+`zacks-api`, `zacks-notification-worker`, and the one-shot secret synchronization
+service use the same exact application image, Compose network, and root-owned
+secret directory. The API is bound to host loopback only. Runtime health reports
+the exact deployment commit and schema/owner state.
 
-Public access uses Cloudflare Tunnel at
-`https://airflow.claude89757.cc`. `cloudflared.service` initiates the
-outbound tunnel from the Airflow host to the Cloudflare edge and forwards to
-`http://127.0.0.1:8080`. The API server accepts proxy headers, while the host
-port is bound to loopback so the origin is not also exposed directly.
+Workers reach the private Airflow Execution API through the explicit
+`AIRFLOW_EXECUTION_API_SERVER_URL` setting. Public Airflow access continues over
+Cloudflare Tunnel, and the API server accepts proxy headers while its host port
+is bound to loopback.
 
-Airflow 3 uses fresh, explicitly named PostgreSQL, Redis, and log volumes. The Airflow 2
-metadata database is not upgraded or reused; it remains intact for rollback.
-Only contract-declared configuration and continuity state are imported.
-Historical runs, task instances, XCom rows, and fallback outboxes do not cross
-the cutover boundary.
+## Failure Boundaries
+
+| Failure | Existing email | Existing WeChat | Venue polling | Web changes |
+| --- | --- | --- | --- | --- |
+| Cloudflare Worker/D1 | continues | continues | continues | may be unavailable |
+| Cloudflare Tunnel/DNS | continues | continues | continues | unavailable externally |
+| `zacks-api` | queued/retried after recovery | venue tasks may defer local gate refresh | continues | unavailable |
+| notification worker | durable Outbox waits | unaffected | continues | readable |
+| Redis | PostgreSQL polling remains authoritative | unaffected | Celery may be affected as today | readable |
+| Tencent SES | retries/reconciliation continue | unaffected | continues | readable |
+| Android sender | unaffected | isolated failure record | continues | readable |
+| PostgreSQL | stops safely | gate cannot be refreshed | Airflow metadata also affected | unavailable |
+
+No channel failure is allowed to mutate another channel's successful state.
 
 ## Ownership Boundaries
 
 - DAG files define schedules and task wiring only. The component manifest
   enforces a 120-line limit and rejects direct network-client imports.
-- Venue querying, parsing, filtering, and notification orchestration live in
+- Venue querying, parsing, filtering, and observation orchestration live in
   `src/wechat_airflow/venues/`.
+- Subscription, Web API, matching, email, migration, and durable notification
+  code lives in `src/wechat_airflow/host_core/`.
+- Airflow observation compatibility, WeChat clients, and WeChat incident logic
+  live in `src/wechat_airflow/notifications/`.
 - Raspberry Pi scrape-host services live in `pi_host/` and are not imported by
   Airflow workers.
-- Proxy refresh implementations live in `src/wechat_airflow/proxy_tools/`.
-- Device maintenance implementations live in
-  `src/wechat_airflow/maintenance/`.
-- Airflow observation, WeChat clients, and WeChat fallback logic belong in
-  `src/`.
-- Web UI, subscription matching, email verification, and subscriber delivery
-  belong in `webapp/`; Airflow owns only venue observation publication.
-- Airflow Variables provide runtime configuration, not business logic.
-- Fresh-start Variable behavior is declared in
-  `config/config-contracts.yaml`; venue WeChat deduplication state is preserved
-  and the WeChat fallback outbox is reset without replay.
-- Production maintenance is executed through scripts and one-off deployment
-  manager commands, not through Airflow internal Python APIs.
-- GitHub is the production identity, approval, and audit control plane. Its
-protected workflows hold only scoped deployment identities; Airflow,
-Cloudflare, and the Android sender retain their own runtime secrets. The
-Raspberry Pi scrape-host login is stored as `PI_DEVICE_SSH_*` names in the
-GitHub `production` Environment and must not be copied onto developer
-machines.
-- Airflow infrastructure credentials are mounted per service from the
-  root-owned, root-group-readable host Secret directory. Airflow and
-  PostgreSQL remain non-root processes in group `0`; the sender reads systemd
-  credentials.
-  Developer machines generate isolated test credentials and never receive
-  production values.
-- Metadata cleanup is deliberately outside the DagBag and Task SDK boundary.
-  Its command is read-only by default and requires human-approved date
-  confirmation before deleting records.
+- The React application and stateless Cloudflare edge live in `webapp/`.
+- Airflow Variables provide runtime configuration and emergency switches, not
+  growing Outboxes, subscriptions, or notification history.
+- PostgreSQL migrations are additive, idempotent where required, rehearsed in
+  isolation, and separate from Airflow metadata migrations.
+- Production maintenance runs through structured scripts and protected GitHub
+  workflows, not ad-hoc remote shell or Airflow internal Python APIs.
+- GitHub is the production identity, approval, and audit control plane. Runtime
+  secrets remain in Worker Secrets during migration, root-owned host files,
+  Airflow configuration stores, or systemd credentials.
+- Metadata cleanup, D1 deletion, rollback-window closure, database replacement,
+  and secret rotation are separate high-risk operations requiring explicit
+  approval.
 
-The authoritative active component and configuration contract is
-`config/active-components.yaml`. Static verification checks each declared
-schedule, and Airflow 3 DagBag verification checks the DAG ID, source file, and
-task IDs against that manifest.
-
-The venue and proxy adapters were moved without rewriting their dynamic API
-payload handling. Their exact modules are a bounded typing backlog in
-`pyproject.toml`; all other source modules remain under strict mypy checking.
+The authoritative machine-readable contracts are
+`config/active-components.yaml`, `config/runtime-target.yaml`, and
+`config/host-core-contract.yaml`. Static verification checks schedule and
+ownership invariants, and Airflow 3 DagBag verification checks DAG IDs, source
+files, and task IDs against the active component manifest.

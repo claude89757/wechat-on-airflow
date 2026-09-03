@@ -1,0 +1,130 @@
+name: Production Host Core 0.7.0
+run-name: production/host-core-0.7.0/${{ github.sha }}
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "5 0 4 9 *"
+    - cron: "25 0 4 9 *"
+
+permissions:
+  checks: read
+  contents: write
+
+concurrency:
+  group: production-host-core-0.7.0
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.resolve.outputs.should_run }}
+      target_commit: ${{ steps.resolve.outputs.target_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: resolve
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          target_commit="$(git rev-parse origin/main)"
+          should_run=true
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" && "$(date -u +%F)" != "2026-09-04" ]]; then
+            should_run=false
+          fi
+          if git rev-parse --verify --quiet refs/tags/0.7.0 >/dev/null; then
+            should_run=false
+          fi
+          echo "should_run=$should_run" >> "$GITHUB_OUTPUT"
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+
+  contract:
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Validate version contract before production mutation
+        run: python scripts/release_contract.py --version 0.7.0
+
+  cutover:
+    needs: [resolve, contract]
+    if: needs.resolve.outputs.should_run == 'true'
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: full-cutover
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+    secrets: inherit
+
+  deploy:
+    needs: [resolve, cutover]
+    if: needs.resolve.outputs.should_run == 'true'
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: apply
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      scope: auto
+      include_sender: false
+    secrets: inherit
+
+  natural_cycles:
+    needs: [resolve, deploy]
+    if: needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Observe three natural one-minute cycles and verify business flow
+        run: |
+          set -euo pipefail
+          sleep 180
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'; \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+             shadow-evidence --target-commit '$TARGET_COMMIT'"
+
+  acceptance:
+    needs: [resolve, natural_cycles]
+    if: needs.resolve.outputs.should_run == 'true'
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+    secrets: inherit
+
+  tag:
+    needs: [resolve, acceptance]
+    if: needs.resolve.outputs.should_run == 'true'
+    uses: ./.github/workflows/release-tag-chatops.yml
+    with:
+      version: 0.7.0
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+    secrets: inherit

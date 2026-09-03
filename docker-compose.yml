@@ -43,6 +43,8 @@ x-airflow-env: &airflow-env
   AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
   AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
   AIRFLOW__LOGGING__FAB_LOGGING_LEVEL: WARNING
+  WEBAPP_OBSERVATION_STATE_PATH: /opt/airflow/logs/webapp-observation-state-host-v1.json
+  DEPLOYMENT_COMMIT: ${DEPLOYMENT_COMMIT:-unknown}
   TZ: Asia/Shanghai
 
 x-airflow-common: &airflow-common
@@ -55,6 +57,7 @@ x-airflow-common: &airflow-common
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
     - airflow-logs:/opt/airflow/logs
+    - ${AIRFLOW_SECRET_DIR:-/etc/wechat-on-airflow/secrets}:/etc/wechat-on-airflow/secrets:ro
   secrets:
     - source: airflow-fernet-key
       target: airflow_fernet_key
@@ -165,6 +168,46 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+
+  zacks-api:
+    <<: *airflow-common
+    command: python -m wechat_airflow.host_core.api
+    ports:
+      - "127.0.0.1:8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8090/zacks-api/api/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  zacks-notification-worker:
+    <<: *airflow-common
+    command: python -m wechat_airflow.host_core.worker
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "from wechat_airflow.host_core.database import ping; assert ping()['schema_ready']"
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  zacks-secret-sync:
+    <<: *airflow-common
+    profiles: [maintenance]
+    restart: "no"
+    user: "0:0"
+    command:
+      - python
+      - -m
+      - wechat_airflow.host_core.secret_sync
+      - --secret-dir
+      - /etc/wechat-on-airflow/secrets
+    volumes:
+      - airflow-logs:/opt/airflow/logs
+      - ${AIRFLOW_SECRET_DIR:-/etc/wechat-on-airflow/secrets}:/etc/wechat-on-airflow/secrets:rw
 
   airflow-migrate:
     <<: *airflow-common

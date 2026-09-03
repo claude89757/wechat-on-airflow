@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wechat-on-airflow"
-version = "0.6.6"
+version = "0.7.0"
 description = "Airflow workflows for Shenzhen tennis availability notifications."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -12,9 +12,12 @@ license = { file = "LICENSE" }
 authors = [{ name = "claude89757" }]
 dependencies = [
   "cryptography==50.0.1",
+  "fastapi==0.139.2",
   "paramiko==3.5.1",
   "PyYAML==6.0.3",
   "requests==2.34.2",
+  "SQLAlchemy>=2.0,<3",
+  "uvicorn==0.51.0",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +30,6 @@ sender = [
   "uvicorn==0.51.0",
 ]
 dev = [
-  "fastapi==0.139.2",
   "httpx==0.28.1",
   "mypy==1.17.1",
   "pre-commit==4.6.2",
@@ -53,6 +55,12 @@ extend-exclude = ["archive", ".worktrees"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "AIR"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/host_core_production.py" = ["UP031"]
+"src/wechat_airflow/host_core/api.py" = ["B008", "F401"]
+"src/wechat_airflow/host_core/domain.py" = ["UP035", "UP038"]
+"src/wechat_airflow/host_core/migration.py" = ["UP038"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -1,0 +1,35 @@
+schema_version: 1
+version: 0.7.0
+ownership:
+  authoritative_store: postgresql:zacks_schema
+  durable_business_state: postgresql:zacks
+  observation_ingestion: airflow_host
+  subscription_matching: airflow_host
+  subscriber_email: airflow_host
+  wechat_delivery: airflow_android_sender
+  public_edge: cloudflare_stateless_gateway
+  redis: optional_acceleration_only
+  d1: read_only_rollback_window
+services:
+  zacks-api:
+    port: 8090
+    public_path: /api/*
+    origin_path: /zacks-api/api/*
+  zacks-notification-worker:
+    durable_queue: zacks.notification_outbox
+    lease: postgresql_skip_locked
+cutover:
+  owner_switch: ZACKS_DELIVERY_OWNER
+  observation_mode: ZACKS_OBSERVATION_MODE
+  wechat_gate_source: ZACKS_WECHAT_GATE_SOURCE
+  worker_cutover: HOST_CORE_CUTOVER
+  worker_quiesce: HOST_CORE_QUIESCE
+  migration_endpoint: HOST_CORE_MIGRATION_ENABLED
+invariants:
+  - exactly_one_subscriber_email_owner
+  - no_real_notifications_in_tests
+  - postgresql_is_the_only_durable_business_store
+  - redis_loss_does_not_lose_or_duplicate_notifications
+  - cloudflare_failure_does_not_stop_existing_email_or_wechat_delivery
+  - d1_is_not_deleted_during_cutover
+  - venue_polling_cadence_is_unchanged
