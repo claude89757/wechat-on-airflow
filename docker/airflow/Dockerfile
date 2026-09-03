@@ -16,3 +16,4 @@ COPY --chown=airflow:root config /opt/airflow/project/config
 COPY --chown=airflow:root scripts /opt/airflow/project/scripts
 RUN chmod -R u=rwX,go=rX /opt/airflow/dags
 RUN pip install --no-cache-dir --no-deps /opt/airflow/project
+RUN python -c "import fastapi, sqlalchemy, uvicorn"

@@ -43,7 +43,7 @@ shared_contracts:
       - publishing_precedes_wechat_delivery
       - failures_do_not_fail_venue_dag
       - raw_slots_are_not_filtered_by_legacy_notification_windows
-      - webapp_is_the_only_email_delivery_owner
+      - airflow_host_is_the_only_email_delivery_owner_after_cutover
       - no_secrets_or_email_addresses_are_logged
   venue_inspection_cadence:
     policy_file: config/venue-schedule-policy.yaml
