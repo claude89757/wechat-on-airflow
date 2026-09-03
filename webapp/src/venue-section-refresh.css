@@ -1,0 +1,27 @@
+/*
+ * Keep the top status bar as the single refresh affordance. The venue section
+ * should focus on quick subscription creation without repeating refresh cues.
+ */
+.venue-section .section-heading > div > p {
+  display: none;
+}
+
+.venue-section .section-heading > div::after {
+  display: block;
+  margin: 3px 0 0;
+  color: var(--muted);
+  content: "点按卡片快速创建提醒";
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.venue-section .section-heading > span {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  html body .venue-section .section-heading > div::after {
+    margin-top: 5px;
+    font-size: 12px;
+  }
+}
