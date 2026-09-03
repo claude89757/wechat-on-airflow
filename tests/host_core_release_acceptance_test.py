@@ -20,9 +20,7 @@ def cycle_payloads(
     venues = [
         {
             "id": f"venue-{index}",
-            "lastInspectionAt": (
-                observed_at + timedelta(seconds=revision + index)
-            ).isoformat(),
+            "lastInspectionAt": (observed_at + timedelta(seconds=revision + index)).isoformat(),
         }
         for index in range(26)
     ]
@@ -106,11 +104,14 @@ def test_acceptance_observes_three_advancing_natural_cycles() -> None:
 def test_acceptance_rejects_a_static_observation_snapshot() -> None:
     commit = "c" * 40
     now = datetime.now(UTC)
-    responses = cycle_payloads(
-        commit=commit,
-        observed_at=now - timedelta(minutes=1),
-        revision=1,
-    ) * 2
+    responses = (
+        cycle_payloads(
+            commit=commit,
+            observed_at=now - timedelta(minutes=1),
+            revision=1,
+        )
+        * 2
+    )
 
     with (
         patch.object(acceptance, "request_json", side_effect=responses),
