@@ -1,0 +1,207 @@
+name: Production Host Core
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Host-core lifecycle operation
+        required: true
+        type: choice
+        options:
+          - preflight
+          - full-cutover
+          - health
+          - rollback
+      target_commit:
+        description: Exact full commit SHA; empty uses current main
+        required: false
+        type: string
+  schedule:
+    - cron: "5 0 4 9 *"
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: production-host-core
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      operation: ${{ steps.resolve.outputs.operation }}
+      target_commit: ${{ steps.resolve.outputs.target_commit }}
+      should_run: ${{ steps.resolve.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_TARGET: ${{ inputs.target_commit }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            if [[ "$(date -u +%F)" != "2026-09-04" ]]; then
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "operation=health" >> "$GITHUB_OUTPUT"
+              echo "target_commit=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            operation=full-cutover
+            target_commit="$(git rev-parse origin/main)"
+          else
+            operation="$INPUT_OPERATION"
+            target_commit="${INPUT_TARGET:-$(git rev-parse origin/main)}"
+          fi
+          [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+
+  operate:
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    env:
+      TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+      OPERATION: ${{ needs.resolve.outputs.operation }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.target_commit }}
+          fetch-depth: 0
+      - name: Require successful CI for exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1800))
+          while (( SECONDS < deadline )); do
+            result="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${TARGET_COMMIT}/check-runs" \
+              --jq '[.check_runs[] | select(.name == "verify") | .conclusion] | last // "pending"')"
+            if [[ "$result" == "success" ]]; then
+              exit 0
+            fi
+            if [[ "$result" =~ ^(failure|cancelled|timed_out|action_required|stale)$ ]]; then
+              echo "CI / verify concluded $result" >&2
+              exit 1
+            fi
+            sleep 20
+          done
+          echo "Timed out waiting for CI / verify" >&2
+          exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Build edge artifact
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          npx wrangler deploy --dry-run --outdir /tmp/zacks-edge-dry-run
+      - name: Configure SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Prepare exact remote commit
+        run: |
+          set -euo pipefail
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             git fetch --prune origin '$TARGET_COMMIT'; \
+             test -z \"\$(git status --porcelain)\"; \
+             git checkout --detach '$TARGET_COMMIT'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'"
+      - name: Operate host core
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          remote() {
+            ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+              "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; DEPLOYMENT_COMMIT='$TARGET_COMMIT' \
+               python scripts/host_core_production.py \"$@\" --target-commit '$TARGET_COMMIT'"
+          }
+          deploy_edge() {
+            local cutover="$1"
+            local quiesce="$2"
+            npx wrangler deploy \
+              --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT" \
+              --var "HOST_CORE_CUTOVER:$cutover" \
+              --var "HOST_CORE_QUIESCE:$quiesce"
+          }
+
+          case "$OPERATION" in
+            preflight)
+              remote preflight
+              ;;
+            health)
+              remote health --include-public
+              ;;
+            rollback)
+              remote rollback
+              deploy_edge false false
+              remote health
+              ;;
+            full-cutover)
+              remote deploy-shadow
+              deploy_edge false false
+              remote migrate --pass-name initial
+
+              rollback_required=true
+              recover() {
+                status=$?
+                if [[ "$rollback_required" == "true" ]]; then
+                  set +e
+                  remote rollback
+                  deploy_edge false false
+                fi
+                exit "$status"
+              }
+              trap recover ERR
+
+              deploy_edge false true
+              remote migrate --pass-name final
+              remote cutover
+              deploy_edge true false
+              remote health --include-public
+              rollback_required=false
+              trap - ERR
+              ;;
+            *)
+              echo "Unsupported operation: $OPERATION" >&2
+              exit 2
+              ;;
+          esac
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "### Production Host Core"
+            echo "- Operation: \`$OPERATION\`"
+            echo "- Target commit: \`$TARGET_COMMIT\`"
+            echo "- Result: \`${{ job.status }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
