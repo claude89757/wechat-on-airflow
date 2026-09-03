@@ -23,37 +23,36 @@ from .domain import (
 
 
 def _active_subscriptions(connection: Connection, venue_id: str) -> list[Mapping[str, Any]]:
-    return list(
-        connection.execute(
-            text(
-                """
-                SELECT
-                    s.id,
-                    s.email,
-                    s.start_time,
-                    s.end_time,
-                    s.weekday_mask,
-                    CASE
-                        WHEN tiers.tier = 'priority' AND tiers.revoked_at IS NULL
-                        THEN 'priority'
-                        ELSE 'standard'
-                    END AS tier
-                FROM zacks.subscription_venues selected
-                JOIN zacks.subscriptions s ON s.id = selected.subscription_id
-                LEFT JOIN zacks.user_delivery_tiers tiers ON tiers.email = s.email
-                WHERE selected.venue_id = :venue_id
-                  AND s.active = true
-                  AND s.active_until > now()
-                  AND (
-                    s.auto_renew = false
-                    OR (tiers.tier = 'priority' AND tiers.revoked_at IS NULL)
-                  )
-                ORDER BY s.id
-                """
-            ),
-            {"venue_id": venue_id},
-        ).mappings()
-    )
+    rows = connection.execute(
+        text(
+            """
+            SELECT
+                s.id,
+                s.email,
+                s.start_time,
+                s.end_time,
+                s.weekday_mask,
+                CASE
+                    WHEN tiers.tier = 'priority' AND tiers.revoked_at IS NULL
+                    THEN 'priority'
+                    ELSE 'standard'
+                END AS tier
+            FROM zacks.subscription_venues selected
+            JOIN zacks.subscriptions s ON s.id = selected.subscription_id
+            LEFT JOIN zacks.user_delivery_tiers tiers ON tiers.email = s.email
+            WHERE selected.venue_id = :venue_id
+              AND s.active = true
+              AND s.active_until > now()
+              AND (
+                s.auto_renew = false
+                OR (tiers.tier = 'priority' AND tiers.revoked_at IS NULL)
+              )
+            ORDER BY s.id
+            """
+        ),
+        {"venue_id": venue_id},
+    ).mappings()
+    return [dict(row) for row in rows]
 
 
 def active_subscription_for_venue(venue_id: str) -> bool:
