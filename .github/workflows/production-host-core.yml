@@ -146,13 +146,22 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 0600 ~/.ssh/known_hosts
 
+      - name: Back up and clear bounded tracked worktree drift
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python scripts/repair_airflow_worktree.py \
+            --target-commit "$TARGET_COMMIT" \
+            --expected-dirty-count 1 \
+            --if-needed \
+            --format json
+
       - name: Prepare exact remote commit
         run: |
           set -euo pipefail
           ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
             "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
              git fetch --prune origin main; \
-             test -z \"\$(git status --porcelain)\"; \
+             test -z \"\$(git status --porcelain --untracked-files=no)\"; \
              git checkout --detach '$TARGET_COMMIT'; \
              test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'"
 
