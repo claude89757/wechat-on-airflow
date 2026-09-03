@@ -41,6 +41,7 @@ jobs:
             --base-commit "$BASE_COMMIT" \
             --target-commit "$TARGET_COMMIT" \
             --scope auto \
+            --include-sender \
             --github-output "$GITHUB_OUTPUT" \
             --format json | tee /tmp/ci-plan.json
           {
