@@ -6,7 +6,16 @@ import {
 
 type EdgeEnv = Env & {
   ASSETS: Fetcher;
+  DB: D1Database;
   AIRFLOW_PUSH_TOKEN: string;
+  INVITE_CODE_PEPPER?: string;
+  VERIFICATION_PEPPER: string;
+  TENCENT_SECRET_ID: string;
+  TENCENT_SECRET_KEY: string;
+  TENCENT_REGION: string;
+  EMAIL_FROM_ADDRESS: string;
+  EMAIL_REPLY_TO: string;
+  EMAIL_TEMPLATE_ID: string;
   DEPLOYMENT_COMMIT?: string;
   HOST_CORE_CUTOVER?: string;
   HOST_CORE_QUIESCE?: string;
