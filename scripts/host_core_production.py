@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ LEGACY_OBSERVATION_URL = "https://zacks.claude89757.cc/api/internal/observations
 MIGRATION_DIRECTORY = ROOT / ".local" / "host-core-migration"
 
 
-def run(command, check=True, capture=False, env=None):
+def run(command, check=True, capture=False, env=None, input_text=None):
     return subprocess.run(
         command,
         cwd=str(ROOT),
@@ -26,6 +27,7 @@ def run(command, check=True, capture=False, env=None):
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
         env=env,
+        input=input_text,
     )
 
 
@@ -64,6 +66,16 @@ def assert_target(target_commit):
 
 def variable_set(name, value):
     compose_exec("airflow-api-server", "airflow", "variables", "set", name, value)
+
+
+def variable_get(name):
+    output = compose_exec(
+        "airflow-api-server", "airflow", "variables", "get", name, capture=True
+    )
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        raise RuntimeError(f"Airflow Variable is unavailable: {name}")
+    return lines[-1]
 
 
 def host_python(script, capture=False):
@@ -177,6 +189,18 @@ def preflight(target_commit):
     }
 
 
+def _wait_for_local_health(target_commit, timeout_seconds=180):
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            return local_health(target_commit)
+        except Exception as exc:
+            last_error = exc
+            time.sleep(3)
+    raise RuntimeError(f"host core did not become healthy: {last_error}")
+
+
 def deploy_shadow(target_commit):
     result = preflight(target_commit)
     environment = os.environ.copy()
@@ -192,6 +216,8 @@ def deploy_shadow(target_commit):
         "zacks-notification-worker",
         env=environment,
     )
+    health_value = _wait_for_local_health(target_commit)
+    ready_value = local_ready()
     run(
         [
             sys.executable,
@@ -202,7 +228,8 @@ def deploy_shadow(target_commit):
     )
     result.update(
         {
-            "localHealth": local_health(target_commit),
+            "localHealth": health_value,
+            "localReady": ready_value,
             "deliveryOwner": "cloudflare",
             "observation": "cloudflare",
         }
@@ -214,6 +241,42 @@ def sync_secrets(target_commit):
     assert_target(target_commit)
     environment = os.environ.copy()
     environment["DEPLOYMENT_COMMIT"] = target_commit
+
+    compose("--profile", "maintenance", "build", "zacks-secret-sync", env=environment)
+    edge_token = variable_get("WEBAPP_OBSERVATION_API_TOKEN")
+    if len(edge_token) < 16 or any(character.isspace() for character in edge_token):
+        raise RuntimeError("WEBAPP_OBSERVATION_API_TOKEN is malformed")
+
+    stage_script = """
+set -euo pipefail
+umask 027
+target=/etc/wechat-on-airflow/secrets/zacks_edge_token
+temporary=${target}.tmp.$$
+trap 'rm -f "$temporary"' EXIT
+cat > "$temporary"
+test -s "$temporary"
+chmod 0640 "$temporary"
+mv -f "$temporary" "$target"
+trap - EXIT
+"""
+    run(
+        COMPOSE
+        + [
+            "--profile",
+            "maintenance",
+            "run",
+            "--rm",
+            "-T",
+            "--entrypoint",
+            "sh",
+            "zacks-secret-sync",
+            "-ec",
+            stage_script,
+        ],
+        env=environment,
+        input_text=edge_token + "\n",
+    )
+
     completed = compose(
         "--profile",
         "maintenance",
@@ -222,10 +285,34 @@ def sync_secrets(target_commit):
         "zacks-secret-sync",
         env=environment,
     )
-    check_ses_credentials()
+    validation = run(
+        COMPOSE
+        + [
+            "--profile",
+            "maintenance",
+            "run",
+            "--rm",
+            "-T",
+            "--entrypoint",
+            "python",
+            "zacks-secret-sync",
+            "-c",
+            (
+                "from wechat_airflow.host_core.settings import "
+                "load_settings, load_tencent_email_settings; "
+                "assert load_settings().edge_token; "
+                "load_tencent_email_settings(); print('ready')"
+            ),
+        ],
+        capture=True,
+        env=environment,
+    )
+    if not validation.stdout or validation.stdout.strip().splitlines()[-1] != "ready":
+        raise RuntimeError("host-core secret validation failed")
     return {
         "targetCommit": target_commit,
         "secretSync": "complete",
+        "edgeToken": "staged",
         "returnCode": completed.returncode,
     }
 
@@ -463,8 +550,8 @@ def pause_host_delivery(target_commit):
 
 def rollback(target_commit):
     assert_target(target_commit)
-    health_value = local_health(target_commit)
-    if health_value.get("deliveryOwner") == "airflow_host":
+    owner = variable_get("ZACKS_DELIVERY_OWNER").lower()
+    if owner == "airflow_host":
         raise RuntimeError(
             "legacy rollback is unsafe after host delivery activation; use pause-host-delivery"
         )
@@ -473,10 +560,11 @@ def rollback(target_commit):
     variable_set("ZACKS_WECHAT_GATE_SOURCE", "legacy")
     variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
     variable_set("WEBAPP_OBSERVATION_API_URL", LEGACY_OBSERVATION_URL)
-    compose("up", "-d", "zacks-api", "zacks-notification-worker")
+    compose("stop", "zacks-notification-worker", "zacks-api")
     return {
         "targetCommit": target_commit,
         "deliveryOwner": "cloudflare",
+        "hostServices": "stopped",
         "rolledBack": True,
     }
 
