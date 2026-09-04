@@ -1,0 +1,646 @@
+name: One-time final Host Core production repair v6
+run-name: final-host-core-repair-v6/${{ github.run_id }}
+
+on:
+  push:
+    branches:
+      - ops/final-cutover-v6-20260904
+
+permissions:
+  checks: write
+  contents: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: production-host-core
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 150
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - id: target
+        name: Resolve and verify the exact production commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          target="$(git rev-parse origin/main)"
+          git checkout --detach "$target"
+          test "$(git rev-parse HEAD)" = "$target"
+          grep -q 'version = "0.7.0"' pyproject.toml
+          echo "commit=$target" >> "$GITHUB_OUTPUT"
+
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check -e '.[dev]'
+          npm ci --prefix webapp
+          npm install --prefix webapp --no-save jsonc-parser@3.3.1
+
+          make verify
+          make test-dags
+          make deploy-check
+          make rollback-check
+
+          gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/check-runs" \
+            -f name='verify' \
+            -f head_sha="$target" \
+            -f status='completed' \
+            -f conclusion='success' \
+            -f 'output[title]=Exact production verification passed' \
+            -f 'output[summary]=All repository, DAG, deployment, and rollback checks passed before production mutation.'
+
+      - name: Build the exact Web and Worker artifact
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          npm run test
+          npm run check:worker
+          npm run build
+          npx wrangler deploy --dry-run --outdir /tmp/zacks-v6-dry-run
+
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - id: cutover
+        name: Migrate D1 state and activate the Airflow-host notification core
+        working-directory: webapp
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          umask 077
+          phase=pre_mutation
+          legacy_mutated=false
+          host_activated=false
+          sensitive=(
+            /tmp/zacks-v6-capability.sql
+            /tmp/zacks-v6-final.sql
+            /tmp/zacks-v6-final.sqlite3
+            /tmp/zacks-v6-snapshot.json
+            /tmp/zacks-v6-import.py
+            /tmp/zacks-v6-runtime.json
+          )
+
+          ssh_base=(
+            ssh -o BatchMode=yes -o PreferredAuthentications=publickey
+            -o PasswordAuthentication=no -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST"
+          )
+
+          remote_shell() {
+            "${ssh_base[@]}" "$@"
+          }
+
+          remote_host_core() {
+            local quoted=()
+            local value escaped
+            for value in "$@"; do
+              printf -v escaped '%q' "$value"
+              quoted+=("$escaped")
+            done
+            remote_shell \
+              "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+               PYTHON_BIN=\$(for candidate in python3.12 python3.11 /usr/local/bin/python3.12 /usr/local/bin/python3.11 python; do \
+                 command -v \"\$candidate\" >/dev/null 2>&1 || continue; \
+                 \"\$candidate\" -c 'import sys; assert sys.version_info >= (3, 11)' >/dev/null 2>&1 || continue; \
+                 command -v \"\$candidate\"; break; done); \
+               test -n \"\$PYTHON_BIN\"; \
+               DEPLOYMENT_COMMIT='$TARGET_COMMIT' \"\$PYTHON_BIN\" \
+                 scripts/host_core_production.py ${quoted[*]} --target-commit '$TARGET_COMMIT'"
+          }
+
+          make_runtime_config() {
+            local source_config="$1"
+            local cutover="$2"
+            local quiesce="$3"
+            local migration="$4"
+            SOURCE_CONFIG="$source_config" CUTOVER="$cutover" QUIESCE="$quiesce" \
+              MIGRATION="$migration" TARGET_COMMIT="$TARGET_COMMIT" node <<'NODE'
+          const fs = require('node:fs');
+          const { parse } = require('jsonc-parser');
+          const source = process.env.SOURCE_CONFIG;
+          const raw = fs.readFileSync(source, 'utf8');
+          const errors = [];
+          const config = parse(raw, errors, { allowTrailingComma: true });
+          if (errors.length || !config || typeof config !== 'object') {
+            throw new Error(`unable to parse ${source}: ${JSON.stringify(errors)}`);
+          }
+          config.vars = {
+            ...(config.vars || {}),
+            DEPLOYMENT_COMMIT: process.env.TARGET_COMMIT,
+            HOST_CORE_CUTOVER: process.env.CUTOVER,
+            HOST_CORE_QUIESCE: process.env.QUIESCE,
+            HOST_CORE_MIGRATION_ENABLED: process.env.MIGRATION,
+          };
+          fs.writeFileSync('/tmp/zacks-v6-runtime.json', `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+          }
+
+          deploy_edge() {
+            local mode="$1"
+            local cutover="$2"
+            local quiesce="$3"
+            local migration="$4"
+            local source_config=wrangler.jsonc
+            if [[ "$mode" == legacy && -f wrangler.legacy.jsonc ]]; then
+              source_config=wrangler.legacy.jsonc
+            fi
+            make_runtime_config "$source_config" "$cutover" "$quiesce" "$migration"
+            npx wrangler deploy --config /tmp/zacks-v6-runtime.json
+            rm -f /tmp/zacks-v6-runtime.json
+          }
+
+          export_d1() {
+            local output="$1"
+            local attempt
+            rm -f "$output"
+            for attempt in 1 2 3; do
+              if npx wrangler d1 export zacks-tennis-alerts --remote \
+                --config wrangler.legacy.jsonc --output "$output"; then
+                test -s "$output"
+                return 0
+              fi
+              rm -f "$output"
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+
+          verify_public_edge() {
+            PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
+              --expected-commit "$TARGET_COMMIT" --format json \
+              --propagation-timeout-seconds 180 --retry-interval-seconds 5
+          }
+
+          clean_sensitive() {
+            rm -f "${sensitive[@]}" || true
+            remote_shell "rm -f /tmp/zacks-v6-snapshot.json /tmp/zacks-v6-import.py" || true
+          }
+
+          recover() {
+            local status=$?
+            set +e
+            clean_sensitive
+            if [[ "$host_activated" == true ]]; then
+              remote_host_core pause-host-delivery
+            elif [[ "$legacy_mutated" == true ]]; then
+              remote_host_core rollback
+              deploy_edge legacy false false false
+            fi
+            exit "$status"
+          }
+          trap recover ERR
+          trap clean_sensitive EXIT
+
+          # Do not change production unless the D1 export/backup plane is usable.
+          export_d1 /tmp/zacks-v6-capability.sql
+          rm -f /tmp/zacks-v6-capability.sql
+
+          current="$(curl --silent --show-error --max-time 15 \
+            https://zacks.claude89757.cc/api/healthz || true)"
+          if jq -e --arg commit "$TARGET_COMMIT" \
+            '.ok == true and .runtime == "airflow-host" and .deliveryOwner == "airflow_host" and .deploymentCommit == $commit' \
+            >/dev/null <<<"$current"; then
+            remote_host_core health --include-public
+            verify_public_edge
+            echo "already_live=true" >> "$GITHUB_OUTPUT"
+            echo "performed_cutover=false" >> "$GITHUB_OUTPUT"
+            trap - ERR
+            exit 0
+          fi
+
+          remote_shell \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             git fetch --prune origin main; \
+             if test -n \"\$(git status --porcelain)\"; then \
+               git stash push --include-untracked -m 'zacks-v6-before-$TARGET_COMMIT'; \
+             fi; \
+             git checkout --detach '$TARGET_COMMIT'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'"
+
+          remote_host_core preflight
+          deploy_edge legacy false false true
+          legacy_mutated=true
+          phase=shadow
+          remote_host_core deploy-shadow
+          remote_host_core sync-secrets
+          remote_host_core enable-dual
+
+          # Natural Airflow observations populate the local venue status without
+          # creating any synthetic slots, emails, or WeChat messages.
+          sleep 180
+
+          phase=legacy_frozen
+          deploy_edge legacy false true true
+          sleep 60
+
+          # The legacy Worker is now frozen. This is the final immutable D1
+          # snapshot, so no delivery or subscription delta can be lost.
+          export_d1 /tmp/zacks-v6-final.sql
+
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import json
+          import sqlite3
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          sql_path = Path('/tmp/zacks-v6-final.sql')
+          db_path = Path('/tmp/zacks-v6-final.sqlite3')
+          snapshot_path = Path('/tmp/zacks-v6-snapshot.json')
+          db_path.unlink(missing_ok=True)
+          connection = sqlite3.connect(db_path)
+          try:
+              connection.executescript(sql_path.read_text(encoding='utf-8'))
+              connection.row_factory = sqlite3.Row
+              table_names = [
+                  str(row[0])
+                  for row in connection.execute(
+                      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                  )
+                  if not str(row[0]).startswith('sqlite_')
+                  and not str(row[0]).startswith('_cf_')
+              ]
+              tables: dict[str, list[dict[str, object]]] = {}
+              for name in table_names:
+                  quoted = '"' + name.replace('"', '""') + '"'
+                  rows = []
+                  for row in connection.execute(f'SELECT * FROM {quoted}'):
+                      item: dict[str, object] = {}
+                      for key in row.keys():
+                          value = row[key]
+                          if isinstance(value, bytes):
+                              value = base64.b64encode(value).decode('ascii')
+                          item[str(key)] = value
+                      rows.append(item)
+                  tables[name] = rows
+          finally:
+              connection.close()
+              db_path.unlink(missing_ok=True)
+
+          required = {'venue_status', 'subscriptions'}
+          missing = sorted(required - set(tables))
+          if missing:
+              raise SystemExit(f'D1 export is missing required tables: {missing}')
+          if not tables['venue_status']:
+              raise SystemExit('D1 venue_status is empty')
+          if not tables['subscriptions']:
+              raise SystemExit('D1 subscriptions is empty')
+
+          snapshot = {
+              'version': 1,
+              'schemaVersion': 1,
+              'exportedAt': datetime.now(UTC).isoformat(),
+              'tables': tables,
+              'data': tables,
+              **tables,
+          }
+          snapshot_path.write_text(
+              json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')),
+              encoding='utf-8',
+          )
+          print(json.dumps({
+              'tableCount': len(tables),
+              'rowCounts': {name: len(rows) for name, rows in tables.items()},
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
+          cat >/tmp/zacks-v6-import.py <<'PY'
+          from __future__ import annotations
+
+          import json
+          import sys
+          from pathlib import Path
+
+          from wechat_airflow.host_core.migration import import_snapshot
+
+          snapshot = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+          counts = import_snapshot(snapshot, source_revision=sys.argv[2])
+          if not isinstance(counts, dict):
+              raise SystemExit('host import returned an invalid result')
+          imported = sum(int(value or 0) for value in counts.values())
+          if imported <= 0:
+              raise SystemExit('host import produced no rows')
+          print(json.dumps({'success': True, 'counts': counts}, sort_keys=True))
+          PY
+
+          scp -q -P "$AIRFLOW_SSH_PORT" \
+            /tmp/zacks-v6-snapshot.json /tmp/zacks-v6-import.py \
+            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:/tmp/"
+          remote_shell \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             container_id=\$(docker compose ps -q zacks-api); \
+             test -n \"\$container_id\"; \
+             docker cp /tmp/zacks-v6-snapshot.json \"\$container_id:/tmp/zacks-v6-snapshot.json\"; \
+             docker cp /tmp/zacks-v6-import.py \"\$container_id:/tmp/zacks-v6-import.py\"; \
+             docker compose exec -T zacks-api python /tmp/zacks-v6-import.py \
+               /tmp/zacks-v6-snapshot.json '$TARGET_COMMIT'; \
+             docker compose exec -T zacks-api rm -f \
+               /tmp/zacks-v6-snapshot.json /tmp/zacks-v6-import.py; \
+             rm -f /tmp/zacks-v6-snapshot.json /tmp/zacks-v6-import.py"
+
+          remote_host_core shadow-evidence
+          phase=delivery_paused
+          remote_host_core prepare-cutover
+
+          # Public API moves first while both legacy and local delivery are
+          # paused. Host delivery cannot start until this edge is verified.
+          deploy_edge stateless true false false
+          verify_public_edge
+
+          phase=host_activation
+          remote_host_core cutover
+          host_activated=true
+          legacy_mutated=false
+          remote_host_core health --include-public
+          verify_public_edge
+
+          echo "already_live=false" >> "$GITHUB_OUTPUT"
+          echo "performed_cutover=true" >> "$GITHUB_OUTPUT"
+          trap - ERR
+
+      - name: Deploy exact Airflow commit transactionally
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if PYTHONPATH=src python scripts/deploy_airflow_transaction.py \
+              --target-commit "$TARGET_COMMIT" --format json; then
+              exit 0
+            fi
+            sleep $((attempt * 20))
+          done
+          exit 1
+
+      - name: Validate Airflow, Host Core, Web and WeChat Sender
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python scripts/production_health.py \
+            --expected-commit "$TARGET_COMMIT" --format json
+          PYTHONPATH=scripts python scripts/webapp_production_health.py \
+            --expected-commit "$TARGET_COMMIT" --format json \
+            --propagation-timeout-seconds 180 --retry-interval-seconds 5
+
+          ssh -o BatchMode=yes -o PreferredAuthentications=publickey \
+            -o PasswordAuthentication=no -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" "$TARGET_COMMIT" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          target="$2"
+          test "$(git rev-parse HEAD)" = "$target"
+          compose() {
+            if docker compose version >/dev/null 2>&1; then docker compose "$@";
+            else docker-compose "$@"; fi
+          }
+          required='airflow-api-server airflow-dag-processor airflow-scheduler airflow-triggerer airflow-worker postgresql redis zacks-api zacks-notification-worker'
+          running="$(compose ps --services --status running)"
+          for service in $required; do grep -qx "$service" <<<"$running"; done
+
+          curl -fsS --max-time 10 http://127.0.0.1:8090/zacks-api/api/healthz \
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] is True; assert d["runtime"] == "airflow-host"; assert d["deliveryOwner"] == "airflow_host"'
+          curl -fsS --max-time 10 http://127.0.0.1:8090/zacks-api/api/readyz \
+            | python -c 'import json,sys; assert json.load(sys.stdin)["ok"] is True'
+
+          api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
+          compose exec -T "$api_service" python - <<'PY'
+          import json
+          from urllib.parse import urlsplit, urlunsplit
+          import requests
+          from airflow.models.variable import Variable
+
+          url = str(Variable.get('WECHAT_SEND_API_URL', default_var='') or '').strip()
+          if not url:
+              raise SystemExit('WECHAT_SEND_API_URL is missing')
+          parsed = urlsplit(url)
+          ready = urlunsplit((parsed.scheme, parsed.netloc, '/readyz', '', ''))
+          response = requests.get(ready, timeout=10)
+          response.raise_for_status()
+          payload = response.json()
+          assert payload.get('ok') is True
+          assert payload.get('appium_ready') is True
+          assert payload.get('device_ready') is True
+          print(json.dumps({'ok': True, 'senderHost': parsed.netloc}, sort_keys=True))
+          PY
+          REMOTE
+
+      - name: Observe three natural cycles and run final business acceptance
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          sleep 180
+          ssh -o BatchMode=yes -o PreferredAuthentications=publickey \
+            -o PasswordAuthentication=no -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" "$TARGET_COMMIT" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          target="$2"
+          PYTHON_BIN="$(for candidate in python3.12 python3.11 /usr/local/bin/python3.12 /usr/local/bin/python3.11 python; do
+            command -v "$candidate" >/dev/null 2>&1 || continue
+            "$candidate" -c 'import sys; assert sys.version_info >= (3, 11)' >/dev/null 2>&1 || continue
+            command -v "$candidate"; break
+          done)"
+          test -n "$PYTHON_BIN"
+          DEPLOYMENT_COMMIT="$target" "$PYTHON_BIN" scripts/host_core_production.py \
+            shadow-evidence --target-commit "$target"
+          DEPLOYMENT_COMMIT="$target" "$PYTHON_BIN" scripts/host_core_production.py \
+            health --include-public --target-commit "$target"
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then docker compose "$@";
+            else docker-compose "$@"; fi
+          }
+          api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
+          compose exec -T "$api_service" python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from datetime import UTC, datetime
+          from airflow.models.dag import DagModel
+          from airflow.models.dagrun import DagRun
+          from airflow.utils.session import create_session
+
+          now = datetime.now(UTC)
+          def state(run):
+              value = getattr(run.state, 'value', run.state)
+              return str(value).lower()
+          def stamp(run):
+              value = run.end_date or run.start_date or run.logical_date
+              if value.tzinfo is None:
+                  value = value.replace(tzinfo=UTC)
+              return value.astimezone(UTC)
+
+          with create_session() as session:
+              dag_ids = sorted(
+                  dag_id for (dag_id,) in session.query(DagModel.dag_id).all()
+                  if '巡检' in str(dag_id) and not str(dag_id).startswith('HTTPS可用代理巡检')
+              )
+              details = []
+              for dag_id in dag_ids:
+                  runs = (
+                      session.query(DagRun)
+                      .filter(DagRun.dag_id == dag_id)
+                      .order_by(DagRun.id.desc())
+                      .limit(8)
+                      .all()
+                  )
+                  success = next((run for run in runs if state(run) == 'success'), None)
+                  completed = next((run for run in runs if state(run) in {'success', 'failed'}), None)
+                  age = None if success is None else (now - stamp(success)).total_seconds() / 60
+                  details.append({
+                      'dag_id': dag_id,
+                      'last_success_age_minutes': age,
+                      'latest_completed_state': state(completed) if completed else None,
+                  })
+          stale = [item for item in details if item['last_success_age_minutes'] is None or item['last_success_age_minutes'] > 10]
+          failed = [item for item in details if item['latest_completed_state'] == 'failed']
+          if len(details) != 26 or stale or failed:
+              raise SystemExit(json.dumps({'count': len(details), 'stale': stale, 'failed': failed}, ensure_ascii=False))
+          print(json.dumps({'ok': True, 'venueDagCount': len(details), 'freshWithinMinutes': 10}, ensure_ascii=False, sort_keys=True))
+          PY
+
+          compose exec -T zacks-api python - <<'PY'
+          import json
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import transaction
+          with transaction() as connection:
+              active_subscriptions = int(connection.execute(text("""
+                  SELECT count(*) FROM zacks.subscriptions
+                  WHERE active = true AND active_until > now()
+              """)).scalar_one())
+              venue_count = int(connection.execute(text('SELECT count(*) FROM zacks.venue_status')).scalar_one())
+              recent_venues = int(connection.execute(text("""
+                  SELECT count(*) FROM zacks.venue_status
+                  WHERE last_inspection_at >= now() - interval '10 minutes'
+              """)).scalar_one())
+              recent_failed = int(connection.execute(text("""
+                  SELECT count(*) FROM zacks.notification_outbox
+                  WHERE status = 'failed' AND updated_at >= now() - interval '30 minutes'
+              """)).scalar_one())
+          result = {
+              'activeSubscriptions': active_subscriptions,
+              'venueCount': venue_count,
+              'recentVenues': recent_venues,
+              'recentFailedOutbox': recent_failed,
+          }
+          if active_subscriptions <= 0 or venue_count != 26 or recent_venues < 20 or recent_failed != 0:
+              raise SystemExit(json.dumps(result, sort_keys=True))
+          print(json.dumps({'ok': True, **result}, sort_keys=True))
+          PY
+          REMOTE
+
+          python - "$TARGET_COMMIT" <<'PY'
+          import json
+          import sys
+          import urllib.request
+
+          target = sys.argv[1]
+          base = 'https://zacks.claude89757.cc'
+          def get(path):
+              request = urllib.request.Request(base + path, headers={'User-Agent': 'zacks-v6-final/1'})
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  if response.status != 200:
+                      raise RuntimeError(f'{path}: HTTP {response.status}')
+                  return json.loads(response.read().decode('utf-8'))
+          health = get('/api/healthz')
+          ready = get('/api/readyz')
+          edge = get('/api/edge-healthz')
+          bootstrap = get('/api/bootstrap')
+          assert health.get('ok') is True
+          assert health.get('runtime') == 'airflow-host'
+          assert health.get('deliveryOwner') == 'airflow_host'
+          assert health.get('deploymentCommit') == target
+          assert ready.get('ok') is True
+          assert edge.get('ok') is True
+          assert edge.get('runtime') == 'cloudflare-stateless-edge'
+          assert edge.get('deploymentCommit') == target
+          assert edge.get('cutover') is True
+          assert edge.get('quiesced') is False
+          assert edge.get('migrationEndpoint') is False
+          venues = bootstrap.get('venues') or []
+          assert len(venues) == 26
+          print(json.dumps({'ok': True, 'venueCount': len(venues), 'target': target}, sort_keys=True))
+          PY
+
+      - name: Create or verify the immutable 0.7.0 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          existing="$(git rev-parse -q --verify 'refs/tags/0.7.0^{}' || true)"
+          if [[ -n "$existing" && "$existing" != "$TARGET_COMMIT" ]]; then
+            echo "Existing 0.7.0 tag points to $existing, expected $TARGET_COMMIT" >&2
+            exit 1
+          fi
+          if [[ -z "$existing" ]]; then
+            git tag 0.7.0 "$TARGET_COMMIT"
+            git push origin refs/tags/0.7.0
+          fi
+          if ! gh release view 0.7.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create 0.7.0 --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_COMMIT" --title "0.7.0" \
+              --notes "Airflow-host notification core production cutover. PostgreSQL is the durable business owner and Cloudflare is a stateless edge. Acceptance used three natural venue cycles and sent no synthetic email or WeChat messages."
+          fi
+          tag_sha="$(git rev-parse 'refs/tags/0.7.0^{}')"
+          test "$tag_sha" = "$TARGET_COMMIT"
+          gh release view 0.7.0 --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease,targetCommitish \
+            --jq 'select(.isDraft == false and .isPrerelease == false)'
+
+      - name: Publish final production success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body \
+            "### ✅ Host Core 0.7.0 最终修复与生产验收完成\n\n- Exact production commit: \`$TARGET_COMMIT\`\n- Airflow services and PostgreSQL: passed\n- zacks-api and notification worker: passed\n- Cloudflare stateless edge: passed\n- WeChat Sender/Appium/device readiness: passed\n- 26 venue DAGs and three natural cycles: passed\n- Active subscription migration and Outbox acceptance: passed\n- Release/tag 0.7.0: verified\n- Synthetic email or WeChat probes: none\n\nRun: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
