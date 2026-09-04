@@ -1,0 +1,30 @@
+name: One-time final authorized Host Core cutover
+
+on:
+  push:
+    branches:
+      - ops/final-authorized-cutover-20260905
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: final-authorized-host-core-cutover
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: full-cutover
+      target_commit: eacd0b813889091382d76a43c146484fd1173881
+    secrets: inherit
+
+  health:
+    needs: cutover
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: health
+      target_commit: eacd0b813889091382d76a43c146484fd1173881
+    secrets: inherit
