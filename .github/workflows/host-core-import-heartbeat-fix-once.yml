@@ -40,141 +40,97 @@ jobs:
           script_path = Path("scripts/host_core_production.py")
           source = script_path.read_text(encoding="utf-8")
 
-          helper_anchor = '\n\ndef compose(*arguments, **kwargs):\n'
-          helper = '''
+          helper_anchor = "\n\ndef compose(*arguments, **kwargs):\n"
+          helper = textwrap.dedent(
+              '''
 
-          def run_captured_with_heartbeat(
-              command,
-              label,
-              check=True,
-              interval_seconds=20,
-              env=None,
-          ):
-              if interval_seconds <= 0:
-                  raise ValueError("heartbeat interval must be positive")
-              started_at = time.monotonic()
-              process = subprocess.Popen(
+              def run_captured_with_heartbeat(
                   command,
-                  cwd=str(ROOT),
-                  universal_newlines=True,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.PIPE,
-                  env=env,
-              )
-              try:
-                  while True:
-                      try:
-                          stdout, stderr = process.communicate(timeout=interval_seconds)
-                          break
-                      except subprocess.TimeoutExpired:
-                          print(
-                              json.dumps(
-                                  {
-                                      "elapsedSeconds": int(time.monotonic() - started_at),
-                                      "event": "host_core_subprocess_heartbeat",
-                                      "label": label,
-                                  },
-                                  sort_keys=True,
-                              ),
-                              file=sys.stderr,
-                              flush=True,
-                          )
-              except BaseException:
-                  process.kill()
-                  process.communicate()
-                  raise
-
-              completed = subprocess.CompletedProcess(
-                  command,
-                  process.returncode,
-                  stdout,
-                  stderr,
-              )
-              if check and completed.returncode:
-                  raise subprocess.CalledProcessError(
-                      completed.returncode,
+                  label,
+                  check=True,
+                  interval_seconds=20,
+                  env=None,
+              ):
+                  if interval_seconds <= 0:
+                      raise ValueError("heartbeat interval must be positive")
+                  started_at = time.monotonic()
+                  process = subprocess.Popen(
                       command,
-                      output=completed.stdout,
-                      stderr=completed.stderr,
+                      cwd=str(ROOT),
+                      universal_newlines=True,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.PIPE,
+                      env=env,
                   )
-              return completed
-          '''
-          helper = textwrap.dedent(helper)
+                  try:
+                      while True:
+                          try:
+                              stdout, stderr = process.communicate(timeout=interval_seconds)
+                              break
+                          except subprocess.TimeoutExpired:
+                              print(
+                                  json.dumps(
+                                      {
+                                          "elapsedSeconds": int(time.monotonic() - started_at),
+                                          "event": "host_core_subprocess_heartbeat",
+                                          "label": label,
+                                      },
+                                      sort_keys=True,
+                                  ),
+                                  file=sys.stderr,
+                                  flush=True,
+                              )
+                  except BaseException:
+                      process.kill()
+                      process.communicate()
+                      raise
+
+                  completed = subprocess.CompletedProcess(
+                      command,
+                      process.returncode,
+                      stdout,
+                      stderr,
+                  )
+                  if check and completed.returncode:
+                      raise subprocess.CalledProcessError(
+                          completed.returncode,
+                          command,
+                          output=completed.stdout,
+                          stderr=completed.stderr,
+                      )
+                  return completed
+              '''
+          )
           if source.count(helper_anchor) != 1:
               raise SystemExit(f"helper anchor count: {source.count(helper_anchor)}")
           source = source.replace(helper_anchor, helper + helper_anchor, 1)
 
-          import_old = '''        output = compose_exec(
-              "zacks-api",
-              "python",
-              "/opt/airflow/project/scripts/import_d1_sql_export.py",
-              "--sql-export",
-              container_path,
-              "--source-revision",
-              target_commit,
-              "--expected-sha256",
-              actual_sha256,
-              capture=True,
+          migration_start = source.index("def migrate_sql(")
+          import_start = source.index("        output = compose_exec(\n", migration_start)
+          import_end_marker = "            capture=True,\n        )\n"
+          import_end = source.index(import_end_marker, import_start) + len(import_end_marker)
+          import_new = (
+              "        completed = run_captured_with_heartbeat(\n"
+              "            COMPOSE\n"
+              "            + [\n"
+              "                \"exec\",\n"
+              "                \"-T\",\n"
+              "                \"zacks-api\",\n"
+              "                \"python\",\n"
+              "                \"/opt/airflow/project/scripts/import_d1_sql_export.py\",\n"
+              "                \"--sql-export\",\n"
+              "                container_path,\n"
+              "                \"--source-revision\",\n"
+              "                target_commit,\n"
+              "                \"--expected-sha256\",\n"
+              "                actual_sha256,\n"
+              "            ],\n"
+              "            \"D1 SQL import ({})\".format(pass_name),\n"
+              "        )\n"
+              "        output = completed.stdout.strip() if completed.stdout else \"\"\n"
           )
-          '''
-          import_new = '''        completed = run_captured_with_heartbeat(
-              COMPOSE
-              + [
-                  "exec",
-                  "-T",
-                  "zacks-api",
-                  "python",
-                  "/opt/airflow/project/scripts/import_d1_sql_export.py",
-                  "--sql-export",
-                  container_path,
-                  "--source-revision",
-                  target_commit,
-                  "--expected-sha256",
-                  actual_sha256,
-              ],
-              "D1 SQL import ({})".format(pass_name),
-          )
-              output = completed.stdout.strip() if completed.stdout else ""
-          '''
-          import_new = textwrap.dedent(import_new).replace(
-              "completed =", "        completed =", 1
-          ).replace(
-              '\n    COMPOSE', '\n            COMPOSE', 1
-          ).replace(
-              '\n    + [', '\n            + [', 1
-          ).replace(
-              '\n        "exec"', '\n                "exec"'
-          ).replace(
-              '\n        "-T"', '\n                "-T"'
-          ).replace(
-              '\n        "zacks-api"', '\n                "zacks-api"'
-          ).replace(
-              '\n        "python"', '\n                "python"'
-          ).replace(
-              '\n        "/opt', '\n                "/opt'
-          ).replace(
-              '\n        "--', '\n                "--'
-          ).replace(
-              '\n        container_path', '\n                container_path'
-          ).replace(
-              '\n        target_commit', '\n                target_commit'
-          ).replace(
-              '\n        actual_sha256', '\n                actual_sha256'
-          ).replace(
-              '\n    ],', '\n            ],'
-          ).replace(
-              '\n    "D1 SQL', '\n            "D1 SQL'
-          ).replace(
-              '\n)', '\n        )', 1
-          ).replace(
-              '\n    output =', '\n        output ='
-          )
-          if source.count(import_old) != 1:
-              raise SystemExit(f"import anchor count: {source.count(import_old)}")
-          script_path.write_text(
-              source.replace(import_old, import_new, 1),
-              encoding="utf-8",
-          )
+          source = source[:import_start] + import_new + source[import_end:]
+          script_path.write_text(source, encoding="utf-8")
 
           Path("tests/host_core_import_heartbeat_test.py").write_text(
               textwrap.dedent(
@@ -227,7 +183,9 @@ jobs:
                           raise AssertionError("completed process must not be killed")
 
 
-                  def test_timeout_emits_live_heartbeat_to_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+                  def test_timeout_emits_live_heartbeat_to_stderr(
+                      capsys: pytest.CaptureFixture[str],
+                  ) -> None:
                       process = TimeoutThenSuccess()
                       with (
                           patch.object(MODULE.subprocess, "Popen", return_value=process),
