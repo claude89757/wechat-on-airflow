@@ -1,0 +1,175 @@
+name: One-time final Host Core production repair
+run-name: final-host-core-repair/${{ github.run_id }}
+
+on:
+  push:
+    branches:
+      - ops/final-host-core-repair-20260904
+
+permissions:
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: read
+
+env:
+  RELEASE_VERSION: 0.7.0
+
+concurrency:
+  group: one-time-final-host-core-production-repair
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      target_commit: ${{ steps.resolve.outputs.target_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          target_commit="$(git rev-parse origin/main)"
+          test "$(git show "$target_commit:pyproject.toml" | grep -c 'version = "0.7.0"')" -ge 1
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+
+          deadline=$((SECONDS + 2700))
+          while (( SECONDS < deadline )); do
+            payload="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${target_commit}/check-runs")"
+            success_count="$(jq '[.check_runs[] | select(.name == "verify" and .conclusion == "success")] | length' <<<"$payload")"
+            terminal_failures="$(jq '[.check_runs[] | select(.name == "verify" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required" or .conclusion == "stale"))] | length' <<<"$payload")"
+            if (( success_count > 0 )); then
+              printf 'Authoritative verify succeeded for %s\n' "$target_commit"
+              exit 0
+            fi
+            if (( terminal_failures > 0 )); then
+              jq '[.check_runs[] | select(.name == "verify") | {name,status,conclusion,html_url}]' <<<"$payload"
+              exit 1
+            fi
+            sleep 20
+          done
+          echo "Timed out waiting for the authoritative verify check on $target_commit" >&2
+          exit 1
+
+  ship:
+    needs: resolve
+    uses: ./.github/workflows/production-ship.yml
+    with:
+      version: 0.7.0
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      scope: auto
+      include_sender: false
+    secrets: inherit
+
+  final_airflow:
+    needs: [resolve, ship]
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      request_id: final-airflow-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  final_host_core:
+    needs: [resolve, ship]
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+    secrets: inherit
+
+  final_webapp:
+    needs: [resolve, ship]
+    uses: ./.github/workflows/production-webapp.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      request_id: final-web-${{ github.run_id }}
+    secrets: inherit
+
+  final_sender:
+    needs: [resolve, ship]
+    uses: ./.github/workflows/production-wechat-sender.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      request_id: final-sender-${{ github.run_id }}
+    secrets: inherit
+
+  natural_cycles:
+    needs: [resolve, ship, final_airflow, final_host_core, final_webapp, final_sender]
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Observe three natural venue cycles without synthetic delivery
+        run: |
+          set -euo pipefail
+          sleep 180
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'; \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+             shadow-evidence --target-commit '$TARGET_COMMIT'; \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+             health --include-public --target-commit '$TARGET_COMMIT'"
+
+  report:
+    if: always()
+    needs:
+      - resolve
+      - ship
+      - final_airflow
+      - final_host_core
+      - final_webapp
+      - final_sender
+      - natural_cycles
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish authoritative repair result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+          SHIP: ${{ needs.ship.result }}
+          AIRFLOW: ${{ needs.final_airflow.result }}
+          HOST_CORE: ${{ needs.final_host_core.result }}
+          WEBAPP: ${{ needs.final_webapp.result }}
+          SENDER: ${{ needs.final_sender.result }}
+          CYCLES: ${{ needs.natural_cycles.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          body="### Host Core 0.7.0 最终生产修复\n\n- Target: \`$TARGET_COMMIT\`\n- Ship: \`$SHIP\`\n- Airflow: \`$AIRFLOW\`\n- Host Core: \`$HOST_CORE\`\n- Web: \`$WEBAPP\`\n- WeChat Sender: \`$SENDER\`\n- Three natural cycles: \`$CYCLES\`\n- Synthetic email/WeChat probes: none\n\nRun: $RUN_URL"
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "$body"
+          test "$SHIP" = success
+          test "$AIRFLOW" = success
+          test "$HOST_CORE" = success
+          test "$WEBAPP" = success
+          test "$SENDER" = success
+          test "$CYCLES" = success
