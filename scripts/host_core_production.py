@@ -246,7 +246,7 @@ def sync_secrets(target_commit):
         raise RuntimeError("WEBAPP_OBSERVATION_API_TOKEN is malformed")
 
     stage_script = """
-set -euo pipefail
+set -eu
 umask 027
 target=/etc/wechat-on-airflow/secrets/zacks_edge_token
 temporary=${target}.tmp.$$
