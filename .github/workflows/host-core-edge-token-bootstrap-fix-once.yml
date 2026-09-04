@@ -1,0 +1,354 @@
+name: One-time host-core bootstrap repair
+
+on:
+  push:
+    branches:
+      - fix/host-core-edge-token-bootstrap-20260904
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/host-core-edge-token-bootstrap-20260904
+          fetch-depth: 0
+
+      - name: Apply deterministic repair
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import re
+          from pathlib import Path
+
+
+          def one(source: str, old: str, new: str, label: str) -> str:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return source.replace(old, new, 1)
+
+
+          secret_path = Path("src/wechat_airflow/host_core/secret_sync.py")
+          secret = secret_path.read_text(encoding="utf-8")
+          secret = one(secret, "import os\nimport tempfile\n", "import os\nimport subprocess\nimport tempfile\n", "subprocess import")
+          secret = one(secret, "}\n\n\ndef _encode", '}\nEDGE_TOKEN_FILENAME = "zacks_edge_token"\n\n\ndef _encode', "edge token constant")
+
+          start = secret.index("def _airflow_variable(name: str) -> str | None:\n")
+          end = secret.index("\n\ndef _migration_token", start)
+          secret = secret[:start] + '''def _airflow_variable(name: str) -> str | None:
+              value: object | None = None
+              try:
+                  from airflow.sdk import Variable as SdkVariable
+
+                  value = SdkVariable.get(name, default=None)
+              except Exception:
+                  try:
+                      from airflow.models.variable import Variable as ModelVariable
+
+                      value = ModelVariable.get(name, default_var=None)
+                  except Exception:
+                      pass
+              if value is None:
+                  try:
+                      completed = subprocess.run(
+                          ["airflow", "variables", "get", name],
+                          check=True,
+                          text=True,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL,
+                      )
+                  except (OSError, subprocess.CalledProcessError):
+                      return None
+                  lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+                  value = lines[-1] if lines else None
+              if value is None:
+                  return None
+              normalized = str(value).strip()
+              return normalized or None
+          ''' + secret[end:]
+
+          install_marker = '''def install_secret_bundle(secret_dir: Path, bundle: dict[str, str]) -> int:
+              for key, filename in SECRET_FILENAMES.items():
+                  _atomic_secret(secret_dir / filename, bundle[key])
+              return len(SECRET_FILENAMES)
+          '''
+          install_replacement = install_marker + '''
+
+          def install_edge_token(secret_dir: Path, token: str) -> Path:
+              normalized = token.strip()
+              if not normalized:
+                  raise RuntimeError("edge token must not be empty")
+              path = secret_dir / EDGE_TOKEN_FILENAME
+              _atomic_secret(path, normalized)
+              return path
+          '''
+          secret = one(secret, install_marker, install_replacement, "edge token installer")
+          secret = one(
+              secret,
+              '''    arguments = parser.parse_args()
+              bundle = request_secret_bundle(arguments.base_url, _migration_token())
+              installed = install_secret_bundle(arguments.secret_dir, bundle)
+              print(json.dumps({"success": True, "installed": installed}, sort_keys=True))
+          ''',
+              '''    arguments = parser.parse_args()
+              token = _migration_token()
+              install_edge_token(arguments.secret_dir, token)
+              bundle = request_secret_bundle(arguments.base_url, token)
+              installed = install_secret_bundle(arguments.secret_dir, bundle) + 1
+              print(json.dumps({"success": True, "installed": installed}, sort_keys=True))
+          ''',
+              "secret sync main",
+          )
+          secret_path.write_text(secret, encoding="utf-8")
+
+          host_path = Path("scripts/host_core_production.py")
+          host = host_path.read_text(encoding="utf-8")
+          host = one(host, "import sys\nfrom pathlib import Path\n", "import sys\nimport time\nfrom pathlib import Path\n", "time import")
+          host = one(
+              host,
+              '''def variable_set(name, value):
+              compose_exec("airflow-api-server", "airflow", "variables", "set", name, value)
+
+
+          def host_python(script, capture=False):
+          ''',
+              '''def variable_set(name, value):
+              compose_exec("airflow-api-server", "airflow", "variables", "set", name, value)
+
+
+          def variable_get(name):
+              output = compose_exec(
+                  "airflow-api-server", "airflow", "variables", "get", name, capture=True
+              )
+              lines = [line.strip() for line in output.splitlines() if line.strip()]
+              if not lines:
+                  raise RuntimeError(f"Airflow Variable is unavailable: {name}")
+              return lines[-1]
+
+
+          def host_python(script, capture=False):
+          ''',
+              "variable getter",
+          )
+
+          deploy_start = host.index("def deploy_shadow(target_commit):\n")
+          deploy_end = host.index("\n\ndef sync_secrets", deploy_start)
+          host = host[:deploy_start] + '''def _wait_for_local_health(target_commit, timeout_seconds=180):
+              deadline = time.monotonic() + timeout_seconds
+              last_error = None
+              while time.monotonic() < deadline:
+                  try:
+                      return local_health(target_commit)
+                  except Exception as exc:
+                      last_error = exc
+                      time.sleep(3)
+              raise RuntimeError(f"host core did not become healthy: {last_error}")
+
+
+          def deploy_shadow(target_commit):
+              result = preflight(target_commit)
+              environment = os.environ.copy()
+              environment["DEPLOYMENT_COMMIT"] = target_commit
+              variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
+              variable_set("ZACKS_OBSERVATION_MODE", "cloudflare")
+              variable_set("ZACKS_WECHAT_GATE_SOURCE", "legacy")
+              compose(
+                  "up",
+                  "-d",
+                  "--build",
+                  "zacks-api",
+                  "zacks-notification-worker",
+                  env=environment,
+              )
+              health_value = _wait_for_local_health(target_commit)
+              ready_value = local_ready()
+              run(
+                  [
+                      sys.executable,
+                      str(ROOT / "scripts" / "configure_zacks_tunnel.py"),
+                      "--apply",
+                      "--restart",
+                  ]
+              )
+              result.update(
+                  {
+                      "localHealth": health_value,
+                      "localReady": ready_value,
+                      "deliveryOwner": "cloudflare",
+                      "observation": "cloudflare",
+                  }
+              )
+              return result
+          ''' + host[deploy_end:]
+
+          sync_start = host.index("def sync_secrets(target_commit):\n")
+          sync_end = host.index("\n\ndef migrate(", sync_start)
+          host = host[:sync_start] + '''def sync_secrets(target_commit):
+              assert_target(target_commit)
+              environment = os.environ.copy()
+              environment["DEPLOYMENT_COMMIT"] = target_commit
+              compose("build", "zacks-secret-sync", env=environment)
+              completed = compose(
+                  "--profile",
+                  "maintenance",
+                  "run",
+                  "--rm",
+                  "zacks-secret-sync",
+                  env=environment,
+              )
+              validation = run(
+                  COMPOSE
+                  + [
+                      "--profile",
+                      "maintenance",
+                      "run",
+                      "--rm",
+                      "-T",
+                      "--entrypoint",
+                      "python",
+                      "zacks-secret-sync",
+                      "-c",
+                      (
+                          "from wechat_airflow.host_core.settings import "
+                          "load_settings, load_tencent_email_settings; "
+                          "assert load_settings().edge_token; "
+                          "load_tencent_email_settings(); print('ready')"
+                      ),
+                  ],
+                  capture=True,
+                  env=environment,
+              )
+              if not validation.stdout or validation.stdout.strip().splitlines()[-1] != "ready":
+                  raise RuntimeError("host-core secret validation failed")
+              return {
+                  "targetCommit": target_commit,
+                  "secretSync": "complete",
+                  "edgeToken": "staged",
+                  "returnCode": completed.returncode,
+              }
+          ''' + host[sync_end:]
+
+          rollback_start = host.index("def rollback(target_commit):\n")
+          rollback_end = host.index("\n\ndef health(", rollback_start)
+          host = host[:rollback_start] + '''def rollback(target_commit):
+              assert_target(target_commit)
+              owner = variable_get("ZACKS_DELIVERY_OWNER").lower()
+              if owner == "airflow_host":
+                  raise RuntimeError(
+                      "legacy rollback is unsafe after host delivery activation; use pause-host-delivery"
+                  )
+              variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
+              variable_set("ZACKS_OBSERVATION_MODE", "cloudflare")
+              variable_set("ZACKS_WECHAT_GATE_SOURCE", "legacy")
+              variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
+              variable_set("WEBAPP_OBSERVATION_API_URL", LEGACY_OBSERVATION_URL)
+              compose("stop", "zacks-notification-worker", "zacks-api")
+              return {
+                  "targetCommit": target_commit,
+                  "deliveryOwner": "cloudflare",
+                  "hostServices": "stopped",
+                  "rolledBack": True,
+              }
+          ''' + host[rollback_end:]
+          host_path.write_text(host, encoding="utf-8")
+
+          workflow_path = Path(".github/workflows/production-host-core.yml")
+          workflow = workflow_path.read_text(encoding="utf-8")
+          workflow = one(
+              workflow,
+              '''              remote preflight
+              deploy_edge false false true
+              remote deploy-shadow
+              rollback_required=true
+              remote sync-secrets
+          ''',
+              '''              remote preflight
+              deploy_edge false false true
+              rollback_required=true
+              remote sync-secrets
+              remote deploy-shadow
+          ''',
+              "cutover order",
+          )
+          workflow_path.write_text(workflow, encoding="utf-8")
+
+          tests_path = Path("tests/host_core_secret_sync_test.py")
+          tests = tests_path.read_text(encoding="utf-8")
+          tests += '''
+
+          def test_install_edge_token_uses_secret_permissions(tmp_path: Path) -> None:
+              path = secret_sync.install_edge_token(tmp_path, "edge-token")
+              assert path == tmp_path / secret_sync.EDGE_TOKEN_FILENAME
+              assert path.read_text(encoding="utf-8").strip() == "edge-token"
+              assert path.stat().st_mode & 0o777 == 0o640
+          '''
+          tests_path.write_text(tests, encoding="utf-8")
+
+          Path("tests/host_core_bootstrap_contract_test.py").write_text(
+              '''from __future__ import annotations
+
+          from pathlib import Path
+
+          ROOT = Path(__file__).resolve().parents[1]
+
+
+          def read(path: str) -> str:
+              return (ROOT / path).read_text(encoding="utf-8")
+
+
+          def test_secrets_are_ready_before_host_processes_start() -> None:
+              workflow = read(".github/workflows/production-host-core.yml")
+              script = read("scripts/host_core_production.py")
+              secret_sync = read("src/wechat_airflow/host_core/secret_sync.py")
+
+              assert workflow.index("remote sync-secrets") < workflow.index("remote deploy-shadow")
+              assert workflow.index("rollback_required=true") < workflow.index("remote sync-secrets")
+              assert 'compose("build", "zacks-secret-sync"' in script
+              assert 'EDGE_TOKEN_FILENAME = "zacks_edge_token"' in secret_sync
+              assert "install_edge_token(arguments.secret_dir, token)" in secret_sync
+              assert '["airflow", "variables", "get", name]' in secret_sync
+
+
+          def test_shadow_start_waits_and_failed_start_can_rollback_without_api() -> None:
+              script = read("scripts/host_core_production.py")
+              rollback = script.split("def rollback(target_commit):", 1)[1].split(
+                  "def health(", 1
+              )[0]
+
+              assert "def _wait_for_local_health" in script
+              assert "time.monotonic()" in script
+              assert 'variable_get("ZACKS_DELIVERY_OWNER")' in rollback
+              assert "local_health(" not in rollback
+              assert 'compose("stop", "zacks-notification-worker", "zacks-api")' in rollback
+          ''',
+              encoding="utf-8",
+          )
+          PY
+          git rm .github/workflows/host-core-edge-token-bootstrap-fix-once.yml
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Format and verify focused repair
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check ruff==0.12.11 pytest==8.4.2 cryptography==45.0.7 requests==2.32.5
+          ruff check --fix scripts/host_core_production.py src/wechat_airflow/host_core/secret_sync.py tests/host_core_secret_sync_test.py tests/host_core_bootstrap_contract_test.py
+          ruff format scripts/host_core_production.py src/wechat_airflow/host_core/secret_sync.py tests/host_core_secret_sync_test.py tests/host_core_bootstrap_contract_test.py
+          PYTHONPATH=src pytest -q tests/host_core_secret_sync_test.py tests/host_core_bootstrap_contract_test.py
+          git diff --check
+
+      - name: Commit repaired branch
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          git commit -m "fix(host-core): bootstrap runtime secrets before startup"
+          git push origin HEAD:fix/host-core-edge-token-bootstrap-20260904
