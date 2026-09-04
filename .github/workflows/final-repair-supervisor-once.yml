@@ -1,0 +1,185 @@
+name: One-time final production repair supervisor
+run-name: final-repair-supervisor/${{ github.run_id }}
+
+on:
+  push:
+    branches:
+      - ops/final-repair-supervisor-20260904
+
+permissions:
+  checks: write
+  contents: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: one-time-final-production-repair-supervisor
+  cancel-in-progress: false
+
+jobs:
+  supervise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FALLBACK_BRANCH: ops/d1-export-host-core-fallback-20260904
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - id: target
+        name: Resolve exact current main
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          target_commit="$(git rev-parse origin/main)"
+          git checkout --detach "$target_commit"
+          test "$(git rev-parse HEAD)" = "$target_commit"
+          grep -q 'version = "0.7.0"' pyproject.toml
+          echo "commit=$target_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Run authoritative verification on the exact release commit
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check -e '.[dev]'
+          npm ci --prefix webapp
+          make verify
+          make test-dags
+          make deploy-check
+          make rollback-check
+
+      - name: Record the successful exact-commit verify check
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/check-runs" \
+            -f name='verify' \
+            -f head_sha="$TARGET_COMMIT" \
+            -f status='completed' \
+            -f conclusion='success' \
+            -f 'output[title]=Exact-main production verification passed' \
+            -f 'output[summary]=make verify, test-dags, deploy-check, and rollback-check passed in the guarded repair supervisor before any production mutation.'
+
+      - id: trigger
+        name: Retrigger the guarded D1 export fallback
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          marker_path=".ops/retrigger-${GITHUB_RUN_ID}.txt"
+          content="$(printf 'target=%s\nsupervisor_run=%s\n' "$TARGET_COMMIT" "$GITHUB_RUN_ID" | base64 -w0)"
+          response="$(gh api --method PUT \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/contents/${marker_path}" \
+            -f message="ops: retrigger final host-core repair for ${TARGET_COMMIT}" \
+            -f content="$content" \
+            -f branch="$FALLBACK_BRANCH")"
+          trigger_commit="$(jq -r '.commit.sha' <<<"$response")"
+          test "$trigger_commit" != null
+          echo "commit=$trigger_commit" >> "$GITHUB_OUTPUT"
+
+      - id: wait
+        name: Wait for the guarded production fallback and require success
+        env:
+          TRIGGER_COMMIT: ${{ steps.trigger.outputs.commit }}
+        run: |
+          set -euo pipefail
+          run_id=""
+          deadline=$((SECONDS + 6600))
+          while (( SECONDS < deadline )); do
+            payload="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?branch=${FALLBACK_BRANCH}&event=push&per_page=30")"
+            run_id="$(jq -r --arg sha "$TRIGGER_COMMIT" \
+              '.workflow_runs[] | select(.head_sha == $sha and .path == ".github/workflows/d1-export-host-core-fallback-once.yml") | .id' \
+              <<<"$payload" | head -n1)"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 10
+          done
+          test -n "$run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
+
+      - name: Independently verify public production identity and release
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          set -euo pipefail
+          python - "$TARGET_COMMIT" <<'PY'
+          from __future__ import annotations
+
+          import json
+          import sys
+          import time
+          import urllib.request
+
+          target = sys.argv[1]
+          base = "https://zacks.claude89757.cc"
+
+          def get(path: str) -> dict:
+              request = urllib.request.Request(
+                  base + path,
+                  headers={"Accept": "application/json", "User-Agent": "zacks-final-supervisor/1"},
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  if response.status != 200:
+                      raise RuntimeError(f"{path} returned HTTP {response.status}")
+                  value = json.loads(response.read().decode("utf-8"))
+              if not isinstance(value, dict):
+                  raise RuntimeError(f"{path} returned an invalid JSON shape")
+              return value
+
+          # Allow final edge propagation, but never paper over a functional error.
+          deadline = time.monotonic() + 120
+          while True:
+              health = get("/api/healthz")
+              edge = get("/api/edge-healthz")
+              ready = get("/api/readyz")
+              ok = (
+                  health.get("ok") is True
+                  and health.get("runtime") == "airflow-host"
+                  and health.get("deploymentCommit") == target
+                  and health.get("deliveryOwner") == "airflow_host"
+                  and edge.get("ok") is True
+                  and edge.get("runtime") == "cloudflare-stateless-edge"
+                  and edge.get("deploymentCommit") == target
+                  and edge.get("cutover") is True
+                  and edge.get("quiesced") is False
+                  and edge.get("migrationEndpoint") is False
+                  and ready.get("ok") is True
+              )
+              if ok:
+                  print(json.dumps({"health": health, "edge": edge, "ready": ready}, sort_keys=True))
+                  break
+              if time.monotonic() >= deadline:
+                  raise RuntimeError(json.dumps({"health": health, "edge": edge, "ready": ready}, sort_keys=True))
+              time.sleep(5)
+          PY
+
+          tag_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/tags/0.7.0" --jq '.object.sha')"
+          test "$tag_sha" = "$TARGET_COMMIT"
+          gh release view 0.7.0 --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,targetCommitish \
+            --jq 'select(.isDraft == false and .isPrerelease == false)'
+
+      - name: Publish final authoritative success
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+          FALLBACK_RUN: ${{ steps.wait.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body \
+            "### ✅ Host Core 0.7.0 最终修复与验收完成\n\n- Exact production commit: \`$TARGET_COMMIT\`\n- Guarded fallback run: \`$FALLBACK_RUN\`\n- Local verification: passed\n- Production cutover: passed\n- Airflow health: passed\n- PostgreSQL Host Core health/readiness: passed\n- Stateless Cloudflare edge: passed\n- WeChat Sender health: passed\n- Three natural venue cycles: passed\n- Release/tag 0.7.0: verified\n- Synthetic email or WeChat messages: none\n\nSupervisor: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
