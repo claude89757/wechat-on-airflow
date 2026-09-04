@@ -74,7 +74,11 @@ def _remove(path):
 
 def _dump(path, document, mode):
     with path.open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(document, handle, sort_keys=False, allow_unicode=True)
+        # The production host carries an older PyYAML whose safe_dump forwards
+        # unknown keyword arguments to dump_all and rejects sort_keys. Mapping
+        # order is not part of the cloudflared configuration contract; the
+        # generated candidate is validated by cloudflared before replacement.
+        yaml.safe_dump(document, handle, allow_unicode=True)
         handle.flush()
         os.fsync(handle.fileno())
     os.chmod(str(path), mode)
