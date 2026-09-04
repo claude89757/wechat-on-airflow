@@ -1,0 +1,62 @@
+name: One-time sender journal audit
+
+on:
+  push:
+    branches:
+      - ops/sender-journal-audit-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      WECHAT_SENDER_SSH_HOST: ${{ secrets.WECHAT_SENDER_SSH_HOST }}
+      WECHAT_SENDER_SSH_PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
+      WECHAT_SENDER_SSH_USER: ${{ secrets.WECHAT_SENDER_SSH_USER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Configure sender SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.WECHAT_SENDER_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.WECHAT_SENDER_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Read sender service and request journal
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$WECHAT_SENDER_SSH_PORT" "$WECHAT_SENDER_SSH_USER@$WECHAT_SENDER_SSH_HOST" \
+            bash -s <<'REMOTE'
+          set -euo pipefail
+          echo '__SENDER_CLOCK__'
+          date --iso-8601=seconds
+          echo '__SENDER_SERVICE__'
+          systemctl is-active wechat-sender.service || true
+          systemctl show wechat-sender.service \
+            --property=ActiveState,SubState,MainPID,NRestarts,ExecMainStartTimestamp,ExecMainStatus \
+            --no-pager || true
+          echo '__SENDER_READINESS__'
+          curl -sS --max-time 10 -w '\nHTTP=%{http_code}\n' http://127.0.0.1:7001/readyz || true
+          echo '__LAST_SEND_REQUESTS_7D__'
+          journalctl -u wechat-sender.service --since '7 days ago' --no-pager -o short-iso 2>/dev/null \
+            | grep 'POST /v1/wechat/send' | tail -n 30 || true
+          echo '__LAST_SERVICE_ERRORS_48H__'
+          journalctl -u wechat-sender.service --since '48 hours ago' --no-pager -o short-iso -p warning 2>/dev/null \
+            | tail -n 30 || true
+          echo '__APPIUM_SERVICE__'
+          systemctl is-active appium-6002.service || true
+          systemctl show appium-6002.service \
+            --property=ActiveState,SubState,MainPID,NRestarts,ExecMainStartTimestamp,ExecMainStatus \
+            --no-pager || true
+          REMOTE
