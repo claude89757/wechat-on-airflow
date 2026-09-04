@@ -69,9 +69,7 @@ def variable_set(name, value):
 
 
 def variable_get(name):
-    output = compose_exec(
-        "airflow-api-server", "airflow", "variables", "get", name, capture=True
-    )
+    output = compose_exec("airflow-api-server", "airflow", "variables", "get", name, capture=True)
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if not lines:
         raise RuntimeError(f"Airflow Variable is unavailable: {name}")
