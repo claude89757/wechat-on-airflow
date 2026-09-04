@@ -1,0 +1,293 @@
+name: One-time Host Core import heartbeat fix
+
+on:
+  push:
+    branches:
+      - fix/host-core-import-heartbeat-20260904
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-host-core-import-heartbeat-fix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/host-core-import-heartbeat-20260904
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Apply and verify import heartbeat
+        run: |
+          set -euo pipefail
+          if grep -q '^def run_captured_with_heartbeat' scripts/host_core_production.py; then
+            echo 'Host Core import heartbeat is already applied.'
+            exit 0
+          fi
+
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          script_path = Path("scripts/host_core_production.py")
+          source = script_path.read_text(encoding="utf-8")
+
+          helper_anchor = '\n\ndef compose(*arguments, **kwargs):\n'
+          helper = '''
+
+          def run_captured_with_heartbeat(
+              command,
+              label,
+              check=True,
+              interval_seconds=20,
+              env=None,
+          ):
+              if interval_seconds <= 0:
+                  raise ValueError("heartbeat interval must be positive")
+              started_at = time.monotonic()
+              process = subprocess.Popen(
+                  command,
+                  cwd=str(ROOT),
+                  universal_newlines=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+                  env=env,
+              )
+              try:
+                  while True:
+                      try:
+                          stdout, stderr = process.communicate(timeout=interval_seconds)
+                          break
+                      except subprocess.TimeoutExpired:
+                          print(
+                              json.dumps(
+                                  {
+                                      "elapsedSeconds": int(time.monotonic() - started_at),
+                                      "event": "host_core_subprocess_heartbeat",
+                                      "label": label,
+                                  },
+                                  sort_keys=True,
+                              ),
+                              file=sys.stderr,
+                              flush=True,
+                          )
+              except BaseException:
+                  process.kill()
+                  process.communicate()
+                  raise
+
+              completed = subprocess.CompletedProcess(
+                  command,
+                  process.returncode,
+                  stdout,
+                  stderr,
+              )
+              if check and completed.returncode:
+                  raise subprocess.CalledProcessError(
+                      completed.returncode,
+                      command,
+                      output=completed.stdout,
+                      stderr=completed.stderr,
+                  )
+              return completed
+          '''
+          helper = textwrap.dedent(helper)
+          if source.count(helper_anchor) != 1:
+              raise SystemExit(f"helper anchor count: {source.count(helper_anchor)}")
+          source = source.replace(helper_anchor, helper + helper_anchor, 1)
+
+          import_old = '''        output = compose_exec(
+              "zacks-api",
+              "python",
+              "/opt/airflow/project/scripts/import_d1_sql_export.py",
+              "--sql-export",
+              container_path,
+              "--source-revision",
+              target_commit,
+              "--expected-sha256",
+              actual_sha256,
+              capture=True,
+          )
+          '''
+          import_new = '''        completed = run_captured_with_heartbeat(
+              COMPOSE
+              + [
+                  "exec",
+                  "-T",
+                  "zacks-api",
+                  "python",
+                  "/opt/airflow/project/scripts/import_d1_sql_export.py",
+                  "--sql-export",
+                  container_path,
+                  "--source-revision",
+                  target_commit,
+                  "--expected-sha256",
+                  actual_sha256,
+              ],
+              "D1 SQL import ({})".format(pass_name),
+          )
+              output = completed.stdout.strip() if completed.stdout else ""
+          '''
+          import_new = textwrap.dedent(import_new).replace(
+              "completed =", "        completed =", 1
+          ).replace(
+              '\n    COMPOSE', '\n            COMPOSE', 1
+          ).replace(
+              '\n    + [', '\n            + [', 1
+          ).replace(
+              '\n        "exec"', '\n                "exec"'
+          ).replace(
+              '\n        "-T"', '\n                "-T"'
+          ).replace(
+              '\n        "zacks-api"', '\n                "zacks-api"'
+          ).replace(
+              '\n        "python"', '\n                "python"'
+          ).replace(
+              '\n        "/opt', '\n                "/opt'
+          ).replace(
+              '\n        "--', '\n                "--'
+          ).replace(
+              '\n        container_path', '\n                container_path'
+          ).replace(
+              '\n        target_commit', '\n                target_commit'
+          ).replace(
+              '\n        actual_sha256', '\n                actual_sha256'
+          ).replace(
+              '\n    ],', '\n            ],'
+          ).replace(
+              '\n    "D1 SQL', '\n            "D1 SQL'
+          ).replace(
+              '\n)', '\n        )', 1
+          ).replace(
+              '\n    output =', '\n        output ='
+          )
+          if source.count(import_old) != 1:
+              raise SystemExit(f"import anchor count: {source.count(import_old)}")
+          script_path.write_text(
+              source.replace(import_old, import_new, 1),
+              encoding="utf-8",
+          )
+
+          Path("tests/host_core_import_heartbeat_test.py").write_text(
+              textwrap.dedent(
+                  '''
+                  from __future__ import annotations
+
+                  import importlib.util
+                  import subprocess
+                  from pathlib import Path
+                  from unittest.mock import patch
+
+                  import pytest
+
+                  ROOT = Path(__file__).resolve().parents[1]
+                  SCRIPT_PATH = ROOT / "scripts/host_core_production.py"
+                  SPEC = importlib.util.spec_from_file_location(
+                      "host_core_production_for_heartbeat_test", SCRIPT_PATH
+                  )
+                  assert SPEC is not None
+                  assert SPEC.loader is not None
+                  MODULE = importlib.util.module_from_spec(SPEC)
+                  SPEC.loader.exec_module(MODULE)
+
+
+                  class TimeoutThenSuccess:
+                      def __init__(self) -> None:
+                          self.returncode: int | None = None
+                          self.communicate_calls = 0
+                          self.killed = False
+
+                      def communicate(self, timeout: int | None = None) -> tuple[str, str]:
+                          self.communicate_calls += 1
+                          if self.communicate_calls == 1:
+                              raise subprocess.TimeoutExpired(["fake"], timeout)
+                          self.returncode = 0
+                          return '{"success": true}\n', ""
+
+                      def kill(self) -> None:
+                          self.killed = True
+
+
+                  class ImmediateFailure:
+                      def __init__(self) -> None:
+                          self.returncode = 7
+
+                      def communicate(self, timeout: int | None = None) -> tuple[str, str]:
+                          return "partial-output", "import-failed"
+
+                      def kill(self) -> None:
+                          raise AssertionError("completed process must not be killed")
+
+
+                  def test_timeout_emits_live_heartbeat_to_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+                      process = TimeoutThenSuccess()
+                      with (
+                          patch.object(MODULE.subprocess, "Popen", return_value=process),
+                          patch.object(MODULE.time, "monotonic", side_effect=[100.0, 121.0]),
+                      ):
+                          completed = MODULE.run_captured_with_heartbeat(
+                              ["fake"], "unit-import", interval_seconds=1
+                          )
+
+                      captured = capsys.readouterr()
+                      assert completed.returncode == 0
+                      assert completed.stdout == '{"success": true}\n'
+                      assert '"event": "host_core_subprocess_heartbeat"' in captured.err
+                      assert '"label": "unit-import"' in captured.err
+                      assert '"elapsedSeconds": 21' in captured.err
+                      assert process.killed is False
+
+
+                  def test_failure_preserves_captured_diagnostics() -> None:
+                      process = ImmediateFailure()
+                      with patch.object(MODULE.subprocess, "Popen", return_value=process):
+                          with pytest.raises(subprocess.CalledProcessError) as captured:
+                              MODULE.run_captured_with_heartbeat(
+                                  ["fake"], "unit-import", interval_seconds=1
+                              )
+
+                      assert captured.value.returncode == 7
+                      assert captured.value.output == "partial-output"
+                      assert captured.value.stderr == "import-failed"
+
+
+                  def test_d1_import_uses_the_live_heartbeat_runner() -> None:
+                      source = SCRIPT_PATH.read_text(encoding="utf-8")
+                      migration = source.split("def migrate_sql", 1)[1].split(
+                          "def enable_dual", 1
+                      )[0]
+
+                      assert "run_captured_with_heartbeat(" in migration
+                      assert '"D1 SQL import ({})".format(pass_name)' in migration
+                      assert migration.index("run_captured_with_heartbeat(") < migration.index(
+                          "_last_json(output)"
+                      )
+                  '''
+              ).lstrip(),
+              encoding="utf-8",
+          )
+          PY
+
+          python -m pip install --disable-pip-version-check pytest==8.4.2 ruff==0.12.11
+          ruff format scripts/host_core_production.py tests/host_core_import_heartbeat_test.py
+          ruff check scripts/host_core_production.py tests/host_core_import_heartbeat_test.py
+          python -m py_compile scripts/host_core_production.py
+          pytest -q \
+            tests/host_core_import_heartbeat_test.py \
+            tests/host_core_bootstrap_contract_test.py \
+            tests/host_core_migration_staging_contract_test.py
+          git diff --check
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/host_core_production.py tests/host_core_import_heartbeat_test.py
+          git commit -m "fix(host-core): emit heartbeats during D1 import"
+          git push origin HEAD:fix/host-core-import-heartbeat-20260904
