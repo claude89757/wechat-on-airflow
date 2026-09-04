@@ -1,0 +1,255 @@
+name: One-time final subscription repair supervisor
+
+on:
+  push:
+    branches:
+      - ops/final-live-subscription-supervisor-20260904
+
+permissions:
+  actions: write
+  checks: read
+  contents: write
+  issues: write
+
+concurrency:
+  group: final-live-subscription-supervisor
+  cancel-in-progress: false
+
+jobs:
+  supervise:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 120
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: state
+        name: Wait for primary repair and resolve whether fallback is required
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          target="$(git rev-parse HEAD)"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "short=${target:0:7}" >> "$GITHUB_OUTPUT"
+          run_id=""
+          for _ in $(seq 1 90); do
+            row="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?branch=ops/final-live-subscription-repair-20260904&per_page=20" \
+              --jq '[.workflow_runs[] | select(.path == ".github/workflows/final-live-subscription-repair-once.yml")][0] | [.id,.status,(.conclusion // "")] | @tsv' 2>/dev/null || true)"
+            if [[ -n "$row" ]]; then
+              IFS=$'\t' read -r run_id status conclusion <<<"$row"
+              if [[ "$status" == completed ]]; then
+                break
+              fi
+            fi
+            sleep 10
+          done
+          healthy=false
+          host="$(curl -fsS --max-time 15 https://zacks.claude89757.cc/api/healthz || true)"
+          edge="$(curl -fsS --max-time 15 https://zacks.claude89757.cc/api/edge-healthz || true)"
+          if jq -e --arg sha "$target" '.ok == true and .runtime == "airflow-host" and .deliveryOwner == "airflow_host" and .deploymentCommit == $sha' <<<"$host" >/dev/null 2>&1 \
+            && jq -e --arg sha "$target" '.ok == true and .runtime == "cloudflare-stateless-edge" and .cutover == true and .migrationEndpoint == false and .deploymentCommit == $sha' <<<"$edge" >/dev/null 2>&1; then
+            healthy=true
+          fi
+          fallback=true
+          if [[ "$healthy" == true ]]; then fallback=false; fi
+          echo "primary_run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "fallback=$fallback" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: steps.state.outputs.fallback == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Configure production SSH
+        if: steps.state.outputs.fallback == 'true'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Build edge and deploy current Airflow/host core
+        if: steps.state.outputs.fallback == 'true'
+        working-directory: webapp
+        env:
+          TARGET_COMMIT: ${{ steps.state.outputs.target }}
+          SHORT_COMMIT: ${{ steps.state.outputs.short }}
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run test
+          npm run check:worker
+          npm run build
+          npx wrangler deploy --dry-run --outdir /tmp/zacks-edge-supervisor
+          cd ..
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" "$TARGET_COMMIT" "$SHORT_COMMIT" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"; target="$2"; short="$3"
+          git fetch --prune origin main
+          test -z "$(git status --porcelain)"
+          git checkout --detach "$target"
+          image="wechat-on-airflow:3.3.0-$short"
+          python3 - "$image" "$target" <<'PY'
+          from pathlib import Path
+          import sys
+          path=Path('.env'); lines=path.read_text(encoding='utf-8').splitlines() if path.exists() else []
+          updates={'AIRFLOW_IMAGE_NAME':sys.argv[1],'DEPLOYMENT_COMMIT':sys.argv[2]}; out=[]; seen=set()
+          for line in lines:
+              if line and not line.lstrip().startswith('#') and '=' in line:
+                  key=line.split('=',1)[0]
+                  if key in updates: out.append(f'{key}={updates[key]}'); seen.add(key); continue
+              out.append(line)
+          out.extend(f'{k}={v}' for k,v in updates.items() if k not in seen)
+          path.write_text('\n'.join(out)+'\n',encoding='utf-8')
+          PY
+          export AIRFLOW_IMAGE_NAME="$image" DEPLOYMENT_COMMIT="$target"
+          docker compose -f docker-compose.yml build airflow-api-server zacks-api zacks-notification-worker
+          docker compose -f docker-compose.yml up -d --no-deps --force-recreate airflow-api-server airflow-dag-processor airflow-scheduler airflow-worker airflow-triggerer
+          for _ in $(seq 1 42); do curl -fsS --max-time 10 http://127.0.0.1:8080/api/v2/monitor/health >/dev/null && break; sleep 10; done
+          curl -fsS --max-time 20 http://127.0.0.1:8080/api/v2/monitor/health >/dev/null
+          DEPLOYMENT_COMMIT="$target" python scripts/host_core_production.py deploy-shadow --target-commit "$target"
+          REMOTE
+
+      - name: Migration bridge, SES sync, fresh D1 export and import
+        if: steps.state.outputs.fallback == 'true'
+        working-directory: webapp
+        env:
+          TARGET_COMMIT: ${{ steps.state.outputs.target }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs'); const c=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+          c.vars={...(c.vars||{}),DEPLOYMENT_COMMIT:process.env.TARGET_COMMIT,HOST_CORE_CUTOVER:'false',HOST_CORE_QUIESCE:'false',HOST_CORE_MIGRATION_ENABLED:'true'};
+          fs.writeFileSync('/tmp/edge-migration.json',JSON.stringify(c,null,2)+'\n');
+          NODE
+          npx wrangler deploy --config /tmp/edge-migration.json --message "Supervisor migration bridge $TARGET_COMMIT"
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" "cd '$AIRFLOW_REPOSITORY_PATH' && DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py sync-secrets --target-commit '$TARGET_COMMIT'"
+          npx wrangler d1 export zacks-tennis-alerts --remote --output /tmp/supervisor.sql --skip-confirmation
+          gzip -f -9 /tmp/supervisor.sql
+          scp -P "$AIRFLOW_SSH_PORT" /tmp/supervisor.sql.gz "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:/tmp/supervisor.sql.gz"
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" bash -s -- "$AIRFLOW_REPOSITORY_PATH" "$TARGET_COMMIT" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"; target="$2"
+          gzip -dc /tmp/supervisor.sql.gz | docker compose -f docker-compose.yml exec -T zacks-api sh -ec 'cat > /tmp/d1.sql'
+          docker compose -f docker-compose.yml exec -T zacks-api python - "$target" <<'PY'
+          import json,sqlite3,sys
+          from pathlib import Path
+          from wechat_airflow.host_core.migration import EXPORT_TABLES,import_snapshot
+          db=Path('/tmp/d1.sqlite3'); db.unlink(missing_ok=True); c=sqlite3.connect(db)
+          try:
+              c.executescript(Path('/tmp/d1.sql').read_text(encoding='utf-8')); c.row_factory=sqlite3.Row
+              names={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+              snapshot={t:([dict(r) for r in c.execute(f'SELECT * FROM "{t}"')] if t in names else []) for t in EXPORT_TABLES}
+          finally:c.close()
+          print(json.dumps({'counts':import_snapshot(snapshot,source_revision=sys.argv[1])},sort_keys=True))
+          PY
+          DEPLOYMENT_COMMIT="$target" python scripts/host_core_production.py enable-dual --target-commit "$target"
+          REMOTE
+          sleep 180
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" "cd '$AIRFLOW_REPOSITORY_PATH' && DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py shadow-evidence --target-commit '$TARGET_COMMIT'"
+
+      - name: Final freeze, import, edge cutover and host activation
+        if: steps.state.outputs.fallback == 'true'
+        working-directory: webapp
+        env:
+          TARGET_COMMIT: ${{ steps.state.outputs.target }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('node:fs'); const c=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+          c.vars={...(c.vars||{}),DEPLOYMENT_COMMIT:process.env.TARGET_COMMIT,HOST_CORE_CUTOVER:'false',HOST_CORE_QUIESCE:'true',HOST_CORE_MIGRATION_ENABLED:'true'};
+          fs.writeFileSync('/tmp/edge-freeze.json',JSON.stringify(c,null,2)+'\n');
+          NODE
+          npx wrangler deploy --config /tmp/edge-freeze.json --message "Supervisor final freeze $TARGET_COMMIT"
+          sleep 60
+          npx wrangler d1 export zacks-tennis-alerts --remote --output /tmp/supervisor-final.sql --skip-confirmation
+          gzip -f -9 /tmp/supervisor-final.sql
+          scp -P "$AIRFLOW_SSH_PORT" /tmp/supervisor-final.sql.gz "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:/tmp/supervisor-final.sql.gz"
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" bash -s -- "$AIRFLOW_REPOSITORY_PATH" "$TARGET_COMMIT" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"; target="$2"
+          gzip -dc /tmp/supervisor-final.sql.gz | docker compose -f docker-compose.yml exec -T zacks-api sh -ec 'cat > /tmp/d1.sql'
+          docker compose -f docker-compose.yml exec -T zacks-api python - "$target" <<'PY'
+          import json,sqlite3,sys
+          from pathlib import Path
+          from wechat_airflow.host_core.migration import EXPORT_TABLES,import_snapshot
+          db=Path('/tmp/d1.sqlite3'); db.unlink(missing_ok=True); c=sqlite3.connect(db)
+          try:
+              c.executescript(Path('/tmp/d1.sql').read_text(encoding='utf-8')); c.row_factory=sqlite3.Row
+              names={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+              snapshot={t:([dict(r) for r in c.execute(f'SELECT * FROM "{t}"')] if t in names else []) for t in EXPORT_TABLES}
+          finally:c.close()
+          print(json.dumps({'counts':import_snapshot(snapshot,source_revision=sys.argv[1])},sort_keys=True))
+          PY
+          DEPLOYMENT_COMMIT="$target" python scripts/host_core_production.py prepare-cutover --target-commit "$target"
+          REMOTE
+          node - <<'NODE'
+          const fs=require('node:fs'); const c=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+          c.vars={...(c.vars||{}),DEPLOYMENT_COMMIT:process.env.TARGET_COMMIT,HOST_CORE_CUTOVER:'true',HOST_CORE_QUIESCE:'false',HOST_CORE_MIGRATION_ENABLED:'false'};
+          fs.writeFileSync('/tmp/edge-cutover.json',JSON.stringify(c,null,2)+'\n');
+          NODE
+          npx wrangler deploy --config /tmp/edge-cutover.json --message "Supervisor stateless cutover $TARGET_COMMIT"
+          for _ in $(seq 1 36); do
+            h="$(curl -fsS --max-time 15 https://zacks.claude89757.cc/api/healthz || true)"; e="$(curl -fsS --max-time 15 https://zacks.claude89757.cc/api/edge-healthz || true)"
+            jq -e --arg s "$TARGET_COMMIT" '.runtime=="airflow-host" and .deploymentCommit==$s' <<<"$h" >/dev/null 2>&1 && jq -e --arg s "$TARGET_COMMIT" '.runtime=="cloudflare-stateless-edge" and .deploymentCommit==$s and .cutover==true' <<<"$e" >/dev/null 2>&1 && break
+            sleep 5
+          done
+          route="$(ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" "cd '$AIRFLOW_REPOSITORY_PATH' && docker compose -f docker-compose.yml exec -T zacks-api python -c 'from wechat_airflow.host_core.api import app; print(next(r.path for r in app.routes if \"POST\" in (r.methods or set()) and \"subscription\" in r.path.lower() and \"internal\" not in r.path.lower() and \"admin\" not in r.path.lower()))'" | tail -1)"
+          route="${route#/zacks-api}"
+          code="$(curl -sS --max-time 20 -D /tmp/probe.h -o /tmp/probe.b -w '%{http_code}' -X POST "https://zacks.claude89757.cc$route" -H 'Content-Type: application/json' --data '{}')"
+          grep -qi '^x-zacks-edge: airflow-host-proxy' /tmp/probe.h
+          ! grep -Eqi 'D1|7500|quota|额度|free tier' /tmp/probe.b
+          [[ "$code" =~ ^(400|401|403|422)$ ]]
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" "cd '$AIRFLOW_REPOSITORY_PATH' && DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py cutover --target-commit '$TARGET_COMMIT'"
+
+      - name: Final live acceptance
+        env:
+          TARGET_COMMIT: ${{ steps.state.outputs.target }}
+        run: |
+          set -euo pipefail
+          sleep 180
+          h="$(curl -fsS --max-time 20 https://zacks.claude89757.cc/api/healthz)"
+          r="$(curl -fsS --max-time 20 https://zacks.claude89757.cc/api/readyz)"
+          e="$(curl -fsS --max-time 20 https://zacks.claude89757.cc/api/edge-healthz)"
+          b="$(curl -fsS --max-time 20 https://zacks.claude89757.cc/api/bootstrap)"
+          jq -e --arg s "$TARGET_COMMIT" '.ok==true and .runtime=="airflow-host" and .deliveryOwner=="airflow_host" and .deploymentCommit==$s' <<<"$h" >/dev/null
+          jq -e '.ok==true' <<<"$r" >/dev/null
+          jq -e --arg s "$TARGET_COMMIT" '.ok==true and .runtime=="cloudflare-stateless-edge" and .deploymentCommit==$s and .cutover==true and .quiesced==false and .migrationEndpoint==false' <<<"$e" >/dev/null
+          jq -e '(.venues|length)==26 and (.dataStatus.stale // false)==false' <<<"$b" >/dev/null
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" "cd '$AIRFLOW_REPOSITORY_PATH' && DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py shadow-evidence --target-commit '$TARGET_COMMIT' && DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py health --include-public --target-commit '$TARGET_COMMIT'"
+
+      - name: Publish verified result to operations issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.state.outputs.target }}
+        run: |
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "### Host Core 与订阅创建链路最终修复完成\n\n- 精确生产提交：\`$TARGET_COMMIT\`\n- 公网 Host Core：正常，唯一发送所有者为 \`airflow_host\`\n- Cloudflare：\`cloudflare-stateless-edge\`，迁移端点关闭\n- 订阅 POST：已确认经过 Airflow-host FastAPI，不再出现 D1/7500/额度错误\n- 场地：26 个，三轮自然周期验收通过\n- 测试邮件/微信：未发送\n- 修复 Run：$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Publish failure diagnostics
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ steps.state.outputs.target }}
+        run: |
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body "### Host Core 最终修复仍未通过\n\n- 目标提交：\`${TARGET_COMMIT:-unknown}\`\n- 失败 Run：$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\n- 当前未被标记为正常；请以该 Run 的首个失败步骤为准。"
