@@ -202,6 +202,18 @@ def _wait_for_local_health(target_commit, timeout_seconds=180):
     raise RuntimeError(f"host core did not become healthy: {last_error}")
 
 
+def _wait_for_local_ready(timeout_seconds=180):
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            return local_ready()
+        except Exception as exc:
+            last_error = exc
+            time.sleep(3)
+    raise RuntimeError(f"host core did not become ready: {last_error}")
+
+
 def deploy_shadow(target_commit):
     result = preflight(target_commit)
     environment = os.environ.copy()
@@ -482,8 +494,8 @@ def prepare_cutover(target_commit):
     variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
     compose("stop", "zacks-notification-worker")
     compose("restart", "zacks-api")
-    health_value = local_health(target_commit)
-    ready_value = local_ready()
+    health_value = _wait_for_local_health(target_commit)
+    ready_value = _wait_for_local_ready()
     if health_value.get("deliveryOwner") != "cloudflare":
         raise RuntimeError("delivery must remain paused before public edge cutover")
     if health_value.get("observationMode") != "host":
