@@ -1,0 +1,60 @@
+name: One-time last WeChat push audit
+
+on:
+  push:
+    branches:
+      - ops/wechat-last-push-audit-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Configure SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Search recent Airflow task logs read-only
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          compose() {
+            if docker compose version >/dev/null 2>&1; then docker compose "$@";
+            else docker-compose "$@"; fi
+          }
+          worker="$(compose ps --services --status running | awk '/^airflow-worker$/{print; exit}')"
+          test -n "$worker"
+          echo '__LAST_WECHAT_SUCCESS_LINES__'
+          compose exec -T "$worker" sh -ec '
+            timeout 75s sh -c "find /opt/airflow/logs -type f -name \"*.log\" -mtime -7 -size -10M -print0 2>/dev/null | xargs -0 -r grep -H \"\\[WECHAT_SEND_API\\] sent\" 2>/dev/null | tail -n 20" \
+            | sed -E "s/receiver=[^, ]+/receiver=***/g"
+          ' || true
+          echo '__LAST_WECHAT_FAILURE_LINES__'
+          compose exec -T "$worker" sh -ec '
+            timeout 75s sh -c "find /opt/airflow/logs -type f -name \"*.log\" -mtime -2 -size -10M -print0 2>/dev/null | xargs -0 -r grep -H -E \"WECHAT_SEND_API.*failed|WECHAT_SEND_FALLBACK.*failed\" 2>/dev/null | tail -n 20" \
+            | sed -E "s/receiver=[^, ]+/receiver=***/g"
+          ' || true
+          REMOTE
