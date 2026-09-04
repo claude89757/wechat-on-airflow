@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from scripts.configure_zacks_tunnel import PATH_PATTERN, with_zacks_rule
+from pathlib import Path
+from unittest.mock import patch
+
+import yaml
+
+from scripts.configure_zacks_tunnel import PATH_PATTERN, _dump, with_zacks_rule
 
 
 def test_inserts_host_core_path_before_general_airflow_rule() -> None:
@@ -59,3 +64,23 @@ def test_exact_existing_rule_requires_no_change() -> None:
     )
     assert changed is False
     assert updated["ingress"][0] == rule
+
+
+def test_dump_uses_only_keywords_supported_by_the_production_pyyaml(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "config.yml"
+    document = {"ingress": [{"service": "http_status:404"}]}
+    calls: list[dict[str, object]] = []
+
+    def legacy_safe_dump(data: object, stream: object, **kwargs: object) -> None:
+        calls.append(kwargs)
+        assert "sort_keys" not in kwargs
+        yaml.dump(data, stream, allow_unicode=bool(kwargs.get("allow_unicode")))
+
+    with patch("scripts.configure_zacks_tunnel.yaml.safe_dump", side_effect=legacy_safe_dump):
+        _dump(output, document, 0o600)
+
+    assert calls == [{"allow_unicode": True}]
+    assert yaml.safe_load(output.read_text(encoding="utf-8")) == document
+    assert output.stat().st_mode & 0o777 == 0o600
