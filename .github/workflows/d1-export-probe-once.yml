@@ -1,0 +1,80 @@
+name: One-time D1 export probe
+
+on:
+  push:
+    branches:
+      - ops/d1-export-probe-20260904
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Cancel obsolete blocked cutover
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            /repos/${GITHUB_REPOSITORY}/actions/runs/33838292550/cancel || true
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Export D1 through the control-plane API
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          npm ci >/dev/null
+          rm -f /tmp/zacks-tennis-alerts.sql /tmp/zacks-tennis-alerts.sql.gz
+          npx wrangler d1 export zacks-tennis-alerts \
+            --remote \
+            --output /tmp/zacks-tennis-alerts.sql \
+            --skip-confirmation
+          test -s /tmp/zacks-tennis-alerts.sql
+          gzip -9 /tmp/zacks-tennis-alerts.sql
+          echo '__EXPORT_METADATA__'
+          stat -c 'compressed_bytes=%s' /tmp/zacks-tennis-alerts.sql.gz
+          sha256sum /tmp/zacks-tennis-alerts.sql.gz | awk '{print "sha256=" $1}'
+          gzip -dc /tmp/zacks-tennis-alerts.sql.gz \
+            | grep -E '^CREATE TABLE|^CREATE INDEX|^CREATE UNIQUE INDEX' \
+            | sed -E 's/\(.*/ (...);/' \
+            | head -n 100 || true
+
+      - name: Preserve encrypted-at-rest migration source on the Airflow host
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+          remote_dir="$AIRFLOW_REPOSITORY_PATH/.local/host-core-migration"
+          remote_file="$remote_dir/d1-export-$(sha256sum /tmp/zacks-tennis-alerts.sql.gz | cut -d' ' -f1).sql.gz"
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "install -d -m 0700 '$remote_dir'"
+          scp -P "$AIRFLOW_SSH_PORT" /tmp/zacks-tennis-alerts.sql.gz \
+            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:$remote_file"
+          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "chmod 0600 '$remote_file'; test -s '$remote_file'; sha256sum '$remote_file'"
