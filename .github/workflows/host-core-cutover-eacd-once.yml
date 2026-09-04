@@ -1,0 +1,22 @@
+name: One-time guarded Host Core cutover eacd0b8
+
+on:
+  push:
+    branches:
+      - ops/host-core-cutover-eacd-20260904
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: one-time-host-core-cutover-eacd
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: full-cutover
+      target_commit: eacd0b813889091382d76a43c146484fd1173881
+    secrets: inherit
