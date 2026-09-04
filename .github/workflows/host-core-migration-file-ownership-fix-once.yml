@@ -30,29 +30,32 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import textwrap
 
           script_path = Path("scripts/host_core_production.py")
           source = script_path.read_text(encoding="utf-8")
 
-          old_helper = '''def compose_exec(service, *arguments, **kwargs):
-              capture = bool(kwargs.get("capture", False))
-              completed = run(
-                  COMPOSE + ["exec", "-T", service] + list(arguments),
-                  capture=capture,
-              )
-              return completed.stdout.strip() if capture and completed.stdout else ""
-          '''
-          new_helper = '''def compose_exec(service, *arguments, **kwargs):
-              capture = bool(kwargs.get("capture", False))
-              check = bool(kwargs.get("check", True))
-              user = kwargs.get("user")
-              command = COMPOSE + ["exec", "-T"]
-              if user:
-                  command += ["--user", str(user)]
-              command += [service] + list(arguments)
-              completed = run(command, check=check, capture=capture)
-              return completed.stdout.strip() if capture and completed.stdout else ""
-          '''
+          old_helper = (
+              "def compose_exec(service, *arguments, **kwargs):\n"
+              "    capture = bool(kwargs.get(\"capture\", False))\n"
+              "    completed = run(\n"
+              "        COMPOSE + [\"exec\", \"-T\", service] + list(arguments),\n"
+              "        capture=capture,\n"
+              "    )\n"
+              "    return completed.stdout.strip() if capture and completed.stdout else \"\"\n"
+          )
+          new_helper = (
+              "def compose_exec(service, *arguments, **kwargs):\n"
+              "    capture = bool(kwargs.get(\"capture\", False))\n"
+              "    check = bool(kwargs.get(\"check\", True))\n"
+              "    user = kwargs.get(\"user\")\n"
+              "    command = COMPOSE + [\"exec\", \"-T\"]\n"
+              "    if user:\n"
+              "        command += [\"--user\", str(user)]\n"
+              "    command += [service] + list(arguments)\n"
+              "    completed = run(command, check=check, capture=capture)\n"
+              "    return completed.stdout.strip() if capture and completed.stdout else \"\"\n"
+          )
           if source.count(old_helper) != 1:
               raise SystemExit(
                   "expected exactly one compose_exec helper, found "
@@ -60,120 +63,116 @@ jobs:
               )
           source = source.replace(old_helper, new_helper, 1)
 
-          old_migration = '''    container_path = "/tmp/zacks-d1-{}-{}.sql.gz".format(
-              pass_name.replace("/", "-"), actual_sha256[:16]
+          copy_anchor = (
+              "    compose(\"cp\", str(source), f\"zacks-api:{container_path}\")\n"
+              "    try:\n"
           )
-              compose("cp", str(source), f"zacks-api:{container_path}")
-              try:
-                  output = compose_exec(
-                      "zacks-api",
-                      "python",
-                      "/opt/airflow/project/scripts/import_d1_sql_export.py",
-                      "--sql-export",
-                      container_path,
-                      "--source-revision",
-                      target_commit,
-                      "--expected-sha256",
-                      actual_sha256,
-                      capture=True,
-                  )
-              finally:
-                  compose_exec("zacks-api", "rm", "-f", container_path)
-          '''
-          new_migration = '''    container_path = "/tmp/zacks-d1-{}-{}.sql.gz".format(
-              pass_name.replace("/", "-"), actual_sha256[:16]
+          copy_replacement = (
+              "    runtime_uid = compose_exec(\"zacks-api\", \"id\", \"-u\", capture=True)\n"
+              "    if not runtime_uid.isdigit():\n"
+              "        raise RuntimeError(\"zacks-api runtime UID is unavailable\")\n"
+              "    compose(\"cp\", str(source), f\"zacks-api:{container_path}\")\n"
+              "    try:\n"
+              "        compose_exec(\n"
+              "            \"zacks-api\",\n"
+              "            \"chown\",\n"
+              "            \"{}:0\".format(runtime_uid),\n"
+              "            container_path,\n"
+              "            user=\"0:0\",\n"
+              "        )\n"
+              "        compose_exec(\n"
+              "            \"zacks-api\",\n"
+              "            \"chmod\",\n"
+              "            \"0600\",\n"
+              "            container_path,\n"
+              "            user=\"0:0\",\n"
+              "        )\n"
           )
-              runtime_uid = compose_exec("zacks-api", "id", "-u", capture=True)
-              if not runtime_uid.isdigit():
-                  raise RuntimeError("zacks-api runtime UID is unavailable")
-              compose("cp", str(source), f"zacks-api:{container_path}")
-              try:
-                  compose_exec(
-                      "zacks-api",
-                      "chown",
-                      "{}:0".format(runtime_uid),
-                      container_path,
-                      user="0:0",
-                  )
-                  compose_exec(
-                      "zacks-api",
-                      "chmod",
-                      "0600",
-                      container_path,
-                      user="0:0",
-                  )
-                  output = compose_exec(
-                      "zacks-api",
-                      "python",
-                      "/opt/airflow/project/scripts/import_d1_sql_export.py",
-                      "--sql-export",
-                      container_path,
-                      "--source-revision",
-                      target_commit,
-                      "--expected-sha256",
-                      actual_sha256,
-                      capture=True,
-                  )
-              finally:
-                  compose_exec(
-                      "zacks-api",
-                      "rm",
-                      "-f",
-                      container_path,
-                      user="0:0",
-                      check=False,
-                  )
-          '''
-          if source.count(old_migration) != 1:
+          if source.count(copy_anchor) != 1:
               raise SystemExit(
-                  "expected exactly one migrate_sql staging block, found "
-                  + str(source.count(old_migration))
+                  "expected exactly one D1 copy anchor, found "
+                  + str(source.count(copy_anchor))
+              )
+          source = source.replace(copy_anchor, copy_replacement, 1)
+
+          cleanup_anchor = (
+              "    finally:\n"
+              "        compose_exec(\"zacks-api\", \"rm\", \"-f\", container_path)\n"
+          )
+          cleanup_replacement = (
+              "    finally:\n"
+              "        compose_exec(\n"
+              "            \"zacks-api\",\n"
+              "            \"rm\",\n"
+              "            \"-f\",\n"
+              "            container_path,\n"
+              "            user=\"0:0\",\n"
+              "            check=False,\n"
+              "        )\n"
+          )
+          if source.count(cleanup_anchor) != 1:
+              raise SystemExit(
+                  "expected exactly one D1 cleanup anchor, found "
+                  + str(source.count(cleanup_anchor))
               )
           script_path.write_text(
-              source.replace(old_migration, new_migration, 1),
+              source.replace(cleanup_anchor, cleanup_replacement, 1),
               encoding="utf-8",
           )
 
           test_path = Path("tests/host_core_migration_staging_contract_test.py")
           test_path.write_text(
-              '''from __future__ import annotations
+              textwrap.dedent(
+                  '''
+                  from __future__ import annotations
 
-          from pathlib import Path
+                  from pathlib import Path
 
-          ROOT = Path(__file__).resolve().parents[1]
-          SCRIPT = (ROOT / "scripts/host_core_production.py").read_text(encoding="utf-8")
-
-
-          def test_compose_exec_places_user_option_before_service() -> None:
-              helper = SCRIPT.split("def compose_exec", 1)[1].split("def running_services", 1)[0]
-              assert 'command = COMPOSE + ["exec", "-T"]' in helper
-              assert 'command += ["--user", str(user)]' in helper
-              assert "command += [service] + list(arguments)" in helper
-              assert helper.index('command += ["--user", str(user)]') < helper.index(
-                  "command += [service] + list(arguments)"
-              )
-              assert "completed = run(command, check=check, capture=capture)" in helper
+                  ROOT = Path(__file__).resolve().parents[1]
+                  SCRIPT = (ROOT / "scripts/host_core_production.py").read_text(
+                      encoding="utf-8"
+                  )
 
 
-          def test_d1_snapshot_is_reowned_before_application_import() -> None:
-              migration = SCRIPT.split("def migrate_sql", 1)[1].split("def enable_dual", 1)[0]
-              uid_lookup = 'runtime_uid = compose_exec("zacks-api", "id", "-u", capture=True)'
-              ownership = '"{}:0".format(runtime_uid)'
-              importer = '"/opt/airflow/project/scripts/import_d1_sql_export.py"'
-              assert uid_lookup in migration
-              assert ownership in migration
-              assert 'user="0:0"' in migration
-              assert migration.index(uid_lookup) < migration.index('compose("cp"')
-              assert migration.index(ownership) < migration.index(importer)
+                  def test_compose_exec_places_user_option_before_service() -> None:
+                      helper = SCRIPT.split("def compose_exec", 1)[1].split(
+                          "def running_services", 1
+                      )[0]
+                      assert 'command = COMPOSE + ["exec", "-T"]' in helper
+                      assert 'command += ["--user", str(user)]' in helper
+                      assert "command += [service] + list(arguments)" in helper
+                      assert helper.index(
+                          'command += ["--user", str(user)]'
+                      ) < helper.index("command += [service] + list(arguments)")
+                      assert "completed = run(command, check=check, capture=capture)" in helper
 
 
-          def test_d1_snapshot_cleanup_is_root_and_cannot_mask_import_error() -> None:
-              migration = SCRIPT.split("def migrate_sql", 1)[1].split("def enable_dual", 1)[0]
-              cleanup = migration.split("finally:", 1)[1]
-              assert '"rm"' in cleanup
-              assert 'user="0:0"' in cleanup
-              assert "check=False" in cleanup
-          ''',
+                  def test_d1_snapshot_is_reowned_before_application_import() -> None:
+                      migration = SCRIPT.split("def migrate_sql", 1)[1].split(
+                          "def enable_dual", 1
+                      )[0]
+                      uid_lookup = (
+                          'runtime_uid = compose_exec("zacks-api", "id", "-u", capture=True)'
+                      )
+                      ownership = '"{}:0".format(runtime_uid)'
+                      importer = '"/opt/airflow/project/scripts/import_d1_sql_export.py"'
+                      assert uid_lookup in migration
+                      assert ownership in migration
+                      assert 'user="0:0"' in migration
+                      assert migration.index(uid_lookup) < migration.index('compose("cp"')
+                      assert migration.index(ownership) < migration.index(importer)
+
+
+                  def test_d1_snapshot_cleanup_is_root_and_cannot_mask_import_error() -> None:
+                      migration = SCRIPT.split("def migrate_sql", 1)[1].split(
+                          "def enable_dual", 1
+                      )[0]
+                      cleanup = migration.split("finally:", 1)[1]
+                      assert '"rm"' in cleanup
+                      assert 'user="0:0"' in cleanup
+                      assert "check=False" in cleanup
+                  '''
+              ).lstrip(),
               encoding="utf-8",
           )
           PY
