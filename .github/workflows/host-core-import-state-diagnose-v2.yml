@@ -58,7 +58,7 @@ jobs:
              ps -eo pid=,etime=,stat=,args= | grep '[i]mport_d1_sql_export.py' || true; \
              echo HOST_CORE_LOCAL_HEALTH=; \
              curl --fail --silent --show-error --max-time 20 \
-               http://127.0.0.1:8090/zacks-api/api/healthz | jq -c .; \
+               http://127.0.0.1:8090/zacks-api/api/healthz; echo; \
              echo POSTGRES_STATE=; \
              printf '%s' '$DIAGNOSTIC_PY_B64' | base64 -d | \
                docker compose -f docker-compose.yml exec -T zacks-api python -; \
