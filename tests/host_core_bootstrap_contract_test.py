@@ -49,3 +49,13 @@ def test_edge_token_is_never_put_in_a_command_argument() -> None:
     assert "input_text=edge_token" in sync
     assert '"AIRFLOW_PUSH_TOKEN"' not in sync
     assert "edge_token +" not in sync.split("input_text=edge_token", 1)[0]
+
+
+def test_secret_staging_uses_portable_posix_sh_options() -> None:
+    script = read("scripts/host_core_production.py")
+    sync = script.split("def sync_secrets(target_commit):", 1)[1].split("def migrate(", 1)[0]
+    stage = sync.split('stage_script = """', 1)[1].split('"""', 1)[0]
+
+    assert "set -eu" in stage
+    assert "pipefail" not in stage
+    assert '"--entrypoint",\n            "sh"' in sync
