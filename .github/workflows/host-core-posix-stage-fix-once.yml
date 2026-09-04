@@ -1,0 +1,80 @@
+name: One-time Host Core POSIX secret-stage fix
+
+on:
+  push:
+    branches:
+      - fix/host-core-posix-secret-stage-20260904
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-host-core-posix-stage-fix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/host-core-posix-secret-stage-20260904
+          fetch-depth: 0
+
+      - name: Make the container staging script POSIX sh compatible
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          script_path = Path("scripts/host_core_production.py")
+          source = script_path.read_text(encoding="utf-8")
+          old = '    stage_script = """\nset -euo pipefail\n'
+          new = '    stage_script = """\nset -eu\n'
+          if source.count(old) != 1:
+              raise SystemExit(f"expected one staging-shell match, found {source.count(old)}")
+          script_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          test_path = Path("tests/host_core_bootstrap_contract_test.py")
+          tests = test_path.read_text(encoding="utf-8")
+          addition = '''
+
+
+def test_secret_staging_uses_portable_posix_sh_options() -> None:
+    script = read("scripts/host_core_production.py")
+    sync = script.split("def sync_secrets(target_commit):", 1)[1].split(
+        "def migrate(", 1
+    )[0]
+    stage = sync.split('stage_script = """', 1)[1].split('"""', 1)[0]
+
+    assert "set -eu" in stage
+    assert "pipefail" not in stage
+    assert '"--entrypoint",\n            "sh"' in sync
+'''
+          if "def test_secret_staging_uses_portable_posix_sh_options" not in tests:
+              test_path.write_text(tests + addition, encoding="utf-8")
+          PY
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Run focused validation
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -e '.[dev]'
+          ruff check scripts/host_core_production.py tests/host_core_bootstrap_contract_test.py
+          ruff format --check scripts/host_core_production.py tests/host_core_bootstrap_contract_test.py
+          PYTHONPATH=src pytest -q tests/host_core_bootstrap_contract_test.py
+          python -m py_compile scripts/host_core_production.py
+          git diff --check
+
+      - name: Commit the repair and remove this one-time workflow
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/host-core-posix-stage-fix-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/host_core_production.py tests/host_core_bootstrap_contract_test.py
+          git commit -m "fix(host-core): use POSIX options for secret staging"
+          git push origin HEAD:fix/host-core-posix-secret-stage-20260904
