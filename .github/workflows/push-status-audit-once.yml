@@ -1,0 +1,272 @@
+name: One-time push delivery audit
+
+on:
+  push:
+    branches:
+      - ops/push-status-audit-20260904-1056
+
+permissions:
+  contents: read
+
+concurrency:
+  group: one-time-push-delivery-audit-20260904-1056
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+      WECHAT_SENDER_SSH_HOST: ${{ secrets.WECHAT_SENDER_SSH_HOST }}
+      WECHAT_SENDER_SSH_PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
+      WECHAT_SENDER_SSH_USER: ${{ secrets.WECHAT_SENDER_SSH_USER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Configure Airflow SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Inspect Airflow host and delivery stores read-only
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          compose() {
+            if docker compose version >/dev/null 2>&1; then docker compose "$@";
+            else docker-compose "$@"; fi
+          }
+
+          echo '__HOST_IDENTITY__'
+          printf '{"gitHead":"%s"}\n' "$(git rev-parse HEAD)"
+          echo '__RUNNING_SERVICES__'
+          compose ps --services --status running
+
+          api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
+          test -n "$api_service"
+
+          echo '__AIRFLOW_CONTROL_STATE__'
+          compose exec -T "$api_service" python - <<'PY'
+          import json
+          from datetime import UTC, datetime, timedelta
+          from urllib.parse import urlsplit, urlunsplit
+
+          import requests
+          from airflow.models.variable import Variable
+
+          now = datetime.now(UTC)
+          names = (
+              'WEBAPP_OBSERVATION_API_URL',
+              'ZACKS_DELIVERY_OWNER',
+              'ZACKS_OBSERVATION_MODE',
+              'ZACKS_WECHAT_GATE_SOURCE',
+              'WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE',
+          )
+          variables = {name: str(Variable.get(name, default_var='') or '') for name in names}
+          try:
+              fallback = Variable.get(
+                  'WECHAT_SEND_FALLBACK_OUTBOX', default_var=[], deserialize_json=True
+              )
+          except Exception:
+              fallback = None
+          recent = []
+          if isinstance(fallback, list):
+              cutoff = now - timedelta(hours=24)
+              for item in fallback:
+                  if not isinstance(item, dict):
+                      continue
+                  try:
+                      when = datetime.fromisoformat(str(item.get('last_failed_at'))).astimezone(UTC)
+                  except Exception:
+                      continue
+                  if when >= cutoff:
+                      recent.append({
+                          'lastFailedAt': when.isoformat(),
+                          'attemptCount': int(item.get('attempt_count') or 0),
+                      })
+          sender_url = str(Variable.get('WECHAT_SEND_API_URL', default_var='') or '').strip()
+          sender = {'configured': bool(sender_url)}
+          if sender_url:
+              parsed = urlsplit(sender_url)
+              ready_url = urlunsplit((parsed.scheme, parsed.netloc, '/readyz', '', ''))
+              try:
+                  response = requests.get(ready_url, timeout=8)
+                  payload = response.json() if response.headers.get('content-type', '').startswith('application/json') else None
+                  sender.update({
+                      'host': parsed.netloc,
+                      'http': response.status_code,
+                      'ok': response.ok and isinstance(payload, dict) and payload.get('ok') is True,
+                      'payload': payload,
+                  })
+              except Exception as exc:
+                  sender.update({'http': 0, 'ok': False, 'error': type(exc).__name__})
+          print(json.dumps({
+              'checkedAt': now.isoformat(),
+              'variables': variables,
+              'wechatFallback': {
+                  'valid': isinstance(fallback, list),
+                  'totalCount': len(fallback) if isinstance(fallback, list) else None,
+                  'recentFailureCount24h': len(recent),
+                  'recentFailures': sorted(recent, key=lambda x: x['lastFailedAt'], reverse=True)[:10],
+              },
+              'wechatSender': sender,
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
+          echo '__HOST_CORE_HTTP__'
+          for endpoint in /zacks-api/api/healthz /zacks-api/api/readyz; do
+            code="$(curl -sS --max-time 8 -o /tmp/push-audit-body -w '%{http_code}' "http://127.0.0.1:8090${endpoint}" || true)"
+            printf 'PATH=%s HTTP=%s BODY=' "$endpoint" "${code:-000}"
+            head -c 3000 /tmp/push-audit-body 2>/dev/null || true
+            printf '\n'
+          done
+
+          if compose ps --services --status running | grep -qx zacks-api; then
+            echo '__POSTGRES_DELIVERY_STATE__'
+            compose exec -T zacks-api python - <<'PY'
+          import json
+          from datetime import UTC, datetime
+
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import transaction
+
+          now = datetime.now(UTC)
+          result = {'checkedAt': now.isoformat(), 'tables': {}}
+          queries = {
+              'subscriptions': '''
+                  SELECT count(*) AS total,
+                         count(*) FILTER (WHERE active AND active_until > now()) AS active
+                  FROM zacks.subscriptions
+              ''',
+              'venues': '''
+                  SELECT count(*) AS total,
+                         count(*) FILTER (WHERE last_inspection_at >= now() - interval '10 minutes') AS fresh10m,
+                         max(last_inspection_at) AS latestInspectionAt,
+                         max(last_notification_at) AS latestNotificationAt
+                  FROM zacks.venue_status
+              ''',
+              'observedSlots': '''
+                  SELECT count(*) AS total,
+                         count(*) FILTER (WHERE last_observed_at >= now() - interval '24 hours') AS seen24h,
+                         max(last_observed_at) AS latestObservedAt
+                  FROM zacks.observed_slots
+              ''',
+              'subscriptionEvents': '''
+                  SELECT count(*) AS total,
+                         count(*) FILTER (WHERE created_at >= now() - interval '24 hours') AS created24h,
+                         max(created_at) AS latestCreatedAt
+                  FROM zacks.subscription_events
+              ''',
+              'emailOutbox': '''
+                  SELECT count(*) AS total,
+                         count(*) FILTER (WHERE created_at >= now() - interval '24 hours') AS created24h,
+                         count(*) FILTER (WHERE status IN ('pending','retry','processing')) AS open,
+                         count(*) FILTER (WHERE status = 'failed' AND failed_at >= now() - interval '24 hours') AS failed24h,
+                         count(*) FILTER (WHERE submitted_at >= now() - interval '24 hours') AS submitted24h,
+                         count(*) FILTER (WHERE delivered_at >= now() - interval '24 hours') AS delivered24h,
+                         max(created_at) AS latestCreatedAt,
+                         max(submitted_at) AS latestSubmittedAt,
+                         max(delivered_at) AS latestDeliveredAt,
+                         max(failed_at) AS latestFailedAt
+                  FROM zacks.notification_outbox
+              ''',
+              'systemEmailOutbox': '''
+                  SELECT count(*) AS total,
+                         count(*) FILTER (WHERE created_at >= now() - interval '24 hours') AS created24h,
+                         count(*) FILTER (WHERE status IN ('pending','retry','processing')) AS open,
+                         count(*) FILTER (WHERE status = 'failed' AND failed_at >= now() - interval '24 hours') AS failed24h,
+                         count(*) FILTER (WHERE submitted_at >= now() - interval '24 hours') AS submitted24h,
+                         count(*) FILTER (WHERE delivered_at >= now() - interval '24 hours') AS delivered24h,
+                         max(created_at) AS latestCreatedAt,
+                         max(submitted_at) AS latestSubmittedAt,
+                         max(delivered_at) AS latestDeliveredAt,
+                         max(failed_at) AS latestFailedAt
+                  FROM zacks.system_email_outbox
+              ''',
+              'wechatIncidents': '''
+                  SELECT count(*) FILTER (WHERE resolved_at IS NULL) AS open,
+                         count(*) FILTER (WHERE last_failed_at >= now() - interval '24 hours') AS failed24h,
+                         max(last_failed_at) AS latestFailedAt
+                  FROM zacks.wechat_delivery_incidents
+              ''',
+              'migration': '''
+                  SELECT source, source_revision, imported_at, cutover_at, updated_at
+                  FROM zacks.migration_state
+                  ORDER BY updated_at DESC
+              ''',
+              'heartbeats': '''
+                  SELECT component, deployment_commit, healthy, updated_at
+                  FROM zacks.runtime_heartbeats
+                  ORDER BY component
+              ''',
+          }
+          with transaction() as connection:
+              for name, query in queries.items():
+                  try:
+                      rows = [dict(row) for row in connection.execute(text(query)).mappings().all()]
+                      result['tables'][name] = rows
+                  except Exception as exc:
+                      result['tables'][name] = {'error': type(exc).__name__}
+          print(json.dumps(result, default=str, ensure_ascii=False, sort_keys=True))
+          PY
+          else
+            echo '__POSTGRES_DELIVERY_STATE__'
+            echo '{"available":false,"reason":"zacks-api-not-running"}'
+          fi
+          REMOTE
+
+      - name: Configure sender SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.WECHAT_SENDER_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.WECHAT_SENDER_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Inspect WeChat sender without sending
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+            -p "$WECHAT_SENDER_SSH_PORT" "$WECHAT_SENDER_SSH_USER@$WECHAT_SENDER_SSH_HOST" \
+            bash -s <<'REMOTE'
+          set -euo pipefail
+          echo '__SENDER_SERVICE__'
+          systemctl is-active wechat-sender.service || true
+          systemctl show wechat-sender.service \
+            --property=ActiveState,SubState,NRestarts,ExecMainStartTimestamp,ExecMainStatus \
+            --no-pager || true
+          echo '__SENDER_READY__'
+          curl -sS --max-time 10 -w '\nHTTP=%{http_code}\n' http://127.0.0.1:7001/readyz || true
+          echo '__SENDER_REQUESTS_48H__'
+          journalctl -u wechat-sender.service --since '48 hours ago' --no-pager -o short-iso 2>/dev/null \
+            | grep 'POST /v1/wechat/send' | tail -n 30 || true
+          echo '__SENDER_WARNINGS_48H__'
+          journalctl -u wechat-sender.service --since '48 hours ago' --no-pager -p warning -o short-iso 2>/dev/null \
+            | tail -n 30 || true
+          echo '__APPIUM_SERVICE__'
+          systemctl is-active appium-6002.service || true
+          systemctl show appium-6002.service \
+            --property=ActiveState,SubState,NRestarts,ExecMainStartTimestamp,ExecMainStatus \
+            --no-pager || true
+          REMOTE
