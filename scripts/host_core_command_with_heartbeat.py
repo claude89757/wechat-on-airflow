@@ -73,7 +73,7 @@ def main(arguments=None):
         print("host-core command is required", file=sys.stderr)
         return 2
     command = [sys.executable, str(HOST_CORE_SCRIPT)] + values
-    return run_with_heartbeat(command, "Host Core {}".format(values[0]))
+    return run_with_heartbeat(command, f"Host Core {values[0]}")
 
 
 if __name__ == "__main__":
