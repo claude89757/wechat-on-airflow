@@ -1,0 +1,66 @@
+name: One-time Host Core database activity audit
+
+on:
+  push:
+    branches:
+      - ops/cutover-progress-audit2-20260905
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Inspect import process and PostgreSQL activity
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -u
+          cd "$1" || exit 1
+          echo '__HOST_PROCESSES__'
+          ps -eo pid,ppid,etimes,stat,comm,args \
+            | grep -E 'host_core|import_d1|docker compose exec|wrangler d1' \
+            | grep -v grep || true
+          echo '__ZACKS_API_PROCESSES__'
+          docker compose top zacks-api -eo pid,ppid,etimes,stat,comm,args || true
+          echo '__POSTGRES_ACTIVITY__'
+          docker compose exec -T zacks-api python - <<'PY' || true
+          import json
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import transaction
+          with transaction() as connection:
+              rows = connection.execute(text("""
+                  SELECT pid, state, wait_event_type, wait_event,
+                         extract(epoch from (now() - xact_start))::integer AS xact_seconds,
+                         extract(epoch from (now() - query_start))::integer AS query_seconds,
+                         left(regexp_replace(query, '[\\n\\r\\t]+', ' ', 'g'), 240) AS query
+                  FROM pg_stat_activity
+                  WHERE datname = current_database()
+                    AND pid <> pg_backend_pid()
+                  ORDER BY xact_start NULLS LAST, query_start
+              """)).mappings().all()
+          print(json.dumps([dict(row) for row in rows], sort_keys=True))
+          PY
+          REMOTE
