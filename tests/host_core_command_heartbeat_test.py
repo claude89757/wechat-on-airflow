@@ -47,9 +47,7 @@ class ImmediateFailure:
         raise AssertionError("completed child must not be killed")
 
 
-def test_timeout_emits_heartbeat_and_forwards_output(
-    monkeypatch: Any, capsys: Any
-) -> None:
+def test_timeout_emits_heartbeat_and_forwards_output(monkeypatch: Any, capsys: Any) -> None:
     module = load_module()
     process = TimeoutThenSuccess()
     monkeypatch.setattr(module.subprocess, "Popen", lambda *args, **kwargs: process)
@@ -86,9 +84,7 @@ def test_main_forwards_arguments_to_production_script(monkeypatch: Any) -> None:
     observed: dict[str, object] = {}
 
     def fake_run(command: list[str], label: str, interval_seconds: int = 20) -> int:
-        observed.update(
-            {"command": command, "label": label, "interval": interval_seconds}
-        )
+        observed.update({"command": command, "label": label, "interval": interval_seconds})
         return 0
 
     monkeypatch.setattr(module, "run_with_heartbeat", fake_run)
