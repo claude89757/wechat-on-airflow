@@ -1,0 +1,23 @@
+name: Cancel duplicate queued 0.7.0 ship
+
+on:
+  push:
+    branches:
+      - ops/cancel-duplicate-ship-20260905
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel duplicate queued production ship
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: "33906330489"
+        run: |
+          set -euo pipefail
+          gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/cancel"
