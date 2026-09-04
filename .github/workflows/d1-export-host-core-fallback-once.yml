@@ -1,0 +1,477 @@
+name: One-time D1 export Host Core fallback
+run-name: d1-export-host-core-fallback/${{ github.run_id }}
+
+on:
+  push:
+    branches:
+      - ops/d1-export-host-core-fallback-20260904
+
+permissions:
+  checks: read
+  contents: write
+  issues: write
+
+concurrency:
+  group: production-host-core
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      target_commit: ${{ steps.resolve.outputs.target_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          target_commit="$(git rev-parse origin/main)"
+          test "$(git show "$target_commit:pyproject.toml" | grep -c 'version = "0.7.0"')" -ge 1
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+
+          deadline=$((SECONDS + 2700))
+          while (( SECONDS < deadline )); do
+            payload="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${target_commit}/check-runs")"
+            if jq -e '.check_runs[] | select(.name == "verify" and .conclusion == "success")' \
+              >/dev/null <<<"$payload"; then
+              exit 0
+            fi
+            if jq -e '.check_runs[] | select(.name == "verify" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required" or .conclusion == "stale"))' \
+              >/dev/null <<<"$payload"; then
+              jq '[.check_runs[] | select(.name == "verify") | {status,conclusion,html_url}]' <<<"$payload"
+              exit 1
+            fi
+            sleep 20
+          done
+          echo "Timed out waiting for verify on $target_commit" >&2
+          exit 1
+
+  cutover:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    outputs:
+      performed_cutover: ${{ steps.cutover.outputs.performed_cutover }}
+      already_live: ${{ steps.cutover.outputs.already_live }}
+    env:
+      TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.resolve.outputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Build exact edge artifact
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run test
+          npm run check:worker
+          npm run build
+          npx wrangler deploy --dry-run --outdir /tmp/zacks-edge-dry-run
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - id: cutover
+        name: Execute guarded export-based cutover only when still needed
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          echo "performed_cutover=false" >> "$GITHUB_OUTPUT"
+          echo "already_live=false" >> "$GITHUB_OUTPUT"
+
+          current="$(curl --silent --show-error --max-time 15 \
+            https://zacks.claude89757.cc/api/healthz || true)"
+          if jq -e --arg commit "$TARGET_COMMIT" \
+            '.ok == true and .runtime == "airflow-host" and .deliveryOwner == "airflow_host" and .deploymentCommit == $commit' \
+            >/dev/null <<<"$current"; then
+            echo "already_live=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Prove the Cloudflare backup/export plane is still available before
+          # making any production mutation. Unlike SQL query diagnostics, this
+          # uses the D1 export endpoint and does not expose row contents in logs.
+          rm -f /tmp/zacks-d1-probe.sql /tmp/zacks-d1-final.sql
+          npx wrangler d1 export zacks-tennis-alerts --remote \
+            --output /tmp/zacks-d1-probe.sql
+          test -s /tmp/zacks-d1-probe.sql
+          rm -f /tmp/zacks-d1-probe.sql
+
+          remote_shell() {
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+              -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" "$@"
+          }
+          remote() {
+            local quoted=()
+            local argument escaped
+            for argument in "$@"; do
+              printf -v escaped '%q' "$argument"
+              quoted+=("$escaped")
+            done
+            remote_shell \
+              "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+               DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+               ${quoted[*]} --target-commit '$TARGET_COMMIT'"
+          }
+          deploy_edge() {
+            local cutover="$1"
+            local quiesce="$2"
+            local migration="$3"
+            local runtime_config=".wrangler-export-fallback-runtime.json"
+            node - "$cutover" "$quiesce" "$migration" <<'NODE'
+          const fs = require("node:fs");
+          const [, , cutover, quiesce, migration] = process.argv;
+          const config = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
+          config.vars = {
+            ...(config.vars || {}),
+            DEPLOYMENT_COMMIT: process.env.TARGET_COMMIT,
+            HOST_CORE_CUTOVER: cutover,
+            HOST_CORE_QUIESCE: quiesce,
+            HOST_CORE_MIGRATION_ENABLED: migration,
+          };
+          fs.writeFileSync(runtime_config = ".wrangler-export-fallback-runtime.json", `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+            npx wrangler deploy --config "$runtime_config"
+            rm -f "$runtime_config"
+          }
+          verify_public_edge() {
+            PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
+              --expected-commit "$TARGET_COMMIT" --format json
+          }
+
+          remote_shell \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             git fetch --prune origin main; \
+             test -z \"\$(git status --porcelain)\"; \
+             git checkout --detach '$TARGET_COMMIT'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'"
+
+          rollback_required=false
+          host_pause_required=false
+          cleanup_sensitive() {
+            rm -f /tmp/zacks-d1-final.sql /tmp/zacks-d1-snapshot.json /tmp/import_host_snapshot.py
+            remote_shell "rm -f /tmp/zacks-d1-snapshot.json /tmp/import_host_snapshot.py" || true
+          }
+          recover() {
+            status=$?
+            set +e
+            cleanup_sensitive
+            if [[ "$host_pause_required" == "true" ]]; then
+              remote pause-host-delivery
+            elif [[ "$rollback_required" == "true" ]]; then
+              remote rollback
+              deploy_edge false false false
+            fi
+            exit "$status"
+          }
+          trap recover ERR
+          trap cleanup_sensitive EXIT
+
+          remote preflight
+          deploy_edge false false true
+          remote deploy-shadow
+          remote sync-secrets
+          remote enable-dual
+          sleep 180
+
+          rollback_required=true
+          deploy_edge false true true
+          sleep 60
+
+          # The old Worker is now frozen, so this export is the final atomic
+          # legacy snapshot; no D1 delta can appear after it.
+          npx wrangler d1 export zacks-tennis-alerts --remote \
+            --output /tmp/zacks-d1-final.sql
+          test -s /tmp/zacks-d1-final.sql
+
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import json
+          import sqlite3
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          sql_path = Path('/tmp/zacks-d1-final.sql')
+          database_path = Path('/tmp/zacks-d1-final.sqlite3')
+          snapshot_path = Path('/tmp/zacks-d1-snapshot.json')
+          database_path.unlink(missing_ok=True)
+          connection = sqlite3.connect(database_path)
+          try:
+              connection.executescript(sql_path.read_text(encoding='utf-8'))
+              connection.row_factory = sqlite3.Row
+              names = [
+                  str(row[0])
+                  for row in connection.execute(
+                      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                  )
+                  if not str(row[0]).startswith('sqlite_')
+                  and not str(row[0]).startswith('_cf_')
+              ]
+              tables = {}
+              for name in names:
+                  quoted = '"' + name.replace('"', '""') + '"'
+                  rows = []
+                  for row in connection.execute(f'SELECT * FROM {quoted}'):
+                      item = {}
+                      for key in row.keys():
+                          value = row[key]
+                          if isinstance(value, bytes):
+                              value = {'__base64__': base64.b64encode(value).decode('ascii')}
+                          item[str(key)] = value
+                      rows.append(item)
+                  tables[name] = rows
+          finally:
+              connection.close()
+              database_path.unlink(missing_ok=True)
+
+          snapshot = {
+              'version': 1,
+              'schemaVersion': 1,
+              'exportedAt': datetime.now(UTC).isoformat(),
+              'tables': tables,
+              'data': tables,
+              **tables,
+          }
+          snapshot_path.write_text(
+              json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')),
+              encoding='utf-8',
+          )
+          if len(tables) < 5:
+              raise SystemExit('D1 export contained too few application tables')
+          print(json.dumps({'tableCount': len(tables), 'rowCounts': {key: len(value) for key, value in tables.items()}}, sort_keys=True))
+          PY
+
+          cat >/tmp/import_host_snapshot.py <<'PY'
+          from __future__ import annotations
+
+          import json
+          import sys
+          from pathlib import Path
+
+          from wechat_airflow.host_core.migration import import_snapshot
+
+          snapshot_path = Path(sys.argv[1])
+          source_revision = sys.argv[2]
+          snapshot = json.loads(snapshot_path.read_text(encoding='utf-8'))
+          counts = import_snapshot(snapshot, source_revision=source_revision)
+          print(json.dumps({'success': True, 'counts': counts}, sort_keys=True))
+          if not isinstance(counts, dict) or sum(int(value or 0) for value in counts.values()) <= 0:
+              raise SystemExit('host import produced no rows')
+          PY
+
+          scp -q -P "$AIRFLOW_SSH_PORT" \
+            /tmp/zacks-d1-snapshot.json /tmp/import_host_snapshot.py \
+            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:/tmp/"
+          remote_shell \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             container_id=\$(docker compose ps -q zacks-api); test -n \"\$container_id\"; \
+             docker cp /tmp/zacks-d1-snapshot.json \"\$container_id:/tmp/zacks-d1-snapshot.json\"; \
+             docker cp /tmp/import_host_snapshot.py \"\$container_id:/tmp/import_host_snapshot.py\"; \
+             docker compose exec -T zacks-api python /tmp/import_host_snapshot.py \
+               /tmp/zacks-d1-snapshot.json '$TARGET_COMMIT'; \
+             docker compose exec -T zacks-api rm -f \
+               /tmp/zacks-d1-snapshot.json /tmp/import_host_snapshot.py; \
+             rm -f /tmp/zacks-d1-snapshot.json /tmp/import_host_snapshot.py"
+
+          remote shadow-evidence
+          remote prepare-cutover
+          deploy_edge true false false
+          verify_public_edge
+
+          rollback_required=false
+          host_pause_required=true
+          remote cutover
+          remote health --include-public
+          verify_public_edge
+          host_pause_required=false
+          echo "performed_cutover=true" >> "$GITHUB_OUTPUT"
+          trap - ERR
+
+  airflow_apply:
+    needs: [resolve, cutover]
+    if: needs.cutover.outputs.performed_cutover == 'true'
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: deploy_apply
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      request_id: d1-export-fallback-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  final_airflow:
+    needs: [resolve, cutover, airflow_apply]
+    if: >-
+      always() && needs.cutover.result == 'success' &&
+      (needs.airflow_apply.result == 'success' || needs.airflow_apply.result == 'skipped')
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      request_id: d1-export-final-airflow-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  final_webapp:
+    needs: [resolve, cutover, airflow_apply]
+    if: >-
+      always() && needs.cutover.result == 'success' &&
+      (needs.airflow_apply.result == 'success' || needs.airflow_apply.result == 'skipped')
+    uses: ./.github/workflows/production-webapp.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      request_id: d1-export-final-web-${{ github.run_id }}
+    secrets: inherit
+
+  final_sender:
+    needs: [resolve, cutover, airflow_apply]
+    if: >-
+      always() && needs.cutover.result == 'success' &&
+      (needs.airflow_apply.result == 'success' || needs.airflow_apply.result == 'skipped')
+    uses: ./.github/workflows/production-wechat-sender.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.resolve.outputs.target_commit }}
+      request_id: d1-export-final-sender-${{ github.run_id }}
+    secrets: inherit
+
+  final_host_and_cycles:
+    needs: [resolve, cutover, airflow_apply, final_airflow, final_webapp, final_sender]
+    if: >-
+      always() && needs.cutover.result == 'success' &&
+      (needs.airflow_apply.result == 'success' || needs.airflow_apply.result == 'skipped') &&
+      needs.final_airflow.result == 'success' &&
+      needs.final_webapp.result == 'success' &&
+      needs.final_sender.result == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Observe three natural cycles and re-check the authoritative host
+        run: |
+          set -euo pipefail
+          sleep 180
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'; \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+               shadow-evidence --target-commit '$TARGET_COMMIT'; \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+               health --include-public --target-commit '$TARGET_COMMIT'"
+
+  release:
+    needs: [resolve, final_host_and_cycles]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Create or verify immutable 0.7.0 release
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          existing="$(git rev-parse -q --verify 'refs/tags/0.7.0^{}' || true)"
+          if [[ -n "$existing" && "$existing" != "$TARGET_COMMIT" ]]; then
+            echo "Existing 0.7.0 tag points to $existing, expected $TARGET_COMMIT" >&2
+            exit 1
+          fi
+          if [[ -z "$existing" ]]; then
+            git tag 0.7.0 "$TARGET_COMMIT"
+            git push origin refs/tags/0.7.0
+          fi
+          if ! gh release view 0.7.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create 0.7.0 --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_COMMIT" --title "0.7.0" \
+              --notes "Airflow-host notification core production cutover. PostgreSQL is the durable business owner; Cloudflare is a stateless edge. Production acceptance used natural venue cycles and sent no synthetic email or WeChat messages."
+          fi
+
+  report:
+    if: always()
+    needs:
+      - resolve
+      - cutover
+      - airflow_apply
+      - final_airflow
+      - final_webapp
+      - final_sender
+      - final_host_and_cycles
+      - release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish final fallback result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ needs.resolve.outputs.target_commit }}
+          CUTOVER: ${{ needs.cutover.result }}
+          AIRFLOW_APPLY: ${{ needs.airflow_apply.result }}
+          AIRFLOW: ${{ needs.final_airflow.result }}
+          WEBAPP: ${{ needs.final_webapp.result }}
+          SENDER: ${{ needs.final_sender.result }}
+          HOST_CYCLES: ${{ needs.final_host_and_cycles.result }}
+          RELEASE: ${{ needs.release.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh issue comment 39 --repo "$GITHUB_REPOSITORY" --body \
+            "### D1 export Host Core fallback\n\n- Target: \`$TARGET\`\n- Cutover: \`$CUTOVER\`\n- Airflow deploy/skip: \`$AIRFLOW_APPLY\`\n- Airflow health: \`$AIRFLOW\`\n- Web health: \`$WEBAPP\`\n- Sender health: \`$SENDER\`\n- Host + three natural cycles: \`$HOST_CYCLES\`\n- Release 0.7.0: \`$RELEASE\`\n- Synthetic notifications: none\n\nRun: $RUN_URL"
+          test "$CUTOVER" = success
+          test "$AIRFLOW" = success
+          test "$WEBAPP" = success
+          test "$SENDER" = success
+          test "$HOST_CYCLES" = success
+          test "$RELEASE" = success
