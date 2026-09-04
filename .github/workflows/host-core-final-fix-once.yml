@@ -1,0 +1,472 @@
+name: One-time final Host Core delivery repair
+
+on:
+  push:
+    branches:
+      - fix/host-core-delivery-final-20260904
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: one-time-final-host-core-delivery-repair
+  cancel-in-progress: false
+
+jobs:
+  patch-and-open:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/host-core-delivery-final-20260904
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Apply deterministic production repair
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          root = Path.cwd()
+
+          # 1. Keep the long PostgreSQL import observable so an idle network
+          # path cannot silently terminate the production SSH transaction.
+          script_path = root / "scripts/host_core_production.py"
+          source = script_path.read_text(encoding="utf-8")
+          helper_anchor = "\n\ndef compose(*arguments, **kwargs):\n"
+          if "def run_captured_with_heartbeat(" not in source:
+              helper = textwrap.dedent(
+                  '''
+
+                  def run_captured_with_heartbeat(
+                      command,
+                      label,
+                      check=True,
+                      interval_seconds=20,
+                      env=None,
+                  ):
+                      if interval_seconds <= 0:
+                          raise ValueError("heartbeat interval must be positive")
+                      started_at = time.monotonic()
+                      process = subprocess.Popen(
+                          command,
+                          cwd=str(ROOT),
+                          universal_newlines=True,
+                          stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE,
+                          env=env,
+                      )
+                      try:
+                          while True:
+                              try:
+                                  stdout, stderr = process.communicate(
+                                      timeout=interval_seconds
+                                  )
+                                  break
+                              except subprocess.TimeoutExpired:
+                                  print(
+                                      json.dumps(
+                                          {
+                                              "elapsedSeconds": int(
+                                                  time.monotonic() - started_at
+                                              ),
+                                              "event": "host_core_subprocess_heartbeat",
+                                              "label": label,
+                                          },
+                                          sort_keys=True,
+                                      ),
+                                      file=sys.stderr,
+                                      flush=True,
+                                  )
+                      except BaseException:
+                          process.kill()
+                          process.communicate()
+                          raise
+
+                      completed = subprocess.CompletedProcess(
+                          command,
+                          process.returncode,
+                          stdout,
+                          stderr,
+                      )
+                      if check and completed.returncode:
+                          if completed.stderr:
+                              print(completed.stderr, file=sys.stderr, flush=True)
+                          raise subprocess.CalledProcessError(
+                              completed.returncode,
+                              command,
+                              output=completed.stdout,
+                              stderr=completed.stderr,
+                          )
+                      return completed
+                  '''
+              )
+              if source.count(helper_anchor) != 1:
+                  raise SystemExit(
+                      f"host helper anchor count: {source.count(helper_anchor)}"
+                  )
+              source = source.replace(helper_anchor, helper + helper_anchor, 1)
+
+          migration_start = source.index("def migrate_sql(")
+          next_definition = source.index("\ndef ", migration_start + 5)
+          migration_body = source[migration_start:next_definition]
+          buffered_anchor = "        output = compose_exec(\n"
+          if buffered_anchor in migration_body:
+              import_start = source.index(buffered_anchor, migration_start)
+              import_end_marker = "            capture=True,\n        )\n"
+              import_end = source.index(import_end_marker, import_start) + len(
+                  import_end_marker
+              )
+              replacement = textwrap.dedent(
+                  '''
+                          completed = run_captured_with_heartbeat(
+                              COMPOSE
+                              + [
+                                  "exec",
+                                  "-T",
+                                  "zacks-api",
+                                  "python",
+                                  "/opt/airflow/project/scripts/import_d1_sql_export.py",
+                                  "--sql-export",
+                                  container_path,
+                                  "--source-revision",
+                                  target_commit,
+                                  "--expected-sha256",
+                                  actual_sha256,
+                              ],
+                              "D1 SQL import ({})".format(pass_name),
+                          )
+                          output = completed.stdout.strip() if completed.stdout else ""
+                  '''
+              )
+              source = source[:import_start] + replacement + source[import_end:]
+
+          migration_start = source.index("def migrate_sql(")
+          next_definition = source.index("\ndef ", migration_start + 5)
+          migration_body = source[migration_start:next_definition]
+          if "run_captured_with_heartbeat(" not in migration_body:
+              raise SystemExit("migrate_sql did not switch to heartbeat execution")
+          if "        output = compose_exec(\n" in migration_body:
+              raise SystemExit("migrate_sql still buffers the long import silently")
+          script_path.write_text(source, encoding="utf-8")
+
+          # 2. Add OpenSSH keepalive to every production Host Core remote
+          # operation. The application heartbeat keeps user data flowing while
+          # these transport options protect against idle NAT/load-balancer expiry.
+          workflow_path = root / ".github/workflows/production-host-core.yml"
+          workflow = workflow_path.read_text(encoding="utf-8")
+          operate_marker = "      - name: Operate host core\n"
+          operate_index = workflow.index(operate_marker)
+
+          prepare_invocation = (
+              '          ssh -p "$AIRFLOW_SSH_PORT" '
+              '"$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+          )
+          prepare_index = workflow.find(prepare_invocation, 0, operate_index)
+          if prepare_index >= 0:
+              prepare_replacement = textwrap.dedent(
+                  '''
+                            ssh \\
+                              -o BatchMode=yes \\
+                              -o ConnectTimeout=30 \\
+                              -o ServerAliveInterval=20 \\
+                              -o ServerAliveCountMax=90 \\
+                              -o TCPKeepAlive=yes \\
+                              -p "$AIRFLOW_SSH_PORT" \\
+                              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\
+                  '''
+              )
+              workflow = (
+                  workflow[:prepare_index]
+                  + prepare_replacement
+                  + workflow[prepare_index + len(prepare_invocation):]
+              )
+              operate_index = workflow.index(operate_marker)
+
+          operate_header = (
+              "        run: |\n"
+              "          set -euo pipefail\n\n"
+              "          remote() {\n"
+          )
+          operate_header_index = workflow.find(operate_header, operate_index)
+          if operate_header_index >= 0:
+              transport = textwrap.dedent(
+                  '''
+                          SSH_OPTIONS=(
+                            -o BatchMode=yes
+                            -o ConnectTimeout=30
+                            -o ServerAliveInterval=20
+                            -o ServerAliveCountMax=90
+                            -o TCPKeepAlive=yes
+                            -p "$AIRFLOW_SSH_PORT"
+                          )
+                          SCP_OPTIONS=(
+                            -o BatchMode=yes
+                            -o ConnectTimeout=30
+                            -o ServerAliveInterval=20
+                            -o ServerAliveCountMax=90
+                            -o TCPKeepAlive=yes
+                            -P "$AIRFLOW_SSH_PORT"
+                          )
+
+                  '''
+              )
+              workflow = workflow.replace(
+                  operate_header,
+                  "        run: |\n          set -euo pipefail\n\n"
+                  + transport
+                  + "          remote() {\n",
+                  1,
+              )
+
+          operate_index = workflow.index(operate_marker)
+          before = workflow[:operate_index]
+          after = workflow[operate_index:]
+          after = after.replace(
+              'ssh -p "$AIRFLOW_SSH_PORT" '
+              '"$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST"',
+              'ssh "${SSH_OPTIONS[@]}" '
+              '"$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST"',
+          )
+          after = after.replace(
+              'scp -P "$AIRFLOW_SSH_PORT"',
+              'scp "${SCP_OPTIONS[@]}"',
+          )
+          workflow = before + after
+          if 'ssh -p "$AIRFLOW_SSH_PORT"' in workflow[operate_index:]:
+              raise SystemExit("unprotected Host Core SSH remains")
+          if 'scp -P "$AIRFLOW_SSH_PORT"' in workflow[operate_index:]:
+              raise SystemExit("unprotected Host Core SCP remains")
+          for required in (
+              "ServerAliveInterval=20",
+              "ServerAliveCountMax=90",
+              "TCPKeepAlive=yes",
+          ):
+              if required not in workflow:
+                  raise SystemExit(f"missing transport requirement: {required}")
+          workflow_path.write_text(workflow, encoding="utf-8")
+
+          # 3. Regression tests for both process heartbeat and workflow transport.
+          heartbeat_test = root / "tests/host_core_import_heartbeat_test.py"
+          heartbeat_test.write_text(
+              textwrap.dedent(
+                  '''
+                  from __future__ import annotations
+
+                  import importlib.util
+                  import subprocess
+                  from pathlib import Path
+                  from unittest.mock import patch
+
+                  import pytest
+
+                  ROOT = Path(__file__).resolve().parents[1]
+                  MODULE_PATH = ROOT / "scripts" / "host_core_production.py"
+                  SPEC = importlib.util.spec_from_file_location(
+                      "host_core_production_under_test", MODULE_PATH
+                  )
+                  assert SPEC is not None and SPEC.loader is not None
+                  MODULE = importlib.util.module_from_spec(SPEC)
+                  SPEC.loader.exec_module(MODULE)
+
+
+                  class TimeoutThenSuccess:
+                      def __init__(self) -> None:
+                          self.returncode = 0
+                          self.calls = 0
+                          self.killed = False
+
+                      def communicate(self, timeout: int | None = None):
+                          self.calls += 1
+                          if self.calls == 1:
+                              raise subprocess.TimeoutExpired(["command"], timeout)
+                          return "done", ""
+
+                      def kill(self) -> None:
+                          self.killed = True
+
+
+                  def test_long_command_emits_heartbeat(
+                      capsys: pytest.CaptureFixture[str],
+                  ) -> None:
+                      process = TimeoutThenSuccess()
+                      with patch.object(MODULE.subprocess, "Popen", return_value=process):
+                          completed = MODULE.run_captured_with_heartbeat(
+                              ["command"], "D1 SQL import (initial)", interval_seconds=1
+                          )
+
+                      assert completed.returncode == 0
+                      assert completed.stdout == "done"
+                      assert process.calls == 2
+                      assert process.killed is False
+                      captured = capsys.readouterr()
+                      assert "host_core_subprocess_heartbeat" in captured.err
+                      assert "D1 SQL import (initial)" in captured.err
+
+
+                  def test_invalid_heartbeat_interval_is_rejected() -> None:
+                      with pytest.raises(ValueError, match="heartbeat interval"):
+                          MODULE.run_captured_with_heartbeat(
+                              ["command"], "invalid", interval_seconds=0
+                          )
+                  '''
+              ),
+              encoding="utf-8",
+          )
+
+          contract_path = root / "tests/host_core_architecture_contract_test.py"
+          contract = contract_path.read_text(encoding="utf-8")
+          if "test_long_migration_keeps_the_production_transport_alive" not in contract:
+              contract += textwrap.dedent(
+                  '''
+
+
+                  def test_long_migration_keeps_the_production_transport_alive() -> None:
+                      workflow = read(".github/workflows/production-host-core.yml")
+                      production = read("scripts/host_core_production.py")
+                      migration = production.split("def migrate_sql(", 1)[1].split(
+                          "\ndef ", 1
+                      )[0]
+
+                      assert "ServerAliveInterval=20" in workflow
+                      assert "ServerAliveCountMax=90" in workflow
+                      assert "TCPKeepAlive=yes" in workflow
+                      assert "def run_captured_with_heartbeat(" in production
+                      assert "run_captured_with_heartbeat(" in migration
+                      assert "        output = compose_exec(\n" not in migration
+                  '''
+              )
+          contract_path.write_text(contract, encoding="utf-8")
+
+          # 4. Publish this operational correction as 0.7.1 so the release
+          # pipeline can create an immutable new tag instead of rewriting 0.7.0.
+          pyproject = root / "pyproject.toml"
+          value = pyproject.read_text(encoding="utf-8")
+          if 'version = "0.7.0"' in value:
+              value = value.replace('version = "0.7.0"', 'version = "0.7.1"', 1)
+          if 'version = "0.7.1"' not in value:
+              raise SystemExit("pyproject version was not updated")
+          pyproject.write_text(value, encoding="utf-8")
+
+          package = root / "src/wechat_airflow/__init__.py"
+          value = package.read_text(encoding="utf-8")
+          if '__version__ = "0.7.0"' in value:
+              value = value.replace(
+                  '__version__ = "0.7.0"', '__version__ = "0.7.1"', 1
+              )
+          if '__version__ = "0.7.1"' not in value:
+              raise SystemExit("package version was not updated")
+          package.write_text(value, encoding="utf-8")
+
+          contract = contract_path.read_text(encoding="utf-8")
+          contract = contract.replace('version = "0.7.0"', 'version = "0.7.1"')
+          contract = contract.replace('__version__ = "0.7.0"', '__version__ = "0.7.1"')
+          contract = contract.replace(
+              "## [0.7.0] - 2026-09-04",
+              "## [0.7.1] - 2026-09-04",
+          )
+          contract_path.write_text(contract, encoding="utf-8")
+
+          changelog = root / "CHANGELOG.md"
+          value = changelog.read_text(encoding="utf-8")
+          if "## [0.7.1] - 2026-09-04" not in value:
+              heading = "# Changelog\n"
+              entry = textwrap.dedent(
+                  '''
+
+                  ## [0.7.1] - 2026-09-04
+
+                  ### Fixed
+
+                  - Keep the long D1-to-PostgreSQL import observable and protect every
+                    Host Core production SSH/SCP operation with transport keepalives.
+                  - Prevent a silent migration interval from rolling the notification
+                    core back to Cloudflare ownership before email and WeChat cutover.
+                  '''
+              )
+              if value.count(heading) != 1:
+                  raise SystemExit("CHANGELOG heading is unavailable")
+              value = value.replace(heading, heading + entry, 1)
+          changelog.write_text(value, encoding="utf-8")
+
+          # The helper workflow is intentionally not part of the pull request.
+          Path(".github/workflows/host-core-final-fix-once.yml").unlink()
+          PY
+
+      - name: Format and run focused regression tests
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            ruff==0.12.11 pytest==8.4.2 PyYAML==6.0.3
+          ruff check --fix scripts/host_core_production.py \
+            tests/host_core_import_heartbeat_test.py \
+            tests/host_core_architecture_contract_test.py
+          ruff format scripts/host_core_production.py \
+            tests/host_core_import_heartbeat_test.py \
+            tests/host_core_architecture_contract_test.py
+          ruff check scripts/host_core_production.py \
+            tests/host_core_import_heartbeat_test.py \
+            tests/host_core_architecture_contract_test.py
+          ruff format --check scripts/host_core_production.py \
+            tests/host_core_import_heartbeat_test.py \
+            tests/host_core_architecture_contract_test.py
+          pytest -q tests/host_core_import_heartbeat_test.py \
+            tests/host_core_architecture_contract_test.py
+          python -m py_compile scripts/host_core_production.py
+          git diff --check
+
+      - name: Commit repair and open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          if git diff --cached --quiet; then
+            echo "No patch changes remained."
+          else
+            git commit -m "fix(host-core): keep production migration sessions alive"
+            git push origin HEAD:fix/host-core-delivery-final-20260904
+          fi
+
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --head fix/host-core-delivery-final-20260904 \
+            --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$existing" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head fix/host-core-delivery-final-20260904 \
+              --title "fix: complete Host Core production cutover" \
+              --body-file - <<'EOF'
+          ## Problem
+
+          The production Host Core cutover reached the large D1 SQL import but the
+          remote process buffered all output. The long silent SSH interval ended in
+          `Broken pipe`, so the safety handler retained Cloudflare as delivery owner.
+          Email reconciliation therefore still hit D1 quota and no new upstream
+          WeChat tasks reached the healthy Sender.
+
+          ## Fix
+
+          - Emit a structured heartbeat during the long captured import.
+          - Add OpenSSH keepalive settings to every Host Core SSH/SCP operation.
+          - Add regression tests for the process and transport contracts.
+          - Release as 0.7.1; no existing tag is rewritten.
+
+          ## Production acceptance required after merge
+
+          Success is not inferred from container health. The protected release must
+          prove public subscription creation reaches PostgreSQL, 26 venue observations
+          remain fresh, `airflow_host` is the sole email owner, the email Outbox drains
+          and produces a provider-confirmed delivery, and one explicitly authorized
+          direct WeChat probe succeeds. Synthetic records must be cleaned afterward.
+          EOF
+          fi
