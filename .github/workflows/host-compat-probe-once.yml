@@ -1,0 +1,80 @@
+name: One-time host compatibility probe
+
+on:
+  push:
+    branches:
+      - ops/host-compat-probe-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Configure SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Inspect compatible tools without mutation
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -u
+          cd "$1"
+          echo '__PYTHONS__'
+          for candidate in python python3 python3.6 python3.7 python3.8 python3.9 python3.10 python3.11 python3.12; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              printf '%s=' "$candidate"
+              "$candidate" --version 2>&1 || true
+            fi
+          done
+          echo '__HOST_MODULES__'
+          python3 - <<'PY' 2>&1 || true
+          import json
+          modules = {}
+          for name in ('yaml', 'sqlite3', 'gzip', 'hashlib'):
+              try:
+                  __import__(name)
+                  modules[name] = True
+              except Exception as exc:
+                  modules[name] = type(exc).__name__
+          print(json.dumps(modules, sort_keys=True))
+          PY
+          echo '__TOOLS__'
+          for command in gzip gunzip sqlite3 sha256sum cloudflared docker curl; do
+            if command -v "$command" >/dev/null 2>&1; then
+              echo "$command=$(command -v "$command")"
+            else
+              echo "$command=missing"
+            fi
+          done
+          cloudflared --version 2>&1 || true
+          docker compose version 2>&1 || true
+          docker compose cp --help >/dev/null 2>&1; echo "compose_cp_rc=$?"
+          echo '__CLOUDFLARED_CONFIG__'
+          stat -c 'mode=%a owner=%U group=%G bytes=%s' /etc/cloudflared/config.yml 2>&1 || true
+          cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate 2>&1 || true
+          echo '__EXPORTS__'
+          find .local/host-core-migration -maxdepth 1 -type f -name 'd1-export-*.sql.gz' \
+            -printf '%f bytes=%s mode=%m\n' 2>/dev/null | sort || true
+          echo '__DISK__'
+          df -B1 . | tail -n 1
+          REMOTE
