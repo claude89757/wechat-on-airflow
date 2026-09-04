@@ -1,0 +1,99 @@
+name: One-time Host Core cutover progress audit
+
+on:
+  push:
+    branches:
+      - ops/final-e2e-notification-acceptance-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      TARGET_COMMIT: f544e4f7e21917f817e43a2a5c6bf9d1e6508c59
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Read current cutover state
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=20 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          compose() {
+            if docker compose version >/dev/null 2>&1; then docker compose "$@";
+            else docker-compose "$@"; fi
+          }
+          echo '__IDENTITY__'
+          printf '{"gitHead":"%s"}\n' "$(git rev-parse HEAD)"
+          echo '__SERVICES__'
+          compose ps --services --status running
+          echo '__LONG_OPERATIONS__'
+          ps -eo pid,etimes,cmd | grep -E 'import_d1_sql_export|host_core_command_with_heartbeat|host_core_production.py' | grep -v grep || true
+          api_service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
+          echo '__VARIABLES__'
+          compose exec -T "$api_service" python - <<'PY'
+          import json
+          from airflow.models.variable import Variable
+          names = (
+              'ZACKS_DELIVERY_OWNER',
+              'ZACKS_OBSERVATION_MODE',
+              'ZACKS_WECHAT_GATE_SOURCE',
+              'WEBAPP_OBSERVATION_API_URL',
+          )
+          print(json.dumps({name: str(Variable.get(name, default_var='') or '') for name in names}, sort_keys=True))
+          PY
+          if compose ps --services --status running | grep -qx zacks-api; then
+            echo '__DATABASE__'
+            compose exec -T zacks-api python - <<'PY'
+          import json
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import transaction
+          with transaction() as connection:
+              migration = connection.execute(text("""
+                  SELECT source_revision, imported_at, cutover_at, updated_at
+                  FROM zacks.migration_state WHERE source='cloudflare-d1'
+              """)).mappings().first()
+              venues = connection.execute(text("""
+                  SELECT count(*) AS total,
+                         count(*) FILTER (WHERE last_inspection_at >= now() - interval '15 minutes') AS fresh,
+                         max(last_inspection_at) AS latest
+                  FROM zacks.venue_status
+              """)).mappings().one()
+              outbox = connection.execute(text("""
+                  SELECT count(*) FILTER (WHERE status IN ('pending','retry','processing')) AS open,
+                         max(submitted_at) AS latest_submitted,
+                         max(delivered_at) AS latest_delivered
+                  FROM zacks.notification_outbox
+              """)).mappings().one()
+          print(json.dumps({
+              'migration': dict(migration) if migration else None,
+              'venues': dict(venues),
+              'emailOutbox': dict(outbox),
+          }, default=str, sort_keys=True))
+          PY
+          fi
+          REMOTE
