@@ -1,0 +1,106 @@
+name: One-time post-cutover state audit
+
+on:
+  push:
+    branches:
+      - ops/post-cutover-state-audit-20260905
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Configure SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Read safe production state
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          compose() { docker compose -f docker-compose.yml "$@"; }
+          echo '__HEAD__'
+          git rev-parse HEAD
+          echo '__SERVICES__'
+          compose ps --status running --services | sort
+          echo '__VARIABLES__'
+          for name in ZACKS_DELIVERY_OWNER ZACKS_OBSERVATION_MODE ZACKS_WECHAT_GATE_SOURCE WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE; do
+            value="$(compose exec -T airflow-api-server airflow variables get "$name" 2>/dev/null | tail -n 1 || true)"
+            printf '%s=%s\n' "$name" "$value"
+          done
+          echo '__LOCAL_HEALTH__'
+          curl --silent --show-error --max-time 10 \
+            http://127.0.0.1:8090/zacks-api/api/healthz || true
+          printf '\n'
+          echo '__LOCAL_READY__'
+          curl --silent --show-error --max-time 10 \
+            http://127.0.0.1:8090/zacks-api/api/readyz || true
+          printf '\n'
+          echo '__PUBLIC_HEALTH__'
+          curl --silent --show-error --max-time 10 \
+            https://zacks.claude89757.cc/api/healthz || true
+          printf '\n'
+          echo '__PUBLIC_EDGE_HEALTH__'
+          curl --silent --show-error --max-time 10 \
+            https://zacks.claude89757.cc/api/edge-healthz || true
+          printf '\n'
+          echo '__SAFE_DB_COUNTS__'
+          compose exec -T zacks-api python - <<'PY'
+          import json
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import transaction
+          with transaction() as connection:
+              row = connection.execute(text('''
+                  SELECT
+                    count(*) FILTER (WHERE active = true AND active_until > now()) AS active_subscriptions,
+                    count(*) FILTER (WHERE submitted_at >= now() - interval '24 hours') AS submitted_24h,
+                    count(*) FILTER (WHERE delivered_at >= now() - interval '24 hours') AS delivered_24h,
+                    count(*) FILTER (WHERE failed_at >= now() - interval '24 hours') AS failed_24h
+                  FROM zacks.subscriptions
+                  CROSS JOIN LATERAL (SELECT NULL::timestamptz AS submitted_at, NULL::timestamptz AS delivered_at, NULL::timestamptz AS failed_at) AS placeholder
+              '''))
+              active = connection.execute(text('''
+                  SELECT count(*) FROM zacks.subscriptions
+                  WHERE active = true AND active_until > now()
+              ''')).scalar_one()
+              submitted = connection.execute(text('''
+                  SELECT count(*) FROM zacks.notification_outbox
+                  WHERE submitted_at >= now() - interval '24 hours'
+              ''')).scalar_one()
+              delivered = connection.execute(text('''
+                  SELECT count(*) FROM zacks.notification_outbox
+                  WHERE delivered_at >= now() - interval '24 hours'
+              ''')).scalar_one()
+              failed = connection.execute(text('''
+                  SELECT count(*) FROM zacks.notification_outbox
+                  WHERE failed_at >= now() - interval '24 hours'
+              ''')).scalar_one()
+          print(json.dumps({
+              'activeSubscriptions': int(active),
+              'submitted24h': int(submitted),
+              'delivered24h': int(delivered),
+              'failed24h': int(failed),
+          }, sort_keys=True))
+          PY
+          REMOTE
