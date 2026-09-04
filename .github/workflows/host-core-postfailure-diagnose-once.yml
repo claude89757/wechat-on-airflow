@@ -1,0 +1,72 @@
+name: One-time host-core postfailure diagnosis
+
+on:
+  push:
+    branches:
+      - ops/host-core-postfailure-diagnose-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Configure SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Read current host-core state
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          compose() { docker compose -f docker-compose.yml "$@"; }
+          echo '__HEAD__'
+          git rev-parse HEAD
+          echo '__PS__'
+          compose ps --format json || true
+          echo '__ZACKS_API_LOGS__'
+          compose logs --no-color --tail=200 zacks-api || true
+          echo '__ZACKS_WORKER_LOGS__'
+          compose logs --no-color --tail=120 zacks-notification-worker || true
+          echo '__LOCAL_HEALTH_RETRIES__'
+          for attempt in 1 2 3 4 5; do
+            printf 'attempt=%s ' "$attempt"
+            curl -sS --max-time 5 -w ' http=%{http_code}\n' \
+              http://127.0.0.1:8090/zacks-api/api/healthz || true
+            sleep 2
+          done
+          echo '__LOCAL_READY__'
+          curl -sS --max-time 8 -w ' http=%{http_code}\n' \
+            http://127.0.0.1:8090/zacks-api/api/readyz || true
+          echo '__VARIABLES__'
+          for name in ZACKS_DELIVERY_OWNER ZACKS_OBSERVATION_MODE ZACKS_WECHAT_GATE_SOURCE WEBAPP_OBSERVATION_API_URL; do
+            printf '%s=' "$name"
+            compose exec -T airflow-api-server airflow variables get "$name" 2>/dev/null || true
+          done
+          echo '__PUBLIC_HEALTH__'
+          curl -sS --max-time 10 -w ' http=%{http_code}\n' \
+            https://zacks.claude89757.cc/api/healthz || true
+          echo '__PUBLIC_EDGE_HEALTH__'
+          curl -sS --max-time 10 -w ' http=%{http_code}\n' \
+            https://zacks.claude89757.cc/api/edge-healthz || true
+          REMOTE
