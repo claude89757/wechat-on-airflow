@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,15 +31,29 @@ class _Response:
 def test_migration_token_prefers_explicit_environment() -> None:
     with (
         patch.dict("os.environ", {"AIRFLOW_PUSH_TOKEN": "environment-token"}),
+        patch.object(secret_sync, "_staged_edge_token") as staged,
         patch.object(secret_sync, "_airflow_variable") as variable,
     ):
         assert secret_sync._migration_token() == "environment-token"
+    staged.assert_not_called()
+    variable.assert_not_called()
+
+
+def test_migration_token_uses_staged_edge_token_before_airflow() -> None:
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        patch.object(secret_sync, "_staged_edge_token", return_value="staged-token") as staged,
+        patch.object(secret_sync, "_airflow_variable") as variable,
+    ):
+        assert secret_sync._migration_token() == "staged-token"
+    staged.assert_called_once_with()
     variable.assert_not_called()
 
 
 def test_migration_token_falls_back_to_existing_airflow_variable() -> None:
     with (
         patch.dict("os.environ", {}, clear=True),
+        patch.object(secret_sync, "_staged_edge_token", return_value=None),
         patch.object(
             secret_sync,
             "_airflow_variable",
@@ -47,6 +62,23 @@ def test_migration_token_falls_back_to_existing_airflow_variable() -> None:
     ):
         assert secret_sync._migration_token() == "airflow-variable-token"
     variable.assert_called_once_with("WEBAPP_OBSERVATION_API_TOKEN")
+
+
+def test_airflow_variable_has_a_cli_fallback() -> None:
+    completed = subprocess.CompletedProcess(
+        args=["airflow", "variables", "get", "TOKEN"],
+        returncode=0,
+        stdout="cli-token\n",
+    )
+    with patch.object(secret_sync.subprocess, "run", return_value=completed) as runner:
+        assert secret_sync._airflow_variable("TOKEN") == "cli-token"
+    runner.assert_called_once_with(
+        ["airflow", "variables", "get", "TOKEN"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def test_secret_bundle_is_hybrid_encrypted_and_installed_without_plaintext_transport(
@@ -101,3 +133,10 @@ def test_secret_bundle_is_hybrid_encrypted_and_installed_without_plaintext_trans
         path = tmp_path / filename
         assert path.read_text(encoding="utf-8").strip() == expected[key]
         assert path.stat().st_mode & 0o777 == 0o640
+
+
+def test_install_edge_token_uses_secret_permissions(tmp_path: Path) -> None:
+    path = secret_sync.install_edge_token(tmp_path, "edge-token")
+    assert path == tmp_path / secret_sync.EDGE_TOKEN_FILENAME
+    assert path.read_text(encoding="utf-8").strip() == "edge-token"
+    assert path.stat().st_mode & 0o777 == 0o640

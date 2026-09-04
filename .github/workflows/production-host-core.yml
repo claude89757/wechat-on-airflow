@@ -273,10 +273,10 @@ jobs:
               trap recover ERR
 
               remote preflight
-              deploy_edge false false true
-              remote deploy-shadow
               rollback_required=true
+              deploy_edge false false true
               remote sync-secrets
+              remote deploy-shadow
 
               initial_snapshot="$(export_d1_snapshot initial)"
               IFS='|' read -r initial_path initial_sha <<< "$initial_snapshot"

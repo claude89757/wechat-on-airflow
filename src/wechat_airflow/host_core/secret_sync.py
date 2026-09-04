@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -20,6 +21,7 @@ SECRET_FILENAMES = {
     "email_reply_to": "email_reply_to",
     "email_template_id": "email_template_id",
 }
+EDGE_TOKEN_FILENAME = "zacks_edge_token"
 
 
 def _encode(value: bytes) -> str:
@@ -30,29 +32,64 @@ def _decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * ((4 - len(value) % 4) % 4))
 
 
+def _normalized(value: object | None) -> str | None:
+    if value is None:
+        return None
+    result = str(value).strip()
+    return result or None
+
+
 def _airflow_variable(name: str) -> str | None:
     try:
         from airflow.sdk import Variable as SdkVariable
 
-        value = SdkVariable.get(name, default=None)
+        value = _normalized(SdkVariable.get(name, default=None))
+        if value:
+            return value
     except Exception:
-        try:
-            from airflow.models.variable import Variable as ModelVariable
+        pass
 
-            value = ModelVariable.get(name, default_var=None)
-        except Exception:
-            return None
-    normalized = str(value or "").strip()
-    return normalized or None
+    try:
+        from airflow.models.variable import Variable as ModelVariable
+
+        value = _normalized(ModelVariable.get(name, default_var=None))
+        if value:
+            return value
+    except Exception:
+        pass
+
+    try:
+        completed = subprocess.run(
+            ["airflow", "variables", "get", name],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    return lines[-1] if lines else None
+
+
+def _staged_edge_token() -> str | None:
+    secret_dir = Path(os.environ.get("ZACKS_SECRET_DIR", "/etc/wechat-on-airflow/secrets"))
+    try:
+        return _normalized((secret_dir / EDGE_TOKEN_FILENAME).read_text(encoding="utf-8"))
+    except OSError:
+        return None
 
 
 def _migration_token() -> str:
-    token = os.environ.get("AIRFLOW_PUSH_TOKEN", "").strip()
+    token = _normalized(os.environ.get("AIRFLOW_PUSH_TOKEN"))
     if not token:
-        token = _airflow_variable("WEBAPP_OBSERVATION_API_TOKEN") or ""
+        token = _staged_edge_token()
+    if not token:
+        token = _airflow_variable("WEBAPP_OBSERVATION_API_TOKEN")
     if not token:
         raise RuntimeError(
-            "AIRFLOW_PUSH_TOKEN or WEBAPP_OBSERVATION_API_TOKEN is required for secret migration"
+            "AIRFLOW_PUSH_TOKEN, staged zacks_edge_token, or "
+            "WEBAPP_OBSERVATION_API_TOKEN is required for secret migration"
         )
     return token
 
@@ -129,6 +166,15 @@ def install_secret_bundle(secret_dir: Path, bundle: dict[str, str]) -> int:
     return len(SECRET_FILENAMES)
 
 
+def install_edge_token(secret_dir: Path, token: str) -> Path:
+    normalized = token.strip()
+    if not normalized:
+        raise RuntimeError("edge token must not be empty")
+    path = secret_dir / EDGE_TOKEN_FILENAME
+    _atomic_secret(path, normalized)
+    return path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Transfer Cloudflare runtime mail secrets to the Airflow host"
@@ -140,8 +186,10 @@ def main() -> int:
         default=Path(os.environ.get("ZACKS_SECRET_DIR", "/etc/wechat-on-airflow/secrets")),
     )
     arguments = parser.parse_args()
-    bundle = request_secret_bundle(arguments.base_url, _migration_token())
-    installed = install_secret_bundle(arguments.secret_dir, bundle)
+    token = _migration_token()
+    install_edge_token(arguments.secret_dir, token)
+    bundle = request_secret_bundle(arguments.base_url, token)
+    installed = install_secret_bundle(arguments.secret_dir, bundle) + 1
     print(json.dumps({"success": True, "installed": installed}, sort_keys=True))
     return 0
 
