@@ -1,0 +1,281 @@
+name: One-time fast live production audit
+
+on:
+  push:
+    branches:
+      - ops/live-status-fast-20260904
+
+permissions:
+  contents: read
+
+concurrency:
+  group: one-time-fast-live-production-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Read production host state
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o PreferredAuthentications=publickey \
+            -o PasswordAuthentication=no -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          compose() {
+            if docker compose version >/dev/null 2>&1; then docker compose "$@";
+            else docker-compose "$@"; fi
+          }
+          service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
+          test -n "$service"
+
+          echo '__HOST_SUMMARY__'
+          python3 - <<'PY'
+          import json, subprocess
+          def capture(command):
+              return subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.strip()
+          print(json.dumps({
+              'git_head': capture(['git', 'rev-parse', 'HEAD']),
+              'compose_services': capture(['docker', 'compose', 'ps', '--services', '--status', 'running']).splitlines(),
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
+          echo '__HOST_CORE_LOCAL__'
+          python3 - <<'PY'
+          import json, urllib.error, urllib.request
+          result = {}
+          for path in ('/zacks-api/api/healthz', '/zacks-api/api/readyz'):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8090' + path, timeout=5) as response:
+                      body = response.read(100000).decode('utf-8', errors='replace')
+                      result[path] = {'http': response.status, 'json': json.loads(body)}
+              except urllib.error.HTTPError as exc:
+                  result[path] = {'http': exc.code, 'body': exc.read(2000).decode('utf-8', errors='replace')}
+              except Exception as exc:
+                  result[path] = {'http': 0, 'error': type(exc).__name__, 'detail': str(exc)[:200]}
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
+
+          echo '__AIRFLOW_DAGS_AND_PUSH__'
+          compose exec -T "$service" python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from datetime import UTC, datetime, timedelta
+          from pathlib import Path
+          from urllib.parse import urlsplit, urlunsplit
+
+          import requests
+          import yaml
+          from airflow.models.dagrun import DagRun
+          from airflow.models.variable import Variable
+          from airflow.utils.session import create_session
+
+          now = datetime.now(UTC)
+          paths = [
+              Path('/opt/airflow/project/config/active-components.yaml'),
+              Path('/opt/airflow/config/active-components.yaml'),
+          ]
+          manifest_path = next((path for path in paths if path.exists()), None)
+          if manifest_path is None:
+              raise SystemExit('active-components.yaml not found')
+          manifest = yaml.safe_load(manifest_path.read_text(encoding='utf-8'))
+          components = [item for item in manifest.get('active_dags', []) if isinstance(item, dict)]
+          venue_components = [item for item in components if item.get('dag_id') and ('venue' in str(item.get('kind', '')).lower() or '网球' in str(item.get('name', '')) or 'watcher' in str(item.get('dag_id', '')).lower())]
+          if len(venue_components) < 20:
+              venue_components = [item for item in components if item.get('dag_id')]
+
+          def aware(value):
+              if value is None:
+                  return None
+              return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+          def iso(value):
+              value = aware(value)
+              return value.isoformat() if value else None
+
+          def age(value):
+              value = aware(value)
+              return round((now - value).total_seconds() / 60, 2) if value else None
+
+          details = []
+          with create_session() as session:
+              for component in venue_components:
+                  dag_id = str(component['dag_id'])
+                  runs = (
+                      session.query(DagRun)
+                      .filter(DagRun.dag_id == dag_id)
+                      .order_by(DagRun.id.desc())
+                      .limit(8)
+                      .all()
+                  )
+                  latest = runs[0] if runs else None
+                  completed = next((run for run in runs if str(run.state).lower() in {'success', 'failed'}), None)
+                  last_success = next((run for run in runs if str(run.state).lower() == 'success'), None)
+                  last_failure = next((run for run in runs if str(run.state).lower() == 'failed'), None)
+                  def stamp(run):
+                      return run.end_date or run.start_date or run.logical_date if run else None
+                  details.append({
+                      'dag_id': dag_id,
+                      'latest_state': str(latest.state).lower() if latest else None,
+                      'latest_at': iso(stamp(latest)),
+                      'latest_completed_state': str(completed.state).lower() if completed else None,
+                      'latest_completed_at': iso(stamp(completed)),
+                      'last_success_at': iso(stamp(last_success)),
+                      'last_success_age_minutes': age(stamp(last_success)),
+                      'last_failure_at': iso(stamp(last_failure)),
+                      'last_failure_age_minutes': age(stamp(last_failure)),
+                  })
+
+          stale = [item for item in details if item['last_success_age_minutes'] is None or item['last_success_age_minutes'] > 10]
+          latest_completed_failures = [item for item in details if item['latest_completed_state'] == 'failed']
+
+          variables = {}
+          for name in (
+              'WEBAPP_OBSERVATION_API_URL',
+              'ZACKS_DELIVERY_OWNER',
+              'ZACKS_OBSERVATION_MODE',
+              'ZACKS_WECHAT_GATE_SOURCE',
+              'WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE',
+          ):
+              variables[name] = str(Variable.get(name, default_var='') or '')
+
+          try:
+              fallback = Variable.get('WECHAT_SEND_FALLBACK_OUTBOX', default_var=[], deserialize_json=True)
+          except Exception:
+              fallback = None
+          recent = []
+          if isinstance(fallback, list):
+              cutoff = now - timedelta(hours=24)
+              for item in fallback:
+                  if not isinstance(item, dict):
+                      continue
+                  try:
+                      when = datetime.fromisoformat(str(item.get('last_failed_at'))).astimezone(UTC)
+                  except Exception:
+                      continue
+                  if when >= cutoff:
+                      recent.append({'last_failed_at': when.isoformat(), 'attempt_count': int(item.get('attempt_count') or 0)})
+
+          sender_url = str(Variable.get('WECHAT_SEND_API_URL', default_var='') or '').strip()
+          sender = {'configured': bool(sender_url)}
+          if sender_url:
+              parsed = urlsplit(sender_url)
+              ready_url = urlunsplit((parsed.scheme, parsed.netloc, '/readyz', '', ''))
+              try:
+                  response = requests.get(ready_url, timeout=8)
+                  sender.update({'ready_url_host': parsed.netloc, 'http': response.status_code, 'ok': response.ok, 'body_prefix': response.text[:300]})
+              except Exception as exc:
+                  sender.update({'ready_url_host': parsed.netloc, 'http': 0, 'ok': False, 'error': type(exc).__name__, 'detail': str(exc)[:200]})
+
+          print(json.dumps({
+              'checked_at': now.isoformat(),
+              'venue_dag_count': len(details),
+              'fresh_success_10m_count': len(details) - len(stale),
+              'stale_or_missing_10m': stale,
+              'latest_completed_failure_count': len(latest_completed_failures),
+              'latest_completed_failures': latest_completed_failures,
+              'dag_details': details,
+              'variables': variables,
+              'wechat_sender': sender,
+              'wechat_fallback': {
+                  'valid': isinstance(fallback, list),
+                  'total_count': len(fallback) if isinstance(fallback, list) else None,
+                  'recent_failure_count_24h': len(recent),
+                  'latest_recent_failures': sorted(recent, key=lambda item: item['last_failed_at'], reverse=True)[:10],
+              },
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
+          echo '__WECHAT_SUCCESS_LOG__'
+          timeout 45s sh -c "find /opt/airflow/logs -type f -name '*.log' -mmin -2880 -size -5M -print0 2>/dev/null | xargs -0 -r grep -h '\[WECHAT_SEND_API\] sent' 2>/dev/null | tail -n 5" || true
+          REMOTE
+
+      - name: Probe public Web state
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, urllib.error, urllib.request
+          base = 'https://zacks.claude89757.cc'
+          result = {}
+          for path in ('/', '/api/healthz', '/api/readyz', '/api/edge-healthz', '/api/bootstrap'):
+              request = urllib.request.Request(base + path, headers={'User-Agent': 'zacks-fast-live-audit/1'})
+              try:
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      raw = response.read(300000)
+                      status = response.status
+              except urllib.error.HTTPError as exc:
+                  status = exc.code
+                  raw = exc.read(300000)
+              except Exception as exc:
+                  result[path] = {'http': 0, 'error': type(exc).__name__, 'detail': str(exc)[:200]}
+                  continue
+              text = raw.decode('utf-8', errors='replace')
+              parsed = None
+              if path.startswith('/api/'):
+                  try:
+                      parsed = json.loads(text)
+                  except Exception:
+                      pass
+              if path == '/api/bootstrap' and isinstance(parsed, dict):
+                  parsed = {
+                      'dataStatus': parsed.get('dataStatus'),
+                      'metrics': parsed.get('metrics'),
+                      'venues': [
+                          {'id': item.get('id'), 'healthy': item.get('healthy'), 'lastInspectionAt': item.get('lastInspectionAt')}
+                          for item in parsed.get('venues', []) if isinstance(item, dict)
+                      ],
+                  }
+              result[path] = {'http': status, 'json': parsed, 'body_prefix': None if parsed is not None else text[:300]}
+          print('__PUBLIC_STATE__')
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Read latest email and D1 venue rows
+        working-directory: webapp
+        run: |
+          set -euo pipefail
+          npm ci >/dev/null
+          echo '__D1_LATEST_EMAIL__'
+          set +e
+          npx wrangler d1 execute zacks-tennis-alerts --remote --json --command "SELECT provider_submitted_at, provider_delivered_at, status, provider_status FROM notification_outbox WHERE provider_submitted_at IS NOT NULL ORDER BY provider_submitted_at DESC LIMIT 1;"
+          echo "D1_EMAIL_RC=$?"
+          echo '__D1_LATEST_VENUES__'
+          npx wrangler d1 execute zacks-tennis-alerts --remote --json --command "SELECT venue_id, healthy, last_inspection_at, last_notification_at FROM venue_status ORDER BY last_inspection_at DESC LIMIT 26;"
+          echo "D1_VENUE_RC=$?"
+          exit 0
