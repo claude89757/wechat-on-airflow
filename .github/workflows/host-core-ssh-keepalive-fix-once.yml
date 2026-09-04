@@ -1,0 +1,256 @@
+name: One-time Host Core SSH resilience fix
+
+on:
+  push:
+    branches:
+      - fix/host-core-ssh-keepalive-20260904
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-host-core-ssh-resilience-fix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/host-core-ssh-keepalive-20260904
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Patch SSH keepalive and heartbeat handling
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow_path = Path(".github/workflows/production-host-core.yml")
+          source = workflow_path.read_text(encoding="utf-8")
+
+          prepare_old = (
+              '          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '            "set -euo pipefail; cd \'$AIRFLOW_REPOSITORY_PATH\'; \\\n'
+              '             git fetch --prune origin main; \\\n'
+              '             test -z \\"\\$(git status --porcelain --untracked-files=no)\\"; \\\n'
+              '             git checkout --detach \'$TARGET_COMMIT\'; \\\n'
+              '             test \\"\\$(git rev-parse HEAD)\\" = \'$TARGET_COMMIT\'"\n'
+          )
+          prepare_new = (
+              '          ssh \\\n'
+              '            -o BatchMode=yes \\\n'
+              '            -o ServerAliveInterval=20 \\\n'
+              '            -o ServerAliveCountMax=90 \\\n'
+              '            -o TCPKeepAlive=yes \\\n'
+              '            -p "$AIRFLOW_SSH_PORT" \\\n'
+              '            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '            "set -euo pipefail; cd \'$AIRFLOW_REPOSITORY_PATH\'; \\\n'
+              '             git fetch --prune origin main; \\\n'
+              '             test -z \\"\\$(git status --porcelain --untracked-files=no)\\"; \\\n'
+              '             git checkout --detach \'$TARGET_COMMIT\'; \\\n'
+              '             test \\"\\$(git rev-parse HEAD)\\" = \'$TARGET_COMMIT\'"\n'
+          )
+          if source.count(prepare_old) != 1:
+              raise SystemExit(f"prepare SSH anchor count: {source.count(prepare_old)}")
+          source = source.replace(prepare_old, prepare_new, 1)
+
+          operate_anchor = (
+              '        run: |\n'
+              '          set -euo pipefail\n'
+              '\n'
+              '          remote() {\n'
+          )
+          operate_replacement = (
+              '        run: |\n'
+              '          set -euo pipefail\n'
+              '\n'
+              '          SSH_OPTIONS=(\n'
+              '            -o BatchMode=yes\n'
+              '            -o ServerAliveInterval=20\n'
+              '            -o ServerAliveCountMax=90\n'
+              '            -o TCPKeepAlive=yes\n'
+              '            -p "$AIRFLOW_SSH_PORT"\n'
+              '          )\n'
+              '          SCP_OPTIONS=(\n'
+              '            -o BatchMode=yes\n'
+              '            -o ServerAliveInterval=20\n'
+              '            -o ServerAliveCountMax=90\n'
+              '            -o TCPKeepAlive=yes\n'
+              '            -P "$AIRFLOW_SSH_PORT"\n'
+              '          )\n'
+              '\n'
+              '          run_with_heartbeat() {\n'
+              '            local label="$1"\n'
+              '            shift\n'
+              '            local command_pid heartbeat_pid status=0\n'
+              '            "$@" &\n'
+              '            command_pid=$!\n'
+              '            (\n'
+              '              while kill -0 "$command_pid" 2>/dev/null; do\n'
+              '                sleep 30\n'
+              '                if kill -0 "$command_pid" 2>/dev/null; then\n'
+              "                  printf '::notice::%s is still running\\n' \"$label\" >&2\n"
+              '                fi\n'
+              '              done\n'
+              '            ) &\n'
+              '            heartbeat_pid=$!\n'
+              '            wait "$command_pid" || status=$?\n'
+              '            kill "$heartbeat_pid" 2>/dev/null || true\n'
+              '            wait "$heartbeat_pid" 2>/dev/null || true\n'
+              '            return "$status"\n'
+              '          }\n'
+              '\n'
+              '          remote() {\n'
+          )
+          if source.count(operate_anchor) != 1:
+              raise SystemExit(f"operate anchor count: {source.count(operate_anchor)}")
+          source = source.replace(operate_anchor, operate_replacement, 1)
+
+          remote_old = (
+              '            ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '              "set -euo pipefail; cd \'$AIRFLOW_REPOSITORY_PATH\'; \\\n'
+              '               DEPLOYMENT_COMMIT=\'$TARGET_COMMIT\' python3 scripts/host_core_production.py \\\n'
+              '               ${quoted[*]} --target-commit \'$TARGET_COMMIT\'"\n'
+          )
+          remote_new = (
+              '            local operation="${1:-unknown}"\n'
+              '            run_with_heartbeat "Host Core ${operation}" \\\n'
+              '              ssh "${SSH_OPTIONS[@]}" \\\n'
+              '              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '              "set -euo pipefail; cd \'$AIRFLOW_REPOSITORY_PATH\'; \\\n'
+              '               DEPLOYMENT_COMMIT=\'$TARGET_COMMIT\' python3 scripts/host_core_production.py \\\n'
+              '               ${quoted[*]} --target-commit \'$TARGET_COMMIT\'"\n'
+          )
+          if source.count(remote_old) != 1:
+              raise SystemExit(f"remote SSH anchor count: {source.count(remote_old)}")
+          source = source.replace(remote_old, remote_new, 1)
+
+          mkdir_old = (
+              '            ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '              "install -d -m 0700 \'$remote_dir\'"\n'
+          )
+          mkdir_new = (
+              '            ssh "${SSH_OPTIONS[@]}" \\\n'
+              '              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '              "install -d -m 0700 \'$remote_dir\'"\n'
+          )
+          if source.count(mkdir_old) != 1:
+              raise SystemExit(f"snapshot mkdir SSH anchor count: {source.count(mkdir_old)}")
+          source = source.replace(mkdir_old, mkdir_new, 1)
+
+          scp_old = (
+              '            scp -P "$AIRFLOW_SSH_PORT" "$gzip_path" \\\n'
+              '              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:$remote_path"\n'
+          )
+          scp_new = (
+              '            run_with_heartbeat "D1 snapshot transfer (${pass_name})" \\\n'
+              '              scp "${SCP_OPTIONS[@]}" "$gzip_path" \\\n'
+              '              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:$remote_path"\n'
+          )
+          if source.count(scp_old) != 1:
+              raise SystemExit(f"snapshot scp anchor count: {source.count(scp_old)}")
+          source = source.replace(scp_old, scp_new, 1)
+
+          verify_old = (
+              '            ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '              "chmod 0600 \'$remote_path\'; test -s \'$remote_path\'; \\\n'
+              '               test \\"\\$(sha256sum \'$remote_path\' | cut -d\' \' -f1)\\" = \'$snapshot_sha\'"\n'
+          )
+          verify_new = (
+              '            ssh "${SSH_OPTIONS[@]}" \\\n'
+              '              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \\\n'
+              '              "chmod 0600 \'$remote_path\'; test -s \'$remote_path\'; \\\n'
+              '               test \\"\\$(sha256sum \'$remote_path\' | cut -d\' \' -f1)\\" = \'$snapshot_sha\'"\n'
+          )
+          if source.count(verify_old) != 1:
+              raise SystemExit(f"snapshot verify SSH anchor count: {source.count(verify_old)}")
+          source = source.replace(verify_old, verify_new, 1)
+
+          workflow_path.write_text(source, encoding="utf-8")
+
+          Path("tests/host_core_ssh_resilience_contract_test.py").write_text(
+              textwrap.dedent(
+                  '''
+                  from __future__ import annotations
+
+                  from pathlib import Path
+
+                  ROOT = Path(__file__).resolve().parents[1]
+                  WORKFLOW = (ROOT / ".github/workflows/production-host-core.yml").read_text(
+                      encoding="utf-8"
+                  )
+
+
+                  def test_all_production_ssh_paths_use_protocol_keepalives() -> None:
+                      assert WORKFLOW.count("-o ServerAliveInterval=20") >= 3
+                      assert WORKFLOW.count("-o ServerAliveCountMax=90") >= 3
+                      assert WORKFLOW.count("-o TCPKeepAlive=yes") >= 3
+                      assert WORKFLOW.count("-o BatchMode=yes") >= 3
+
+
+                  def test_long_host_core_commands_emit_runner_heartbeats() -> None:
+                      operate = WORKFLOW.split("- name: Operate host core", 1)[1]
+                      heartbeat = operate.split("run_with_heartbeat() {", 1)[1].split(
+                          "remote() {", 1
+                      )[0]
+                      remote = operate.split("remote() {", 1)[1].split(
+                          "deploy_edge() {", 1
+                      )[0]
+
+                      assert 'printf \'::notice::%s is still running\\n\'' in heartbeat
+                      assert '"$label" >&2' in heartbeat
+                      assert 'wait "$command_pid" || status=$?' in heartbeat
+                      assert 'kill "$heartbeat_pid" 2>/dev/null || true' in heartbeat
+                      assert 'run_with_heartbeat "Host Core ${operation}"' in remote
+                      assert 'ssh "${SSH_OPTIONS[@]}"' in remote
+
+
+                  def test_snapshot_transfer_keeps_command_substitution_clean() -> None:
+                      snapshot = WORKFLOW.split("export_d1_snapshot() {", 1)[1].split(
+                          'if [[ "$OPERATION"', 1
+                      )[0]
+                      assert 'run_with_heartbeat "D1 snapshot transfer (${pass_name})"' in snapshot
+                      assert 'scp "${SCP_OPTIONS[@]}"' in snapshot
+                      assert snapshot.count('ssh "${SSH_OPTIONS[@]}"') == 2
+                      assert 'printf \'%s|%s\\n\' "$remote_path" "$snapshot_sha"' in snapshot
+                  '''
+              ).lstrip(),
+              encoding="utf-8",
+          )
+          PY
+
+          python -m pip install --disable-pip-version-check \
+            pytest==8.4.2 ruff==0.12.11 PyYAML==6.0.3
+          ruff format tests/host_core_ssh_resilience_contract_test.py
+          ruff check tests/host_core_ssh_resilience_contract_test.py
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          value = yaml.safe_load(
+              Path(".github/workflows/production-host-core.yml").read_text(encoding="utf-8")
+          )
+          assert isinstance(value, dict)
+          assert "jobs" in value
+          PY
+          pytest -q \
+            tests/host_core_ssh_resilience_contract_test.py \
+            tests/host_core_bootstrap_contract_test.py \
+            tests/host_core_migration_staging_contract_test.py
+          git diff --check
+
+          git rm .github/workflows/host-core-ssh-keepalive-fix-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            .github/workflows/production-host-core.yml \
+            tests/host_core_ssh_resilience_contract_test.py
+          git commit -m "fix(host-core): keep long production SSH sessions alive"
+          git push origin HEAD:fix/host-core-ssh-keepalive-20260904
