@@ -1,0 +1,49 @@
+name: One-time host-core bounded error lines
+
+on:
+  push:
+    branches:
+      - ops/host-core-shadow-diagnose-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Configure SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Print only bounded exception lines
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          for service in zacks-api zacks-notification-worker; do
+            printf '__%s_ERRORS__\n' "$service"
+            docker compose logs --no-color --tail 120 "$service" 2>&1 \
+              | grep -E 'Traceback|ERROR|Exception|Error|FATAL|OperationalError|ProgrammingError|IntegrityError|ModuleNotFoundError|ImportError|TypeError|ValueError|KeyError|RuntimeError|PermissionError|FileNotFoundError|NoSuchModuleError|failed' \
+              | sed -E 's#https?://[^ ]+#<redacted-url>#g; s/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/<redacted-email>/g; s/(password|secret|token|authorization)=[^ ,;]+/\1=<redacted>/Ig; s/[a-fA-F0-9]{48,}/<redacted-hex>/g' \
+              | tail -n 50 || true
+          done
+          REMOTE
