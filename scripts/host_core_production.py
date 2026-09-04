@@ -38,10 +38,13 @@ def compose(*arguments, **kwargs):
 
 def compose_exec(service, *arguments, **kwargs):
     capture = bool(kwargs.get("capture", False))
-    completed = run(
-        COMPOSE + ["exec", "-T", service] + list(arguments),
-        capture=capture,
-    )
+    check = bool(kwargs.get("check", True))
+    user = kwargs.get("user")
+    command = COMPOSE + ["exec", "-T"]
+    if user:
+        command += ["--user", str(user)]
+    command += [service] + list(arguments)
+    completed = run(command, check=check, capture=capture)
     return completed.stdout.strip() if capture and completed.stdout else ""
 
 
@@ -355,8 +358,25 @@ def migrate_sql(target_commit, pass_name, sql_export, snapshot_sha256):
     container_path = "/tmp/zacks-d1-{}-{}.sql.gz".format(
         pass_name.replace("/", "-"), actual_sha256[:16]
     )
+    runtime_uid = compose_exec("zacks-api", "id", "-u", capture=True)
+    if not runtime_uid.isdigit():
+        raise RuntimeError("zacks-api runtime UID is unavailable")
     compose("cp", str(source), f"zacks-api:{container_path}")
     try:
+        compose_exec(
+            "zacks-api",
+            "chown",
+            f"{runtime_uid}:0",
+            container_path,
+            user="0:0",
+        )
+        compose_exec(
+            "zacks-api",
+            "chmod",
+            "0600",
+            container_path,
+            user="0:0",
+        )
         output = compose_exec(
             "zacks-api",
             "python",
@@ -370,7 +390,14 @@ def migrate_sql(target_commit, pass_name, sql_export, snapshot_sha256):
             capture=True,
         )
     finally:
-        compose_exec("zacks-api", "rm", "-f", container_path)
+        compose_exec(
+            "zacks-api",
+            "rm",
+            "-f",
+            container_path,
+            user="0:0",
+            check=False,
+        )
 
     result = _last_json(output)
     if result.get("success") is not True:
