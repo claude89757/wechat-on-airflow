@@ -87,20 +87,30 @@ def test_repository_invariants_no_longer_assign_delivery_to_d1() -> None:
     assert "webapp_is_the_only_email_delivery_owner" not in active
 
 
-def test_cutover_keeps_one_email_owner_and_preserves_d1() -> None:
+def test_cutover_uses_quota_independent_sql_export_and_one_delivery_owner() -> None:
     workflow = read(".github/workflows/production-host-core.yml")
     runbook = read("docs/runbooks/host-core-cutover.md")
 
     assert "workflow_call:" in workflow
+    assert "scripts/github_release_gate.py" in workflow
+    assert "npx wrangler d1 export zacks-tennis-alerts" in workflow
+    assert "remote migrate-sql --pass-name initial" in workflow
+    assert "remote migrate-sql --pass-name final" in workflow
     assert "remote enable-dual" in workflow
-    assert "remote migrate --pass-name final" in workflow
     assert "remote prepare-cutover" in workflow
     assert "remote cutover" in workflow
     assert "remote pause-host-delivery" in workflow
     assert "deploy_edge true false false" in workflow
+    assert workflow.index("remote migrate-sql --pass-name initial") < workflow.index(
+        "remote enable-dual"
+    )
+    assert workflow.index("deploy_edge false true true") < workflow.index(
+        "remote migrate-sql --pass-name final"
+    )
     assert workflow.index("remote prepare-cutover") < workflow.index("deploy_edge true false false")
     assert workflow.index("deploy_edge true false false") < workflow.index("remote cutover")
     assert ".wrangler-host-core-runtime.json" in workflow
+    assert "python3 scripts/host_core_production.py" in workflow
     assert "--var " not in workflow
     assert "remote rollback" in workflow
     assert "Real test notifications: none" in workflow

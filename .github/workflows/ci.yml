@@ -30,17 +30,27 @@ jobs:
       - name: Detect changed component surfaces
         id: plan
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_COMMIT: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           TARGET_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [[ ! "$BASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_COMMIT" =~ ^0+$ ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if git rev-parse --verify --quiet "${TARGET_COMMIT}^" >/dev/null; then
+              BASE_COMMIT="$(git rev-parse "${TARGET_COMMIT}^")"
+            else
+              BASE_COMMIT="$(git rev-list --max-parents=0 "$TARGET_COMMIT" | tail -1)"
+            fi
+          elif [[ ! "$BASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_COMMIT" =~ ^0+$ ]]; then
             BASE_COMMIT="$(git rev-list --max-parents=0 "$TARGET_COMMIT" | tail -1)"
           fi
+          # --include-sender only allows CI to validate the detected sender
+          # surface. It is not a production deployment approval.
           python scripts/release_plan.py \
             --base-commit "$BASE_COMMIT" \
             --target-commit "$TARGET_COMMIT" \
             --scope auto \
+            --include-sender \
             --github-output "$GITHUB_OUTPUT" \
             --format json | tee /tmp/ci-plan.json
           {

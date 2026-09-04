@@ -137,7 +137,7 @@ jobs:
           ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
             "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
              test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'; \
-             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python scripts/host_core_production.py \
+             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python3 scripts/host_core_production.py \
              shadow-evidence --target-commit '$TARGET_COMMIT'"
 
   acceptance:
