@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 import argparse
 import json
 import os
@@ -9,7 +7,6 @@ import stat
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -19,11 +16,11 @@ DEFAULT_SERVICE = "http://127.0.0.1:8090"
 PATH_PATTERN = "^/zacks-api/.*"
 
 
-def desired_rule(hostname: str, service: str) -> dict[str, str]:
+def desired_rule(hostname, service):
     return {"hostname": hostname, "path": PATH_PATTERN, "service": service}
 
 
-def normalize_document(value: object) -> dict[str, Any]:
+def normalize_document(value):
     if not isinstance(value, dict):
         raise RuntimeError("cloudflared configuration must be a mapping")
     document = {str(key): item for key, item in value.items()}
@@ -35,12 +32,7 @@ def normalize_document(value: object) -> dict[str, Any]:
     return document
 
 
-def with_zacks_rule(
-    document: dict[str, Any],
-    *,
-    hostname: str,
-    service: str,
-) -> tuple[dict[str, Any], bool]:
+def with_zacks_rule(document, hostname, service):
     rule = desired_rule(hostname, service)
     ingress = [dict(item) for item in document["ingress"]]
     existing_indexes = [
@@ -73,15 +65,22 @@ def with_zacks_rule(
     return updated, changed
 
 
-def _dump(path: Path, document: dict[str, Any], mode: int) -> None:
+def _remove(path):
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _dump(path, document, mode):
     with path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(document, handle, sort_keys=False, allow_unicode=True)
         handle.flush()
         os.fsync(handle.fileno())
-    os.chmod(path, mode)
+    os.chmod(str(path), mode)
 
 
-def validate(path: Path) -> None:
+def validate(path):
     subprocess.run(
         ["cloudflared", "--config", str(path), "tunnel", "ingress", "validate"],
         check=True,
@@ -89,27 +88,29 @@ def validate(path: Path) -> None:
     )
 
 
-def write_atomic(path: Path, document: dict[str, Any]) -> None:
+def write_atomic(path, document):
     metadata = path.stat()
     descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        prefix=".{0}.".format(path.name), suffix=".tmp", dir=str(path.parent)
     )
     os.close(descriptor)
     temporary = Path(temporary_name)
     try:
         _dump(temporary, document, stat.S_IMODE(metadata.st_mode))
         try:
-            os.chown(temporary, metadata.st_uid, metadata.st_gid)
+            os.chown(str(temporary), metadata.st_uid, metadata.st_gid)
         except PermissionError:
             pass
-        os.replace(temporary, path)
+        os.replace(str(temporary), str(path))
     finally:
-        temporary.unlink(missing_ok=True)
+        _remove(temporary)
 
 
-def validate_candidate(config: Path, document: dict[str, Any]) -> None:
+def validate_candidate(config, document):
     descriptor, candidate_name = tempfile.mkstemp(
-        prefix=f".{config.name}.candidate.", suffix=".yml", dir=config.parent
+        prefix=".{0}.candidate.".format(config.name),
+        suffix=".yml",
+        dir=str(config.parent),
     )
     os.close(descriptor)
     candidate = Path(candidate_name)
@@ -117,10 +118,10 @@ def validate_candidate(config: Path, document: dict[str, Any]) -> None:
         _dump(candidate, document, 0o600)
         validate(candidate)
     finally:
-        candidate.unlink(missing_ok=True)
+        _remove(candidate)
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser(
         description="Add the host-owned Zacks API path to the existing Cloudflare Tunnel"
     )
@@ -132,15 +133,17 @@ def main() -> int:
     arguments = parser.parse_args()
 
     if not arguments.config.is_file():
-        raise RuntimeError(f"cloudflared configuration not found: {arguments.config}")
-    document = normalize_document(yaml.safe_load(arguments.config.read_text(encoding="utf-8")))
+        raise RuntimeError("cloudflared configuration not found: {0}".format(arguments.config))
+    document = normalize_document(
+        yaml.safe_load(arguments.config.read_text(encoding="utf-8"))
+    )
     updated, changed = with_zacks_rule(
         document,
         hostname=arguments.hostname,
         service=arguments.service,
     )
     validate_candidate(arguments.config, updated)
-    result: dict[str, Any] = {
+    result = {
         "config": str(arguments.config),
         "hostname": arguments.hostname,
         "path": PATH_PATTERN,
@@ -155,7 +158,7 @@ def main() -> int:
     backup = arguments.config.with_suffix(arguments.config.suffix + ".pre-zacks-host-core")
     if changed:
         if not backup.exists():
-            shutil.copy2(arguments.config, backup)
+            shutil.copy2(str(arguments.config), str(backup))
         write_atomic(arguments.config, updated)
     try:
         validate(arguments.config)
@@ -167,9 +170,11 @@ def main() -> int:
             )
     except Exception:
         if changed and backup.exists():
-            shutil.copy2(backup, arguments.config)
+            shutil.copy2(str(backup), str(arguments.config))
             if arguments.restart:
-                subprocess.run(["systemctl", "restart", "cloudflared.service"], check=False)
+                subprocess.run(
+                    ["systemctl", "restart", "cloudflared.service"], check=False
+                )
         raise
     result["applied"] = True
     result["backup"] = str(backup)
@@ -178,4 +183,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys_exit = main()
+    raise SystemExit(sys_exit)
