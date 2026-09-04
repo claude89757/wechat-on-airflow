@@ -1,0 +1,60 @@
+name: One-time host-core startup error summary
+
+on:
+  push:
+    branches:
+      - ops/host-core-shadow-diagnose-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Configure SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Emit bounded redacted exception summaries
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          for service in zacks-api zacks-notification-worker; do
+            echo "__${service}_ERROR_SUMMARY__"
+            docker compose logs --no-color --tail 160 "$service" 2>&1 \
+              | python3 -c '
+import re, sys
+lines = sys.stdin.read().splitlines()
+keep = []
+patterns = re.compile(r"Traceback|ERROR|Exception|Error|FATAL|OperationalError|ProgrammingError|IntegrityError|ModuleNotFoundError|ImportError|TypeError|ValueError|KeyError|RuntimeError|PermissionError|FileNotFoundError|NoSuchModuleError|failed|exited", re.I)
+for line in lines:
+    if patterns.search(line):
+        line = re.sub(r"https?://[^ ]+", "<redacted-url>", line)
+        line = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "<redacted-email>", line)
+        line = re.sub(r"(?i)(password|secret|token|authorization)=([^ ,;]+)", r"\1=<redacted>", line)
+        line = re.sub(r"\b[a-f0-9]{48,}\b", "<redacted-hex>", line, flags=re.I)
+        keep.append(line[-700:])
+print("\n".join(keep[-60:]))
+'
+          done
+          REMOTE
