@@ -1,0 +1,320 @@
+name: One-time Host Core runtime state convergence fix
+
+on:
+  push:
+    branches:
+      - fix/host-core-runtime-state-wait-20260905
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-host-core-runtime-state-fix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/host-core-runtime-state-wait-20260905
+          fetch-depth: 0
+
+      - name: Patch runtime state convergence and tests
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          script_path = Path("scripts/host_core_production.py")
+          source = script_path.read_text(encoding="utf-8")
+
+          wait_anchor = '''def _wait_for_local_ready(timeout_seconds=180):
+              deadline = time.monotonic() + timeout_seconds
+              last_error = None
+              while time.monotonic() < deadline:
+                  try:
+                      return local_ready()
+                  except Exception as exc:
+                      last_error = exc
+                      time.sleep(3)
+              raise RuntimeError(f"host core did not become ready: {last_error}")
+
+
+          '''
+          wait_anchor = wait_anchor.replace("          ", "")
+          wait_replacement = wait_anchor + '''def _wait_for_local_state(
+              target_commit,
+              delivery_owner,
+              observation_mode,
+              timeout_seconds=180,
+          ):
+              deadline = time.monotonic() + timeout_seconds
+              last_error = None
+              last_state = None
+              while time.monotonic() < deadline:
+                  try:
+                      last_state = local_health(target_commit)
+                      if (
+                          last_state.get("deliveryOwner") == delivery_owner
+                          and last_state.get("observationMode") == observation_mode
+                      ):
+                          return last_state
+                      last_error = RuntimeError(
+                          "runtime state has not converged: owner={!r}, observation={!r}".format(
+                              last_state.get("deliveryOwner"),
+                              last_state.get("observationMode"),
+                          )
+                      )
+                  except Exception as exc:
+                      last_error = exc
+                  time.sleep(3)
+              raise RuntimeError(
+                  "host core runtime state did not converge to owner={!r}, "
+                  "observation={!r}: last_state={!r}, last_error={!r}".format(
+                      delivery_owner,
+                      observation_mode,
+                      last_state,
+                      last_error,
+                  )
+              )
+
+
+          '''
+          wait_replacement = wait_replacement.replace("          ", "")
+          if source.count(wait_anchor) != 1:
+              raise SystemExit(f"wait anchor count: {source.count(wait_anchor)}")
+          source = source.replace(wait_anchor, wait_replacement, 1)
+
+          deploy_old = '''    compose(
+                  "up",
+                  "-d",
+                  "--build",
+                  "zacks-api",
+                  "zacks-notification-worker",
+                  env=environment,
+              )
+              health_value = _wait_for_local_health(target_commit)
+              ready_value = local_ready()
+          '''.replace("              ", "")
+          deploy_new = '''    compose(
+                  "up",
+                  "-d",
+                  "--build",
+                  "zacks-api",
+                  "zacks-notification-worker",
+                  env=environment,
+              )
+              compose("restart", "zacks-api")
+              health_value = _wait_for_local_state(
+                  target_commit,
+                  delivery_owner="cloudflare",
+                  observation_mode="cloudflare",
+              )
+              ready_value = _wait_for_local_ready()
+          '''.replace("              ", "")
+          if source.count(deploy_old) != 1:
+              raise SystemExit(f"deploy-shadow anchor count: {source.count(deploy_old)}")
+          source = source.replace(deploy_old, deploy_new, 1)
+
+          dual_old = '''    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
+              variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
+              compose_exec(
+          '''.replace("              ", "")
+          dual_new = '''    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
+              variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
+              compose("restart", "zacks-api")
+              _wait_for_local_state(
+                  target_commit,
+                  delivery_owner="cloudflare",
+                  observation_mode="dual",
+              )
+              _wait_for_local_ready()
+              compose_exec(
+          '''.replace("              ", "")
+          if source.count(dual_old) != 1:
+              raise SystemExit(f"enable-dual anchor count: {source.count(dual_old)}")
+          source = source.replace(dual_old, dual_new, 1)
+
+          prepare_old = '''    compose("stop", "zacks-notification-worker")
+              compose("restart", "zacks-api")
+              health_value = _wait_for_local_health(target_commit)
+              ready_value = _wait_for_local_ready()
+          '''.replace("              ", "")
+          prepare_new = '''    compose("stop", "zacks-notification-worker")
+              compose("restart", "zacks-api")
+              health_value = _wait_for_local_state(
+                  target_commit,
+                  delivery_owner="cloudflare",
+                  observation_mode="host",
+              )
+              ready_value = _wait_for_local_ready()
+          '''.replace("              ", "")
+          if source.count(prepare_old) != 1:
+              raise SystemExit(f"prepare-cutover anchor count: {source.count(prepare_old)}")
+          source = source.replace(prepare_old, prepare_new, 1)
+
+          cutover_old = '''    host_python(mark)
+              variable_set("ZACKS_DELIVERY_OWNER", "airflow_host")
+              compose("up", "-d", "zacks-notification-worker")
+              health_value = local_health(target_commit)
+              ready_value = local_ready()
+          '''.replace("              ", "")
+          cutover_new = '''    host_python(mark)
+              variable_set("ZACKS_DELIVERY_OWNER", "airflow_host")
+              compose("restart", "zacks-api")
+              health_value = _wait_for_local_state(
+                  target_commit,
+                  delivery_owner="airflow_host",
+                  observation_mode="host",
+              )
+              ready_value = _wait_for_local_ready()
+              compose("up", "-d", "zacks-notification-worker")
+          '''.replace("              ", "")
+          if source.count(cutover_old) != 1:
+              raise SystemExit(f"cutover anchor count: {source.count(cutover_old)}")
+          source = source.replace(cutover_old, cutover_new, 1)
+
+          pause_old = '''    compose("stop", "zacks-notification-worker")
+              health_value = local_health(target_commit)
+              ready_value = local_ready()
+          '''.replace("              ", "")
+          pause_new = '''    compose("stop", "zacks-notification-worker")
+              compose("restart", "zacks-api")
+              health_value = _wait_for_local_state(
+                  target_commit,
+                  delivery_owner="cloudflare",
+                  observation_mode="host",
+              )
+              ready_value = _wait_for_local_ready()
+          '''.replace("              ", "")
+          if source.count(pause_old) != 1:
+              raise SystemExit(f"pause anchor count: {source.count(pause_old)}")
+          source = source.replace(pause_old, pause_new, 1)
+
+          script_path.write_text(source, encoding="utf-8")
+
+          test_path = Path("tests/host_core_restart_readiness_test.py")
+          tests = test_path.read_text(encoding="utf-8")
+          old_test = '''def test_prepare_cutover_waits_after_restarting_api() -> None:
+              target = "a" * 40
+              health = {
+                  "ok": True,
+                  "deliveryOwner": "cloudflare",
+                  "observationMode": "host",
+              }
+              ready = {"ok": True, "databaseReady": True}
+              with (
+                  patch.object(MODULE, "assert_target"),
+                  patch.object(MODULE, "check_ses_credentials"),
+                  patch.object(MODULE, "variable_set"),
+                  patch.object(MODULE, "compose") as compose,
+                  patch.object(MODULE, "_wait_for_local_health", return_value=health) as wait_health,
+                  patch.object(MODULE, "_wait_for_local_ready", return_value=ready) as wait_ready,
+                  patch.object(MODULE, "running_services", return_value=set()),
+                  patch.object(
+                      MODULE, "local_health", Mock(side_effect=AssertionError("immediate health call"))
+                  ),
+                  patch.object(
+                      MODULE, "local_ready", Mock(side_effect=AssertionError("immediate ready call"))
+                  ),
+              ):
+                  result = MODULE.prepare_cutover(target)
+
+              compose.assert_any_call("restart", "zacks-api")
+              wait_health.assert_called_once_with(target)
+              wait_ready.assert_called_once_with()
+              assert result["notificationWorker"] == "stopped"
+              assert result["localHealth"] == health
+              assert result["localReady"] == ready
+          '''.replace("              ", "")
+          new_test = '''def test_local_state_wait_retries_a_healthy_but_stale_process() -> None:
+              target = "a" * 40
+              stale = {
+                  "ok": True,
+                  "deliveryOwner": "cloudflare",
+                  "observationMode": "dual",
+              }
+              current = {
+                  "ok": True,
+                  "deliveryOwner": "cloudflare",
+                  "observationMode": "host",
+              }
+              with (
+                  patch.object(MODULE, "local_health", side_effect=[stale, current]) as local_health,
+                  patch.object(MODULE.time, "monotonic", side_effect=[0, 1, 2]),
+                  patch.object(MODULE.time, "sleep") as sleep,
+              ):
+                  result = MODULE._wait_for_local_state(
+                      target,
+                      delivery_owner="cloudflare",
+                      observation_mode="host",
+                      timeout_seconds=10,
+                  )
+
+              assert result == current
+              assert local_health.call_count == 2
+              sleep.assert_called_once_with(3)
+
+
+          def test_prepare_cutover_waits_for_the_requested_runtime_state() -> None:
+              target = "a" * 40
+              health = {
+                  "ok": True,
+                  "deliveryOwner": "cloudflare",
+                  "observationMode": "host",
+              }
+              ready = {"ok": True, "databaseReady": True}
+              with (
+                  patch.object(MODULE, "assert_target"),
+                  patch.object(MODULE, "check_ses_credentials"),
+                  patch.object(MODULE, "variable_set"),
+                  patch.object(MODULE, "compose") as compose,
+                  patch.object(MODULE, "_wait_for_local_state", return_value=health) as wait_state,
+                  patch.object(MODULE, "_wait_for_local_ready", return_value=ready) as wait_ready,
+                  patch.object(MODULE, "running_services", return_value=set()),
+                  patch.object(
+                      MODULE, "local_health", Mock(side_effect=AssertionError("immediate health call"))
+                  ),
+                  patch.object(
+                      MODULE, "local_ready", Mock(side_effect=AssertionError("immediate ready call"))
+                  ),
+              ):
+                  result = MODULE.prepare_cutover(target)
+
+              compose.assert_any_call("restart", "zacks-api")
+              wait_state.assert_called_once_with(
+                  target,
+                  delivery_owner="cloudflare",
+                  observation_mode="host",
+              )
+              wait_ready.assert_called_once_with()
+              assert result["notificationWorker"] == "stopped"
+              assert result["localHealth"] == health
+              assert result["localReady"] == ready
+          '''.replace("              ", "")
+          if tests.count(old_test) != 1:
+              raise SystemExit(f"restart test anchor count: {tests.count(old_test)}")
+          tests = tests.replace(old_test, new_test, 1)
+          test_path.write_text(tests, encoding="utf-8")
+          PY
+
+          git rm .github/workflows/host-core-runtime-state-fix-once.yml
+
+      - name: Validate focused tests and formatting
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -e '.[dev]'
+          ruff format --check scripts/host_core_production.py tests/host_core_restart_readiness_test.py
+          ruff check scripts/host_core_production.py tests/host_core_restart_readiness_test.py
+          pytest -q tests/host_core_restart_readiness_test.py
+
+      - name: Commit fix
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/host_core_production.py tests/host_core_restart_readiness_test.py
+          git commit -m "fix(host-core): wait for runtime ownership state after restart"
+          git push origin HEAD:fix/host-core-runtime-state-wait-20260905
