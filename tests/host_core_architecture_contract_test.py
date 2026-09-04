@@ -89,6 +89,7 @@ def test_repository_invariants_no_longer_assign_delivery_to_d1() -> None:
 
 def test_cutover_uses_quota_independent_sql_export_and_one_delivery_owner() -> None:
     workflow = read(".github/workflows/production-host-core.yml")
+    wrapper = read("scripts/host_core_command_with_heartbeat.py")
     runbook = read("docs/runbooks/host-core-cutover.md")
 
     assert "workflow_call:" in workflow
@@ -107,10 +108,18 @@ def test_cutover_uses_quota_independent_sql_export_and_one_delivery_owner() -> N
     assert workflow.index("deploy_edge false true true") < workflow.index(
         "remote migrate-sql --pass-name final"
     )
-    assert workflow.index("remote prepare-cutover") < workflow.index("deploy_edge true false false")
-    assert workflow.index("deploy_edge true false false") < workflow.index("remote cutover")
+    assert workflow.index("remote prepare-cutover") < workflow.index(
+        "deploy_edge true false false"
+    )
+    assert workflow.index("deploy_edge true false false") < workflow.index(
+        "remote cutover"
+    )
     assert ".wrangler-host-core-runtime.json" in workflow
-    assert "python3 scripts/host_core_production.py" in workflow
+    assert "python3 scripts/host_core_command_with_heartbeat.py" in workflow
+    assert "ServerAliveInterval=15" in workflow
+    assert "ServerAliveCountMax=120" in workflow
+    assert "host_core_command_heartbeat" in wrapper
+    assert "subprocess.TimeoutExpired" in wrapper
     assert "--var " not in workflow
     assert "remote rollback" in workflow
     assert "Real test notifications: none" in workflow
