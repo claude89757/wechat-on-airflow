@@ -1,0 +1,396 @@
+name: Apply Host Core serialization repair once
+
+on:
+  push:
+    branches:
+      - fix/host-core-subscription-serialization-v070
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: fix/host-core-subscription-serialization-v070
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Apply deterministic repair
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              value = target.read_text(encoding="utf-8")
+              count = value.count(old)
+              if count != 1:
+                  raise RuntimeError(f"expected one match in {path}, found {count}")
+              target.write_text(value.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "src/wechat_airflow/host_core/api.py",
+              '''    return "priority" if value == "priority" else "standard"
+
+
+def _is_admin(connection: Any, email: str) -> bool:
+''',
+              '''    return "priority" if value == "priority" else "standard"
+
+
+def _lock_subscription_creation(connection: Any, email: str) -> None:
+    connection.execute(
+        text(
+            """
+            SELECT pg_advisory_xact_lock(
+                hashtext('zacks-subscription-create'),
+                hashtext(:email)
+            )
+            """
+        ),
+        {"email": email},
+    )
+
+
+def _deactivate_expired_duplicate(
+    connection: Any,
+    *,
+    email: str,
+    dedupe_key: str,
+    now: datetime,
+) -> None:
+    connection.execute(
+        text(
+            """
+            UPDATE zacks.subscriptions
+            SET active = false, updated_at = :now
+            WHERE email = :email
+              AND dedupe_key = :dedupe_key
+              AND active = true
+              AND active_until <= :now
+            """
+        ),
+        {"email": email, "dedupe_key": dedupe_key, "now": now},
+    )
+
+
+def _is_admin(connection: Any, email: str) -> bool:
+''',
+          )
+
+          replace_once(
+              "src/wechat_airflow/host_core/api.py",
+              '''    with transaction() as connection:
+        tier = _tier(connection, identity["email"])
+''',
+              '''    with transaction() as connection:
+        _lock_subscription_creation(connection, identity["email"])
+        tier = _tier(connection, identity["email"])
+''',
+          )
+
+          replace_once(
+              "src/wechat_airflow/host_core/api.py",
+              '''        dedupe_key = subscription_dedupe_key(
+            identity["email"],
+            candidate.venue_ids,
+            candidate.start_time,
+            candidate.end_time,
+            mask,
+        )
+        existing = connection.execute(
+''',
+              '''        dedupe_key = subscription_dedupe_key(
+            identity["email"],
+            candidate.venue_ids,
+            candidate.start_time,
+            candidate.end_time,
+            mask,
+        )
+        _deactivate_expired_duplicate(
+            connection,
+            email=identity["email"],
+            dedupe_key=dedupe_key,
+            now=now,
+        )
+        existing = connection.execute(
+''',
+          )
+
+          replace_once(
+              "scripts/host_core_production.py",
+              '''def health(target_commit, include_public):
+''',
+              '''def owner_state(target_commit):
+    assert_target(target_commit)
+    return {
+        "targetCommit": target_commit,
+        "deliveryOwner": variable_get("ZACKS_DELIVERY_OWNER").lower(),
+        "observationMode": variable_get("ZACKS_OBSERVATION_MODE").lower(),
+        "wechatGateSource": variable_get("ZACKS_WECHAT_GATE_SOURCE").lower(),
+        "runningServices": sorted(running_services()),
+    }
+
+
+def health(target_commit, include_public):
+''',
+          )
+
+          replace_once(
+              "scripts/host_core_production.py",
+              '''            "pause-host-delivery",
+            "health",
+''',
+              '''            "pause-host-delivery",
+            "owner-state",
+            "health",
+''',
+          )
+
+          replace_once(
+              "scripts/host_core_production.py",
+              '''    elif arguments.operation == "pause-host-delivery":
+        result = pause_host_delivery(arguments.target_commit)
+    elif arguments.operation == "health":
+''',
+              '''    elif arguments.operation == "pause-host-delivery":
+        result = pause_host_delivery(arguments.target_commit)
+    elif arguments.operation == "owner-state":
+        result = owner_state(arguments.target_commit)
+    elif arguments.operation == "health":
+''',
+          )
+
+          replace_once(
+              ".github/workflows/production-host-core.yml",
+              '''          if [[ "$OPERATION" == "full-cutover" ]]; then
+            current_runtime="$(curl --silent --max-time 10 \\
+              https://zacks.claude89757.cc/api/healthz | jq -r '.runtime // "unknown"' || true)"
+            current_commit="$(curl --silent --max-time 10 \\
+              https://zacks.claude89757.cc/api/healthz | jq -r '.deploymentCommit // "unknown"' || true)"
+            current_owner="$(curl --silent --max-time 10 \\
+              https://zacks.claude89757.cc/api/healthz | jq -r '.deliveryOwner // "unknown"' || true)"
+            if [[ "$current_runtime" == "airflow-host" \\
+              && "$current_commit" == "$TARGET_COMMIT" \\
+              && "$current_owner" == "airflow_host" ]]; then
+              remote health --include-public
+              verify_public_edge
+              exit 0
+            fi
+          fi
+''',
+              '''          if [[ "$OPERATION" == "full-cutover" ]]; then
+            owner_state_json="$(remote owner-state | tail -n 1)"
+            remote_owner="$(jq -er '.deliveryOwner' <<<"$owner_state_json")"
+            remote_observation="$(jq -er '.observationMode' <<<"$owner_state_json")"
+            remote_gate="$(jq -er '.wechatGateSource' <<<"$owner_state_json")"
+            current_health="$(curl --fail --silent --show-error --max-time 10 \\
+              https://zacks.claude89757.cc/api/healthz || true)"
+            current_runtime="$(jq -r '.runtime // "unknown"' \\
+              <<<"$current_health" 2>/dev/null || true)"
+            current_commit="$(jq -r '.deploymentCommit // "unknown"' \\
+              <<<"$current_health" 2>/dev/null || true)"
+            current_owner="$(jq -r '.deliveryOwner // "unknown"' \\
+              <<<"$current_health" 2>/dev/null || true)"
+
+            if [[ "$remote_owner" == "airflow_host" ]]; then
+              if [[ "$remote_observation" != "host" || "$remote_gate" != "host" ]]; then
+                echo "Host ownership variables are inconsistent; refusing production mutation." >&2
+                exit 1
+              fi
+              if [[ -n "$current_health" \\
+                && ( "$current_runtime" != "airflow-host" \\
+                  || "$current_owner" != "airflow_host" ) ]]; then
+                echo "Public and host ownership disagree; refusing production mutation." >&2
+                exit 1
+              fi
+              if [[ "$current_runtime" == "airflow-host" \\
+                && "$current_commit" == "$TARGET_COMMIT" \\
+                && "$current_owner" == "airflow_host" ]]; then
+                remote health --include-public
+                verify_public_edge
+              else
+                echo "Host Core already owns durable state; skipping the one-time D1 import before routine exact-commit deployment."
+              fi
+              exit 0
+            fi
+
+            if [[ "$remote_observation" == "host" || "$remote_gate" == "host" ]]; then
+              echo "Host Core is already prepared or paused; refusing to re-import D1." >&2
+              exit 1
+            fi
+            if [[ "$remote_owner" != "cloudflare" || "$remote_gate" != "legacy" ]]; then
+              echo "Unexpected pre-cutover ownership state; refusing production mutation." >&2
+              exit 1
+            fi
+            case "$remote_observation" in
+              cloudflare|dual) ;;
+              *)
+                echo "Unexpected pre-cutover observation mode; refusing production mutation." >&2
+                exit 1
+                ;;
+            esac
+            if [[ "$current_runtime" == "airflow-host" \\
+              || "$current_owner" == "airflow_host" ]]; then
+              echo "Public edge reports Host Core ownership while the host does not; refusing D1 import." >&2
+              exit 1
+            fi
+          fi
+''',
+          )
+
+          replace_once(
+              "CHANGELOG.md",
+              '''- Preserve every active venue polling cadence and isolate existing email and
+  WeChat delivery from Cloudflare D1 availability.
+
+## [0.6.6] - 2026-08-31
+''',
+              '''- Preserve every active venue polling cadence and isolate existing email and
+  WeChat delivery from Cloudflare D1 availability.
+
+### Fixed
+
+- Serialize subscription creation per verified email before checking the active
+  subscription limit, and retire an expired duplicate before inserting its
+  replacement.
+- Make the Host Core ownership check authoritative before any D1 export so a
+  routine exact-commit upgrade can never overwrite PostgreSQL with rollback data.
+
+## [0.6.6] - 2026-08-31
+''',
+          )
+
+          Path("tests/host_core_subscription_creation_test.py").write_text(
+              '''from __future__ import annotations
+
+from datetime import UTC, datetime
+from inspect import getsource
+from unittest.mock import Mock
+
+from wechat_airflow.host_core import api
+
+
+def test_subscription_creation_takes_per_email_transaction_lock() -> None:
+    connection = Mock()
+
+    api._lock_subscription_creation(connection, "person@example.com")
+
+    statement = str(connection.execute.call_args.args[0])
+    parameters = connection.execute.call_args.args[1]
+    assert "pg_advisory_xact_lock" in statement
+    assert "zacks-subscription-create" in statement
+    assert parameters == {"email": "person@example.com"}
+
+
+def test_expired_duplicate_cleanup_is_scoped_to_identity_and_key() -> None:
+    connection = Mock()
+    now = datetime(2026, 9, 5, tzinfo=UTC)
+
+    api._deactivate_expired_duplicate(
+        connection,
+        email="person@example.com",
+        dedupe_key="duplicate-key",
+        now=now,
+    )
+
+    statement = str(connection.execute.call_args.args[0])
+    parameters = connection.execute.call_args.args[1]
+    assert "UPDATE zacks.subscriptions" in statement
+    assert "active_until <= :now" in statement
+    assert "email = :email" in statement
+    assert "dedupe_key = :dedupe_key" in statement
+    assert parameters == {
+        "email": "person@example.com",
+        "dedupe_key": "duplicate-key",
+        "now": now,
+    }
+
+
+def test_subscription_lock_and_expiry_cleanup_precede_limit_and_insert() -> None:
+    source = getsource(api.create_subscription)
+
+    lock = source.index("_lock_subscription_creation")
+    limit = source.index("SELECT count(*)")
+    cleanup = source.index("_deactivate_expired_duplicate")
+    duplicate_check = source.index("SELECT id FROM zacks.subscriptions")
+    insert = source.index("INSERT INTO zacks.subscriptions")
+
+    assert lock < limit < cleanup < duplicate_check < insert
+''',
+              encoding="utf-8",
+          )
+
+          Path("tests/host_core_cutover_safety_test.py").write_text(
+              '''from __future__ import annotations
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_full_cutover_reads_host_ownership_before_any_d1_export() -> None:
+    workflow = (ROOT / ".github/workflows/production-host-core.yml").read_text(
+        encoding="utf-8"
+    )
+
+    owner_check = workflow.index('owner_state_json="$(remote owner-state | tail -n 1)"')
+    initial_export = workflow.index('initial_snapshot="$(export_d1_snapshot initial)"')
+    assert owner_check < initial_export
+    assert "Host Core already owns durable state" in workflow
+    assert "refusing to re-import D1" in workflow
+    assert "Public and host ownership disagree" in workflow
+
+
+def test_owner_state_command_exposes_only_non_secret_cutover_flags() -> None:
+    script = (ROOT / "scripts/host_core_production.py").read_text(encoding="utf-8")
+
+    assert '"owner-state",' in script
+    assert 'elif arguments.operation == "owner-state":' in script
+    assert 'variable_get("ZACKS_DELIVERY_OWNER")' in script
+    assert 'variable_get("ZACKS_OBSERVATION_MODE")' in script
+    assert 'variable_get("ZACKS_WECHAT_GATE_SOURCE")' in script
+''',
+              encoding="utf-8",
+          )
+
+          Path(".github/workflows/apply-host-core-serialization-repair-once.yml").unlink()
+          PY
+
+      - name: Run focused credential-free checks
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+          ruff check \
+            src/wechat_airflow/host_core/api.py \
+            scripts/host_core_production.py \
+            tests/host_core_subscription_creation_test.py \
+            tests/host_core_cutover_safety_test.py
+          ruff format --check --diff \
+            src/wechat_airflow/host_core/api.py \
+            scripts/host_core_production.py \
+            tests/host_core_subscription_creation_test.py \
+            tests/host_core_cutover_safety_test.py
+          PYTHONPATH=src pytest -q \
+            tests/host_core_subscription_creation_test.py \
+            tests/host_core_cutover_safety_test.py \
+            tests/host_core_business_acceptance_test.py \
+            tests/host_core_api_transition_test.py
+
+      - name: Commit repaired branch
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(host-core): serialize subscription creation and protect ownership"
+          git push origin HEAD:fix/host-core-subscription-serialization-v070
