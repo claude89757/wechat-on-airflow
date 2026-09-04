@@ -30,122 +30,126 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import textwrap
 
           path = Path("scripts/host_core_production.py")
           source = path.read_text(encoding="utf-8")
 
-          health_helper = '''def _wait_for_local_health(target_commit, timeout_seconds=180):
-              deadline = time.monotonic() + timeout_seconds
-              last_error = None
-              while time.monotonic() < deadline:
-                  try:
-                      return local_health(target_commit)
-                  except Exception as exc:
-                      last_error = exc
-                      time.sleep(3)
-              raise RuntimeError(f"host core did not become healthy: {last_error}")
-          '''
-          health_helper = "\n".join(line[10:] if line.startswith("          ") else line for line in health_helper.splitlines()) + "\n"
-          ready_helper = '''
+          deploy_anchor = "\n\ndef deploy_shadow(target_commit):\n"
+          helper = textwrap.dedent(
+              '''
 
-          def _wait_for_local_ready(timeout_seconds=180):
-              deadline = time.monotonic() + timeout_seconds
-              last_error = None
-              while time.monotonic() < deadline:
-                  try:
-                      return local_ready()
-                  except Exception as exc:
-                      last_error = exc
-                      time.sleep(3)
-              raise RuntimeError(f"host core did not become ready: {last_error}")
-          '''
-          ready_helper = "\n".join(line[10:] if line.startswith("          ") else line for line in ready_helper.splitlines()) + "\n"
-          if source.count(health_helper) != 1:
-              raise SystemExit(f"health helper anchor count={source.count(health_helper)}")
-          source = source.replace(health_helper, health_helper + ready_helper, 1)
+              def _wait_for_local_ready(timeout_seconds=180):
+                  deadline = time.monotonic() + timeout_seconds
+                  last_error = None
+                  while time.monotonic() < deadline:
+                      try:
+                          return local_ready()
+                      except Exception as exc:
+                          last_error = exc
+                          time.sleep(3)
+                  raise RuntimeError(f"host core did not become ready: {last_error}")
+              '''
+          )
+          if "def _wait_for_local_ready(" not in source:
+              if source.count(deploy_anchor) != 1:
+                  raise SystemExit(f"deploy function anchor count={source.count(deploy_anchor)}")
+              source = source.replace(deploy_anchor, helper + deploy_anchor, 1)
 
-          if source.count("    ready_value = local_ready()\n") < 3:
-              raise SystemExit("expected at least three readiness call sites")
-
-          deploy_old = '''    health_value = _wait_for_local_health(target_commit)
-              ready_value = local_ready()
-          '''
-          deploy_old = "\n".join(line[4:] if line.startswith("    ") else line for line in deploy_old.splitlines()) + "\n"
-          deploy_new = deploy_old.replace("ready_value = local_ready()", "ready_value = _wait_for_local_ready()")
+          deploy_old = (
+              "    health_value = _wait_for_local_health(target_commit)\n"
+              "    ready_value = local_ready()\n"
+          )
+          deploy_new = (
+              "    health_value = _wait_for_local_health(target_commit)\n"
+              "    ready_value = _wait_for_local_ready()\n"
+          )
           if source.count(deploy_old) != 1:
               raise SystemExit(f"deploy warm-up anchor count={source.count(deploy_old)}")
           source = source.replace(deploy_old, deploy_new, 1)
 
-          prepare_old = '''    compose("restart", "zacks-api")
-              health_value = local_health(target_commit)
-              ready_value = local_ready()
-          '''
-          prepare_old = "\n".join(line[4:] if line.startswith("    ") else line for line in prepare_old.splitlines()) + "\n"
-          prepare_new = '''    compose("restart", "zacks-api")
-              health_value = _wait_for_local_health(target_commit)
-              ready_value = _wait_for_local_ready()
-          '''
-          prepare_new = "\n".join(line[4:] if line.startswith("    ") else line for line in prepare_new.splitlines()) + "\n"
+          prepare_old = (
+              '    compose("restart", "zacks-api")\n'
+              "    health_value = local_health(target_commit)\n"
+              "    ready_value = local_ready()\n"
+          )
+          prepare_new = (
+              '    compose("restart", "zacks-api")\n'
+              "    health_value = _wait_for_local_health(target_commit)\n"
+              "    ready_value = _wait_for_local_ready()\n"
+          )
           if source.count(prepare_old) != 1:
               raise SystemExit(f"prepare warm-up anchor count={source.count(prepare_old)}")
           source = source.replace(prepare_old, prepare_new, 1)
 
-          cutover_old = '''    compose("up", "-d", "zacks-notification-worker")
-              health_value = local_health(target_commit)
-              ready_value = local_ready()
-          '''
-          cutover_old = "\n".join(line[4:] if line.startswith("    ") else line for line in cutover_old.splitlines()) + "\n"
-          cutover_new = '''    compose("up", "-d", "zacks-notification-worker")
-              health_value = _wait_for_local_health(target_commit)
-              ready_value = _wait_for_local_ready()
-          '''
-          cutover_new = "\n".join(line[4:] if line.startswith("    ") else line for line in cutover_new.splitlines()) + "\n"
-          if source.count(cutover_old) != 1:
-              raise SystemExit(f"cutover warm-up anchor count={source.count(cutover_old)}")
-          source = source.replace(cutover_old, cutover_new, 1)
-
+          activate_old = (
+              '    compose("up", "-d", "zacks-notification-worker")\n'
+              "    health_value = local_health(target_commit)\n"
+              "    ready_value = local_ready()\n"
+          )
+          activate_new = (
+              '    compose("up", "-d", "zacks-notification-worker")\n'
+              "    health_value = _wait_for_local_health(target_commit)\n"
+              "    ready_value = _wait_for_local_ready()\n"
+          )
+          if source.count(activate_old) != 1:
+              raise SystemExit(f"activation warm-up anchor count={source.count(activate_old)}")
+          source = source.replace(activate_old, activate_new, 1)
           path.write_text(source, encoding="utf-8")
 
-          test_path = Path("tests/host_core_restart_warmup_test.py")
-          test_path.write_text(
-              '''from __future__ import annotations
+          Path("tests/host_core_restart_warmup_test.py").write_text(
+              textwrap.dedent(
+                  '''
+                  from __future__ import annotations
 
-          from pathlib import Path
+                  from pathlib import Path
 
-          ROOT = Path(__file__).resolve().parents[1]
-
-
-          def test_host_core_restarts_wait_for_health_and_readiness() -> None:
-              source = (ROOT / "scripts/host_core_production.py").read_text(encoding="utf-8")
-
-              assert "def _wait_for_local_ready(timeout_seconds=180):" in source
-              assert "host core did not become ready" in source
-              prepare = source[source.index("def prepare_cutover(") : source.index("def cutover(")]
-              assert 'compose("restart", "zacks-api")' in prepare
-              assert "health_value = _wait_for_local_health(target_commit)" in prepare
-              assert "ready_value = _wait_for_local_ready()" in prepare
-              assert "health_value = local_health(target_commit)" not in prepare
-              assert "ready_value = local_ready()" not in prepare
+                  ROOT = Path(__file__).resolve().parents[1]
 
 
-          def test_shadow_and_activation_use_bounded_readiness_waits() -> None:
-              source = (ROOT / "scripts/host_core_production.py").read_text(encoding="utf-8")
-              deploy = source[source.index("def deploy_shadow(") : source.index("def sync_secrets(")]
-              cutover = source[source.index("def cutover(") : source.index("def pause_host_delivery(")]
+                  def test_host_core_restart_waits_for_health_and_readiness() -> None:
+                      source = (ROOT / "scripts/host_core_production.py").read_text(
+                          encoding="utf-8"
+                      )
 
-              assert "ready_value = _wait_for_local_ready()" in deploy
-              assert "health_value = _wait_for_local_health(target_commit)" in cutover
-              assert "ready_value = _wait_for_local_ready()" in cutover
-          ''',
+                      assert "def _wait_for_local_ready(timeout_seconds=180):" in source
+                      assert "host core did not become ready" in source
+                      prepare = source[
+                          source.index("def prepare_cutover(") : source.index("def cutover(")
+                      ]
+                      assert 'compose("restart", "zacks-api")' in prepare
+                      assert "health_value = _wait_for_local_health(target_commit)" in prepare
+                      assert "ready_value = _wait_for_local_ready()" in prepare
+                      assert "health_value = local_health(target_commit)" not in prepare
+                      assert "ready_value = local_ready()" not in prepare
+
+
+                  def test_shadow_and_activation_use_bounded_readiness_waits() -> None:
+                      source = (ROOT / "scripts/host_core_production.py").read_text(
+                          encoding="utf-8"
+                      )
+                      deploy = source[
+                          source.index("def deploy_shadow(") : source.index("def sync_secrets(")
+                      ]
+                      cutover = source[
+                          source.index("def cutover(") : source.index("def pause_host_delivery(")
+                      ]
+
+                      assert "ready_value = _wait_for_local_ready()" in deploy
+                      assert "health_value = _wait_for_local_health(target_commit)" in cutover
+                      assert "ready_value = _wait_for_local_ready()" in cutover
+                  '''
+              ).lstrip(),
               encoding="utf-8",
           )
           PY
           python -m compileall -q scripts/host_core_production.py
-          python -m pytest -q tests/host_core_restart_warmup_test.py tests/host_core_release_hardening_test.py tests/host_core_architecture_contract_test.py
-          python -m ruff check scripts/host_core_production.py tests/host_core_restart_warmup_test.py
           python -m ruff format scripts/host_core_production.py tests/host_core_restart_warmup_test.py
           python -m ruff check scripts/host_core_production.py tests/host_core_restart_warmup_test.py
-          python -m pytest -q tests/host_core_restart_warmup_test.py tests/host_core_release_hardening_test.py tests/host_core_architecture_contract_test.py
+          python -m pytest -q \
+            tests/host_core_restart_warmup_test.py \
+            tests/host_core_release_hardening_test.py \
+            tests/host_core_architecture_contract_test.py
 
       - name: Remove one-time workflow and commit deterministic repair
         run: |
@@ -154,6 +158,9 @@ jobs:
           git diff --check
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/host_core_production.py tests/host_core_restart_warmup_test.py .github/workflows/host-core-restart-warmup-fix-once.yml
+          git add \
+            scripts/host_core_production.py \
+            tests/host_core_restart_warmup_test.py \
+            .github/workflows/host-core-restart-warmup-fix-once.yml
           git commit -m "fix(host-core): wait for API readiness after restart"
           git push origin HEAD:fix/host-core-restart-warmup-20260904
