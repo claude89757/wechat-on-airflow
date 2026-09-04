@@ -1,0 +1,93 @@
+name: One-time current Host Core cutover audit
+
+on:
+  push:
+    branches:
+      - ops/cutover-progress-audit2-20260905
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+      - name: Read current state
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" <<'REMOTE'
+          set -u
+          cd "$1" || exit 1
+          compose() { docker compose "$@"; }
+          echo '__HEAD_AND_SERVICES__'
+          git rev-parse HEAD
+          compose ps --services --status running
+          echo '__LOCAL_HTTP__'
+          curl -sS --max-time 10 -w '\nHTTP=%{http_code}\n' http://127.0.0.1:8090/zacks-api/api/healthz || true
+          curl -sS --max-time 10 -w '\nHTTP=%{http_code}\n' http://127.0.0.1:8090/zacks-api/api/readyz || true
+          echo '__VARIABLES_JSON__'
+          api="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
+          if [ -n "$api" ]; then
+            compose exec -T "$api" python - <<'PY' || true
+          import json
+          try:
+              from airflow.sdk import Variable
+              getter = lambda name: Variable.get(name, default=None)
+          except Exception:
+              from airflow.models.variable import Variable
+              getter = lambda name: Variable.get(name, default_var=None)
+          names = [
+              'ZACKS_DELIVERY_OWNER',
+              'ZACKS_OBSERVATION_MODE',
+              'ZACKS_WECHAT_GATE_SOURCE',
+              'WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE',
+              'WEBAPP_OBSERVATION_API_URL',
+          ]
+          print(json.dumps({name: getter(name) for name in names}, sort_keys=True))
+          PY
+          fi
+          echo '__POSTGRES_JSON__'
+          if compose ps --services --status running | grep -qx zacks-api; then
+            compose exec -T zacks-api python - <<'PY' || true
+          import json
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import transaction
+          def clean(value):
+              return value.isoformat() if hasattr(value, 'isoformat') else value
+          with transaction() as connection:
+              migration = connection.execute(text("SELECT source_revision, imported_at, cutover_at, updated_at FROM zacks.migration_state WHERE source='cloudflare-d1' ORDER BY updated_at DESC LIMIT 1")).mappings().first()
+              venues = connection.execute(text("SELECT count(*) AS total, count(*) FILTER (WHERE last_inspection_at >= now() - interval '15 minutes') AS recent, max(last_inspection_at) AS latest FROM zacks.venue_status")).mappings().one()
+              active = connection.execute(text("SELECT count(*) FROM zacks.subscriptions WHERE active=true AND active_until>now()")).scalar_one()
+              pending = connection.execute(text("SELECT count(*) FROM zacks.notification_outbox WHERE status IN ('pending','retry','processing')")).scalar_one()
+              system = connection.execute(text("SELECT count(*) FROM zacks.system_email_outbox WHERE status IN ('pending','retry','processing')")).scalar_one()
+          print(json.dumps({
+              'migration': {k: clean(v) for k, v in dict(migration or {}).items()},
+              'venues': {k: clean(v) for k, v in dict(venues).items()},
+              'activeSubscriptions': int(active or 0),
+              'openNotificationOutbox': int(pending or 0),
+              'openSystemEmailOutbox': int(system or 0),
+          }, sort_keys=True))
+          PY
+          fi
+          REMOTE
