@@ -67,7 +67,7 @@ jobs:
     if: needs.resolve.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
       OPERATION: ${{ needs.resolve.outputs.operation }}
@@ -133,7 +133,14 @@ jobs:
       - name: Prepare exact remote commit
         run: |
           set -euo pipefail
-          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=120 \
+            -o TCPKeepAlive=yes \
+            -p "$AIRFLOW_SSH_PORT" \
+            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
             "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
              git fetch --prune origin main; \
              test -z \"\$(git status --porcelain --untracked-files=no)\"; \
@@ -145,6 +152,23 @@ jobs:
         run: |
           set -euo pipefail
 
+          SSH_OPTIONS=(
+            -o BatchMode=yes
+            -o ConnectTimeout=20
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=120
+            -o TCPKeepAlive=yes
+            -p "$AIRFLOW_SSH_PORT"
+          )
+          SCP_OPTIONS=(
+            -o BatchMode=yes
+            -o ConnectTimeout=20
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=120
+            -o TCPKeepAlive=yes
+            -P "$AIRFLOW_SSH_PORT"
+          )
+
           remote() {
             local quoted=()
             local argument escaped
@@ -152,9 +176,11 @@ jobs:
               printf -v escaped '%q' "$argument"
               quoted+=("$escaped")
             done
-            ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            ssh "${SSH_OPTIONS[@]}" \
+              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
               "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
-               DEPLOYMENT_COMMIT='$TARGET_COMMIT' python3 scripts/host_core_production.py \
+               DEPLOYMENT_COMMIT='$TARGET_COMMIT' \
+               python3 scripts/host_core_command_with_heartbeat.py \
                ${quoted[*]} --target-commit '$TARGET_COMMIT'"
           }
 
@@ -209,11 +235,13 @@ jobs:
             snapshot_sha="$(sha256sum "$gzip_path" | cut -d' ' -f1)"
             local remote_dir="$AIRFLOW_REPOSITORY_PATH/.local/host-core-migration"
             local remote_path="$remote_dir/d1-${pass_name}-${snapshot_sha}.sql.gz"
-            ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            ssh "${SSH_OPTIONS[@]}" \
+              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
               "install -d -m 0700 '$remote_dir'"
-            scp -P "$AIRFLOW_SSH_PORT" "$gzip_path" \
+            scp "${SCP_OPTIONS[@]}" "$gzip_path" \
               "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:$remote_path"
-            ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            ssh "${SSH_OPTIONS[@]}" \
+              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
               "chmod 0600 '$remote_path'; test -s '$remote_path'; \
                test \"\$(sha256sum '$remote_path' | cut -d' ' -f1)\" = '$snapshot_sha'"
             printf '%s|%s\n' "$remote_path" "$snapshot_sha"
@@ -324,5 +352,6 @@ jobs:
             echo "- Target commit: \`$TARGET_COMMIT\`"
             echo "- Result: \`${{ job.status }}\`"
             echo "- D1 migration source: control-plane SQL export"
+            echo "- Long operations: SSH keepalive plus command heartbeat"
             echo "- Real test notifications: none"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -23,6 +23,7 @@ def test_manual_ci_uses_first_parent_and_validates_sender_without_deploying() ->
 def test_host_entry_scripts_remain_runnable_on_the_production_python_36_host() -> None:
     for path in (
         "scripts/host_core_production.py",
+        "scripts/host_core_command_with_heartbeat.py",
         "scripts/configure_zacks_tunnel.py",
     ):
         source = read(path)
@@ -33,9 +34,16 @@ def test_host_entry_scripts_remain_runnable_on_the_production_python_36_host() -
         assert "missing_ok=" not in source
 
 
-def test_all_production_host_core_callers_use_python3() -> None:
+def test_all_production_host_core_callers_use_explicit_python3() -> None:
+    host_workflow = read(".github/workflows/production-host-core.yml")
+    wrapper = read("scripts/host_core_command_with_heartbeat.py")
+
+    assert "python scripts/host_core_production.py" not in host_workflow
+    assert "python3 scripts/host_core_command_with_heartbeat.py" in host_workflow
+    assert 'HOST_CORE_SCRIPT = ROOT / "scripts" / "host_core_production.py"' in wrapper
+    assert "command = [sys.executable, str(HOST_CORE_SCRIPT)] + values" in wrapper
+
     for path in (
-        ".github/workflows/production-host-core.yml",
         ".github/workflows/production-host-core-v070.yml",
         ".github/workflows/production-ship.yml",
     ):
