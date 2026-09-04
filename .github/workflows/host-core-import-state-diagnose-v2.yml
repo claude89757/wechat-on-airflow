@@ -47,47 +47,49 @@ jobs:
           set -euo pipefail
           python_payload="$(python - <<'PY'
           import base64
-          payload = r'''
-          import json
-          from sqlalchemy import text
-          from wechat_airflow.host_core.database import get_engine
+          import textwrap
 
-          with get_engine().connect() as connection:
-              connection.execute(text("SET statement_timeout = '5s'"))
-              activity = [
-                  dict(row)
-                  for row in connection.execute(text('''
-                      SELECT pid, state, wait_event_type, wait_event,
-                             now() - query_start AS query_age,
-                             left(query, 180) AS query
-                      FROM pg_stat_activity
-                      WHERE datname = current_database()
-                        AND pid <> pg_backend_pid()
-                        AND (
-                          query ILIKE '%zacks.%'
-                          OR application_name ILIKE '%zacks%'
-                        )
-                      ORDER BY query_start
-                  ''')).mappings()
-              ]
-              state = connection.execute(text('''
-                  SELECT source, source_revision, imported_at, cutover_at, details
-                  FROM zacks.migration_state
-                  WHERE source = 'cloudflare-d1'
-              ''')).mappings().one_or_none()
-              counts = {
-                  'venues': int(connection.execute(text('SELECT count(*) FROM zacks.venue_status')).scalar_one()),
-                  'subscriptions': int(connection.execute(text('SELECT count(*) FROM zacks.subscriptions')).scalar_one()),
-                  'activeSubscriptions': int(connection.execute(text('SELECT count(*) FROM zacks.subscriptions WHERE active = true')).scalar_one()),
-                  'verifiedReceipts': int(connection.execute(text('SELECT count(*) FROM zacks.verified_receipts')).scalar_one()),
-                  'notificationOutbox': int(connection.execute(text('SELECT count(*) FROM zacks.notification_outbox')).scalar_one()),
-              }
-          print(json.dumps({
-              'migrationState': dict(state) if state else None,
-              'counts': counts,
-              'activity': activity,
-          }, default=str, sort_keys=True))
-          '''
+          payload = textwrap.dedent(r'''
+              import json
+              from sqlalchemy import text
+              from wechat_airflow.host_core.database import get_engine
+
+              with get_engine().connect() as connection:
+                  connection.execute(text("SET statement_timeout = '5s'"))
+                  activity = [
+                      dict(row)
+                      for row in connection.execute(text('''
+                          SELECT pid, state, wait_event_type, wait_event,
+                                 now() - query_start AS query_age,
+                                 left(query, 180) AS query
+                          FROM pg_stat_activity
+                          WHERE datname = current_database()
+                            AND pid <> pg_backend_pid()
+                            AND (
+                              query ILIKE '%zacks.%'
+                              OR application_name ILIKE '%zacks%'
+                            )
+                          ORDER BY query_start
+                      ''')).mappings()
+                  ]
+                  state = connection.execute(text('''
+                      SELECT source, source_revision, imported_at, cutover_at, details
+                      FROM zacks.migration_state
+                      WHERE source = 'cloudflare-d1'
+                  ''')).mappings().one_or_none()
+                  counts = {
+                      'venues': int(connection.execute(text('SELECT count(*) FROM zacks.venue_status')).scalar_one()),
+                      'subscriptions': int(connection.execute(text('SELECT count(*) FROM zacks.subscriptions')).scalar_one()),
+                      'activeSubscriptions': int(connection.execute(text('SELECT count(*) FROM zacks.subscriptions WHERE active = true')).scalar_one()),
+                      'verifiedReceipts': int(connection.execute(text('SELECT count(*) FROM zacks.verified_receipts')).scalar_one()),
+                      'notificationOutbox': int(connection.execute(text('SELECT count(*) FROM zacks.notification_outbox')).scalar_one()),
+                  }
+              print(json.dumps({
+                  'migrationState': dict(state) if state else None,
+                  'counts': counts,
+                  'activity': activity,
+              }, default=str, sort_keys=True))
+          ''').lstrip()
           print(base64.b64encode(payload.encode()).decode())
           PY
           )"
