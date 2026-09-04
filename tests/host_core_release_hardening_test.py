@@ -13,7 +13,7 @@ def read(path: str) -> str:
 def test_manual_ci_uses_first_parent_and_validates_sender_without_deploying() -> None:
     workflow = read(".github/workflows/ci.yml")
 
-    assert 'EVENT_NAME: ${{ github.event_name }}' in workflow
+    assert "EVENT_NAME: ${{ github.event_name }}" in workflow
     assert 'if [[ "$EVENT_NAME" == "workflow_dispatch" ]]' in workflow
     assert 'git rev-parse "${TARGET_COMMIT}^"' in workflow
     assert "--include-sender" in workflow

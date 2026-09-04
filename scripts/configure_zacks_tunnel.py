@@ -91,7 +91,7 @@ def validate(path):
 def write_atomic(path, document):
     metadata = path.stat()
     descriptor, temporary_name = tempfile.mkstemp(
-        prefix=".{0}.".format(path.name), suffix=".tmp", dir=str(path.parent)
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
     )
     os.close(descriptor)
     temporary = Path(temporary_name)
@@ -108,7 +108,7 @@ def write_atomic(path, document):
 
 def validate_candidate(config, document):
     descriptor, candidate_name = tempfile.mkstemp(
-        prefix=".{0}.candidate.".format(config.name),
+        prefix=f".{config.name}.candidate.",
         suffix=".yml",
         dir=str(config.parent),
     )
@@ -133,10 +133,8 @@ def main():
     arguments = parser.parse_args()
 
     if not arguments.config.is_file():
-        raise RuntimeError("cloudflared configuration not found: {0}".format(arguments.config))
-    document = normalize_document(
-        yaml.safe_load(arguments.config.read_text(encoding="utf-8"))
-    )
+        raise RuntimeError(f"cloudflared configuration not found: {arguments.config}")
+    document = normalize_document(yaml.safe_load(arguments.config.read_text(encoding="utf-8")))
     updated, changed = with_zacks_rule(
         document,
         hostname=arguments.hostname,
@@ -172,9 +170,7 @@ def main():
         if changed and backup.exists():
             shutil.copy2(str(backup), str(arguments.config))
             if arguments.restart:
-                subprocess.run(
-                    ["systemctl", "restart", "cloudflared.service"], check=False
-                )
+                subprocess.run(["systemctl", "restart", "cloudflared.service"], check=False)
         raise
     result["applied"] = True
     result["backup"] = str(backup)

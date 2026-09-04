@@ -5,7 +5,6 @@ from pathlib import Path
 
 from scripts.import_d1_sql_export import sha256_file, snapshot_from_sql_export
 
-
 SQL = """
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
@@ -27,9 +26,7 @@ def test_plain_d1_sql_export_is_loaded_into_fixed_snapshot_tables(tmp_path: Path
 
     snapshot = snapshot_from_sql_export(export)
 
-    assert snapshot["subscriptions"] == [
-        {"id": "s1", "email": "masked@example.test", "active": 1}
-    ]
+    assert snapshot["subscriptions"] == [{"id": "s1", "email": "masked@example.test", "active": 1}]
     assert snapshot["venue_status"] == [{"venue_id": "szw", "healthy": 1}]
     assert snapshot["notification_outbox"] == [{"id": "n1", "status": "delivered"}]
     assert snapshot["user_profiles"][0]["display_name"] == "Masked"

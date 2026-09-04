@@ -107,9 +107,7 @@ def test_cutover_uses_quota_independent_sql_export_and_one_delivery_owner() -> N
     assert workflow.index("deploy_edge false true true") < workflow.index(
         "remote migrate-sql --pass-name final"
     )
-    assert workflow.index("remote prepare-cutover") < workflow.index(
-        "deploy_edge true false false"
-    )
+    assert workflow.index("remote prepare-cutover") < workflow.index("deploy_edge true false false")
     assert workflow.index("deploy_edge true false false") < workflow.index("remote cutover")
     assert ".wrangler-host-core-runtime.json" in workflow
     assert "python3 scripts/host_core_production.py" in workflow

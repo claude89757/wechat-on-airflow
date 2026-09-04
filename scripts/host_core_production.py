@@ -59,9 +59,7 @@ def assert_target(target_commit):
         raise RuntimeError("target commit must be a full SHA")
     head = run(["git", "rev-parse", "HEAD"], capture=True).stdout.strip()
     if head != target_commit:
-        raise RuntimeError(
-            "worktree commit mismatch: expected {0}, got {1}".format(target_commit, head)
-        )
+        raise RuntimeError(f"worktree commit mismatch: expected {target_commit}, got {head}")
 
 
 def variable_set(name, value):
@@ -89,7 +87,7 @@ def _curl_json(url):
     )
     value = json.loads(completed.stdout)
     if not isinstance(value, dict):
-        raise RuntimeError("health endpoint returned invalid JSON: {0}".format(url))
+        raise RuntimeError(f"health endpoint returned invalid JSON: {url}")
     return value
 
 
@@ -129,9 +127,9 @@ def _migration_source(value):
     except ValueError:
         common = ""
     if common != str(migration_root):
-        raise RuntimeError("SQL migration source must be inside {0}".format(migration_root))
+        raise RuntimeError(f"SQL migration source must be inside {migration_root}")
     if not source.is_file():
-        raise RuntimeError("SQL migration source does not exist: {0}".format(source))
+        raise RuntimeError(f"SQL migration source does not exist: {source}")
     return source
 
 
@@ -266,15 +264,13 @@ def migrate_sql(target_commit, pass_name, sql_export, snapshot_sha256):
         raise RuntimeError("snapshot SHA-256 is required")
     if actual_sha256 != snapshot_sha256.lower():
         raise RuntimeError(
-            "host SQL export checksum mismatch: expected {0}, got {1}".format(
-                snapshot_sha256, actual_sha256
-            )
+            f"host SQL export checksum mismatch: expected {snapshot_sha256}, got {actual_sha256}"
         )
 
-    container_path = "/tmp/zacks-d1-{0}-{1}.sql.gz".format(
+    container_path = "/tmp/zacks-d1-{}-{}.sql.gz".format(
         pass_name.replace("/", "-"), actual_sha256[:16]
     )
-    compose("cp", str(source), "zacks-api:{0}".format(container_path))
+    compose("cp", str(source), f"zacks-api:{container_path}")
     try:
         output = compose_exec(
             "zacks-api",
