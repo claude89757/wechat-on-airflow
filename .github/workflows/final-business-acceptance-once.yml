@@ -1,0 +1,504 @@
+name: One-time final business acceptance
+
+on:
+  push:
+    branches:
+      - ops/final-business-acceptance-20260905
+
+permissions:
+  contents: write
+  checks: read
+
+concurrency:
+  group: final-business-acceptance
+  cancel-in-progress: false
+
+jobs:
+  host_business_acceptance:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 90
+    env:
+      TARGET_COMMIT: eacd0b813889091382d76a43c146484fd1173881
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: eacd0b813889091382d76a43c146484fd1173881
+          fetch-depth: 0
+
+      - name: Wait for the guarded Host Core cutover
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          target = "eacd0b813889091382d76a43c146484fd1173881"
+          deadline = time.monotonic() + 4_800
+          last = None
+          while time.monotonic() < deadline:
+              try:
+                  with urllib.request.urlopen(
+                      "https://zacks.claude89757.cc/api/healthz", timeout=15
+                  ) as response:
+                      health = json.loads(response.read())
+                  with urllib.request.urlopen(
+                      "https://zacks.claude89757.cc/api/edge-healthz", timeout=15
+                  ) as response:
+                      edge = json.loads(response.read())
+                  last = {"health": health, "edge": edge}
+                  if (
+                      health.get("ok") is True
+                      and health.get("runtime") == "airflow-host"
+                      and health.get("deliveryOwner") == "airflow_host"
+                      and health.get("observationMode") == "host"
+                      and health.get("deploymentCommit") == target
+                      and edge.get("ok") is True
+                      and edge.get("runtime") == "cloudflare-stateless-edge"
+                      and edge.get("deploymentCommit") == target
+                      and edge.get("cutover") is True
+                      and edge.get("quiesced") is False
+                      and edge.get("migrationEndpoint") is False
+                  ):
+                      print(json.dumps({"ready": True, "health": health, "edge": edge}, sort_keys=True))
+                      raise SystemExit(0)
+              except Exception as exc:
+                  last = {"error": type(exc).__name__, "detail": str(exc)[:200]}
+              print(json.dumps({"event": "waiting_for_host_cutover", "last": last}, sort_keys=True))
+              time.sleep(20)
+          raise SystemExit("Host Core cutover did not become ready: " + json.dumps(last, sort_keys=True))
+          PY
+
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Verify public subscription writes and send one real email acceptance
+        run: |
+          set -euo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=120 \
+            -o TCPKeepAlive=yes \
+            -p "$AIRFLOW_SSH_PORT" \
+            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" "$GITHUB_RUN_ID" "$TARGET_COMMIT" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          run_id="$2"
+          target_commit="$3"
+          test "$(git rev-parse HEAD)" = "$target_commit"
+
+          compose() {
+            if docker compose version >/dev/null 2>&1; then
+              docker compose "$@"
+            else
+              docker-compose "$@"
+            fi
+          }
+
+          running="$(compose ps --services --status running)"
+          grep -qx zacks-api <<<"$running"
+          grep -qx zacks-notification-worker <<<"$running"
+
+          restart_worker() {
+            set +e
+            compose up -d zacks-notification-worker >/dev/null
+          }
+          trap restart_worker EXIT
+          compose stop zacks-notification-worker >/dev/null
+
+          compose exec -T -e "ACCEPTANCE_RUN_ID=$run_id" zacks-api python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import secrets
+          import uuid
+          from datetime import timedelta
+
+          import requests
+          from sqlalchemy import text
+
+          from wechat_airflow.host_core.database import transaction
+          from wechat_airflow.host_core.domain import utc_now
+
+          run_id = os.environ["ACCEPTANCE_RUN_ID"]
+          test_id = uuid.uuid4().hex
+          email = f"acceptance-{run_id}-{test_id}@example.invalid"
+          token = secrets.token_urlsafe(32)
+          token_hash = hashlib.sha256(token.encode()).hexdigest()
+          masked = "a***@example.invalid"
+          now = utc_now()
+          expires_at = now + timedelta(minutes=15)
+          subscription_id = None
+          challenge_id = None
+          forbidden = ("d1", "7500", "free tier", "quota", "额度耗尽")
+
+          def assert_host_response(response: requests.Response, expected: int) -> dict:
+              body = response.text
+              assert response.status_code == expected, (response.status_code, body[:500])
+              assert response.headers.get("X-Zacks-Edge") == "airflow-host-proxy", dict(response.headers)
+              lowered = body.lower()
+              assert not any(term in lowered for term in forbidden), body[:500]
+              value = response.json()
+              assert isinstance(value, dict)
+              return value
+
+          with transaction() as connection:
+              connection.execute(
+                  text(
+                      """
+                      INSERT INTO zacks.verified_receipts(
+                          token_hash, email, masked_email, expires_at,
+                          last_used_at, created_at
+                      ) VALUES (
+                          :token_hash, :email, :masked_email, :expires_at,
+                          :now, :now
+                      )
+                      """
+                  ),
+                  {
+                      "token_hash": token_hash,
+                      "email": email,
+                      "masked_email": masked,
+                      "expires_at": expires_at,
+                      "now": now,
+                  },
+              )
+              connection.execute(
+                  text(
+                      """
+                      INSERT INTO zacks.user_profiles(
+                          email, masked_email, first_verified_at, last_verified_at,
+                          last_login_at, last_active_at, created_at, updated_at
+                      ) VALUES (
+                          :email, :masked_email, :now, :now,
+                          :now, :now, :now, :now
+                      )
+                      """
+                  ),
+                  {"email": email, "masked_email": masked, "now": now},
+              )
+              connection.execute(
+                  text(
+                      """
+                      INSERT INTO zacks.user_delivery_tiers(
+                          email, tier, created_at, updated_at
+                      ) VALUES (:email, 'standard', :now, :now)
+                      """
+                  ),
+                  {"email": email, "now": now},
+              )
+
+          try:
+              subscription_response = requests.post(
+                  "https://zacks.claude89757.cc/api/subscriptions",
+                  headers={"Authorization": f"Bearer {token}"},
+                  json={
+                      "venueIds": ["tops"],
+                      "weekdays": [1, 2, 3, 4, 5, 6, 7],
+                      "startTime": "00:00",
+                      "endTime": "00:01",
+                      "termCode": "7d",
+                  },
+                  timeout=30,
+              )
+              subscription_payload = assert_host_response(subscription_response, 201)
+              subscription = subscription_payload.get("subscription", subscription_payload)
+              assert isinstance(subscription, dict)
+              subscription_id = str(subscription.get("id") or "")
+              assert subscription_id
+
+              with transaction() as connection:
+                  stored = connection.execute(
+                      text(
+                          """
+                          SELECT email, venue_ids, start_time, end_time, active
+                          FROM zacks.subscriptions WHERE id = :id
+                          """
+                      ),
+                      {"id": subscription_id},
+                  ).mappings().one()
+                  selected = connection.execute(
+                      text(
+                          """
+                          SELECT count(*) FROM zacks.subscription_venues
+                          WHERE subscription_id = :id AND venue_id = 'tops'
+                          """
+                      ),
+                      {"id": subscription_id},
+                  ).scalar_one()
+              assert stored["email"] == email
+              assert stored["active"] is True
+              assert int(selected) == 1
+
+              code_response = requests.post(
+                  "https://zacks.claude89757.cc/api/email/send-code",
+                  json={"email": email},
+                  timeout=30,
+              )
+              code_payload = assert_host_response(code_response, 200)
+              challenge_id = str(code_payload.get("challengeId") or "")
+              assert challenge_id
+              with transaction() as connection:
+                  challenge_count = connection.execute(
+                      text(
+                          """
+                          SELECT count(*) FROM zacks.verification_challenges
+                          WHERE id = :id AND email = :email
+                          """
+                      ),
+                      {"id": challenge_id, "email": email},
+                  ).scalar_one()
+                  system_count = connection.execute(
+                      text(
+                          """
+                          SELECT count(*) FROM zacks.system_email_outbox
+                          WHERE dedupe_key = :dedupe_key AND email = :email
+                          """
+                      ),
+                      {"dedupe_key": f"verification:{challenge_id}", "email": email},
+                  ).scalar_one()
+              assert int(challenge_count) == 1
+              assert int(system_count) == 1
+
+              print(
+                  json.dumps(
+                      {
+                          "ok": True,
+                          "publicSubscriptionHttp": subscription_response.status_code,
+                          "publicVerificationHttp": code_response.status_code,
+                          "edge": "airflow-host-proxy",
+                          "postgresSubscription": True,
+                          "postgresSubscriptionVenue": True,
+                          "postgresVerificationChallenge": True,
+                          "postgresSystemEmailOutbox": True,
+                      },
+                      sort_keys=True,
+                  )
+              )
+          finally:
+              with transaction() as connection:
+                  connection.execute(
+                      text("DELETE FROM zacks.notification_outbox WHERE email = :email"),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text("DELETE FROM zacks.system_email_outbox WHERE email = :email"),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text("DELETE FROM zacks.verification_challenges WHERE email = :email"),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text(
+                          """
+                          DELETE FROM zacks.subscription_events
+                          WHERE subscription_id IN (
+                              SELECT id FROM zacks.subscriptions WHERE email = :email
+                          )
+                          """
+                      ),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text(
+                          """
+                          DELETE FROM zacks.subscription_venues
+                          WHERE subscription_id IN (
+                              SELECT id FROM zacks.subscriptions WHERE email = :email
+                          )
+                          """
+                      ),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text("DELETE FROM zacks.subscriptions WHERE email = :email"),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text("DELETE FROM zacks.verified_receipts WHERE email = :email"),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text("DELETE FROM zacks.user_delivery_tiers WHERE email = :email"),
+                      {"email": email},
+                  )
+                  connection.execute(
+                      text("DELETE FROM zacks.user_profiles WHERE email = :email"),
+                      {"email": email},
+                  )
+                  leftovers = sum(
+                      int(connection.execute(text(query), {"email": email}).scalar_one())
+                      for query in (
+                          "SELECT count(*) FROM zacks.subscriptions WHERE email = :email",
+                          "SELECT count(*) FROM zacks.verified_receipts WHERE email = :email",
+                          "SELECT count(*) FROM zacks.verification_challenges WHERE email = :email",
+                          "SELECT count(*) FROM zacks.system_email_outbox WHERE email = :email",
+                          "SELECT count(*) FROM zacks.notification_outbox WHERE email = :email",
+                      )
+                  )
+              assert leftovers == 0
+          PY
+
+          compose up -d zacks-notification-worker >/dev/null
+          trap - EXIT
+
+          compose exec -T -e "ACCEPTANCE_RUN_ID=$run_id" zacks-api python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import time
+          import uuid
+
+          from sqlalchemy import text
+
+          from wechat_airflow.host_core.database import transaction
+          from wechat_airflow.host_core.domain import utc_now
+
+          run_id = os.environ["ACCEPTANCE_RUN_ID"]
+          dedupe_key = f"production-acceptance:{run_id}"
+          now = utc_now()
+
+          with transaction() as connection:
+              email = connection.execute(
+                  text(
+                      """
+                      SELECT roles.email
+                      FROM zacks.user_roles roles
+                      JOIN zacks.user_profiles profiles ON profiles.email = roles.email
+                      WHERE roles.role = 'admin' AND roles.revoked_at IS NULL
+                      ORDER BY roles.created_at
+                      LIMIT 1
+                      """
+                  )
+              ).scalar_one_or_none()
+              if not email:
+                  raise RuntimeError("no active administrator email is available for acceptance")
+              connection.execute(
+                  text(
+                      """
+                      INSERT INTO zacks.system_email_outbox(
+                          id, dedupe_key, email, email_type, subject, body,
+                          status, attempt_count, next_attempt_at, created_at, updated_at
+                      ) VALUES (
+                          :id, :dedupe_key, :email, 'acceptance', :subject, :body,
+                          'pending', 0, :now, :now, :now
+                      )
+                      ON CONFLICT (dedupe_key) DO NOTHING
+                      """
+                  ),
+                  {
+                      "id": str(uuid.uuid4()),
+                      "dedupe_key": dedupe_key,
+                      "email": email,
+                      "subject": "【系统验收】Zacks 邮件推送链路",
+                      "body": "这是一封经授权的生产邮件链路验收消息。收到即表示 Airflow Host Core、PostgreSQL Outbox 与腾讯云 SES 已贯通。无需回复。",
+                      "now": now,
+                  },
+              )
+              target_hash = hashlib.sha256(str(email).encode()).hexdigest()[:12]
+
+          deadline = time.monotonic() + 900
+          last = None
+          while time.monotonic() < deadline:
+              with transaction() as connection:
+                  last = connection.execute(
+                      text(
+                          """
+                          SELECT status, attempt_count, provider_message_id,
+                                 provider_status, submitted_at, delivered_at,
+                                 failed_at, last_error
+                          FROM zacks.system_email_outbox
+                          WHERE dedupe_key = :dedupe_key
+                          """
+                      ),
+                      {"dedupe_key": dedupe_key},
+                  ).mappings().one()
+              status = str(last["status"])
+              print(
+                  json.dumps(
+                      {
+                          "event": "email_acceptance_poll",
+                          "targetHash": target_hash,
+                          "status": status,
+                          "attemptCount": int(last["attempt_count"] or 0),
+                          "providerStatus": last["provider_status"],
+                          "hasMessageId": bool(last["provider_message_id"]),
+                      },
+                      sort_keys=True,
+                  ),
+                  flush=True,
+              )
+              if status == "delivered":
+                  print(
+                      json.dumps(
+                          {
+                              "ok": True,
+                              "realEmail": True,
+                              "targetHash": target_hash,
+                              "status": status,
+                              "providerStatus": last["provider_status"],
+                              "submittedAt": last["submitted_at"].isoformat(),
+                              "deliveredAt": last["delivered_at"].isoformat(),
+                          },
+                          sort_keys=True,
+                      )
+                  )
+                  raise SystemExit(0)
+              if status == "failed":
+                  raise RuntimeError(
+                      "email acceptance failed: " + str(last["last_error"] or last["provider_status"])
+                  )
+              time.sleep(10)
+          raise RuntimeError("email acceptance did not reach delivered state: " + str(dict(last or {})))
+          PY
+          REMOTE
+
+  wechat_acceptance:
+    needs: host_business_acceptance
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: wechat_delivery_probe
+      target_commit: eacd0b813889091382d76a43c146484fd1173881
+      request_id: final-acceptance-${{ github.run_id }}
+      confirm_real_send: true
+      probe_target_membership: general:1
+    secrets: inherit
+
+  final_host_health:
+    needs: wechat_acceptance
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: health
+      target_commit: eacd0b813889091382d76a43c146484fd1173881
+    secrets: inherit
+
+  release:
+    needs: final_host_health
+    uses: ./.github/workflows/release-tag-chatops.yml
+    with:
+      version: 0.7.0
+      target_commit: eacd0b813889091382d76a43c146484fd1173881
+    secrets: inherit
