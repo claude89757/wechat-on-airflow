@@ -1,0 +1,112 @@
+name: One-time Host Core broken-pipe diagnosis
+
+on:
+  push:
+    branches:
+      - ops/host-core-broken-pipe-diagnose-20260904
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-time-host-core-broken-pipe-diagnosis
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      TARGET_COMMIT: d15718bef5a2a0a8749b5ff93420aa7a7f278190
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ops/host-core-broken-pipe-diagnose-20260904
+          fetch-depth: 0
+
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Read public and host state without mutation
+        run: |
+          set -euo pipefail
+          echo 'PUBLIC_HEALTH='
+          curl --fail --silent --show-error --max-time 20 \
+            https://zacks.claude89757.cc/api/healthz | jq -c .
+          echo 'EDGE_HEALTH='
+          curl --fail --silent --show-error --max-time 20 \
+            https://zacks.claude89757.cc/api/edge-healthz | jq -c .
+          ssh \
+            -o ServerAliveInterval=20 \
+            -o ServerAliveCountMax=45 \
+            -o TCPKeepAlive=yes \
+            -p "$AIRFLOW_SSH_PORT" \
+            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            bash -s -- "$AIRFLOW_REPOSITORY_PATH" "$TARGET_COMMIT" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          target="$2"
+          echo "REMOTE_HEAD=$(git rev-parse HEAD)"
+          echo 'RUNNING_SERVICES='
+          docker compose -f docker-compose.yml ps --services --status running | sort
+          echo 'IMPORT_PROCESSES='
+          ps -eo pid=,etime=,args= | grep '[i]mport_d1_sql_export.py' || true
+          echo 'AIRFLOW_VARIABLES='
+          for name in ZACKS_DELIVERY_OWNER ZACKS_OBSERVATION_MODE ZACKS_WECHAT_GATE_SOURCE WEBAPP_OBSERVATION_API_URL; do
+            value="$(docker compose -f docker-compose.yml exec -T airflow-api-server airflow variables get "$name" 2>/dev/null || true)"
+            printf '%s=%s\n' "$name" "$(printf '%s\n' "$value" | tail -1)"
+          done
+          echo 'HOST_CORE_LOCAL_HEALTH='
+          curl --fail --silent --show-error --max-time 20 \
+            http://127.0.0.1:8090/zacks-api/api/healthz | jq -c .
+          echo 'POSTGRES_STATE='
+          docker compose -f docker-compose.yml exec -T zacks-api python - <<'PY'
+          import json
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import transaction
+
+          with transaction() as connection:
+              state = connection.execute(text('''
+                  SELECT source, source_revision, imported_at, cutover_at, details
+                  FROM zacks.migration_state
+                  WHERE source = 'cloudflare-d1'
+              ''')).mappings().one_or_none()
+              counts = {
+                  'venues': int(connection.execute(text('SELECT count(*) FROM zacks.venue_status')).scalar_one()),
+                  'subscriptions': int(connection.execute(text('SELECT count(*) FROM zacks.subscriptions')).scalar_one()),
+                  'activeSubscriptions': int(connection.execute(text("SELECT count(*) FROM zacks.subscriptions WHERE active = true")).scalar_one()),
+                  'verifiedReceipts': int(connection.execute(text('SELECT count(*) FROM zacks.verified_receipts')).scalar_one()),
+                  'notificationOutbox': int(connection.execute(text('SELECT count(*) FROM zacks.notification_outbox')).scalar_one()),
+              }
+          payload = {
+              'migrationState': dict(state) if state else None,
+              'counts': counts,
+          }
+          print(json.dumps(payload, default=str, sort_keys=True))
+          PY
+          test "$(git rev-parse HEAD)" = "$target"
+          REMOTE
+
+      - name: Remove one-time diagnostic workflow
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/host-core-broken-pipe-diagnose-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "chore: retire completed Host Core diagnosis"
+          git push origin HEAD:ops/host-core-broken-pipe-diagnose-20260904
