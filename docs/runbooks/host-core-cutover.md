@@ -15,7 +15,7 @@ have begun.
 - `ZACKS_WECHAT_GATE_SOURCE`: `legacy`, `host`, or `off`
 - `HOST_CORE_CUTOVER`: route public `/api/*` to the host core
 - `HOST_CORE_QUIESCE`: reject mutations and skip Worker cron
-- `HOST_CORE_MIGRATION_ENABLED`: expose protected migration endpoints
+- `HOST_CORE_MIGRATION_ENABLED`: expose the protected SES handoff endpoint
 
 The safe state before cutover is Cloudflare owner, legacy observation, legacy
 WeChat gate. The safe state after cutover is host owner, host observation, host
@@ -27,22 +27,42 @@ Use `.github/workflows/production-host-core.yml` through the `production`
 Environment and an exact full main SHA. The workflow requires the exact `CI /
 verify` check before any mutation.
 
-`deploy-shadow` performs a reversible preparation only: it exposes migration,
-creates the local schema and services, transfers SES configuration through a
-hybrid encrypted envelope, imports D1, and enables dual observation. Cloudflare
-remains the only email sender.
+`deploy-shadow` performs a reversible preparation only: it exposes the protected
+SES handoff, creates the local schema and services, transfers SES configuration
+through a hybrid encrypted envelope, imports D1, and enables dual observation.
+Cloudflare remains the only email sender.
+
+### Quota-independent D1 transfer
+
+The production workflow does not paginate business rows through the public
+Worker. It uses the Cloudflare D1 control-plane SQL export command for both the
+initial snapshot and the final frozen snapshot. This path remains available
+when the account has exhausted the daily D1 row-read allowance.
+
+Each compressed SQL export is SHA-256 verified at three boundaries:
+
+1. On the GitHub runner immediately after export.
+2. On the Airflow host after the file is transferred into the private
+   `.local/host-core-migration` directory.
+3. Inside `zacks-api` immediately before parsing and importing it.
+
+The importer reconstructs a temporary SQLite database, requires the critical
+subscription, venue-status, and notification-outbox tables, reads only the
+fixed migration allowlist, and then reuses the transactional PostgreSQL import
+path. Export files and checksums are never printed with row contents.
 
 `full-cutover` performs the entire sequence:
 
 1. Run host and edge preflight.
-2. Deploy the legacy Worker with protected migration endpoints enabled.
+2. Deploy the legacy Worker with protected SES handoff enabled.
 3. Start `zacks-api` and `zacks-notification-worker` in shadow mode.
 4. Transfer SES secrets directly Worker-to-host; GitHub receives no plaintext.
-5. Import an initial D1 snapshot.
+5. Export, verify, and import an initial D1 SQL snapshot.
 6. Send natural Airflow observations to both local PostgreSQL and the legacy
    Worker, then require recent status from at least 20 of the 26 venues.
 7. Freeze legacy mutations and cron.
-8. Wait for in-flight legacy requests and import the final snapshot.
+8. Wait for in-flight legacy requests, then export, verify, and import the final
+   D1 SQL snapshot.
 9. Switch observations and the WeChat gate to PostgreSQL, explicitly stop the
    local notification worker, and verify the host API while delivery is paused.
 10. Route public API calls to the host, disable migration endpoints, and verify
