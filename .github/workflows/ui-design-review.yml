@@ -6,7 +6,7 @@ on:
       - .github/workflows/ui-design-review.yml
       - webapp/scripts/ui-design-capture.mjs
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: ui-design-review
   cancel-in-progress: false
@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
@@ -32,13 +34,18 @@ jobs:
           path: .ui-review/
           include-hidden-files: true
           retention-days: 30
-      - name: Publish review evidence to development branch only
+      - name: Package isolated development inputs
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/design/court-studio-20260905
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .ui-review
-          git diff --cached --quiet && exit 0
-          git commit -m 'test(ui): capture unauthenticated public baseline [skip ci]'
-          git push origin HEAD:refs/heads/design/court-studio-20260905
+          mkdir -p /tmp/ui-development-inputs
+          git archive --format=tar HEAD | gzip -1 > /tmp/ui-development-inputs/source.tar.gz
+          tar -C webapp -czf /tmp/ui-development-inputs/web-dependencies.tar.gz node_modules
+          printf '%s\n' "$GITHUB_SHA" > /tmp/ui-development-inputs/commit.txt
+          # Only tracked source and public npm dependencies. No .git auth,
+          # environment dumps, browser identity, SSH or production credentials.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ui-development-inputs-${{ github.sha }}
+          path: /tmp/ui-development-inputs/
+          compression-level: 0
+          retention-days: 3
