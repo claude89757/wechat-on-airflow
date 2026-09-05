@@ -193,6 +193,36 @@ def get_email_status(
     return None
 
 
+# Tencent SES SendEmailStatus: nonzero processing codes are not pending sends.
+# 2001 means the status record was not found; absence alone is not proof of failure.
+# Source: https://cloud.tencent.com/document/api/1288/51053#SendEmailStatus
+SEND_FAILURE_CODES = frozenset(
+    {
+        "1001",
+        "1002",
+        "1003",
+        "1004",
+        "1005",
+        "1006",
+        "1007",
+        "1008",
+        "1009",
+        "1010",
+        "1011",
+        "1013",
+        "3007",
+        "3008",
+        "3009",
+        "3010",
+        "3014",
+        "3020",
+        "3024",
+        "3030",
+        "3033",
+    }
+)
+
+
 def normalize_status(value: dict[str, Any] | None) -> tuple[str, str | None, datetime | None]:
     if not value:
         return "pending", None, None
@@ -207,12 +237,14 @@ def normalize_status(value: dict[str, Any] | None) -> tuple[str, str | None, dat
             if numeric > 10_000_000_000:
                 numeric //= 1_000
             delivered_at = datetime.fromtimestamp(numeric, UTC)
-        except (TypeError, ValueError, OSError):
+        except (TypeError, ValueError, OSError, OverflowError):
             delivered_at = None
     if deliver_status in {"1", "success", "delivered"}:
         return "delivered", message, delivered_at or datetime.now(UTC)
     if deliver_status in {"2", "3", "failed", "bounce", "rejected"}:
         return "failed", message or "provider delivery failed", delivered_at
-    if send_status in {"2", "3", "failed", "rejected"}:
-        return "failed", message or "provider send failed", delivered_at
+    if send_status in SEND_FAILURE_CODES or send_status in {"2", "3", "failed", "rejected"}:
+        return "failed", message or f"provider send failed: {send_status}", delivered_at
+    if send_status == "2001":
+        return "pending", message or "provider status record not found", None
     return "pending", message, delivered_at
