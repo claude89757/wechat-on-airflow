@@ -1,0 +1,37 @@
+name: Court Studio public interaction audit
+on:
+  push:
+    branches: [test/court-studio-stable-acceptance-20260906]
+    paths:
+      - .github/workflows/court-studio-public-audit.yml
+      - webapp/qa/public-acceptance.mjs
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: github.repository == 'claude89757/wechat-on-airflow' && github.ref == 'refs/heads/test/court-studio-stable-acceptance-20260906'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Prepare public read-only browser
+        working-directory: webapp
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Audit the existing released Web without sending notifications
+        working-directory: webapp
+        run: node qa/public-acceptance.mjs 26511a3c56f40f79cf416d8098248ecf4a173eb8
+      - name: Preserve screenshots and sanitized report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: court-studio-stable-public-${{ github.sha }}
+          path: webapp/qa-output/
+          retention-days: 30
+          if-no-files-found: error
