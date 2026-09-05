@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 
 const expected = process.argv[2];
 assert.match(expected ?? '', /^[0-9a-f]{40}$/, 'exact Web deployment SHA is required');
@@ -56,8 +56,27 @@ try {
     await page.getByTestId('venue-card-tops').click();
     const dialog = page.getByRole('dialog'); await dialog.waitFor();
     assert.ok(await dialog.innerText().then(text => text.includes('TOPS 科技园')));
-    assert.equal(await page.getByLabel('订阅邮箱').evaluate(el => document.activeElement === el), false);
-    assert.equal(await page.getByRole('button', { name: '发送验证码', exact: true }).isDisabled(), true);
+    const emailInput = page.getByLabel('订阅邮箱');
+    const sendButton = page.getByRole('button', { name: '发送验证码', exact: true });
+    // A mounted dialog can still be below the viewport during its JS spring.
+    // Require visible, stable, usable controls rather than taking an early frame.
+    await expect(emailInput).toBeInViewport({ ratio: 1 });
+    await emailInput.click({ trial: true });
+    assert.equal(await emailInput.evaluate(el => document.activeElement === el), false);
+    await sendButton.scrollIntoViewIfNeeded();
+    await expect(sendButton).toBeInViewport({ ratio: 1 });
+    await expect(sendButton).toBeDisabled();
+    await emailInput.fill('ui-acceptance@example.invalid');
+    await expect(sendButton).toBeEnabled();
+    // Trial checks actionability only; never submit a production email challenge.
+    await sendButton.click({ trial: true });
+    await emailInput.fill('');
+    await emailInput.blur();
+    await expect(sendButton).toBeDisabled();
+    await expect(emailInput).toBeInViewport({ ratio: 1 });
+    await expect(sendButton).toBeInViewport({ ratio: 1 });
+    const sheet = await dialog.boundingBox();
+    assert.ok(sheet && sheet.x >= -1 && sheet.y >= -1 && sheet.x + sheet.width <= width + 1 && sheet.y + sheet.height <= height + 1);
     await page.screenshot({ path: `${output}/${name}-verification.png` });
     await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' });
     await page.locator('.more-button').click();
@@ -69,7 +88,7 @@ try {
     await page.keyboard.press('Escape');
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     assert.deepEqual(errors, []);
-    report.views.push({ name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, passed: true });
+    report.views.push({ name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, passed: true });
     await context.close();
   }
   assert.equal(report.publicWriteRequests, 0, 'public acceptance must never attempt a write');
