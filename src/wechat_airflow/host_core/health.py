@@ -18,7 +18,16 @@ from .domain import utc_now
 from .settings import load_tencent_email_settings
 from .wechat_worker import sender_readiness
 
-ROOT = Path(__file__).resolve().parents[3]
+# Installed wheels resolve under site-packages, not the checked-out source tree.
+# Production ships the immutable manifest alongside the application image.
+ROOT = Path(
+    os.environ.get("ZACKS_PROJECT_ROOT")
+    or (
+        "/opt/airflow/project"
+        if Path("/opt/airflow/project/config/active-components.yaml").is_file()
+        else str(Path(__file__).resolve().parents[3])
+    )
+)
 COMPONENT_MAX_AGE = {"zacks-notification-worker": 120, "zacks-wechat-worker": 300}
 
 
