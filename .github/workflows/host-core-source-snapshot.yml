@@ -1,0 +1,29 @@
+name: Host Core source snapshot
+on:
+  push:
+    branches: [fix/host-core-hardening-20260905]
+    paths: [.github/workflows/host-core-source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --output=/tmp/host-core-source.tar.gz HEAD
+          git rev-parse HEAD > /tmp/host-core-source.sha
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: host-core-source
+          path: |
+            /tmp/host-core-source.tar.gz
+            /tmp/host-core-source.sha
+          retention-days: 2
+          if-no-files-found: error
