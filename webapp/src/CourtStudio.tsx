@@ -69,6 +69,8 @@ export function CourtStudio(props: Props) {
       : resolveVenueDisplayState(availability, venue.healthy) !== "healthy"));
   }), [sortedVenues, query, filter, subscribed, availability]);
   const verified = hasData && dashboard.identity.verified;
+  const companionState = availability === "ready" ? luluState : "concerned";
+  const companionLabel = availability === "ready" ? LULU_LABELS[luluState] : "暂时无法确认最新巡检状态";
   const hasSubscriptions = verified && dashboard.identity.activeSubscriptionCount > 0;
   const quotaPercent = Math.min(100, Math.max(0, dashboard.identity.remindersToday / Math.max(1, dashboard.identity.dailyLimit) * 100));
   const weatherSuppressed = Boolean(dashboard.weatherEmailGate?.suppressed && dashboard.identity.tier !== "priority");
@@ -129,7 +131,7 @@ export function CourtStudio(props: Props) {
       <section className="metric-band studio-metrics" aria-label={verified ? "我的提醒与全站运行概况" : "全站运行概况"}>
         <div className="metric"><span className="studio-metric-label"><ListBulletsIcon size={18} />{verified ? "我的有效订阅" : "全站有效订阅"}</span><strong>{hasData ? verified ? dashboard.identity.activeSubscriptionCount : dashboard.metrics.activeSubscriptions : "—"}<small>条</small></strong><span>{verified ? "打球偏好，已为你记住" : "来自球友的每一份期待"}</span></div>
         <div className="metric"><span className="studio-metric-label"><EnvelopeSimpleIcon size={18} />{verified ? "我的今日送达" : "全站今日提醒"}</span><strong>{hasData ? verified ? dashboard.identity.deliveredToday : dashboard.metrics.remindersToday : "—"}<small>封</small></strong><span>{verified ? "以邮件服务商确认送达为准" : "一封摘要，汇集匹配时段"}</span></div>
-        <div className="metric"><span className="studio-metric-label"><ShieldCheckIcon size={18} />全站巡检正常</span><strong>{hasData ? dashboard.metrics.healthyVenues : "—"}<small>/ {dashboard.metrics.totalVenues} 个场地</small></strong><span>巡检状态，不代表当前有位</span></div>
+        <div className="metric"><span className="studio-metric-label"><ShieldCheckIcon size={18} />全站巡检正常</span><strong>{availability === "ready" ? dashboard.metrics.healthyVenues : "—"}<small>/ {dashboard.metrics.totalVenues} 个场地</small></strong><span>巡检状态，不代表当前有位</span></div>
       </section>
 
       <div className={`service-line studio-service service-${availability}`} aria-live="polite">
@@ -143,7 +145,7 @@ export function CourtStudio(props: Props) {
         <div className="studio-create-top"><span className="studio-eyebrow">YOUR COURT CONCIERGE</span><ArrowUpRightIcon size={20} /></div>
         <div className="create-card-main">
           <div className="create-copy"><h2 id="create-card-title">{hasSubscriptions ? "继续期待下一场。" : <>下一场，<br />交给 Zacks。</>}</h2><p>{hasSubscriptions ? "你的提醒正在守候。也可以为新的场地或时段，再留一份期待。" : "告诉我们你想在哪儿、什么时候打球。剩下的，交给 Zacks。"}</p></div>
-          <div className="lulu-stage" data-lulu-state={luluState} aria-label={LULU_LABELS[luluState]} title={LULU_LABELS[luluState]}><img key={luluState} className="lulu-sprite" data-testid="lulu-sprite" src="/assets/lulu-sprite.webp" alt="" aria-hidden="true" decoding="async" draggable={false} /></div>
+          <div className="lulu-stage" data-lulu-state={companionState} aria-label={companionLabel} title={companionLabel}><img key={companionState} className="lulu-sprite" data-testid="lulu-sprite" src="/assets/lulu-sprite.webp" alt="" aria-hidden="true" decoding="async" draggable={false} /></div>
         </div>
         <div className="studio-steps" aria-label="创建提醒的三个步骤"><span><b>01</b>选择场地</span><span><b>02</b>设置时间</span><span><b>03</b>邮件提醒</span></div>
         <button className="primary-button" type="button" onClick={() => onCreate()}><PlusIcon size={20} weight="bold" />创建订阅<ArrowUpRightIcon className="studio-button-arrow" size={19} /></button>

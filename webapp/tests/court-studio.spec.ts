@@ -44,7 +44,7 @@ for (const width of [320, 390, 768, 900, 1440]) {
     await fixture(page);
     await page.goto("/");
     await expect(page.locator("main")).toHaveAttribute("data-ui-version", "0.8.0");
-    await expect(page.getByRole("heading", { name: "把时间，留给打球。" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^把时间，\s*留给打球。$/ })).toBeVisible();
     await expect(page.locator(".venue-card")).toHaveCount(26);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     expect(overflow).toBeLessThanOrEqual(1);
@@ -140,6 +140,16 @@ test("unknown and stale data never becomes a healthy court signal", async ({ pag
   await expect(page.locator(".service-stale")).toBeVisible();
   await expect(page.locator(".venue-card-healthy")).toHaveCount(0);
   await expect(page.locator(".venue-card-unknown")).toHaveCount(26);
+  await expect(page.locator(".studio-metrics .metric").nth(2).locator("strong")).toContainText("—");
+  await expect(page.locator(".lulu-stage")).toHaveAttribute("data-lulu-state", "concerned");
+  await page.getByRole("button", { name: "需要关注", exact: true }).click();
+  await expect(page.locator(".venue-card")).toHaveCount(26);
+  dashboard.dataStatus = { stale: false, source: "live", reason: null, retryAt: null };
+  await page.getByRole("button", { name: "获取最新状态", exact: true }).click();
+  await expect(page.locator(".service-ready")).toBeVisible();
+  await expect(page.getByText("当前没有需要关注的场地", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "全部场地", exact: true }).click();
+  await expect(page.locator(".venue-card-healthy")).toHaveCount(26);
   await expect(page.getByText(/D1 免费额度每天/)).toHaveCount(0);
 });
 
@@ -162,3 +172,20 @@ test("non-admin menu hides admin and keyboard dismissal keeps focus", async ({ p
   await page.keyboard.press("Escape");
   await expect(more).toBeFocused();
 });
+
+for (const width of [390, 1440]) {
+  test(`real backdrop click dismisses the app sheet at ${width}px without a write`, async ({ page }) => {
+    const { requests } = await fixture(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await page.getByRole("button", { name: "创建订阅", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const overlay = page.getByTestId("sheet-overlay");
+    // The product is frameless, but stay clear of the sheet itself and corners.
+    await overlay.click({ position: { x: 50, y: 60 } });
+    await expect(dialog).toBeHidden();
+    expect(requests.filter(request => request.method !== "GET")).toHaveLength(0);
+    await expect(page.getByRole("button", { name: "创建订阅", exact: true })).toBeEnabled();
+  });
+}
