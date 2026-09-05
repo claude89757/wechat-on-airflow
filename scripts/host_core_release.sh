@@ -15,6 +15,13 @@ remote() {
     "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; DEPLOYMENT_COMMIT='$TARGET_COMMIT' \
      python3 scripts/host_core_command_with_heartbeat.py ${quoted[*]} --target-commit '$TARGET_COMMIT'"
 }
+checkpoint() {
+  ssh "${SSH_OPTIONS[@]}" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+    "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
+     DEPLOYMENT_COMMIT='$TARGET_COMMIT' AIRFLOW_IMAGE_NAME='wechat-on-airflow:host-$TARGET_COMMIT' \
+     docker compose exec -T zacks-api python -m wechat_airflow.host_core.release_checkpoint \
+       --expected-commit '$TARGET_COMMIT'"
+}
 deploy_edge() {
   local kind="$1"
   node - "$kind" <<'JS'
@@ -67,14 +74,25 @@ case "$OPERATION" in
   full-cutover)
     changed=true
     remote prepare-runtime | tee /tmp/host-core-prepare.log
-    previously_activated="$(tail -n 1 /tmp/host-core-prepare.log | jq -r 'if (.previouslyActivated | type) == "boolean" then .previouslyActivated else error("missing activation state") end')"
-    if [[ "$previously_activated" == false ]]; then
+    checkpoint | tee /tmp/host-core-checkpoint.json
+    migration_complete="$(jq -er 'if (.migrationComplete | type) == "boolean" then (.migrationComplete | tostring) else error("missing migration checkpoint") end' /tmp/host-core-checkpoint.json)"
+    if [[ "$migration_complete" == false ]]; then
+      # Refuse to overwrite host-side writes when a previous attempt already
+      # exposed the pure edge but has lost its migration evidence.
+      edge="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+        https://zacks.claude89757.cc/api/edge-healthz)"
+      if [[ "$(printf '%s' "$edge" | jq -r '.cutover // false')" == true ]]; then
+        echo 'Pure edge already active without a verified checkpoint; refusing D1 re-import' >&2
+        exit 1
+      fi
       # Freeze the old owner before exporting. This is an explicit maintenance
       # interval, not a compatibility backend or a second delivery owner.
       deploy_edge maintenance
       sleep 300
       remote sync-secrets
       export_snapshot
+    else
+      echo '{"event":"resume_verified_migration","d1Reimport":false,"secretRotation":false}'
     fi
     remote prepare-routing
     deploy_edge production
