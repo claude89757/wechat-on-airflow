@@ -18,6 +18,10 @@ MIGRATION_DIRECTORY = ROOT / ".local" / "host-core-migration"
 
 
 def run(command, check=True, capture=False, env=None, input_text=None):
+    # Python 3.6 rejects even stdin=None when input is supplied. Omit the
+    # mutually exclusive keyword entirely, while preserving EOF for commands
+    # that must not consume the SSH session's standard input.
+    input_options = {"stdin": subprocess.DEVNULL} if input_text is None else {"input": input_text}
     return subprocess.run(
         command,
         cwd=str(ROOT),
@@ -26,8 +30,7 @@ def run(command, check=True, capture=False, env=None, input_text=None):
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
         env=env,
-        input=input_text,
-        stdin=subprocess.DEVNULL if input_text is None else None,
+        **input_options,
     )
 
 
