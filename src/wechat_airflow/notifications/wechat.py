@@ -14,7 +14,6 @@ from wechat_airflow.notifications.booking_links import (
     plan_booking_link,
     restore_sent,
 )
-from wechat_airflow.notifications.webapp import wechat_delivery_allowed
 
 JsonDict = dict[str, Any]
 
@@ -393,54 +392,40 @@ def send_wechat_text_to_chatrooms_best_effort(
     source: str = "unknown",
     booking_venue_id: str | None = None,
 ) -> list[JsonDict]:
-    """Send each chat independently and persist failures without raising."""
-    results: list[JsonDict] = []
-    chatroom_list = _normalize_chatrooms(chatrooms)
-    normalized_source = str(source).strip() or "unknown"
-    normalized_venue_id = str(booking_venue_id or "").strip()
-    print(f"[WECHAT_SEND_FALLBACK] target_chatrooms={chatroom_list}, source={normalized_source}")
+    """Persist a host-owned intent; device I/O never runs inside venue tasks."""
+    from wechat_airflow.notifications.webapp import LOCAL_API, _host_token
 
-    if normalized_venue_id and not wechat_delivery_allowed(normalized_venue_id):
-        released = _release_subscription_gate_dedupe(normalized_venue_id, message)
-        print(
-            f"[WEBAPP_WECHAT_GATE] suppressed venue={normalized_venue_id}, "
-            f"source={normalized_source}, dedupe_released={released}"
+    receivers = _normalize_chatrooms(chatrooms)
+    if not receivers:
+        return []
+    try:
+        response = requests.post(
+            f"{LOCAL_API}/internal/wechat-enqueue",
+            json={
+                "receivers": receivers,
+                "message": message,
+                "device_name": device_name
+                or str(_get_variable(WECHAT_SEND_DEVICE_NAME_VAR, default="")),
+                "source": source,
+                "venue_id": booking_venue_id,
+            },
+            headers={"Authorization": f"Bearer {_host_token()}"},
+            timeout=5,
         )
-        targets = chatroom_list or [""]
-        return [
-            {
-                "success": True,
-                "receiver": chatroom,
-                "suppressed": True,
-                "reason": "no_active_web_subscription",
-                "dedupe_released": released,
-            }
-            for chatroom in targets
-        ]
-
-    for chatroom in chatroom_list:
-        plan = _plan_outbound_booking_link(chatroom, message, booking_venue_id)
-        outbound = plan.message
-        _commit_booking_link_plan(plan)
-        try:
-            result = send_wechat_text(chatroom, [outbound], device_name=device_name)
-            results.append({"success": True, "receiver": chatroom, "result": result})
-        except Exception as exc:
-            _release_booking_link_plan(chatroom, plan)
-            print(
-                f"[WECHAT_SEND_FALLBACK] send failed receiver={chatroom}, "
-                f"source={normalized_source}, error={exc}"
-            )
-            try:
-                _record_failed_send(chatroom, outbound, normalized_source, exc)
-            except Exception as fallback_exc:
-                print(
-                    f"[WECHAT_SEND_FALLBACK] persistence failed receiver={chatroom}, "
-                    f"source={normalized_source}, error={fallback_exc}"
-                )
-            results.append({"success": False, "receiver": chatroom, "error": str(exc)})
-
-    return results
+        response.raise_for_status()
+        result = response.json()
+        if result.get("success") is not True:
+            raise RuntimeError("Host Core did not acknowledge the durable intent")
+        if result.get("suppressed"):
+            _release_subscription_gate_dedupe(str(booking_venue_id or ""), message)
+        return [{"success": True, "queued": True, "result": result}]
+    except Exception as exc:
+        # Release the watcher preclaim only; the durable queue ID makes retry safe.
+        _release_subscription_gate_dedupe(str(booking_venue_id or ""), message)
+        print(
+            f"[HOST_WECHAT_QUEUE] enqueue failed venue={booking_venue_id}, error={type(exc).__name__}"
+        )
+        return [{"success": False, "queued": False, "error": type(exc).__name__}]
 
 
 def send_wechat_text_to_chatrooms_var(

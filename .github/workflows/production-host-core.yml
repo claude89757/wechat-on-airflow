@@ -21,7 +21,9 @@ on:
           - preflight
           - full-cutover
           - health
-          - rollback
+          - activate-workers
+          - acceptance
+          - pause
       target_commit:
         description: Exact full commit SHA; empty uses current main
         required: false
@@ -54,7 +56,7 @@ jobs:
           set -euo pipefail
           operation="$INPUT_OPERATION"
           target_commit="${INPUT_TARGET:-$(git rev-parse origin/main)}"
-          [[ "$operation" =~ ^(preflight|full-cutover|health|rollback)$ ]]
+          [[ "$operation" =~ ^(preflight|full-cutover|health|activate-workers|acceptance|pause)$ ]]
           [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
           git fetch --quiet origin main
           [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
@@ -149,209 +151,26 @@ jobs:
 
       - name: Operate host core
         working-directory: webapp
-        run: |
-          set -euo pipefail
+        run: bash ../scripts/host_core_release.sh
 
-          SSH_OPTIONS=(
-            -o BatchMode=yes
-            -o ConnectTimeout=20
-            -o ServerAliveInterval=15
-            -o ServerAliveCountMax=120
-            -o TCPKeepAlive=yes
-            -p "$AIRFLOW_SSH_PORT"
-          )
-          SCP_OPTIONS=(
-            -o BatchMode=yes
-            -o ConnectTimeout=20
-            -o ServerAliveInterval=15
-            -o ServerAliveCountMax=120
-            -o TCPKeepAlive=yes
-            -P "$AIRFLOW_SSH_PORT"
-          )
-
-          remote() {
-            local quoted=()
-            local argument escaped
-            for argument in "$@"; do
-              printf -v escaped '%q' "$argument"
-              quoted+=("$escaped")
-            done
-            ssh "${SSH_OPTIONS[@]}" \
-              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
-              "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
-               DEPLOYMENT_COMMIT='$TARGET_COMMIT' \
-               python3 scripts/host_core_command_with_heartbeat.py \
-               ${quoted[*]} --target-commit '$TARGET_COMMIT'"
-          }
-
-          deploy_edge() {
-            local cutover="$1"
-            local quiesce="$2"
-            local migration="$3"
-            local runtime_config=".wrangler-host-core-runtime.json"
-            node - "$cutover" "$quiesce" "$migration" <<'NODE'
-          const fs = require("node:fs");
-          const [, , cutover, quiesce, migration] = process.argv;
-          const config = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
-          config.vars = {
-            ...(config.vars || {}),
-            DEPLOYMENT_COMMIT: process.env.TARGET_COMMIT,
-            HOST_CORE_CUTOVER: cutover,
-            HOST_CORE_QUIESCE: quiesce,
-            HOST_CORE_MIGRATION_ENABLED: migration,
-          };
-          fs.writeFileSync(
-            ".wrangler-host-core-runtime.json",
-            `${JSON.stringify(config, null, 2)}\n`,
-          );
-          NODE
-            if ! npx wrangler deploy --config "$runtime_config"; then
-              rm -f "$runtime_config"
-              return 1
-            fi
-            rm -f "$runtime_config"
-          }
-
-          verify_public_edge() {
-            PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
-              --expected-commit "$TARGET_COMMIT" --format json
-          }
-
-          export_d1_snapshot() {
-            local pass_name="$1"
-            local sql_path="/tmp/zacks-d1-${pass_name}-${GITHUB_RUN_ID}.sql"
-            local gzip_path="${sql_path}.gz"
-            local log_path="/tmp/zacks-d1-${pass_name}-${GITHUB_RUN_ID}.log"
-            rm -f "$sql_path" "$gzip_path" "$log_path"
-            if ! npx wrangler d1 export zacks-tennis-alerts \
-              --remote --output "$sql_path" --skip-confirmation \
-              >"$log_path" 2>&1; then
-              sed -E 's#https://[^ ]+#<redacted-url>#g' "$log_path" >&2
-              return 1
-            fi
-            test -s "$sql_path"
-            gzip -9 "$sql_path"
-            local snapshot_sha
-            snapshot_sha="$(sha256sum "$gzip_path" | cut -d' ' -f1)"
-            local remote_dir="$AIRFLOW_REPOSITORY_PATH/.local/host-core-migration"
-            local remote_path="$remote_dir/d1-${pass_name}-${snapshot_sha}.sql.gz"
-            ssh "${SSH_OPTIONS[@]}" \
-              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
-              "install -d -m 0700 '$remote_dir'"
-            scp "${SCP_OPTIONS[@]}" "$gzip_path" \
-              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST:$remote_path"
-            ssh "${SSH_OPTIONS[@]}" \
-              "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
-              "chmod 0600 '$remote_path'; test -s '$remote_path'; \
-               test \"\$(sha256sum '$remote_path' | cut -d' ' -f1)\" = '$snapshot_sha'"
-            printf '%s|%s\n' "$remote_path" "$snapshot_sha"
-          }
-
-          if [[ "$OPERATION" == "full-cutover" ]]; then
-            current_runtime="$(curl --silent --max-time 10 \
-              https://zacks.claude89757.cc/api/healthz | jq -r '.runtime // "unknown"' || true)"
-            current_commit="$(curl --silent --max-time 10 \
-              https://zacks.claude89757.cc/api/healthz | jq -r '.deploymentCommit // "unknown"' || true)"
-            current_owner="$(curl --silent --max-time 10 \
-              https://zacks.claude89757.cc/api/healthz | jq -r '.deliveryOwner // "unknown"' || true)"
-            if [[ "$current_runtime" == "airflow-host" \
-              && "$current_commit" == "$TARGET_COMMIT" \
-              && "$current_owner" == "airflow_host" ]]; then
-              remote health --include-public
-              verify_public_edge
-              exit 0
-            fi
-          fi
-
-          case "$OPERATION" in
-            preflight)
-              remote preflight
-              ;;
-            health)
-              remote health --include-public
-              verify_public_edge
-              ;;
-            rollback)
-              current_runtime="$(curl --silent --max-time 10 \
-                https://zacks.claude89757.cc/api/healthz | jq -r '.runtime // "unknown"' || true)"
-              if [[ "$current_runtime" == "airflow-host" ]]; then
-                remote pause-host-delivery
-                verify_public_edge
-              else
-                remote rollback
-                deploy_edge false false false
-                curl --fail --silent --show-error --max-time 15 \
-                  https://zacks.claude89757.cc/api/healthz >/dev/null
-              fi
-              ;;
-            full-cutover)
-              rollback_required=false
-              host_pause_required=false
-              recover() {
-                status=$?
-                set +e
-                if [[ "$host_pause_required" == "true" ]]; then
-                  remote pause-host-delivery
-                elif [[ "$rollback_required" == "true" ]]; then
-                  remote rollback
-                  deploy_edge false false false
-                fi
-                exit "$status"
-              }
-              trap recover ERR
-
-              remote preflight
-              rollback_required=true
-              deploy_edge false false true
-              remote sync-secrets
-              remote deploy-shadow
-
-              initial_snapshot="$(export_d1_snapshot initial)"
-              IFS='|' read -r initial_path initial_sha <<< "$initial_snapshot"
-              remote migrate-sql --pass-name initial \
-                --sql-export "$initial_path" --snapshot-sha256 "$initial_sha"
-              remote enable-dual
-
-              # Natural Airflow observations seed PostgreSQL. No synthetic slot,
-              # email, or WeChat delivery is generated for acceptance.
-              sleep 180
-              remote shadow-evidence
-
-              deploy_edge false true true
-              sleep 60
-              final_snapshot="$(export_d1_snapshot final)"
-              IFS='|' read -r final_path final_sha <<< "$final_snapshot"
-              remote migrate-sql --pass-name final \
-                --sql-export "$final_path" --snapshot-sha256 "$final_sha"
-              remote prepare-cutover
-
-              # Route and verify the public API while local delivery is stopped.
-              deploy_edge true false false
-              verify_public_edge
-
-              rollback_required=false
-              host_pause_required=true
-              remote cutover
-              remote health --include-public
-              verify_public_edge
-              host_pause_required=false
-              trap - ERR
-              ;;
-            *)
-              echo "Unsupported operation: $OPERATION" >&2
-              exit 2
-              ;;
-          esac
+      - name: Publish sanitized acceptance evidence
+        if: always() && inputs.operation == 'acceptance'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: host-core-acceptance-${{ inputs.target_commit }}
+          path: /tmp/host-core-business-health.log
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Publish summary
         if: always()
         run: |
           {
-            echo "### Production Host Core"
-            echo "- Operation: \`$OPERATION\`"
-            echo "- Target commit: \`$TARGET_COMMIT\`"
-            echo "- Result: \`${{ job.status }}\`"
-            echo "- D1 migration source: control-plane SQL export"
-            echo "- Long operations: SSH keepalive plus command heartbeat"
-            echo "- Real test notifications: none"
+            echo '### Production Host Core'
+            echo '- Operation: `${{ inputs.operation }}`'
+            echo '- Commit: `${{ inputs.target_commit }}`'
+            echo '- Result: `${{ job.status }}`'
+            echo '- Legacy runtime: removed; failure recovery pauses Host Core'
+            echo '- D1: preserved, unbound from the final Worker'
+            echo '- Synthetic real notifications: none'
           } >> "$GITHUB_STEP_SUMMARY"

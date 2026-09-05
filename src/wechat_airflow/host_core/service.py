@@ -128,6 +128,8 @@ def _upsert_status(connection: Connection, observation: VenueObservation, now: d
                 last_inspection_at = EXCLUDED.last_inspection_at,
                 last_error = EXCLUDED.last_error,
                 updated_at = EXCLUDED.updated_at
+            WHERE zacks.venue_status.last_inspection_at IS NULL
+               OR EXCLUDED.last_inspection_at >= zacks.venue_status.last_inspection_at
             """
         ),
         {
@@ -142,7 +144,7 @@ def _upsert_status(connection: Connection, observation: VenueObservation, now: d
 
 
 def _gate(allowed: bool, now: datetime) -> dict[str, Any]:
-    valid_until = now + timedelta(hours=24)
+    valid_until = now + timedelta(seconds=60)
     return {
         "allowed": allowed,
         "source": "airflow-host",
@@ -159,13 +161,17 @@ def ingest_observation(payload: object) -> dict[str, Any]:
     now = utc_now()
 
     with transaction() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "zacks-observation:" + observation_key},
+        )
         _upsert_status(connection, observation, now)
         generation = _generation(connection, observation.venue_id)
         state = (
             connection.execute(
                 text(
                     """
-                SELECT fingerprint, subscription_generation
+                SELECT fingerprint, subscription_generation, last_seen_at
                 FROM zacks.observation_state
                 WHERE observation_key = :observation_key
                 FOR UPDATE
@@ -175,6 +181,55 @@ def ingest_observation(payload: object) -> dict[str, Any]:
             )
             .mappings()
             .first()
+        )
+        if state and state["last_seen_at"] > observation.checked_at:
+            return {
+                "success": True,
+                "ignored": "older_observation",
+                "matchedNotifications": 0,
+                "wechatGate": _gate(
+                    bool(_active_subscriptions(connection, observation.venue_id)), now
+                ),
+            }
+        # Current rows are ephemeral observation state, not historical delivery records.
+        connection.execute(
+            text("DELETE FROM zacks.current_availability WHERE observation_key = :key"),
+            {"key": observation_key},
+        )
+        if observation.healthy:
+            for slot in observation.slots:
+                event_key = slot_event_key(observation.venue_id, slot)
+                connection.execute(
+                    text("""
+                    INSERT INTO zacks.observed_slots(event_key, venue_id, court_name, booking_date,
+                        start_time, end_time, first_observed_at, last_observed_at)
+                    VALUES (:event, :venue, :court, :date, :start, :end, :now, :seen)
+                    ON CONFLICT(event_key) DO UPDATE SET
+                        last_observed_at = GREATEST(zacks.observed_slots.last_observed_at, EXCLUDED.last_observed_at)
+                """),
+                    {
+                        "event": event_key,
+                        "venue": observation.venue_id,
+                        "court": slot.court_name,
+                        "date": slot.booking_date,
+                        "start": slot.start_time,
+                        "end": slot.end_time,
+                        "now": now,
+                        "seen": observation.checked_at,
+                    },
+                )
+                connection.execute(
+                    text("""
+                    INSERT INTO zacks.current_availability(observation_key, event_key, last_seen_at)
+                    VALUES (:key, :event, :seen)
+                """),
+                    {"key": observation_key, "event": event_key, "seen": observation.checked_at},
+                )
+        connection.execute(
+            text(
+                "UPDATE zacks.observation_state SET healthy = :healthy WHERE observation_key = :key"
+            ),
+            {"healthy": observation.healthy, "key": observation_key},
         )
         unchanged = bool(
             state
@@ -211,31 +266,6 @@ def ingest_observation(payload: object) -> dict[str, Any]:
         if observation.healthy:
             for slot in observation.slots:
                 event_key = slot_event_key(observation.venue_id, slot)
-                connection.execute(
-                    text(
-                        """
-                        INSERT INTO zacks.observed_slots(
-                            event_key, venue_id, court_name, booking_date, start_time, end_time,
-                            first_observed_at, last_observed_at
-                        )
-                        VALUES (
-                            :event_key, :venue_id, :court_name, :booking_date, :start_time,
-                            :end_time, :observed_at, :observed_at
-                        )
-                        ON CONFLICT (event_key) DO UPDATE SET
-                            last_observed_at = EXCLUDED.last_observed_at
-                        """
-                    ),
-                    {
-                        "event_key": event_key,
-                        "venue_id": observation.venue_id,
-                        "court_name": slot.court_name,
-                        "booking_date": slot.booking_date,
-                        "start_time": slot.start_time,
-                        "end_time": slot.end_time,
-                        "observed_at": now,
-                    },
-                )
                 for subscription in subscriptions:
                     if not slot_matches(
                         slot,
@@ -287,16 +317,14 @@ def ingest_observation(payload: object) -> dict[str, Any]:
                             "subject": line,
                             "body": line,
                             "tier": subscription["tier"],
-                            "next_attempt_at": now,
+                            "next_attempt_at": now
+                            if subscription["tier"] == "priority"
+                            else now + timedelta(seconds=10),
                             "created_at": now,
                             "updated_at": now,
                         },
                     )
                     matched_notifications += 1
-                    if matched_notifications >= 500:
-                        break
-                if matched_notifications >= 500:
-                    break
 
         connection.execute(
             text(
@@ -327,6 +355,13 @@ def ingest_observation(payload: object) -> dict[str, Any]:
                 "last_matched_at": now,
                 "updated_at": now,
             },
+        )
+
+        connection.execute(
+            text(
+                "UPDATE zacks.observation_state SET healthy = :healthy WHERE observation_key = :key"
+            ),
+            {"healthy": observation.healthy, "key": observation_key},
         )
 
     return {

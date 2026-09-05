@@ -14,7 +14,6 @@ LOCAL_HEALTH = "http://127.0.0.1:8090/zacks-api/api/healthz"
 LOCAL_READY = "http://127.0.0.1:8090/zacks-api/api/readyz"
 PUBLIC_HEALTH = "https://zacks.claude89757.cc/api/healthz"
 LOCAL_OBSERVATION_URL = "http://zacks-api:8090/zacks-api/api/internal/observations"
-LEGACY_OBSERVATION_URL = "https://zacks.claude89757.cc/api/internal/observations"
 MIGRATION_DIRECTORY = ROOT / ".local" / "host-core-migration"
 
 
@@ -28,6 +27,7 @@ def run(command, check=True, capture=False, env=None, input_text=None):
         stderr=subprocess.PIPE if capture else None,
         env=env,
         input=input_text,
+        stdin=subprocess.DEVNULL if input_text is None else None,
     )
 
 
@@ -95,7 +95,17 @@ def check_ses_credentials():
 
 def _curl_json(url):
     completed = run(
-        ["curl", "--fail", "--silent", "--show-error", url],
+        [
+            "curl",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--connect-timeout",
+            "5",
+            "--max-time",
+            "15",
+            url,
+        ],
         capture=True,
     )
     value = json.loads(completed.stdout)
@@ -214,37 +224,101 @@ def _wait_for_local_ready(timeout_seconds=180):
     raise RuntimeError(f"host core did not become ready: {last_error}")
 
 
-def deploy_shadow(target_commit):
-    result = preflight(target_commit)
+def application_environment(target_commit):
     environment = os.environ.copy()
     environment["DEPLOYMENT_COMMIT"] = target_commit
-    variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
-    variable_set("ZACKS_OBSERVATION_MODE", "cloudflare")
-    variable_set("ZACKS_WECHAT_GATE_SOURCE", "legacy")
-    compose(
-        "up",
-        "-d",
-        "--build",
-        "zacks-api",
-        "zacks-notification-worker",
-        env=environment,
+    environment["AIRFLOW_IMAGE_NAME"] = "wechat-on-airflow:host-" + target_commit
+    return environment
+
+
+def one_shot(script, target_commit, capture=True):
+    completed = run(
+        COMPOSE
+        + ["run", "--rm", "--no-deps", "-T", "--entrypoint", "python", "zacks-api", "-c", script],
+        capture=capture,
+        env=application_environment(target_commit),
     )
-    health_value = _wait_for_local_health(target_commit)
-    ready_value = local_ready()
-    run(
-        [
-            sys.executable,
-            str(ROOT / "scripts" / "configure_zacks_tunnel.py"),
-            "--apply",
-            "--restart",
-        ]
+    return completed.stdout.strip() if capture and completed.stdout else ""
+
+
+def prepare_runtime(target_commit):
+    result = preflight(target_commit)
+    environment = application_environment(target_commit)
+    os.environ.update(
+        {key: environment[key] for key in ("DEPLOYMENT_COMMIT", "AIRFLOW_IMAGE_NAME")}
     )
+    # Build before freezing the live edge; no provider secrets or business data leave the host.
+    compose("build", "zacks-api", env=environment)
+    secret_directory = Path(os.environ.get("AIRFLOW_SECRET_DIR", "/etc/wechat-on-airflow/secrets"))
+    token = variable_get("WEBAPP_OBSERVATION_API_TOKEN")
+    if len(token) < 16 or any(c.isspace() for c in token):
+        raise RuntimeError("existing observation identity is invalid")
+    token_path = secret_directory / "zacks_edge_token"
+    if token_path.exists() and token_path.read_text().strip() != token:
+        raise RuntimeError("existing edge identities disagree; refusing implicit rotation")
+    if not token_path.exists():
+        with token_path.open("w") as handle:
+            handle.write(token + "\n")
+        os.chmod(str(token_path), 0o640)
+    state = _last_json(
+        one_shot(
+            "import json; from wechat_airflow.host_core.control import runtime_state; "
+            "print(json.dumps(runtime_state(), default=str))",
+            target_commit,
+        )
+    )
+    backup_dir = ROOT / ".local" / "host-core-backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(str(backup_dir), 0o700)
+    backup = backup_dir / ("zacks-" + target_commit + ".dump")
+    if not backup.exists():
+        temporary = backup.with_suffix(".dump.tmp")
+        with temporary.open("wb") as handle:
+            completed = subprocess.run(
+                COMPOSE
+                + [
+                    "exec",
+                    "-T",
+                    "postgresql",
+                    "sh",
+                    "-ec",
+                    'export PGPASSWORD="$(cat /run/secrets/airflow_database_password)"; '
+                    'exec pg_dump -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" --schema=zacks --format=custom',
+                ],
+                cwd=str(ROOT),
+                stdin=subprocess.DEVNULL,
+                stdout=handle,
+                stderr=subprocess.PIPE,
+            )
+        if completed.returncode != 0 or temporary.stat().st_size == 0:
+            raise RuntimeError("pre-cutover business schema backup failed")
+        os.chmod(str(temporary), 0o600)
+        temporary.replace(backup)
+    # The exclusive PG fence drains bounded in-flight sends. No old owner is reactivated.
+    one_shot(
+        "from wechat_airflow.host_core.control import set_delivery_enabled; "
+        "set_delivery_enabled(False, %r)" % target_commit,
+        target_commit,
+    )
+    compose("stop", "zacks-notification-worker", "zacks-wechat-worker", env=environment)
+    one_shot(
+        "from sqlalchemy import text; from wechat_airflow.host_core.database import transaction; "
+        "c=transaction(); db=c.__enter__(); "
+        'db.execute(text("UPDATE zacks.runtime_control SET deployment_started_at=now(), '
+        "acceptance_started_at=NULL, wechat_enabled=false, phase='prepared', deployment_commit=:commit WHERE singleton\"), "
+        "{'commit':%r}); c.__exit__(None,None,None)" % target_commit,
+        target_commit,
+    )
+    compose("up", "-d", "--no-build", "--no-deps", "zacks-api", env=environment)
+    _wait_for_local_health(target_commit)
+    run([sys.executable, str(ROOT / "scripts/configure_zacks_tunnel.py"), "--apply", "--restart"])
     result.update(
         {
-            "localHealth": health_value,
-            "localReady": ready_value,
-            "deliveryOwner": "cloudflare",
-            "observation": "cloudflare",
+            "previouslyActivated": state.get("activated_at") is not None,
+            "deliveryEnabled": False,
+            "backupSha256": _sha256_file(backup),
+            "backupCreated": True,
+            "phase": "prepared",
         }
     )
     return result
@@ -255,7 +329,7 @@ def sync_secrets(target_commit):
     environment = os.environ.copy()
     environment["DEPLOYMENT_COMMIT"] = target_commit
 
-    compose("--profile", "maintenance", "build", "zacks-secret-sync", env=environment)
+    # Application image was built exactly once by prepare-runtime.
     edge_token = variable_get("WEBAPP_OBSERVATION_API_TOKEN")
     if len(edge_token) < 16 or any(character.isspace() for character in edge_token):
         raise RuntimeError("WEBAPP_OBSERVATION_API_TOKEN is malformed")
@@ -278,6 +352,7 @@ trap - EXIT
             "--profile",
             "maintenance",
             "run",
+            "--no-deps",
             "--rm",
             "-T",
             "--entrypoint",
@@ -294,6 +369,7 @@ trap - EXIT
         "--profile",
         "maintenance",
         "run",
+        "--no-deps",
         "--rm",
         "zacks-secret-sync",
         env=environment,
@@ -304,6 +380,7 @@ trap - EXIT
             "--profile",
             "maintenance",
             "run",
+            "--no-deps",
             "--rm",
             "-T",
             "--entrypoint",
@@ -327,32 +404,6 @@ trap - EXIT
         "secretSync": "complete",
         "edgeToken": "staged",
         "returnCode": completed.returncode,
-    }
-
-
-def migrate(target_commit, pass_name):
-    """Legacy migration endpoint path retained for rollback diagnostics only."""
-    assert_target(target_commit)
-    script = (
-        """
-import json
-from wechat_airflow.host_core.migration import fetch_snapshot, import_snapshot
-from wechat_airflow.host_core.settings import load_settings
-settings = load_settings()
-snapshot = fetch_snapshot('https://zacks.claude89757.cc', settings.edge_token)
-counts = import_snapshot(snapshot, source_revision=%r)
-print(json.dumps({'success': True, 'counts': counts}, sort_keys=True))
-"""
-        % target_commit
-    )
-    result = _last_json(host_python(script, capture=True))
-    if result.get("success") is not True:
-        raise RuntimeError("host-core migration did not report success")
-    return {
-        "targetCommit": target_commit,
-        "pass": pass_name,
-        "source": "worker-pagination",
-        "counts": result.get("counts", {}),
     }
 
 
@@ -425,272 +476,236 @@ def migrate_sql(target_commit, pass_name, sql_export, snapshot_sha256):
     }
 
 
-def enable_dual(target_commit):
+def prepare_routing(target_commit):
     assert_target(target_commit)
-    variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
-    variable_set("ZACKS_OBSERVATION_MODE", "dual")
-    variable_set("ZACKS_WECHAT_GATE_SOURCE", "legacy")
-    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
+    # These variables only drain already-running old DAG tasks into the new API.
+    # The new collector image has a fixed Compose-local destination.
     variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
+    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
     compose_exec(
         "airflow-worker",
         "sh",
         "-ec",
-        "rm -f /opt/airflow/logs/webapp-observation-state*.json "
-        "/opt/airflow/logs/webapp-observation-state*.json.lock",
+        "rm -f /opt/airflow/logs/webapp-observation-state*.json /opt/airflow/logs/webapp-observation-state*.json.lock",
     )
-    return {
-        "targetCommit": target_commit,
-        "deliveryOwner": "cloudflare",
-        "observation": "dual",
-        "observationUrl": "local-compose",
-    }
-
-
-def shadow_evidence(target_commit):
-    assert_target(target_commit)
-    script = """
-import json
-from sqlalchemy import text
-from wechat_airflow.host_core.database import transaction
-with transaction() as connection:
-    row = connection.execute(text('''
-        SELECT
-          count(*) FILTER (WHERE last_inspection_at >= now() - interval '15 minutes') AS recent_venues,
-          count(*) AS total_venues
-        FROM zacks.venue_status
-    ''')).mappings().one()
-    subscriptions = connection.execute(text('''
-        SELECT count(*) FROM zacks.subscriptions
-        WHERE active = true AND active_until > now()
-    ''')).scalar_one()
-    outbox = connection.execute(text('SELECT count(*) FROM zacks.notification_outbox')).scalar_one()
-print(json.dumps({
-    'recentVenues': int(row['recent_venues'] or 0),
-    'totalVenues': int(row['total_venues'] or 0),
-    'activeSubscriptions': int(subscriptions or 0),
-    'outboxRows': int(outbox or 0),
-}, sort_keys=True))
-"""
-    evidence = _last_json(host_python(script, capture=True))
-    if int(evidence.get("totalVenues") or 0) != 26:
-        raise RuntimeError("host-core venue catalog is incomplete")
-    if int(evidence.get("recentVenues") or 0) < 20:
-        raise RuntimeError("fewer than 20 venues naturally reseeded the host-core runtime")
-    if int(evidence.get("activeSubscriptions") or 0) <= 0:
-        raise RuntimeError("host-core migration contains no active subscriptions")
-    result = {"targetCommit": target_commit}
-    result.update(evidence)
-    return result
-
-
-def prepare_cutover(target_commit):
-    assert_target(target_commit)
-    check_ses_credentials()
-    variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
-    variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
-    variable_set("ZACKS_OBSERVATION_MODE", "host")
-    variable_set("ZACKS_WECHAT_GATE_SOURCE", "host")
-    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
-    compose("stop", "zacks-notification-worker")
-    compose("restart", "zacks-api")
-    health_value = _wait_for_local_health(target_commit)
-    ready_value = _wait_for_local_ready()
-    if health_value.get("deliveryOwner") != "cloudflare":
-        raise RuntimeError("delivery must remain paused before public edge cutover")
-    if health_value.get("observationMode") != "host":
-        raise RuntimeError("host observation mode did not activate before edge cutover")
-    if "zacks-notification-worker" in running_services():
-        raise RuntimeError("notification worker is still running during delivery pause")
-    return {
-        "targetCommit": target_commit,
-        "deliveryOwner": "cloudflare",
-        "observation": "host",
-        "notificationWorker": "stopped",
-        "localHealth": health_value,
-        "localReady": ready_value,
-    }
+    _wait_for_local_health(target_commit)
+    _wait_for_local_ready()
+    return {"targetCommit": target_commit, "observation": "host", "ready": True}
 
 
 def cutover(target_commit):
     assert_target(target_commit)
     check_ses_credentials()
-    health_before = local_health(target_commit)
-    local_ready()
-    if health_before.get("deliveryOwner") == "airflow_host":
-        if "zacks-notification-worker" not in running_services():
-            compose("up", "-d", "zacks-notification-worker")
-        return {
-            "targetCommit": target_commit,
-            "deliveryOwner": "airflow_host",
-            "alreadyActive": True,
-            "localHealth": local_health(target_commit),
-            "localReady": local_ready(),
-        }
-    if health_before.get("deliveryOwner") != "cloudflare":
-        raise RuntimeError("unexpected delivery owner before host activation")
-    if health_before.get("observationMode") != "host":
-        raise RuntimeError("host observation mode must be active before delivery")
-
-    mark = """
-from sqlalchemy import text
-from wechat_airflow.host_core.database import transaction
-from wechat_airflow.host_core.domain import utc_now
-with transaction() as connection:
-    connection.execute(text('''
-        UPDATE zacks.migration_state
-        SET cutover_at = :now, updated_at = :now
-        WHERE source = 'cloudflare-d1'
-    '''), {'now': utc_now()})
-"""
-    host_python(mark)
-    variable_set("ZACKS_DELIVERY_OWNER", "airflow_host")
-    compose("up", "-d", "zacks-notification-worker")
-    health_value = local_health(target_commit)
-    ready_value = local_ready()
-    if health_value.get("deliveryOwner") != "airflow_host":
-        raise RuntimeError("local delivery owner did not switch to airflow_host")
-    if "zacks-notification-worker" not in running_services():
-        raise RuntimeError("host notification worker did not start")
-    return {
-        "targetCommit": target_commit,
-        "deliveryOwner": "airflow_host",
-        "localHealth": health_value,
-        "localReady": ready_value,
-    }
+    host_python(
+        "from wechat_airflow.host_core.control import set_delivery_enabled; "
+        "set_delivery_enabled(True, %r)" % target_commit
+    )
+    compose(
+        "up",
+        "-d",
+        "--no-build",
+        "--no-deps",
+        "zacks-notification-worker",
+        "zacks-wechat-worker",
+        env=application_environment(target_commit),
+    )
+    return {"targetCommit": target_commit, "deliveryOwner": "airflow_host", "legacyRuntime": False}
 
 
 def pause_host_delivery(target_commit):
     assert_target(target_commit)
-    variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
-    variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
-    variable_set("ZACKS_OBSERVATION_MODE", "host")
-    variable_set("ZACKS_WECHAT_GATE_SOURCE", "host")
-    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
-    compose("stop", "zacks-notification-worker")
-    health_value = local_health(target_commit)
-    ready_value = local_ready()
-    if health_value.get("deliveryOwner") != "cloudflare":
-        raise RuntimeError("host delivery did not enter the safe paused state")
-    if "zacks-notification-worker" in running_services():
-        raise RuntimeError("notification worker remains active after safe pause")
+    one_shot(
+        "from wechat_airflow.host_core.control import set_delivery_enabled; "
+        "set_delivery_enabled(False, %r)" % target_commit,
+        target_commit,
+    )
+    compose("stop", "zacks-notification-worker", "zacks-wechat-worker")
     return {
         "targetCommit": target_commit,
-        "deliveryOwner": "cloudflare",
-        "observation": "host",
-        "notificationWorker": "stopped",
         "safePause": True,
-        "localHealth": health_value,
-        "localReady": ready_value,
+        "deliveryOwner": "paused",
+        "legacyRuntime": False,
     }
 
 
-def rollback(target_commit):
+def activate_workers(target_commit):
     assert_target(target_commit)
-    owner = variable_get("ZACKS_DELIVERY_OWNER").lower()
-    if owner == "airflow_host":
-        raise RuntimeError(
-            "legacy rollback is unsafe after host delivery activation; use pause-host-delivery"
+    for component in (
+        "airflow-api-server",
+        "airflow-scheduler",
+        "airflow-dag-processor",
+        "airflow-worker",
+        "airflow-triggerer",
+    ):
+        identity = compose_exec(
+            component,
+            "python",
+            "-c",
+            "import os; print(os.environ.get('DEPLOYMENT_COMMIT','unknown'))",
+            capture=True,
         )
-    variable_set("ZACKS_DELIVERY_OWNER", "cloudflare")
-    variable_set("ZACKS_OBSERVATION_MODE", "cloudflare")
-    variable_set("ZACKS_WECHAT_GATE_SOURCE", "legacy")
-    variable_set("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE", "enforce")
-    variable_set("WEBAPP_OBSERVATION_API_URL", LEGACY_OBSERVATION_URL)
-    compose("stop", "zacks-notification-worker", "zacks-api")
-    return {
-        "targetCommit": target_commit,
-        "deliveryOwner": "cloudflare",
-        "hostServices": "stopped",
-        "rolledBack": True,
-    }
+        if identity.splitlines()[-1] != target_commit:
+            raise RuntimeError("runtime commit mismatch for " + component)
+    sender = _last_json(
+        host_python(
+            "import json; from wechat_airflow.host_core.wechat_worker import sender_readiness; "
+            "print(json.dumps(sender_readiness()))",
+            capture=True,
+        )
+    )
+    if (
+        not sender.get("ok")
+        or sender.get("deploymentCommit") != target_commit
+        or not sender.get("durableIdempotency")
+    ):
+        raise RuntimeError("exact-commit durable WeChat sender is not ready")
+    probe = _last_json(
+        compose_exec(
+            "zacks-api", "python", "-m", "wechat_airflow.host_core.api_probe", capture=True
+        )
+    )
+    if probe.get("ok") is not True or probe.get("complete") is not True:
+        raise RuntimeError("production API transaction probe failed")
+    host_python(
+        "from sqlalchemy import text; from wechat_airflow.host_core.database import transaction; "
+        'c=transaction(); db=c.__enter__(); db.execute(text("UPDATE zacks.runtime_control SET api_acceptance=CAST(:value AS jsonb) WHERE singleton"), '
+        + repr({"value": json.dumps(probe)})
+        + "); c.__exit__(None,None,None)"
+    )
+    host_python(
+        "from sqlalchemy import text; from wechat_airflow.host_core.database import transaction; "
+        'c=transaction(); db=c.__enter__(); db.execute(text("UPDATE zacks.runtime_control '
+        'SET wechat_enabled=true, acceptance_started_at=COALESCE(acceptance_started_at,now()) WHERE singleton")); c.__exit__(None,None,None)'
+    )
+    host_python(
+        "from wechat_airflow.host_core.control import set_delivery_enabled; "
+        "set_delivery_enabled(True, %r)" % target_commit
+    )
+    compose(
+        "up",
+        "-d",
+        "--no-build",
+        "--no-deps",
+        "zacks-notification-worker",
+        "zacks-wechat-worker",
+        env=application_environment(target_commit),
+    )
+    return {"targetCommit": target_commit, "workersActivated": True, "legacyRuntime": False}
 
 
-def health(target_commit, include_public):
+def health(target_commit, include_public=False, require_delivery=False):
     assert_target(target_commit)
     local = local_health(target_commit)
     ready = local_ready()
-    running = running_services()
-    required = {"zacks-api", "zacks-notification-worker"}
-    if not required.issubset(running):
-        raise RuntimeError("one or more host-core services are not running")
-    if local.get("deliveryOwner") != "airflow_host":
-        raise RuntimeError("host notification delivery is not active")
-    result = {
-        "targetCommit": target_commit,
-        "local": local,
-        "ready": ready,
-        "services": sorted(required),
-    }
+    arguments = [
+        "python",
+        "-m",
+        "wechat_airflow.host_core.health",
+        "--expected-commit",
+        target_commit,
+    ]
+    if require_delivery:
+        arguments.append("--require-delivery")
+    completed = run(COMPOSE + ["exec", "-T", "zacks-api"] + arguments, check=False, capture=True)
+    report = _last_json(completed.stdout or "")
+    if report.get("complete") is not True or not report.get("checks"):
+        raise RuntimeError("business acceptance report is incomplete")
+    report["local"] = local
+    report["ready"] = ready
     if include_public:
-        result["public"] = public_health(target_commit)
-    return result
+        report["public"] = public_health(target_commit)
+        edge = _curl_json("https://zacks.claude89757.cc/api/edge-healthz")
+        edge_ok = (
+            edge.get("deploymentCommit") == target_commit
+            and edge.get("legacyRuntime") is False
+            and edge.get("cutover") is True
+        )
+        report["checks"]["pureEdgeExactCommit"] = edge_ok
+        report["ok"] = report["ok"] and edge_ok
+        report["edge"] = edge
+    report["failedChecks"] = [name for name, ok in report["checks"].items() if not ok]
+    return report
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Operate the Airflow-host Zacks notification core")
+    parser = argparse.ArgumentParser(
+        description="Operate Host Core; legacy runtime is not supported"
+    )
     parser.add_argument(
         "operation",
         choices=(
             "preflight",
-            "deploy-shadow",
+            "prepare-runtime",
             "sync-secrets",
-            "migrate",
             "migrate-sql",
-            "enable-dual",
-            "shadow-evidence",
-            "prepare-cutover",
+            "prepare-routing",
             "cutover",
+            "activate-workers",
             "pause-host-delivery",
             "health",
-            "rollback",
+            "acceptance",
         ),
     )
     parser.add_argument("--target-commit", required=True)
-    parser.add_argument("--pass-name", default="manual")
     parser.add_argument("--sql-export")
     parser.add_argument("--snapshot-sha256")
+    parser.add_argument("--pass-name", default="final")
     parser.add_argument("--include-public", action="store_true")
-    arguments = parser.parse_args()
-
-    if arguments.operation == "preflight":
-        result = preflight(arguments.target_commit)
-    elif arguments.operation == "deploy-shadow":
-        result = deploy_shadow(arguments.target_commit)
-    elif arguments.operation == "sync-secrets":
-        result = sync_secrets(arguments.target_commit)
-    elif arguments.operation == "migrate":
-        result = migrate(arguments.target_commit, arguments.pass_name)
-    elif arguments.operation == "migrate-sql":
-        if not arguments.sql_export or not arguments.snapshot_sha256:
-            raise RuntimeError("migrate-sql requires --sql-export and --snapshot-sha256")
+    parser.add_argument("--wait-seconds", type=int, default=1800)
+    args = parser.parse_args()
+    os.environ.update(
+        {
+            k: v
+            for k, v in application_environment(args.target_commit).items()
+            if k in ("DEPLOYMENT_COMMIT", "AIRFLOW_IMAGE_NAME")
+        }
+    )
+    if args.operation == "migrate-sql":
+        if not args.sql_export or not args.snapshot_sha256:
+            parser.error("SQL export and checksum are required")
         result = migrate_sql(
-            arguments.target_commit,
-            arguments.pass_name,
-            arguments.sql_export,
-            arguments.snapshot_sha256,
+            args.target_commit, args.pass_name, args.sql_export, args.snapshot_sha256
         )
-    elif arguments.operation == "enable-dual":
-        result = enable_dual(arguments.target_commit)
-    elif arguments.operation == "shadow-evidence":
-        result = shadow_evidence(arguments.target_commit)
-    elif arguments.operation == "prepare-cutover":
-        result = prepare_cutover(arguments.target_commit)
-    elif arguments.operation == "cutover":
-        result = cutover(arguments.target_commit)
-    elif arguments.operation == "pause-host-delivery":
-        result = pause_host_delivery(arguments.target_commit)
-    elif arguments.operation == "health":
-        result = health(arguments.target_commit, arguments.include_public)
-    elif arguments.operation == "rollback":
-        result = rollback(arguments.target_commit)
+    elif args.operation in ("health", "acceptance"):
+        deadline = time.monotonic() + (args.wait_seconds if args.operation == "acceptance" else 0)
+        while True:
+            result = health(
+                args.target_commit,
+                include_public=args.include_public,
+                require_delivery=args.operation == "acceptance",
+            )
+            if result["ok"] or time.monotonic() >= deadline:
+                break
+            print(
+                json.dumps(
+                    {
+                        "event": "acceptance_progress",
+                        "failedChecks": result["failedChecks"],
+                        "naturalDelivery": result["naturalDelivery"],
+                    }
+                ),
+                flush=True,
+            )
+            time.sleep(20)
     else:
-        raise RuntimeError("unsupported operation")
-
-    payload = {"success": True, "operation": arguments.operation}
-    payload.update(result)
-    print(json.dumps(payload, sort_keys=True))
-    return 0
+        operations = {
+            "preflight": preflight,
+            "prepare-runtime": prepare_runtime,
+            "sync-secrets": sync_secrets,
+            "prepare-routing": prepare_routing,
+            "cutover": cutover,
+            "activate-workers": activate_workers,
+            "pause-host-delivery": pause_host_delivery,
+        }
+        result = operations[args.operation](args.target_commit)
+    success = result.get("ok", True)
+    print(
+        json.dumps(
+            dict(result, operation=args.operation, success=success), default=str, ensure_ascii=False
+        ),
+        flush=True,
+    )
+    return 0 if success else 1
 
 
 if __name__ == "__main__":

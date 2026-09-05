@@ -6,8 +6,12 @@ services:
     build:
       context: .
       dockerfile: docker/sender/Dockerfile
+    volumes:
+      - sender-state:/var/lib/wechat-sender
     restart: unless-stopped
     environment:
+      WECHAT_IDEMPOTENCY_PATH: /var/lib/wechat-sender/idempotency.sqlite3
+      DEPLOYMENT_COMMIT: ${DEPLOYMENT_COMMIT:-development}
       WECHAT_ALLOWED_DEVICE_NAME: ${WECHAT_ALLOWED_DEVICE_NAME:-development-device}
       WECHAT_APPIUM_URL: ${WECHAT_APPIUM_URL:-http://127.0.0.1:6002}
     ports:
@@ -23,3 +27,6 @@ services:
         max-size: 20m
         max-file: "5"
         compress: "true"
+
+volumes:
+  sender-state:

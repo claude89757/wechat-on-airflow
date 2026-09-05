@@ -1,62 +1,41 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_v070_waits_for_three_natural_cycles_and_checks_business_flow() -> None:
-    workflow = (ROOT / ".github/workflows/production-host-core-v070.yml").read_text(
-        encoding="utf-8"
+def read(path):
+    return (ROOT / path).read_text()
+
+
+def test_one_control_plane_and_no_one_time_production_scheduler():
+    assert not (ROOT / ".github/workflows/production-host-core-v070.yml").exists()
+    ship = read(".github/workflows/production-ship.yml")
+    assert "operation: full-cutover" in ship
+    assert "operation: activate-workers" in ship
+    assert "operation: acceptance" in ship
+    assert "operation: pause" in ship
+
+
+def test_business_acceptance_precedes_immutable_version_release():
+    ship = read(".github/workflows/production-ship.yml")
+    assert "needs: [deploy, acceptance]" in ship
+    assert "needs.acceptance.result == 'success'" in ship
+    assert (
+        ship.index("  host_core_cutover:")
+        < ship.index("  deploy:")
+        < ship.index("  natural_cycles:")
+        < ship.index("  acceptance:")
+        < ship.index("  tag:")
     )
 
-    assert "Observe three natural one-minute cycles and verify business flow" in workflow
-    assert "sleep 180" in workflow
-    assert "shadow-evidence --target-commit" in workflow
-    assert "needs: [resolve, deploy]" in workflow
-    assert "needs: [resolve, natural_cycles]" in workflow
-    assert "operation: health" in workflow
 
-
-def test_business_acceptance_precedes_immutable_version_release() -> None:
-    workflow = (ROOT / ".github/workflows/production-host-core-v070.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert "uses: ./.github/workflows/production-release.yml" in workflow
-    assert "uses: ./.github/workflows/release-tag-chatops.yml" in workflow
-    assert workflow.index("  contract:") < workflow.index("  cutover:")
-    assert workflow.index("  cutover:") < workflow.index("  deploy:")
-    assert workflow.index("  deploy:") < workflow.index("  natural_cycles:")
-    assert workflow.index("  natural_cycles:") < workflow.index("  acceptance:")
-    assert workflow.index("  acceptance:") < workflow.index("  tag:")
-
-
-def test_v070_runs_after_the_d1_reset_and_skips_an_existing_release() -> None:
-    workflow = (ROOT / ".github/workflows/production-host-core-v070.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'cron: "5 0 4 9 *"' in workflow
-    assert 'cron: "25 0 4 9 *"' in workflow
-    assert "push:" not in workflow.split("permissions:", 1)[0]
-    assert "issue_comment:" not in workflow
-    assert "refs/tags/0.7.0" in workflow
-    assert "should_run=false" in workflow
-    assert 'target_commit="$(git rev-parse origin/main)"' in workflow
-
-
-def test_existing_ship_command_routes_v070_through_the_host_core_transaction() -> None:
-    workflow = (ROOT / ".github/workflows/production-ship.yml").read_text(encoding="utf-8")
-
-    assert "host_core_cutover:" in workflow
-    assert "inputs.version == '0.7.0'" in workflow
-    assert "operation: full-cutover" in workflow
-    assert "Observe three natural one-minute cycles and verify business flow" in workflow
-    assert "shadow-evidence --target-commit" in workflow
-    assert "operation: health" in workflow
-    assert "needs: [deploy, acceptance]" in workflow
-    assert workflow.index("  host_core_cutover:") < workflow.index("  deploy:")
-    assert workflow.index("  deploy:") < workflow.index("  natural_cycles:")
-    assert workflow.index("  natural_cycles:") < workflow.index("  acceptance:")
-    assert workflow.index("  acceptance:") < workflow.index("  tag:")
+def test_acceptance_checks_records_not_sleep_or_successful_restart():
+    health = read("src/wechat_airflow/host_core/health.py")
+    assert "required = 3 if is_venue else 1" in health
+    assert "len(venue_components) == 26" in health
+    assert "naturalEmailProviderDelivered" in health
+    assert "naturalWeChatDelivered" in health
+    assert "migrationReconciled" in health
+    assert '"complete": True' in health
+    script = read("scripts/host_core_release.sh")
+    assert ".complete == true and .ok == true and .success == true" in script

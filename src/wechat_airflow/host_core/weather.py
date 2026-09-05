@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import requests
@@ -11,7 +12,7 @@ import requests
 from .settings import HostCoreSettings
 
 _CACHE_LOCK = threading.Lock()
-_CACHE: tuple[float, WeatherDecision] | None = None
+_CACHE: dict[tuple[str, float, float, float], tuple[float, WeatherDecision]] = {}
 CACHE_SECONDS = 3_600
 
 
@@ -25,26 +26,39 @@ class WeatherDecision:
     error: str | None = None
 
 
-def evaluate_weather(settings: HostCoreSettings, now: datetime | None = None) -> WeatherDecision:
-    global _CACHE
-
+def evaluate_weather(
+    settings: HostCoreSettings,
+    now: datetime | None = None,
+    *,
+    booking_date: str | None = None,
+) -> WeatherDecision:
+    """Evaluate the actual booking date, not a blanket 'tomorrow' gate."""
     if not settings.weather_gate_enabled:
-        return WeatherDecision(True, None, None, settings.weather_threshold_mm, "disabled")
-    current_epoch = time.time()
-    with _CACHE_LOCK:
-        if _CACHE and current_epoch - _CACHE[0] < CACHE_SECONDS:
-            return _CACHE[1]
-
+        return WeatherDecision(True, booking_date, None, settings.weather_threshold_mm, "disabled")
     shanghai = ZoneInfo("Asia/Shanghai")
     current = (now or datetime.now(shanghai)).astimezone(shanghai)
-    target_date = (current.date() + timedelta(days=1)).isoformat()
+    target = date.fromisoformat(booking_date) if booking_date else current.date()
+    key = (
+        target.isoformat(),
+        settings.weather_latitude,
+        settings.weather_longitude,
+        settings.weather_threshold_mm,
+    )
+    epoch = time.monotonic()
+    with _CACHE_LOCK:
+        cached = _CACHE.get(key)
+        if cached and epoch - cached[0] < (CACHE_SECONDS if cached[1].error is None else 60):
+            return cached[1]
     try:
+        offset = (target - current.date()).days
+        if not 0 <= offset < 16:
+            raise ValueError("booking day outside forecast horizon")
         params: dict[str, str | float | int] = {
             "latitude": settings.weather_latitude,
             "longitude": settings.weather_longitude,
             "daily": "precipitation_sum",
             "timezone": "Asia/Shanghai",
-            "forecast_days": 3,
+            "forecast_days": max(3, offset + 1),
         }
         response = requests.get(
             "https://api.open-meteo.com/v1/forecast",
@@ -52,41 +66,36 @@ def evaluate_weather(settings: HostCoreSettings, now: datetime | None = None) ->
             timeout=8,
         )
         response.raise_for_status()
-        payload = response.json()
-        daily = payload.get("daily") if isinstance(payload, dict) else None
-        dates = daily.get("time") if isinstance(daily, dict) else None
-        values = daily.get("precipitation_sum") if isinstance(daily, dict) else None
-        precipitation: float | None = None
-        if isinstance(dates, list) and isinstance(values, list):
-            for index, value in enumerate(dates):
-                if value == target_date and index < len(values):
-                    precipitation = float(values[index])
-                    break
-        if precipitation is None:
-            raise RuntimeError("target forecast day is unavailable")
+        daily = response.json()["daily"]
+        index = daily["time"].index(target.isoformat())
+        precipitation = float(daily["precipitation_sum"][index])
+        if not math.isfinite(precipitation) or precipitation < 0:
+            raise ValueError("invalid precipitation")
+        allowed = precipitation < settings.weather_threshold_mm
         decision = WeatherDecision(
-            precipitation < settings.weather_threshold_mm,
-            target_date,
+            allowed,
+            target.isoformat(),
             precipitation,
             settings.weather_threshold_mm,
-            "forecast",
+            "forecast" if allowed else "precipitation_threshold_met",
         )
     except Exception as exc:
+        # Weather outages cannot silently disable the notification system.
         decision = WeatherDecision(
             True,
-            target_date,
+            target.isoformat(),
             None,
             settings.weather_threshold_mm,
             "weather_unavailable",
-            str(exc)[:300],
+            type(exc).__name__,
         )
-
     with _CACHE_LOCK:
-        _CACHE = (current_epoch, decision)
+        if len(_CACHE) >= 64:
+            _CACHE.clear()
+        _CACHE[key] = (epoch, decision)
     return decision
 
 
 def reset_weather_cache_for_test() -> None:
-    global _CACHE
     with _CACHE_LOCK:
-        _CACHE = None
+        _CACHE.clear()

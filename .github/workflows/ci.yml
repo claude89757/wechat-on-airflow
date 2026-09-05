@@ -18,6 +18,20 @@ jobs:
     # This is the required exact-SHA release check.
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: zacks_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d zacks_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ZACKS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:isolated-test-only@127.0.0.1:5432/zacks_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

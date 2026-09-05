@@ -11,12 +11,16 @@ Group=wechat-sender
 WorkingDirectory=/opt/wechat-on-airflow
 LoadCredential=wechat_allowed_device_name:/etc/wechat-sender/credentials/wechat_allowed_device_name
 LoadCredential=wechat_appium_url:/etc/wechat-sender/credentials/wechat_appium_url
+StateDirectory=wechat-sender
+StateDirectoryMode=0700
+EnvironmentFile=/etc/wechat-sender/release.env
+Environment=WECHAT_IDEMPOTENCY_PATH=/var/lib/wechat-sender/idempotency.sqlite3
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/wechat-sender-venv/bin/python -m uvicorn sender_agent.app:app --host 0.0.0.0 --port 7001 --workers 1
 Restart=always
 RestartSec=5
-TimeoutStopSec=20
+TimeoutStopSec=240
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true

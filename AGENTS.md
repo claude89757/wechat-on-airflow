@@ -8,8 +8,8 @@ chat history for operational knowledge.
 
 Run the production Shenzhen tennis availability platform on Apache Airflow 3
 with PostgreSQL-owned subscriptions and notification state, host-owned Tencent
-SES delivery, best-effort WeChat delivery through the Android sender,
-deterministic verification, and reversible exact-commit deployments.
+SES delivery, durable queued WeChat delivery through the Android sender,
+deterministic verification, and fenced roll-forward exact-commit deployments.
 
 For repository-wide diagnosis, operations, incident response, release, or
 deployment work, load
@@ -44,7 +44,7 @@ from the last verified state; chat history is not authoritative.
 - `scripts/`: idempotent development and operations commands.
 - `pi_host/`: Raspberry Pi scrape-host services, not Airflow DAG code.
 - `webapp/`: React assets and the stateless Cloudflare edge gateway. Legacy D1
-  code is retained only for the migration and rollback window.
+  code is retained only as an offline migration reference, never a runtime fallback.
 - `docker/`: reproducible Airflow and service image files.
 - `docs/`: architecture, runbooks, configuration, decisions, and evidence.
 
@@ -66,15 +66,14 @@ the corresponding adapter is made fully typed.
 - Venue DAGs do not contain recipient lists or call Tencent SES directly. The
   host notification worker owns subscriber-email matching, deduplication,
   batching, quotas, retries, and provider reconciliation.
-- Airflow continues to call the Android WeChat sender. The venue-level Web
-  subscription gate is read from local PostgreSQL; Cloudflare or D1 failure must
-  not stop an already configured WeChat channel.
-- Exactly one subscriber-email owner is active at a time. During migration it is
-  Cloudflare; after the atomic owner switch it is the Airflow-host core. Dual
-  observation writes must never become dual delivery ownership.
-- Cloudflare is a public edge only after cutover: static assets, TLS/WAF, and a
-  stateless `/api/*` reverse proxy. Worker Cron performs no notification work.
-- D1 remains read-only during the rollback window. This release must not delete,
+- Airflow venue tasks enqueue durable WeChat intents. A dedicated host worker
+  gates against PostgreSQL and sends through the durable device Sender.
+- Exactly one subscriber-email owner is active at a time. First activation freezes
+  the old owner, migrates and verifies data, then enables host delivery. There is
+  no dual observation path or legacy runtime fallback.
+- Cloudflare is a public edge only: static assets, TLS/WAF, and stateless API
+  forwarding. The production Worker has no D1 binding or business Cron.
+- D1 remains an unbound migration archive. This release must not delete,
   truncate, or overwrite the production D1 database.
 - WeChat failures are isolated per chat. Stale WeChat incident records are not
   blindly replayed.
@@ -212,3 +211,23 @@ update a contract/runbook when an incident teaches a new operational fact.
   public and local health, and rollback readiness.
 - Post-deploy checks pass over the required natural schedule cycles.
 - Remaining risks and unrelated failures are reported precisely.
+
+## Host Core-only release boundary (2026-09-05)
+
+The approved 0.7.0 hardening supersedes all earlier instructions to dual-write
+observations, keep a legacy API backend, or automatically restore Cloudflare
+delivery. PostgreSQL `runtime_control` is the only delivery switch. A failed
+release pauses host delivery and rolls forward. D1 is retained as an unbound
+migration archive, not a rollback backend; deleting it still requires separate
+approval. Never import a D1 snapshot after `activated_at` is set.
+
+Venue tasks enqueue WeChat intents; only `zacks-wechat-worker` calls the durable
+device Sender. Email and WeChat uncertain submission states are never blindly
+replayed. All production operations remain protected GitHub workflows.
+
+Acceptance requires the exact commit on host, edge and Sender; 26 venue DAGs
+with three natural successful cycles; fresh observations and consumers; migration
+identity reconciliation; the production transaction-rollback API probe; and
+actual natural SES-delivered and WeChat-sent records. The rollback probe is not
+a public browser test or a real verification email. No synthetic notifications
+may be sent without a separately authorized recipient and explicit permission.

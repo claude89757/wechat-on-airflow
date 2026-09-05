@@ -162,8 +162,7 @@ jobs:
               PYTHONPATH=src python scripts/diagnose_zacks_phone.py --format json
               ;;
             webapp_observation_diagnose)
-              bash scripts/diagnose_webapp_observation.sh
-              bash scripts/diagnose_email_delivery_metrics.sh
+              (cd webapp; OPERATION=health bash ../scripts/host_core_release.sh)
               ;;
             wechat_delivery_diagnose)
               PYTHONPATH=scripts python scripts/diagnose_wechat_delivery.py --format json

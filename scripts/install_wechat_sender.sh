@@ -155,6 +155,8 @@ adb -s "$DEVICE_NAME" shell settings put global transition_animation_scale 0
 adb -s "$DEVICE_NAME" shell settings put global animator_duration_scale 0
 adb -s "$DEVICE_NAME" shell dumpsys deviceidle whitelist +com.tencent.mm >/dev/null || true
 
+printf 'DEPLOYMENT_COMMIT=%s\n' "$TARGET_COMMIT" >/etc/wechat-sender/release.env
+chmod 0644 /etc/wechat-sender/release.env
 systemctl daemon-reload
 systemctl enable "$APPIUM_SERVICE_NAME"
 systemctl restart "$APPIUM_SERVICE_NAME"

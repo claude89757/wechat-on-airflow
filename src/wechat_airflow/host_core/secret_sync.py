@@ -20,6 +20,8 @@ SECRET_FILENAMES = {
     "email_from_address": "email_from_address",
     "email_reply_to": "email_reply_to",
     "email_template_id": "email_template_id",
+    "zacks_verification_pepper": "zacks_verification_pepper",
+    "zacks_invite_pepper": "zacks_invite_pepper",
 }
 EDGE_TOKEN_FILENAME = "zacks_edge_token"
 

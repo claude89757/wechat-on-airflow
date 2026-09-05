@@ -7,6 +7,21 @@ and operational changes.
 
 ## [0.7.0] - 2026-09-04
 
+### Host Core production hardening (2026-09-05)
+
+- Remove legacy Cloudflare/D1 runtime and automatic fallback; protected, fenced
+  Host Core-only cutover preserves the source database and host backup.
+- Fix durable verification attempt counting, expired subscription recreation,
+  concurrent limits and cancellation; serialize coffee claims.
+- Add per-booking-date weather, stale intent expiration, pre-dispatch attempts,
+  unknown-result quarantine, provider reconciliation leases and precise readiness.
+- Move WeChat device I/O into a dedicated PostgreSQL worker with per-device
+  durable SQLite idempotency on the Sender.
+- Preserve invitation cryptography and migrate/reconcile all 15 source tables.
+- Add real PostgreSQL regression tests, exact-commit business acceptance and
+  an operator-only production transaction-rollback API probe.
+
+
 ### Added
 
 - Add the PostgreSQL-backed Airflow-host subscription, observation, notification,

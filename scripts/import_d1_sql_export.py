@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -110,4 +111,19 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        # SQL errors can contain plaintext identities in parameter reprs.
+        original = getattr(exc, "orig", None)
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "errorType": type(exc).__name__,
+                    "sqlstate": getattr(original, "pgcode", None),
+                }
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None

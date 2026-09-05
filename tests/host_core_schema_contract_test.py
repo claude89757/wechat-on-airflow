@@ -25,7 +25,8 @@ def test_edge_runtime_has_no_delivery_cron_after_cutover() -> None:
     worker = (root / "src" / "wechat_airflow" / "host_core" / "worker.py").read_text(
         encoding="utf-8"
     )
-    assert "cloudflare_edge_cron_ignored_after_host_cutover" in edge
+    assert "legacyWorker" not in edge and "env.DB" not in edge
+    assert "scheduled()" in edge
     assert "send_template_email" in worker
     assert "zacks.notification_outbox" in worker
 

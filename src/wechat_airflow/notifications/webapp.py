@@ -8,8 +8,6 @@ import requests
 
 from wechat_airflow.notifications.observation_cache import (
     cached_gate_for_venue,
-    decide_observation_delivery,
-    record_observation_result,
 )
 
 WEBAPP_OBSERVATION_API_URL_VAR = "WEBAPP_OBSERVATION_API_URL"
@@ -136,55 +134,36 @@ def _cached_gate(venue_id: str) -> dict[str, Any] | None:
     return _normalize_gate(cached.get(str(venue_id)))
 
 
+LOCAL_API = "http://zacks-api:8090/zacks-api/api"
+
+
+def _host_token() -> str:
+    from pathlib import Path
+
+    try:
+        token = Path("/etc/wechat-on-airflow/secrets/zacks_edge_token").read_text().strip()
+    except OSError:
+        token = str(_get_variable(WEBAPP_OBSERVATION_API_TOKEN_VAR, default="")).strip()
+    if not token:
+        raise RuntimeError("Host Core observation credential is missing")
+    return token
+
+
 def wechat_delivery_allowed(
     venue_id: str,
     observation_result: Mapping[str, object] | None = None,
     *,
     now: datetime | None = None,
 ) -> bool:
-    """Return whether the venue's WeChat alert may be delivered.
-
-    `off` preserves the legacy behavior. `shadow` logs the decision but does not
-    suppress. `enforce` is the production default: a fresh Web-owned subscription
-    gate is required, while a short Cloudflare outage may reuse the last gate until
-    its `valid_until` timestamp. Missing/stale state fails closed.
-    """
-    mode = (
-        str(_get_variable(WEBAPP_WECHAT_GATE_MODE_VAR, default=DEFAULT_GATE_MODE)).strip().lower()
+    """Ask the local PostgreSQL authority; cached remote gates are never used."""
+    del observation_result, now
+    response = requests.get(
+        f"{LOCAL_API}/internal/wechat-gate/{venue_id}",
+        headers={"Authorization": f"Bearer {_host_token()}"},
+        timeout=5,
     )
-    if mode not in {"off", "shadow", "enforce"}:
-        mode = DEFAULT_GATE_MODE
-    if mode == "off":
-        return True
-
-    gate = None
-    if observation_result:
-        gate = _normalize_gate(
-            observation_result.get("wechat_gate") or observation_result.get("wechatGate")
-        )
-    if gate is None:
-        gate = _cached_gate(venue_id)
-
-    current = (now or datetime.now(UTC)).astimezone(UTC)
-    fresh = False
-    allowed = False
-    if gate:
-        try:
-            valid_until = datetime.fromisoformat(str(gate["valid_until"]).replace("Z", "+00:00"))
-            fresh = valid_until >= current
-            allowed = fresh and bool(gate.get("allowed"))
-        except (KeyError, ValueError, TypeError):
-            fresh = False
-            allowed = False
-
-    decision = "allow" if allowed else "suppress"
-    print(
-        f"[WEBAPP_WECHAT_GATE] venue={venue_id}, mode={mode}, decision={decision}, "
-        f"fresh={fresh}, revision={gate.get('revision') if gate else None}"
-    )
-    if mode == "shadow":
-        return True
-    return allowed
+    response.raise_for_status()
+    return response.json().get("allowed") is True
 
 
 def publish_venue_observation(
@@ -198,11 +177,12 @@ def publish_venue_observation(
     observation_scope: str | None = None,
 ) -> dict[str, Any]:
     """Publish venue state without failing the calling DAG."""
-    api_url = str(_get_variable(WEBAPP_OBSERVATION_API_URL_VAR, default="")).strip()
-    api_token = str(_get_variable(WEBAPP_OBSERVATION_API_TOKEN_VAR, default="")).strip()
-    if not api_url or not api_token:
-        print("[WEBAPP] observation publishing skipped: configuration is incomplete")
-        return {"success": True, "skipped": True, "configured": False}
+    api_url = f"{LOCAL_API}/internal/observations"
+    try:
+        api_token = _host_token()
+    except RuntimeError:
+        print("[HOST_OBSERVATION] credential is missing")
+        return {"success": False, "configured": False, "error": "missing_credential"}
 
     try:
         timeout = float(
@@ -237,37 +217,9 @@ def publish_venue_observation(
         "healthy": bool(healthy),
         "checked_at": (checked_at or datetime.now(UTC)).isoformat(),
         "error": str(error or "")[:300] or None,
-        "slots": normalized_slots[:200],
+        "slots": normalized_slots,
     }
-    slot_count = len(normalized_slots[:200])
-    delivery = decide_observation_delivery(payload)
-    cached_gate = _normalize_gate(delivery.gate)
-    if delivery.action == "skip_success":
-        print(
-            f"[WEBAPP] observation locally deduplicated venue={venue_id}, "
-            f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}"
-        )
-        return {
-            "success": True,
-            "slot_count": slot_count,
-            "observation_scope": normalized_scope,
-            "local_deduplicated": True,
-            "wechat_gate": cached_gate,
-        }
-    if delivery.action == "skip_retry":
-        print(
-            f"[WEBAPP] observation retry throttled venue={venue_id}, "
-            f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}"
-        )
-        return {
-            "success": False,
-            "deferred": True,
-            "error": "recent Web publication failure; local retry is throttled",
-            "slot_count": slot_count,
-            "observation_scope": normalized_scope,
-            "wechat_gate": cached_gate,
-        }
-
+    slot_count = len(normalized_slots)
     try:
         response = requests.post(
             api_url,
@@ -286,9 +238,6 @@ def publish_venue_observation(
         gate = _normalize_gate(
             response_payload.get("wechatGate") if isinstance(response_payload, dict) else None
         )
-        record_observation_result(delivery, success=True, gate=gate)
-        if gate is not None:
-            _cache_gate(venue_id, gate)
         print(
             f"[WEBAPP] observation published venue={venue_id}, "
             f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}, "
@@ -302,12 +251,11 @@ def publish_venue_observation(
             "wechat_gate": gate,
         }
     except Exception as exc:
-        record_observation_result(delivery, success=False, gate=cached_gate)
         print(f"[WEBAPP] observation publishing failed venue={venue_id}, error={str(exc)[:300]}")
         return {
             "success": False,
             "error": str(exc)[:300],
             "slot_count": slot_count,
             "observation_scope": normalized_scope,
-            "wechat_gate": cached_gate or _cached_gate(venue_id),
+            "wechat_gate": None,
         }

@@ -50,52 +50,33 @@ def test_successful_health_does_not_restore():
     assert len(commands) == 2
 
 
-def test_failed_full_health_restores_previous_commit_and_still_fails_release():
+def test_failed_full_health_never_rolls_back_to_legacy_runtime():
     target = "a" * 40
     previous = "b" * 40
     results = iter(
         [
             completed(0, deployment_payload(previous)),
             completed(1, {"ok": False}, "target unhealthy"),
-            completed(0, deployment_payload(target)),
-            completed(0, {"ok": True}),
         ]
     )
-    commands: list[list[str]] = []
+    commands = []
 
     def runner(command, *, check):
         assert check is False
         commands.append(command)
         return next(results)
 
-    payload, exit_code = deploy_airflow_transaction.deploy_with_health(target, runner=runner)
-
-    assert exit_code == 1
-    assert payload["ok"] is False
-    assert payload["automatic_restore"]["attempted"] is True
-    assert payload["automatic_restore"]["target_commit"] == previous
-    assert payload["automatic_restore"]["ok"] is True
-    assert previous in commands[2]
-    assert previous in commands[3]
+    payload, code = deploy_airflow_transaction.deploy_with_health(target, runner=runner)
+    assert code == 1 and payload["ok"] is False
+    assert payload["automatic_restore"]["attempted"] is False
+    assert len(commands) == 2
+    assert "pauses_host_delivery" in payload["recovery_policy"]
 
 
-def test_failed_restore_is_reported_without_false_success():
-    target = "a" * 40
-    previous = "b" * 40
-    results = iter(
-        [
-            completed(0, deployment_payload(previous)),
-            completed(1, {"ok": False}),
-            completed(1, None, "restore failed"),
-        ]
-    )
+def test_failed_install_is_not_reported_as_healthy():
+    import pytest
 
-    payload, exit_code = deploy_airflow_transaction.deploy_with_health(
-        target,
-        runner=lambda command, *, check: next(results),
-    )
-
-    assert exit_code == 1
-    assert payload["automatic_restore"]["attempted"] is True
-    assert payload["automatic_restore"]["ok"] is False
-    assert payload["automatic_restore"]["health"] is None
+    with pytest.raises(deploy_airflow_transaction.OpsError):
+        deploy_airflow_transaction.deploy_with_health(
+            "a" * 40, runner=lambda command, *, check: completed(1, None, "failure")
+        )

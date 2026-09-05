@@ -111,16 +111,6 @@ def deploy_with_health(
             0,
         )
 
-    restore = runner(deploy_command(previous_commit), check=False)
-    relay(restore)
-    restore_health: CompletedProcess[str] | None = None
-    if restore.returncode == 0:
-        restore_health = runner(health_command(previous_commit), check=False)
-        relay(restore_health)
-
-    restore_ok = bool(
-        restore.returncode == 0 and restore_health is not None and restore_health.returncode == 0
-    )
     return (
         {
             "ok": False,
@@ -128,13 +118,8 @@ def deploy_with_health(
             "previous_commit": previous_commit,
             "deployment": command_summary(deployment),
             "health": command_summary(health),
-            "automatic_restore": {
-                "attempted": True,
-                "target_commit": previous_commit,
-                "deploy": command_summary(restore),
-                "health": command_summary(restore_health) if restore_health else None,
-                "ok": restore_ok,
-            },
+            "automatic_restore": {"attempted": False, "ok": None},
+            "recovery_policy": "protected_ship_pauses_host_delivery_then_rolls_forward",
         },
         1,
     )
@@ -142,7 +127,7 @@ def deploy_with_health(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Deploy Airflow, require full health, and automatically restore on failure."
+        description="Deploy Airflow, require full health, and pause host delivery through protected ship on failure."
     )
     parser.add_argument("--target-commit", required=True)
     parser.add_argument("--recover-active-tasks", action="store_true")

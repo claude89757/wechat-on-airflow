@@ -13,22 +13,16 @@ _SECRET_ROOT = Path(os.environ.get("ZACKS_SECRET_DIR", "/run/secrets"))
 
 
 def _variable(name: str) -> str | None:
-    """Read one Airflow Variable without requiring Airflow during unit imports."""
+    """Configuration only. Durable delivery ownership lives in PostgreSQL."""
     try:
-        from airflow.sdk import Variable as SdkVariable
+        from airflow.models.variable import Variable as OrmVariable
 
-        value = SdkVariable.get(name, default=None)
+        value = OrmVariable.get(name, default_var=None)
     except Exception:
-        try:
-            from airflow.models.variable import Variable as ModelVariable
-
-            value = ModelVariable.get(name, default_var=None)
-        except Exception:
-            return None
+        return None
     if value is None:
         return None
-    normalized = str(value).strip()
-    return normalized or None
+    return str(value).strip() or None
 
 
 def _first_value(*names: str) -> str | None:
@@ -138,15 +132,12 @@ class TencentEmailSettings:
 
 
 def load_settings() -> HostCoreSettings:
-    observation_mode = (_first_value("ZACKS_OBSERVATION_MODE") or "dual").lower()
-    if observation_mode not in {"dual", "host", "cloudflare"}:
-        observation_mode = "dual"
-    delivery_owner = (_first_value("ZACKS_DELIVERY_OWNER") or "cloudflare").lower()
-    if delivery_owner not in {"cloudflare", "airflow_host"}:
-        delivery_owner = "cloudflare"
-    gate_source = (_first_value("ZACKS_WECHAT_GATE_SOURCE") or "legacy").lower()
-    if gate_source not in {"legacy", "host", "off"}:
-        gate_source = "legacy"
+    from .control import runtime_state
+
+    state = runtime_state()
+    observation_mode = "host"
+    delivery_owner = "airflow_host" if state["delivery_enabled"] else "paused"
+    gate_source = "host"
 
     edge_token = _secret_or_value(
         "zacks_edge_token",

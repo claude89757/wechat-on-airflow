@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 version: 0.7.0
 ownership:
   authoritative_store: postgresql:zacks_schema
@@ -6,10 +6,10 @@ ownership:
   observation_ingestion: airflow_host
   subscription_matching: airflow_host
   subscriber_email: airflow_host
-  wechat_delivery: airflow_android_sender
+  wechat_delivery: airflow_host_durable_queue_to_android_sender
   public_edge: cloudflare_stateless_gateway
   redis: optional_acceleration_only
-  d1: read_only_rollback_window
+  d1: unbound_migration_archive
 services:
   zacks-api:
     port: 8090
@@ -18,18 +18,27 @@ services:
   zacks-notification-worker:
     durable_queue: zacks.notification_outbox
     lease: postgresql_skip_locked
+  zacks-wechat-worker:
+    durable_queue: zacks.wechat_outbox
+    lease: postgresql_skip_locked
+    device_fence: postgresql_session_advisory_lock
+    sender_idempotency: durable_sqlite_ledger
 cutover:
-  owner_switch: ZACKS_DELIVERY_OWNER
-  observation_mode: ZACKS_OBSERVATION_MODE
-  wechat_gate_source: ZACKS_WECHAT_GATE_SOURCE
-  worker_cutover: HOST_CORE_CUTOVER
-  worker_quiesce: HOST_CORE_QUIESCE
-  migration_endpoint: HOST_CORE_MIGRATION_ENABLED
+  owner_switch: zacks.runtime_control.delivery_enabled
+  wechat_switch: zacks.runtime_control.wechat_enabled
+  ever_activated: zacks.runtime_control.activated_at
+  migration_source: d1_control_plane_sql_export
+  failure_policy: pause_host_then_roll_forward
+  legacy_runtime: false
 invariants:
-  - exactly_one_subscriber_email_owner
-  - no_real_notifications_in_tests
-  - postgresql_is_the_only_durable_business_store
-  - redis_loss_does_not_lose_or_duplicate_notifications
-  - cloudflare_failure_does_not_stop_existing_email_or_wechat_delivery
-  - d1_is_not_deleted_during_cutover
-  - venue_polling_cadence_is_unchanged
+- exactly_one_subscriber_email_owner
+- no_real_notifications_in_tests
+- postgresql_is_the_only_durable_business_store
+- redis_loss_does_not_lose_or_duplicate_notifications
+- cloudflare_failure_does_not_stop_existing_email_or_wechat_delivery
+- d1_is_not_deleted_during_cutover
+- venue_polling_cadence_is_unchanged
+- external_submission_unknown_is_never_blindly_retried
+- no_legacy_runtime_fallback
+- acceptance_requires_all_26_venues_three_natural_cycles
+- acceptance_requires_real_natural_delivery_receipts

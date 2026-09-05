@@ -35,7 +35,9 @@ def test_host_entry_scripts_remain_runnable_on_the_production_python_36_host() -
 
 
 def test_all_production_host_core_callers_use_explicit_python3() -> None:
-    host_workflow = read(".github/workflows/production-host-core.yml")
+    host_workflow = read(".github/workflows/production-host-core.yml") + read(
+        "scripts/host_core_release.sh"
+    )
     wrapper = read("scripts/host_core_command_with_heartbeat.py")
 
     assert "python scripts/host_core_production.py" not in host_workflow
@@ -43,17 +45,9 @@ def test_all_production_host_core_callers_use_explicit_python3() -> None:
     assert 'HOST_CORE_SCRIPT = ROOT / "scripts" / "host_core_production.py"' in wrapper
     assert "command = [sys.executable, str(HOST_CORE_SCRIPT)] + values" in wrapper
 
-    for path in (
-        ".github/workflows/production-host-core-v070.yml",
-        ".github/workflows/production-ship.yml",
-    ):
-        workflow = read(path)
-        assert "python scripts/host_core_production.py" not in workflow
-        assert "python3 scripts/host_core_production.py" in workflow
-
 
 def test_sql_snapshot_is_checksum_verified_on_runner_host_and_container() -> None:
-    workflow = read(".github/workflows/production-host-core.yml")
+    workflow = read("scripts/host_core_release.sh")
     host_script = read("scripts/host_core_production.py")
     importer = read("scripts/import_d1_sql_export.py")
 

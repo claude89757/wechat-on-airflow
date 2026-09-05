@@ -31,34 +31,17 @@ def test_local_ready_wait_retries_transient_restart_errors() -> None:
     sleep.assert_called_once_with(3)
 
 
-def test_prepare_cutover_waits_after_restarting_api() -> None:
+def test_prepare_routing_waits_for_both_health_and_readiness():
     target = "a" * 40
-    health = {
-        "ok": True,
-        "deliveryOwner": "cloudflare",
-        "observationMode": "host",
-    }
-    ready = {"ok": True, "databaseReady": True}
     with (
         patch.object(MODULE, "assert_target"),
-        patch.object(MODULE, "check_ses_credentials"),
         patch.object(MODULE, "variable_set"),
-        patch.object(MODULE, "compose") as compose,
-        patch.object(MODULE, "_wait_for_local_health", return_value=health) as wait_health,
-        patch.object(MODULE, "_wait_for_local_ready", return_value=ready) as wait_ready,
-        patch.object(MODULE, "running_services", return_value=set()),
-        patch.object(
-            MODULE, "local_health", Mock(side_effect=AssertionError("immediate health call"))
-        ),
-        patch.object(
-            MODULE, "local_ready", Mock(side_effect=AssertionError("immediate ready call"))
-        ),
+        patch.object(MODULE, "compose_exec"),
+        patch.object(MODULE, "_wait_for_local_health") as health,
+        patch.object(MODULE, "_wait_for_local_ready") as ready,
+        patch.object(MODULE, "local_health", Mock(side_effect=AssertionError("one-shot probe"))),
     ):
-        result = MODULE.prepare_cutover(target)
-
-    compose.assert_any_call("restart", "zacks-api")
-    wait_health.assert_called_once_with(target)
-    wait_ready.assert_called_once_with()
-    assert result["notificationWorker"] == "stopped"
-    assert result["localHealth"] == health
-    assert result["localReady"] == ready
+        result = MODULE.prepare_routing(target)
+    health.assert_called_once_with(target)
+    ready.assert_called_once_with()
+    assert result["ready"] is True

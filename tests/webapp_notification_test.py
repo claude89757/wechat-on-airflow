@@ -259,7 +259,7 @@ class WebappNotificationTest(TestCase):
         self.assertIn(str(requests_error), result["error"])
 
     @patch("wechat_airflow.notifications.webapp._get_variable", return_value="")
-    def test_missing_configuration_is_a_clean_skip(self, _get_variable):
+    def test_missing_credential_is_reported_as_failure(self, _get_variable):
         result = webapp.publish_venue_observation(
             "szw",
             "深圳湾",
@@ -267,4 +267,5 @@ class WebappNotificationTest(TestCase):
             healthy=True,
         )
 
-        self.assertTrue(result["skipped"])
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "missing_credential")

@@ -33,7 +33,7 @@ def test_stateless_edge_health_uses_edge_commit_and_accepts_older_host_commit() 
                 },
             ),
             (200, {"venues": venues}),
-            (401, {"error": "未授权"}),
+            (404, {"error": "未找到"}),
             (
                 200,
                 {

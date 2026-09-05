@@ -20,6 +20,8 @@ RUN python -m pip install --no-cache-dir --requirement requirements.lock
 COPY --chown=app:app sender_agent sender_agent
 COPY --chown=app:app wechat_sender wechat_sender
 
+RUN mkdir -p /var/lib/wechat-sender && chown app:app /var/lib/wechat-sender && chmod 0700 /var/lib/wechat-sender
+
 USER 10001:10001
 
 EXPOSE 7001

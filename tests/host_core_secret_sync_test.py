@@ -91,6 +91,8 @@ def test_secret_bundle_is_hybrid_encrypted_and_installed_without_plaintext_trans
         "email_from_address": "sender@example.com",
         "email_reply_to": "reply@example.com",
         "email_template_id": "12345",
+        "zacks_verification_pepper": "verification-pepper",
+        "zacks_invite_pepper": "invite-pepper",
     }
 
     def post(url: str, **kwargs: object) -> _Response:
@@ -128,7 +130,7 @@ def test_secret_bundle_is_hybrid_encrypted_and_installed_without_plaintext_trans
         bundle = secret_sync.request_secret_bundle("https://example.test", "migration-token")
 
     assert bundle == expected
-    assert secret_sync.install_secret_bundle(tmp_path, bundle) == 6
+    assert secret_sync.install_secret_bundle(tmp_path, bundle) == 8
     for key, filename in secret_sync.SECRET_FILENAMES.items():
         path = tmp_path / filename
         assert path.read_text(encoding="utf-8").strip() == expected[key]
