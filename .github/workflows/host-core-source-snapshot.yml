@@ -9,7 +9,7 @@ jobs:
   snapshot:
     if: github.actor == github.repository_owner
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -17,19 +17,20 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
-      - name: Archive source and verification tooling only
+      - name: Package isolated test runtime without production access
         run: |
           set -euo pipefail
           mkdir -p /tmp/host-tools
-          python -m pip download --dest /tmp/host-tools --only-binary=:all: ruff==0.12.11 mypy==1.17.1 types-requests types-paramiko
-          git archive --format=tar.gz --output=/tmp/host-core-source.tar.gz HEAD
-          git rev-parse HEAD > /tmp/host-core-source.sha
+          python -m pip download --dest /tmp/host-tools --only-binary=:all: psycopg2-binary==2.9.10
+          docker pull postgres:17-bookworm
+          docker run --rm --entrypoint sh postgres:17-bookworm -c 'tar -czf - /usr/lib/postgresql/17 /usr/share/postgresql/17 /usr/lib/x86_64-linux-gnu/libicu* /usr/lib/x86_64-linux-gnu/libldap* /usr/lib/x86_64-linux-gnu/liblber* /usr/lib/x86_64-linux-gnu/libssl.so* /usr/lib/x86_64-linux-gnu/libcrypto.so*' > /tmp/host-postgres.tar.gz
+          docker image inspect postgres:17-bookworm --format '{{join .RepoDigests "\n"}}' > /tmp/host-postgres.sha
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: host-core-source-tools
+          name: host-core-postgres-runtime
           path: |
-            /tmp/host-core-source.tar.gz
-            /tmp/host-core-source.sha
+            /tmp/host-postgres.tar.gz
+            /tmp/host-postgres.sha
             /tmp/host-tools
           retention-days: 2
           if-no-files-found: error
