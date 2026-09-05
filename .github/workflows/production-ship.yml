@@ -80,7 +80,16 @@ jobs:
         with:
           python-version: "3.12"
       - name: Validate version before production mutation
-        run: python scripts/release_contract.py --version "${{ inputs.version }}"
+        env:
+          VERSION: ${{ inputs.version }}
+          SCOPE: ${{ inputs.scope }}
+          SENDER: ${{ inputs.include_sender }}
+        run: |
+          python scripts/release_contract.py --version "$VERSION"
+          if [ "$VERSION" = 0.7.0 ]; then
+            test "$SCOPE" = all
+            test "$SENDER" = true
+          fi
 
   host_core_cutover:
     if: inputs.version == '0.7.0'
@@ -108,44 +117,30 @@ jobs:
   natural_cycles:
     if: inputs.version == '0.7.0'
     needs: deploy
-    runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 15
-    env:
-      TARGET_COMMIT: ${{ inputs.target_commit }}
-      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
-      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
-      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
-      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
-    steps:
-      - name: Configure production SSH identity
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
-        run: |
-          set -euo pipefail
-          install -d -m 0700 ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 0600 ~/.ssh/id_ed25519
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 0600 ~/.ssh/known_hosts
-
-      - name: Observe three natural one-minute cycles and verify business flow
-        run: |
-          set -euo pipefail
-          sleep 180
-          ssh -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
-            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
-             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'; \
-             DEPLOYMENT_COMMIT='$TARGET_COMMIT' python3 scripts/host_core_production.py \
-             shadow-evidence --target-commit '$TARGET_COMMIT'"
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: activate-workers
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
 
   acceptance:
     if: inputs.version == '0.7.0'
     needs: natural_cycles
     uses: ./.github/workflows/production-host-core.yml
     with:
-      operation: health
+      operation: acceptance
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  safe_pause_on_failure:
+    if: >-
+      always() && inputs.version == '0.7.0' &&
+      needs.host_core_cutover.result == 'success' &&
+      (needs.deploy.result != 'success' || needs.natural_cycles.result != 'success' || needs.acceptance.result != 'success')
+    needs: [host_core_cutover, deploy, natural_cycles, acceptance]
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: pause
       target_commit: ${{ inputs.target_commit }}
     secrets: inherit
 

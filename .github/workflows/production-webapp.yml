@@ -88,35 +88,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          d1_quota_exhausted() {
-            grep -Eq "exceeded D1's free tier daily row read limit|\[code: 7500\]" <<<"$1"
-          }
-
-          run_d1_command() {
-            local description="$1"
-            shift
-            local output status
-            set +e
-            output="$("$@" 2>&1)"
-            status=$?
-            set -e
-            printf '%s\n' "$output"
-            if [ "$status" -eq 0 ]; then
-              return 0
-            fi
-            if d1_quota_exhausted "$output"; then
-              echo "::warning title=D1 free-tier quota exhausted::$description deferred until the UTC reset; only the quota-specific error was tolerated."
-              return 75
-            fi
-            echo "Unexpected D1 failure during: $description" >&2
-            return "$status"
-          }
-
-          stateless_edge=false
-          if grep -Fq '"main": "./cloudflare/edge-entry.ts"' wrangler.jsonc; then
-            stateless_edge=true
-          fi
-
           require_existing_host_cutover() {
             local runtime
             runtime="$(curl --fail --silent --show-error --max-time 15 \
@@ -126,116 +97,31 @@ jobs:
               return 1
             fi
           }
-
-          write_edge_runtime_config() {
-            node - <<'NODE'
-          const fs = require("node:fs");
-          const config = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
-          config.vars = {
-            ...(config.vars || {}),
-            DEPLOYMENT_COMMIT: process.env.TARGET_COMMIT,
-            HOST_CORE_CUTOVER: "true",
-            HOST_CORE_QUIESCE: "false",
-            HOST_CORE_MIGRATION_ENABLED: "false",
-          };
-          fs.writeFileSync(
-            ".wrangler-stateless-edge-runtime.json",
-            `${JSON.stringify(config, null, 2)}\n`,
-          );
-          NODE
-          }
-
-          migration_state=not_requested
           case "$OPERATION" in
             health)
               PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
                 --expected-commit "$TARGET_COMMIT" --format json
               ;;
-            deploy_preflight)
+            deploy_preflight|deploy_apply)
               npm run build
-              if [[ "$stateless_edge" == true ]]; then
-                require_existing_host_cutover
-                write_edge_runtime_config
-                npx wrangler deploy --dry-run \
-                  --config .wrangler-stateless-edge-runtime.json
-                rm -f .wrangler-stateless-edge-runtime.json
-                migration_state=host_core_edge
+              require_existing_host_cutover
+              node - <<'NODE'
+          const fs=require('node:fs');
+          const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+          if(config.d1_databases?.length || config.triggers?.crons?.length) throw new Error('Production edge must not own D1 or Cron');
+          config.vars={...(config.vars||{}),DEPLOYMENT_COMMIT:process.env.TARGET_COMMIT};
+          fs.writeFileSync('.wrangler-stateless-edge-runtime.json',JSON.stringify(config));
+          NODE
+              trap 'rm -f .wrangler-stateless-edge-runtime.json' EXIT
+              if [[ "$OPERATION" == deploy_preflight ]]; then
+                npx wrangler deploy --dry-run --config .wrangler-stateless-edge-runtime.json
               else
-                npx wrangler deploy --dry-run \
-                  --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
-                if run_d1_command \
-                  "remote migration preflight" \
-                  npx wrangler d1 migrations list zacks-tennis-alerts --remote; then
-                  migration_state=available
-                else
-                  status=$?
-                  test "$status" -eq 75
-                  migration_state=deferred_quota
-                fi
-              fi
-              ;;
-            deploy_apply)
-              npm run build
-              if [[ "$stateless_edge" == true ]]; then
-                require_existing_host_cutover
-                write_edge_runtime_config
-                if ! npx wrangler deploy \
-                  --config .wrangler-stateless-edge-runtime.json \
-                  --message "GitHub stateless edge release $TARGET_COMMIT"; then
-                  rm -f .wrangler-stateless-edge-runtime.json
-                  exit 1
-                fi
-                rm -f .wrangler-stateless-edge-runtime.json
-                migration_state=host_core_edge
+                npx wrangler deploy --config .wrangler-stateless-edge-runtime.json \
+                  --message "GitHub Host Core edge $TARGET_COMMIT"
                 PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
                   --expected-commit "$TARGET_COMMIT" --format json
-              else
-                npx wrangler deploy --dry-run \
-                  --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
-                if run_d1_command \
-                  "remote migration listing" \
-                  npx wrangler d1 migrations list zacks-tennis-alerts --remote; then
-                  if run_d1_command \
-                    "remote migration apply" \
-                    npx wrangler d1 migrations apply zacks-tennis-alerts --remote; then
-                    migration_state=applied
-                  else
-                    status=$?
-                    test "$status" -eq 75
-                    migration_state=deferred_quota
-                  fi
-                else
-                  status=$?
-                  test "$status" -eq 75
-                  migration_state=deferred_quota
-                fi
-
-                npx wrangler deploy \
-                  --message "GitHub release $TARGET_COMMIT" \
-                  --var "DEPLOYMENT_COMMIT:$TARGET_COMMIT"
-
-                if [ "$migration_state" = applied ]; then
-                  PYTHONPATH=../scripts python ../scripts/webapp_production_health.py \
-                    --expected-commit "$TARGET_COMMIT" --format json
-                else
-                  PYTHONPATH=../scripts python ../scripts/webapp_deployment_identity.py \
-                    --expected-commit "$TARGET_COMMIT" --format json
-                fi
               fi
               ;;
-            *)
-              exit 2
-              ;;
+            *) exit 2 ;;
           esac
-
-          {
-            echo "## Web persistence state"
-            echo
-            echo "- State: \`$migration_state\`"
-            if [ "$migration_state" = deferred_quota ]; then
-              echo "- Recovery: the deployed legacy Worker will idempotently create the same indexes on the first natural observation or cron after D1 accepts queries again."
-            fi
-            if [ "$migration_state" = host_core_edge ]; then
-              echo "- Persistence: PostgreSQL on the Airflow host; Cloudflare deployment is stateless."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo 'Persistence: PostgreSQL on the Airflow host; no legacy runtime or D1 binding.' >> "$GITHUB_STEP_SUMMARY"
