@@ -41,12 +41,24 @@ def read_checkpoint(expected_commit: str) -> dict[str, Any]:
     # prepare-runtime has already migrated the schema. This diagnostic itself
     # performs ONLY SELECTs, without ensure_schema or any business writes.
     with get_engine().connect() as connection:
-        state = connection.execute(
-            text("SELECT activated_at, delivery_enabled, wechat_enabled FROM zacks.runtime_control WHERE singleton")
-        ).mappings().one()
-        migration = connection.execute(
-            text("SELECT source_revision, imported_at, details FROM zacks.migration_state WHERE source='cloudflare-d1'")
-        ).mappings().first()
+        state = (
+            connection.execute(
+                text(
+                    "SELECT activated_at, delivery_enabled, wechat_enabled FROM zacks.runtime_control WHERE singleton"
+                )
+            )
+            .mappings()
+            .one()
+        )
+        migration = (
+            connection.execute(
+                text(
+                    "SELECT source_revision, imported_at, details FROM zacks.migration_state WHERE source='cloudflare-d1'"
+                )
+            )
+            .mappings()
+            .first()
+        )
     complete = bool(
         migration and migration["imported_at"] and migration_reconciled(migration["details"])
     )

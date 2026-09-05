@@ -18,7 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def proof():
     return {
         "reconciliation": {
-            **{table: {"sourceCount": 2, "matchedCount": 2, "keysSha256": "a" * 64} for table in EXPORT_TABLES},
+            **{
+                table: {"sourceCount": 2, "matchedCount": 2, "keysSha256": "a" * 64}
+                for table in EXPORT_TABLES
+            },
             "providerIdentityPreserved": True,
         }
     }
@@ -48,7 +51,9 @@ def test_migration_checkpoint_rejects_missing_or_malformed_proof(value):
 
 
 @pytest.mark.parametrize("complete,edge_active,success", [(True, True, True), (False, True, False)])
-def test_release_resume_never_reimports_after_completed_migration(tmp_path, complete, edge_active, success):
+def test_release_resume_never_reimports_after_completed_migration(
+    tmp_path, complete, edge_active, success
+):
     if not shutil.which("jq"):
         pytest.skip("jq is required for the release shell contract")
     binaries = tmp_path / "bin"
@@ -60,7 +65,7 @@ def test_release_resume_never_reimports_after_completed_migration(tmp_path, comp
             'case "$*" in\n'
             '*release_checkpoint*) printf "%s\\n" "$CHECKPOINT" ;;\n'
             '*prepare-runtime*) echo \'{"previouslyActivated":false,"success":true}\' ;;\n'
-            '*) echo \'{"success":true}\' ;;\nesac\n'
+            "*) echo '{\"success\":true}' ;;\nesac\n"
         ),
         "curl": '#!/bin/sh\nprintf "%s\\n" "$EDGE_RESPONSE"\n',
         "node": '#!/bin/sh\necho "node $*" >> "$CALL_LOG"\ncat >/dev/null\n',
@@ -95,7 +100,13 @@ def test_release_resume_never_reimports_after_completed_migration(tmp_path, comp
     )
     calls = log.read_text()
     assert (result.returncode == 0) is success
-    for forbidden in ("d1 export", "migrate-sql", "sync-secrets", "node - maintenance", "sleep 300"):
+    for forbidden in (
+        "d1 export",
+        "migrate-sql",
+        "sync-secrets",
+        "node - maintenance",
+        "sleep 300",
+    ):
         assert forbidden not in calls
     if success:
         assert "resume_verified_migration" in result.stdout

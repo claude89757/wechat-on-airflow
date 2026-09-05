@@ -42,7 +42,9 @@ def pg(monkeypatch):
 def test_schema_fingerprint_is_durable_and_health_uses_it(pg):
     database.ensure_schema(pg)
     with pg.connect() as connection:
-        versions = set(connection.execute(text("SELECT version FROM zacks.schema_versions")).scalars())
+        versions = set(
+            connection.execute(text("SELECT version FROM zacks.schema_versions")).scalars()
+        )
     assert {database.SCHEMA_VERSION, database.SCHEMA_REVISION} <= versions
     assert database.ping(pg)["schema_ready"] is True
 
@@ -61,7 +63,9 @@ def test_cold_process_does_not_issue_ddl_or_block_active_observation(pg):
             # CREATE INDEX, including IF NOT EXISTS, needs a conflicting table
             # lock here. A cold CLI process must only read the fingerprint.
             writer.execute(text("LOCK TABLE zacks.observed_slots IN ROW EXCLUSIVE MODE"))
-            with patch.object(database, "_apply_schema", side_effect=AssertionError("DDL on startup")):
+            with patch.object(
+                database, "_apply_schema", side_effect=AssertionError("DDL on startup")
+            ):
                 database.ensure_schema(other)
         assert statements
         assert not any(s.startswith(("CREATE", "ALTER", "INSERT", "UPDATE")) for s in statements)
@@ -93,7 +97,10 @@ def test_failed_schema_transaction_never_records_ready(pg):
             database.ensure_schema(pg)
     assert pg not in database._SCHEMA_ENGINES
     with pg.connect() as connection:
-        assert connection.execute(text("SELECT to_regclass('zacks.schema_versions')")).scalar_one() is None
+        assert (
+            connection.execute(text("SELECT to_regclass('zacks.schema_versions')")).scalar_one()
+            is None
+        )
     database.ensure_schema(pg)
     assert database.ping(pg)["schema_ready"] is True
 
