@@ -46,7 +46,7 @@ test.describe("mobile v2 presentation", () => {
     expect(venueBoxes[0]?.height ?? 0).toBeGreaterThanOrEqual(116);
     expect(venueBoxes[0]?.width ?? 0).toBeGreaterThanOrEqual(100);
     expect(Math.abs((venueBoxes[0]?.y ?? 0) - (venueBoxes[1]?.y ?? 0))).toBeLessThan(2);
-    expect(Math.abs((venueBoxes[0]?.y ?? 0) - (venueBoxes[2]?.y ?? 0))).toBeLessThan(2);
+    expect(venueBoxes[2]?.y ?? 0).toBeGreaterThan((venueBoxes[0]?.y ?? 0) + 40);
     expect(venueBoxes[3]?.y ?? 0).toBeGreaterThan((venueBoxes[0]?.y ?? 0) + 40);
     await expect(venueCards.first().locator(".venue-card-mail")).toBeVisible();
 

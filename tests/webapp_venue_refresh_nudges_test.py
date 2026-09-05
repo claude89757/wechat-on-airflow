@@ -14,5 +14,7 @@ def test_venue_section_avoids_duplicate_refresh_nudges() -> None:
     assert 'content: "点按卡片快速创建提醒";' in styles
     assert ".venue-section .section-heading > span" in styles
     assert styles.count("display: none;") == 2
-    assert 'aria-label="获取最新状态"' in prototype
-    assert "onClick={() => void refresh(true)}" in prototype
+    studio = (ROOT / "webapp/src/CourtStudio.tsx").read_text(encoding="utf-8")
+    assert studio.count('aria-label="获取最新状态"') == 1
+    assert "onClick={onRefresh}" in studio
+    assert "onRefresh={() => void refresh(true)}" in prototype

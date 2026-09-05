@@ -122,3 +122,17 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
 - Weather-based email suppression applies only to standard users. An active priority tier obtained through invite redemption bypasses precipitation suppression and continues receiving reminder digests. Weather-provider failures remain fail-open for both tiers, and a verified priority identity must not see the UI's weather-paused state.
 
 - The visible header support action is labeled "支持 Zacks" and remains a first-level header action; do not move it into the More menu.
+
+## Court Studio redesign (2026-09-05)
+
+The user authorized a complete responsive UI/UX redesign and production
+publication. CourtStudio.tsx and court-studio.css now own the home experience;
+Prototype.tsx remains the controller and the tested modal/business flows.
+Use warm neutral/zinc, restrained teal/forest green and quiet tennis references.
+Desktop uses a narrow left creation pane and wide right court directory. Phones
+use two readable columns and fixed navigation outside the transformed scroller.
+Local search/filtering never polls the API. Unknown/stale state is not healthy.
+The backend has no public live-availability grid: never invent available/booked
+slots or change the subscription API semantics to simulate such a grid.
+Preserve the user-supplied brand asset, stateful Lulu, first-level support action,
+email masking, original mobile-runtime hashes and all permission/coffee gates.

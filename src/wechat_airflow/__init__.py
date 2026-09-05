@@ -1,3 +1,3 @@
 """Shared runtime code for the production Airflow workflows."""
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

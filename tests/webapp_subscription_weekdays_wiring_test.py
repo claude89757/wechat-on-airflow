@@ -19,7 +19,9 @@ def test_public_venue_popularity_uses_unique_followers_and_stable_order():
 
     assert "COUNT(DISTINCT s.email)" in worker
     assert "ORDER BY subscriber_count DESC" in worker
-    assert "点按卡片快速创建提醒" in ui
+    studio = (ROOT / "webapp/src/CourtStudio.tsx").read_text(encoding="utf-8")
+    assert "点按场地，直接设置提醒" in studio
+    assert "b.subscriberCount - a.subscriberCount" in studio
     assert "right.subscriberCount - left.subscriberCount" in ui
 
 

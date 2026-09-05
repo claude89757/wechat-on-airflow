@@ -186,7 +186,7 @@ test("creates a weekend subscription with a summary and one-shot celebration", a
   await page.goto("/");
   await page.getByRole("button", { name: "创建订阅", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText("指定巡检星期")).toBeVisible();
+  await expect(dialog.getByText("选择打球星期")).toBeVisible();
 
   await dialog.getByRole("button", { name: "周末", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "星期六" })).toHaveAttribute("aria-pressed", "true");

@@ -5,6 +5,26 @@ and operational changes.
 
 ## Unreleased
 
+## [0.8.0] - 2026-09-05
+
+### Court Studio
+
+- Rebuild the responsive Web dashboard with an editorial tennis identity,
+  a clear first-use explanation, an always-reachable create action, and a
+  narrow-left / wide-right desktop workspace.
+- Add local venue search, subscribed/attention filters and actionable empty
+  states without adding background API polling or displaying bookable slots.
+- Keep the tested email-verification, subscription, coffee invitation, tier,
+  community and admin flows; clarify booking-time labels and add time presets.
+- Clear a verification challenge when its email changes, preserve quick-venue
+  selection, distinguish unknown/stale/healthy data, and preserve priority
+  weather behavior, masking, keyboard and reduced-motion support.
+- Expand CI to all browser suites and gate Web publication on read-only public
+  desktop/mobile/small-screen checks with archived screenshots. No test mail
+  or WeChat notifications are generated.
+- This is a Web-only release. Host Core/Airflow/Sender keep their accepted
+  0.7.0 runtime identity; no database migration or notification restart occurs.
+
 ## [0.7.0] - 2026-09-04
 
 ### Host Core production hardening (2026-09-05)
