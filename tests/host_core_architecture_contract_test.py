@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -12,13 +14,16 @@ def read(path: str) -> str:
 
 
 def test_release_version_is_consistent() -> None:
-    project = read("pyproject.toml")
+    project = tomllib.loads(read("pyproject.toml"))
     package = read("src/wechat_airflow/__init__.py")
     changelog = read("CHANGELOG.md")
+    version = project["project"]["version"]
+    package_version = re.search(r'^__version__ = "([^"]+)"$', package, re.MULTILINE)
+    latest_release = re.search(r"^## \[([^]]+)\] - \d{4}-\d{2}-\d{2}$", changelog, re.MULTILINE)
 
-    assert 'version = "0.7.0"' in project
-    assert '__version__ = "0.7.0"' in package
-    assert "## [0.7.0] - 2026-09-04" in changelog
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version)
+    assert package_version is not None and package_version.group(1) == version
+    assert latest_release is not None and latest_release.group(1) == version
     assert not (ROOT / "scripts" / "normalize_host_core_types.py").exists()
 
 
