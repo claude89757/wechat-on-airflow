@@ -14,16 +14,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Archive tracked source only
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Archive source and verification tooling only
         run: |
           set -euo pipefail
+          mkdir -p /tmp/host-tools
+          python -m pip download --dest /tmp/host-tools --only-binary=:all: ruff==0.12.11 mypy==1.17.1 types-requests types-paramiko
           git archive --format=tar.gz --output=/tmp/host-core-source.tar.gz HEAD
           git rev-parse HEAD > /tmp/host-core-source.sha
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: host-core-source
+          name: host-core-source-tools
           path: |
             /tmp/host-core-source.tar.gz
             /tmp/host-core-source.sha
+            /tmp/host-tools
           retention-days: 2
           if-no-files-found: error
