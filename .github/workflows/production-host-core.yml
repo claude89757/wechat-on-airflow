@@ -90,6 +90,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install and validate runner operations dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check PyYAML==6.0.3
+          PYTHONPATH=scripts python scripts/webapp_production_health.py --help >/dev/null
+
       - name: Require successful CI for exact commit
         env:
           GITHUB_TOKEN: ${{ github.token }}
