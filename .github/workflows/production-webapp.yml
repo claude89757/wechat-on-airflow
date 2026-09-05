@@ -75,6 +75,10 @@ jobs:
         if: inputs.operation != 'health'
         working-directory: webapp
         run: npm ci
+      - name: Prepare read-only browser acceptance
+        if: inputs.operation == 'deploy_apply'
+        working-directory: webapp
+        run: npx playwright install --with-deps chromium
       - name: Validate Cloudflare deployment identity
         if: inputs.operation != 'health'
         run: |
@@ -125,3 +129,18 @@ jobs:
             *) exit 2 ;;
           esac
           echo 'Persistence: PostgreSQL on the Airflow host; no legacy runtime or D1 binding.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify public Court Studio UI without real sends
+        if: inputs.operation == 'deploy_apply'
+        working-directory: webapp
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: node qa/public-acceptance.mjs "$TARGET_COMMIT"
+      - name: Archive public browser evidence
+        if: always() && inputs.operation == 'deploy_apply'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: court-studio-public-${{ inputs.target_commit }}
+          path: webapp/qa-output/
+          retention-days: 30
+          if-no-files-found: warn
