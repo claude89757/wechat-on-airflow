@@ -20,6 +20,8 @@ function decode(value: string): Uint8Array<ArrayBuffer> {
 function migrationEnv() {
   return {
     AIRFLOW_PUSH_TOKEN: "migration-token",
+    VERIFICATION_PEPPER: "verification-pepper",
+    INVITE_CODE_PEPPER: "invite-pepper",
     TENCENT_SECRET_ID: "secret-id",
     TENCENT_SECRET_KEY: "secret-key",
     TENCENT_REGION: "ap-guangzhou",
@@ -101,6 +103,8 @@ describe("host secret migration envelope", () => {
       email_from_address: "sender@example.com",
       email_reply_to: "reply@example.com",
       email_template_id: "12345",
+      zacks_verification_pepper: "verification-pepper",
+      zacks_invite_pepper: "invite-pepper",
     });
   });
 });

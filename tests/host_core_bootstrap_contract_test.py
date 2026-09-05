@@ -1,61 +1,53 @@
-from __future__ import annotations
-
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def read(path: str) -> str:
-    return (ROOT / path).read_text(encoding="utf-8")
+def read(path):
+    return (ROOT / path).read_text()
 
 
-def test_runtime_secrets_are_ready_before_host_processes_start() -> None:
-    workflow = read(".github/workflows/production-host-core.yml")
+def test_prepare_only_enables_delivery_after_migration_and_routing():
+    script = read("scripts/host_core_release.sh")
+    assert script.index("remote prepare-runtime |") < script.index("remote sync-secrets")
+    assert script.index("remote sync-secrets") < script.index("    export_snapshot")
+    assert script.index("    export_snapshot") < script.index("    remote prepare-routing")
+    assert script.index("    deploy_edge production") < script.index("    remote cutover")
+    assert "remote rollback" not in script
+    assert "set -Eeuo pipefail" in script and "trap recover EXIT" in script
+    assert "trap 'exit 143' TERM" in script
+
+
+def test_bootstrap_does_not_require_redis_or_worker_readiness():
+    compose = yaml.safe_load(read("docker-compose.yml"))
+    for name in (
+        "zacks-api",
+        "zacks-notification-worker",
+        "zacks-wechat-worker",
+        "zacks-secret-sync",
+    ):
+        assert set(compose["services"][name]["depends_on"]) == {"postgresql"}
     script = read("scripts/host_core_production.py")
-    secret_sync = read("src/wechat_airflow/host_core/secret_sync.py")
-
-    assert workflow.index("rollback_required=true") < workflow.index("deploy_edge false false true")
-    assert workflow.index("remote sync-secrets") < workflow.index("remote deploy-shadow")
-    assert 'variable_get("WEBAPP_OBSERVATION_API_TOKEN")' in script
-    assert "input_text=edge_token" in script
-    assert 'compose("--profile", "maintenance", "build", "zacks-secret-sync"' in script
-    assert 'EDGE_TOKEN_FILENAME = "zacks_edge_token"' in secret_sync
-    assert "install_edge_token(arguments.secret_dir, token)" in secret_sync
-    assert "def _staged_edge_token" in secret_sync
+    prepare = script.split("def prepare_runtime(", 1)[1].split("def sync_secrets", 1)[0]
+    assert '"--no-deps"' in prepare
+    assert "_wait_for_local_health" in prepare
+    assert "set_delivery_enabled(False" in prepare
 
 
-def test_shadow_start_waits_for_health_before_tunnel_activation() -> None:
+def test_failure_recovery_does_not_require_api_and_never_reactivates_d1():
+    source = read("scripts/host_core_production.py")
+    pause = source.split("def pause_host_delivery", 1)[1].split("def activate_workers", 1)[0]
+    assert "one_shot(" in pause
+    assert "local_health(" not in pause
+    assert 'compose("stop", "zacks-notification-worker", "zacks-wechat-worker")' in pause
+    assert "def rollback(" not in source
+
+
+def test_edge_token_is_not_a_command_argument():
     script = read("scripts/host_core_production.py")
-    deploy = script.split("def deploy_shadow(target_commit):", 1)[1].split("def sync_secrets", 1)[0]
-
-    assert "def _wait_for_local_health" in script
-    assert "time.monotonic()" in script
-    assert deploy.index("_wait_for_local_health(target_commit)") < deploy.index('"--apply"')
-
-
-def test_pre_activation_rollback_does_not_require_the_failed_local_api() -> None:
-    script = read("scripts/host_core_production.py")
-    rollback = script.split("def rollback(target_commit):", 1)[1].split("def health(", 1)[0]
-
-    assert 'variable_get("ZACKS_DELIVERY_OWNER")' in rollback
-    assert "local_health(" not in rollback
-    assert 'compose("stop", "zacks-notification-worker", "zacks-api")' in rollback
-
-
-def test_edge_token_is_never_put_in_a_command_argument() -> None:
-    script = read("scripts/host_core_production.py")
-    sync = script.split("def sync_secrets(target_commit):", 1)[1].split("def migrate(", 1)[0]
-
+    sync = script.split("def sync_secrets", 1)[1].split("def migrate_sql", 1)[0]
     assert "input_text=edge_token" in sync
-    assert '"AIRFLOW_PUSH_TOKEN"' not in sync
-    assert "edge_token +" not in sync.split("input_text=edge_token", 1)[0]
-
-
-def test_secret_staging_uses_portable_posix_sh_options() -> None:
-    script = read("scripts/host_core_production.py")
-    sync = script.split("def sync_secrets(target_commit):", 1)[1].split("def migrate(", 1)[0]
-    stage = sync.split('stage_script = """', 1)[1].split('"""', 1)[0]
-
-    assert "set -eu" in stage
-    assert "pipefail" not in stage
-    assert '"--entrypoint",\n            "sh"' in sync
+    assert "set -eu" in sync and "pipefail" not in sync
+    assert "stdin=subprocess.DEVNULL" in script or "subprocess.DEVNULL" in script

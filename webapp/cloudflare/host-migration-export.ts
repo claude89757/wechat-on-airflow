@@ -130,6 +130,8 @@ export async function hostSecretEnvelope(
     email_from_address: String(env.EMAIL_FROM_ADDRESS || "").trim(),
     email_reply_to: String(env.EMAIL_REPLY_TO || "").trim(),
     email_template_id: String(env.EMAIL_TEMPLATE_ID || "").trim(),
+    zacks_verification_pepper: String(env.VERIFICATION_PEPPER || "").trim(),
+    zacks_invite_pepper: String(env.INVITE_CODE_PEPPER || env.VERIFICATION_PEPPER || "").trim(),
   };
   const missing = Object.entries(secretBundle)
     .filter(([, value]) => !value)

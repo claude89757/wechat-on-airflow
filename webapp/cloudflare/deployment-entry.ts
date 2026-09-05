@@ -18,6 +18,7 @@ import {
 import { PRIORITY_WEATHER_BYPASS_ENABLED } from "./weather-delivery-policy";
 
 type DeploymentEnv = Env & {
+  DB: D1Database;
   DEPLOYMENT_COMMIT?: string;
   VERIFICATION_PEPPER: string;
   AIRFLOW_PUSH_TOKEN: string;

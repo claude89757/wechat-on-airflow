@@ -14,6 +14,10 @@ class FakeResponse:
         self.status_code = status_code
         self.text = str(self._payload)
 
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError("HTTP request rejected")
+
     def json(self):
         return self._payload
 
@@ -172,201 +176,59 @@ class WeChatSendApiTest(unittest.TestCase):
             [("A", ["hello"]), ("B", ["hello"])],
         )
 
-    def test_best_effort_send_continues_after_failure_and_records_fallback(self):
-        variables = {
-            "WECHAT_SEND_FALLBACK_OUTBOX": [],
-            "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
-        }
-
-        def get_variable(key, default=None, deserialize_json=False):
-            return variables.get(key, default)
-
-        def set_variable(key, value, serialize_json=False):
-            variables[key] = value
-
+    def test_best_effort_persists_intent_without_device_io(self):
         with (
-            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
-            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
-            patch(
-                "wechat_airflow.notifications.wechat.send_wechat_text",
-                side_effect=[
-                    wechat_send_api.WeChatSendApiError("sender unavailable"),
-                    {"success": True, "sent_count": 1},
-                ],
-            ) as mock_send,
-            patch(
-                "wechat_airflow.notifications.wechat._utc_now",
-                return_value="2026-07-14T15:00:00+00:00",
+            patch.object(wechat_send_api, "_get_variable", return_value="device"),
+            patch("wechat_airflow.notifications.webapp._host_token", return_value="token"),
+            patch.object(
+                wechat_send_api.requests,
+                "post",
+                return_value=FakeResponse({"success": True, "durable": True, "ids": ["x"]}),
+            ) as post,
+            patch.object(
+                wechat_send_api,
+                "send_wechat_text",
+                side_effect=AssertionError("device I/O in collector"),
             ),
         ):
-            results = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["A", "B"],
-                "hello",
-                source="test-dag",
+            result = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["A", "B"], "message", booking_venue_id="tops"
             )
-
-        self.assertEqual(
-            mock_send.call_args_list,
-            [call("A", ["hello"], device_name=None), call("B", ["hello"], device_name=None)],
+        assert result[0]["queued"] is True
+        assert (
+            post.call_args.args[0] == "http://zacks-api:8090/zacks-api/api/internal/wechat-enqueue"
         )
-        self.assertEqual([result["success"] for result in results], [False, True])
-        self.assertEqual(len(variables["WECHAT_SEND_FALLBACK_OUTBOX"]), 1)
-        self.assertEqual(variables["WECHAT_SEND_FALLBACK_OUTBOX"][0]["receiver"], "A")
-        self.assertEqual(variables["WECHAT_SEND_FALLBACK_OUTBOX"][0]["source"], "test-dag")
+        assert post.call_args.kwargs["json"]["receivers"] == ["A", "B"]
+        assert post.call_args.kwargs["timeout"] == 5
 
-    def test_best_effort_send_merges_duplicate_fallback_entries(self):
-        variables = {
-            "WECHAT_SEND_FALLBACK_OUTBOX": [],
-            "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
-        }
-
-        def get_variable(key, default=None, deserialize_json=False):
-            return variables.get(key, default)
-
-        def set_variable(key, value, serialize_json=False):
-            variables[key] = value
-
+    def test_best_effort_releases_collector_preclaim_on_persistence_failure(self):
         with (
-            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
-            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
-            patch(
-                "wechat_airflow.notifications.wechat.send_wechat_text",
-                side_effect=wechat_send_api.WeChatSendApiError("sender unavailable"),
+            patch("wechat_airflow.notifications.webapp._host_token", return_value="token"),
+            patch.object(wechat_send_api, "_get_variable", return_value="device"),
+            patch.object(wechat_send_api.requests, "post", side_effect=RuntimeError("unavailable")),
+            patch.object(wechat_send_api, "_release_subscription_gate_dedupe") as release,
+        ):
+            result = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["A"], "message", booking_venue_id="tops"
+            )
+        assert result[0]["success"] is False
+        release.assert_called_once_with("tops", "message")
+
+    def test_suppressed_intent_releases_collector_preclaim(self):
+        with (
+            patch("wechat_airflow.notifications.webapp._host_token", return_value="token"),
+            patch.object(wechat_send_api, "_get_variable", return_value="device"),
+            patch.object(
+                wechat_send_api.requests,
+                "post",
+                return_value=FakeResponse({"success": True, "suppressed": True}),
             ),
-            patch(
-                "wechat_airflow.notifications.wechat._utc_now",
-                side_effect=["2026-07-14T15:00:00+00:00", "2026-07-14T15:01:00+00:00"],
-            ),
+            patch.object(wechat_send_api, "_release_subscription_gate_dedupe") as release,
         ):
             wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["A"], "hello", source="test-dag"
+                ["A"], "message", booking_venue_id="tops"
             )
-            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["A"], "hello", source="test-dag"
-            )
-
-        fallback = variables["WECHAT_SEND_FALLBACK_OUTBOX"]
-        self.assertEqual(len(fallback), 1)
-        self.assertEqual(fallback[0]["attempt_count"], 2)
-        self.assertEqual(fallback[0]["first_failed_at"], "2026-07-14T15:00:00+00:00")
-        self.assertEqual(fallback[0]["last_failed_at"], "2026-07-14T15:01:00+00:00")
-
-    @patch(
-        "wechat_airflow.notifications.wechat._record_failed_send",
-        side_effect=RuntimeError("variable unavailable"),
-    )
-    @patch(
-        "wechat_airflow.notifications.wechat.send_wechat_text",
-        side_effect=wechat_send_api.WeChatSendApiError("sender unavailable"),
-    )
-    def test_best_effort_send_swallows_fallback_persistence_failure(self, mock_send, mock_record):
-        results = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-            ["A"],
-            "hello",
-            source="test-dag",
-        )
-
-        self.assertEqual(results[0]["success"], False)
-        mock_send.assert_called_once_with("A", ["hello"], device_name=None)
-        mock_record.assert_called_once()
-
-    def test_best_effort_attaches_booking_link_once_then_shares_cooldown(self):
-        variables = {
-            "WECHAT_BOOKING_LINK_LAST_SENT": {},
-            "WECHAT_SEND_FALLBACK_OUTBOX": [],
-            "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
-        }
-
-        def get_variable(key, default=None, deserialize_json=False):
-            return variables.get(key, default)
-
-        def set_variable(key, value, serialize_json=False):
-            variables[key] = value
-
-        class Evening(wechat_send_api.datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return cls(2026, 8, 18, 18, 5, tzinfo=tz)
-
-        with (
-            patch("wechat_airflow.notifications.wechat.datetime", Evening),
-            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
-            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
-            patch("wechat_airflow.notifications.wechat.wechat_delivery_allowed", return_value=True),
-            patch(
-                "wechat_airflow.notifications.wechat.send_wechat_text",
-                return_value={"success": True, "sent_count": 1},
-            ) as mock_send,
-        ):
-            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["Zacks_A"],
-                "【深圳湾1号场】星期二(08-18)空场: 18:00-19:00",
-                source="深圳湾网球场巡检",
-                booking_venue_id="szw",
-            )
-            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["Zacks_A"],
-                "【大湾区网球场1号场】星期二(08-18)空场: 18:00-19:00",
-                source="大湾区网球场巡检",
-                booking_venue_id="gba",
-            )
-
-        first_message = mock_send.call_args_list[0].args[1][0]
-        second_message = mock_send.call_args_list[1].args[1][0]
-        self.assertTrue(first_message.endswith("#小程序://未来荟/XL8wsbG5boBuZSl"))
-        self.assertNotIn("#小程序://", second_message)
-
-    def test_best_effort_releases_booking_link_claim_after_send_failure(self):
-        variables = {
-            "WECHAT_BOOKING_LINK_LAST_SENT": {},
-            "WECHAT_SEND_FALLBACK_OUTBOX": [],
-            "WECHAT_SEND_FALLBACK_MAX_ITEMS": "200",
-        }
-
-        def get_variable(key, default=None, deserialize_json=False):
-            return variables.get(key, default)
-
-        def set_variable(key, value, serialize_json=False):
-            variables[key] = value
-
-        class Evening(wechat_send_api.datetime):
-            @classmethod
-            def now(cls, tz=None):
-                return cls(2026, 8, 18, 18, 5, tzinfo=tz)
-
-        with (
-            patch("wechat_airflow.notifications.wechat.datetime", Evening),
-            patch("wechat_airflow.notifications.wechat._get_variable", side_effect=get_variable),
-            patch("wechat_airflow.notifications.wechat._set_variable", side_effect=set_variable),
-            patch("wechat_airflow.notifications.wechat.wechat_delivery_allowed", return_value=True),
-            patch(
-                "wechat_airflow.notifications.wechat._utc_now",
-                return_value="2026-08-18T10:05:00+00:00",
-            ),
-            patch(
-                "wechat_airflow.notifications.wechat.send_wechat_text",
-                side_effect=[
-                    wechat_send_api.WeChatSendApiError("sender unavailable"),
-                    {"success": True, "sent_count": 1},
-                ],
-            ) as mock_send,
-        ):
-            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["Zacks_A"],
-                "slot-a",
-                source="深圳湾网球场巡检",
-                booking_venue_id="szw",
-            )
-            wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["Zacks_A"],
-                "slot-b",
-                source="大湾区网球场巡检",
-                booking_venue_id="gba",
-            )
-
-        self.assertTrue(
-            mock_send.call_args_list[1].args[1][0].endswith("#小程序://未来荟/XL8wsbG5boBuZSl")
-        )
+        release.assert_called_once_with("tops", "message")
 
 
 if __name__ == "__main__":

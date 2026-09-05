@@ -1,3 +1,10 @@
+> **Host Core-only hardening (2026-09-05):** the old compatibility/rollback
+> description below is superseded by [Architecture](ARCHITECTURE.md) and
+> [ADR 0013](docs/adr/0013-host-core-only-reliable-delivery.md). Production uses
+> PostgreSQL-owned email and a dedicated WeChat worker with durable device
+> idempotency. D1 is an unbound archive, never a runtime fallback. Only an
+> exact-commit production acceptance report establishes deployment completion.
+
 # 🎾 WeChat-on-Airflow
 
 > Shenzhen tennis availability alerts: Apache Airflow 3 performs high-frequency venue polling, a PostgreSQL-backed notification core on the Airflow host owns subscriptions and email, and Cloudflare is reduced to the public edge.

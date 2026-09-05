@@ -165,7 +165,9 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         self.assertIn("User=wechat-sender", unit)
         self.assertIn("LoadCredential=wechat_allowed_device_name:", unit)
         self.assertIn("LoadCredential=wechat_appium_url:", unit)
-        self.assertNotIn("EnvironmentFile=", unit)
+        self.assertIn("EnvironmentFile=/etc/wechat-sender/release.env", unit)
+        self.assertIn("StateDirectory=wechat-sender", unit)
+        self.assertNotIn("PASSWORD=", unit)
         self.assertIn(
             "ExecStart=/opt/wechat-sender-venv/bin/python -m uvicorn ",
             unit,

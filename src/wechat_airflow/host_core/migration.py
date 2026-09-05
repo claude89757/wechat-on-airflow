@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 import sys
 import uuid
 from collections.abc import Iterable, Mapping
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import requests
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 
 from .database import ensure_schema, transaction
@@ -275,20 +278,84 @@ def _insert_tiers(connection, rows: Iterable[Mapping[str, Any]]) -> None:  # typ
         )
 
 
+def _legacy_invite_plaintext(row: Mapping[str, Any], pepper: str) -> str | None:
+    plaintext = str(row.get("plaintext_code") or "").strip()
+    if plaintext:
+        return plaintext
+    ciphertext, iv = row.get("encrypted_code"), row.get("encryption_iv")
+    if not ciphertext or not iv:
+        return None
+
+    def decode(value: object) -> bytes:
+        encoded = str(value)
+        return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+
+    try:
+        key = hashlib.sha256(f"zacks-invite-encryption:{pepper}".encode()).digest()
+        plaintext = AESGCM(key).decrypt(decode(iv), decode(ciphertext), None).decode()
+        if hash_invite_code(plaintext, pepper) != row.get("code_hash"):
+            raise ValueError("invite hash mismatch")
+        return plaintext
+    except Exception as exc:
+        raise RuntimeError(
+            "D1 invitation ciphertext could not be verified; migration aborted"
+        ) from exc
+
+
+class _BatchWriter:
+    """Batch uniform insert statements; never defer SELECT/RETURNING or DDL."""
+
+    def __init__(self, connection: Any) -> None:
+        self.connection = connection
+        self.statement: Any = None
+        self.parameters: list[dict[str, Any]] = []
+
+    def flush(self) -> None:
+        if self.parameters:
+            # psycopg2 mogrify binds values safely; batch statements into one
+            # round-trip instead of 40k individual network round-trips.
+            if self.connection.dialect.driver == "psycopg2":
+                compiled = str(self.statement.compile(dialect=self.connection.dialect))
+                cursor = self.connection.connection.cursor()
+                try:
+                    cursor.execute(
+                        b";".join(cursor.mogrify(compiled, values) for values in self.parameters)
+                    )
+                finally:
+                    cursor.close()
+            else:
+                self.connection.execute(self.statement, self.parameters)
+            self.parameters = []
+            self.statement = None
+
+    def execute(self, statement: Any, parameters: dict[str, Any] | None = None) -> Any:
+        sql = str(statement)
+        if (
+            sql.lstrip().startswith("INSERT INTO")
+            and "RETURNING" not in sql
+            and parameters is not None
+        ):
+            if self.statement is not None and str(self.statement) != sql:
+                self.flush()
+            self.statement = statement
+            self.parameters.append(parameters)
+            if len(self.parameters) >= 1000:
+                self.flush()
+            return None
+        self.flush()
+        return self.connection.execute(statement, parameters or {})
+
+
 def _insert_invites(connection, rows: Iterable[Mapping[str, Any]], pepper: str) -> None:  # type: ignore[no-untyped-def]
     now = utc_now()
     for row in rows:
-        plaintext = str(row.get("plaintext_code") or "").strip() or None
+        plaintext = _legacy_invite_plaintext(row, pepper)
         encrypted = encrypt_invite_code(plaintext, pepper) if plaintext else None
         code_hash = (
             hash_invite_code(plaintext, pepper) if plaintext else str(row.get("code_hash") or "")
         )
-        active = _boolean(row.get("active")) and (
-            plaintext is not None or bool(row.get("redeemed_at"))
-        )
+        active = _boolean(row.get("active"))
         note = str(row.get("note") or "")[:120] or None
-        if not plaintext and not row.get("redeemed_at"):
-            note = f"migrated-unrecoverable:{note or ''}"[:120]
         connection.execute(
             text(
                 """
@@ -337,13 +404,27 @@ def _insert_subscriptions(connection, rows: Iterable[Mapping[str, Any]]) -> set[
         mask = _integer(row.get("weekday_mask"), ALL_WEEKDAY_MASK)
         duration_days = _integer(row.get("duration_days"), 7)
         email = str(row.get("email") or "")
-        dedupe_key = str(row.get("dedupe_key") or "") or subscription_dedupe_key(
+        dedupe_key = subscription_dedupe_key(
             email,
             venue_ids,
             str(row.get("start_time") or "00:00"),
             str(row.get("end_time") or "23:59"),
             mask,
         )
+        active_until = _dt(row.get("active_until"), default=now) or now
+        active = _boolean(row.get("active"))
+        # Preserve an explicitly renewable priority subscription across an outage.
+        if active and _boolean(row.get("auto_renew")) and active_until <= now:
+            priority = connection.execute(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM zacks.user_delivery_tiers "
+                    "WHERE email = :email AND tier = 'priority' AND revoked_at IS NULL)"
+                ),
+                {"email": email},
+            ).scalar_one()
+            if priority:
+                active_until = now + timedelta(days=90)
+        active = active and active_until > now
         connection.execute(
             text(
                 """
@@ -382,8 +463,8 @@ def _insert_subscriptions(connection, rows: Iterable[Mapping[str, Any]]) -> set[
                 "term_code": row.get("term_code") or f"{duration_days}d",
                 "auto_renew": _boolean(row.get("auto_renew")),
                 "dedupe_key": dedupe_key,
-                "active_until": _dt(row.get("active_until"), default=now),
-                "active": _boolean(row.get("active")),
+                "active_until": active_until,
+                "active": active,
                 "created_at": _dt(row.get("created_at"), default=now),
                 "updated_at": _dt(row.get("updated_at"), default=now),
             },
@@ -446,8 +527,8 @@ def _insert_observed_slots(connection, rows: Iterable[Mapping[str, Any]]) -> Non
     for row in rows:
         try:
             booking_date = date.fromisoformat(str(row.get("booking_date")))
-        except ValueError:
-            continue
+        except ValueError as exc:
+            raise RuntimeError("Invalid booking_date in D1 export") from exc
         connection.execute(
             text(
                 """
@@ -502,7 +583,7 @@ def _insert_notification_outbox(connection, rows: Iterable[Mapping[str, Any]]) -
     for row in rows:
         status = str(row.get("status") or "pending")
         if status == "processing":
-            status = "retry"
+            status = "submission_unknown"
         connection.execute(
             text(
                 """
@@ -572,7 +653,9 @@ def _insert_system_outbox(connection, rows: Iterable[Mapping[str, Any]]) -> None
     now = utc_now()
     for row in rows:
         status = (
-            "retry" if row.get("status") == "processing" else str(row.get("status") or "pending")
+            "submission_unknown"
+            if row.get("status") == "processing"
+            else str(row.get("status") or "pending")
         )
         connection.execute(
             text(
@@ -728,6 +811,73 @@ def _insert_generic_audit_rows(connection, snapshot: Mapping[str, list[dict[str,
         )
 
 
+RECONCILIATION_KEYS: dict[str, tuple[str, ...]] = {
+    "verified_receipts": ("token_hash",),
+    "user_profiles": ("email",),
+    "user_roles": ("email", "role"),
+    "user_delivery_tiers": ("email",),
+    "priority_invite_codes": ("id",),
+    "priority_invite_attempts": ("id",),
+    "coffee_invite_sessions": ("id",),
+    "coffee_invite_claims": ("email",),
+    "subscriptions": ("id",),
+    "venue_status": ("venue_id",),
+    "observed_slots": ("event_key",),
+    "subscription_events": ("subscription_id", "event_key"),
+    "notification_outbox": ("subscription_id", "event_key"),
+    "system_email_outbox": ("dedupe_key",),
+    "email_delivery_claims": ("id",),
+}
+
+
+def reconcile_snapshot(
+    connection: Any, snapshot: Mapping[str, list[dict[str, Any]]]
+) -> dict[str, Any]:
+    proof: dict[str, Any] = {}
+    for table, columns in RECONCILIATION_KEYS.items():
+        # Table/column identifiers come exclusively from the fixed manifest above.
+        source_keys = {
+            tuple(str(row.get(c) or "") for c in columns) for row in snapshot.get(table, [])
+        }
+        destination_keys = {
+            tuple(str(value or "") for value in row)
+            for row in connection.execute(text(f"SELECT {', '.join(columns)} FROM zacks.{table}"))
+        }
+        missing = source_keys - destination_keys
+        if missing:
+            raise RuntimeError(
+                f"Migration reconciliation failed for {table}: {len(missing)} missing keys"
+            )
+        canonical = json.dumps(sorted(source_keys), ensure_ascii=False, separators=(",", ":"))
+        proof[table] = {
+            "sourceCount": len(source_keys),
+            "matchedCount": len(source_keys),
+            "keysSha256": hashlib.sha256(canonical.encode()).hexdigest(),
+        }
+    # Same event identity must keep its previously acknowledged provider message ID.
+    destination = {
+        (str(r["subscription_id"]), str(r["event_key"])): r
+        for r in connection.execute(
+            text(
+                "SELECT subscription_id, event_key, message_id, status FROM zacks.notification_outbox"
+            )
+        ).mappings()
+    }
+    for row in snapshot.get("notification_outbox", []):
+        target = destination[(str(row["subscription_id"]), str(row["event_key"]))]
+        if (row.get("message_id") or None) != (target["message_id"] or None):
+            raise RuntimeError("Provider message identity changed during migration")
+        expected = (
+            "submission_unknown"
+            if row.get("status") == "processing"
+            else (row.get("status") or "pending")
+        )
+        if target["status"] != expected:
+            raise RuntimeError("Notification status changed during migration")
+    proof["providerIdentityPreserved"] = True
+    return proof
+
+
 def import_snapshot(
     snapshot: Mapping[str, list[dict[str, Any]]],
     *,
@@ -739,21 +889,43 @@ def import_snapshot(
     now = utc_now()
     with transaction() as connection:
         connection.execute(text("SELECT pg_advisory_xact_lock(hashtext('zacks-d1-import-v1'))"))
-        _insert_profiles(connection, snapshot.get("user_profiles", []))
-        _insert_roles(connection, snapshot.get("user_roles", []))
-        _insert_tiers(connection, snapshot.get("user_delivery_tiers", []))
-        _insert_receipts(connection, snapshot.get("verified_receipts", []))
-        _insert_invites(
-            connection, snapshot.get("priority_invite_codes", []), settings.invite_pepper
+        state = (
+            connection.execute(
+                text("SELECT * FROM zacks.runtime_control WHERE singleton FOR UPDATE")
+            )
+            .mappings()
+            .one()
         )
-        affected = _insert_subscriptions(connection, snapshot.get("subscriptions", []))
-        _insert_venue_status(connection, snapshot.get("venue_status", []))
-        _insert_observed_slots(connection, snapshot.get("observed_slots", []))
-        _insert_subscription_events(connection, snapshot.get("subscription_events", []))
-        _insert_notification_outbox(connection, snapshot.get("notification_outbox", []))
-        _insert_system_outbox(connection, snapshot.get("system_email_outbox", []))
-        _insert_claims(connection, snapshot.get("email_delivery_claims", []))
-        _insert_generic_audit_rows(connection, snapshot)
+        if state["activated_at"] is not None or state["delivery_enabled"]:
+            raise RuntimeError("Source import is forbidden after Host Core activation")
+        connection.execute(
+            text(
+                "UPDATE zacks.subscriptions SET active = false WHERE active_until <= now() AND NOT auto_renew"
+            )
+        )
+        batch = _BatchWriter(connection)
+        _insert_profiles(batch, snapshot.get("user_profiles", []))
+        _insert_roles(batch, snapshot.get("user_roles", []))
+        _insert_tiers(batch, snapshot.get("user_delivery_tiers", []))
+        _insert_receipts(batch, snapshot.get("verified_receipts", []))
+        _insert_invites(batch, snapshot.get("priority_invite_codes", []), settings.invite_pepper)
+        affected = _insert_subscriptions(batch, snapshot.get("subscriptions", []))
+        _insert_venue_status(batch, snapshot.get("venue_status", []))
+        _insert_observed_slots(batch, snapshot.get("observed_slots", []))
+        _insert_subscription_events(batch, snapshot.get("subscription_events", []))
+        _insert_notification_outbox(batch, snapshot.get("notification_outbox", []))
+        _insert_system_outbox(batch, snapshot.get("system_email_outbox", []))
+        _insert_claims(batch, snapshot.get("email_delivery_claims", []))
+        _insert_generic_audit_rows(batch, snapshot)
+        batch.flush()
+        proof = reconcile_snapshot(connection, snapshot)
+        for table in ("notification_outbox", "system_email_outbox"):
+            connection.execute(
+                text(f"""
+                UPDATE zacks.{table} SET provider_next_check_at = now()
+                WHERE status = 'submitted' AND provider_next_check_at IS NULL
+            """)
+            )
         increment_subscription_generations(connection, sorted(affected))
         connection.execute(
             text(
@@ -774,7 +946,9 @@ def import_snapshot(
             {
                 "source_revision": source_revision,
                 "imported_at": now,
-                "details": json.dumps(counts, separators=(",", ":")),
+                "details": json.dumps(
+                    {"counts": counts, "reconciliation": proof}, separators=(",", ":")
+                ),
                 "updated_at": now,
             },
         )

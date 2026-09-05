@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -122,7 +123,7 @@ async def value_error_handler(_request: Request, exc: ValueError) -> JSONRespons
 
 @app.exception_handler(Exception)
 async def unexpected_error_handler(_request: Request, exc: Exception) -> JSONResponse:
-    LOGGER.exception("host API request failed", extra={"error": type(exc).__name__})
+    LOGGER.error("host API request failed: %s", type(exc).__name__)
     return JSONResponse({"error": "服务暂时不可用，请稍后再试"}, status_code=500)
 
 
@@ -229,51 +230,6 @@ def _require_admin(request: Request) -> dict[str, Any]:
     return identity
 
 
-def _migration_ready() -> bool:
-    with transaction() as connection:
-        return bool(
-            connection.execute(
-                text(
-                    """
-                    SELECT EXISTS (
-                        SELECT 1 FROM zacks.migration_state
-                        WHERE source = 'cloudflare-d1' AND imported_at IS NOT NULL
-                    )
-                    """
-                )
-            ).scalar_one()
-        )
-
-
-def _forward_legacy_observation(
-    payload: dict[str, Any], settings: HostCoreSettings
-) -> dict[str, Any] | None:
-    url = os.environ.get("ZACKS_LEGACY_OBSERVATION_URL", LEGACY_OBSERVATION_URL).strip()
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {settings.edge_token}",
-                "Content-Type": "application/json",
-            },
-            timeout=5,
-        )
-        response.raise_for_status()
-        value = response.json()
-        return value if isinstance(value, dict) else None
-    except Exception as exc:
-        LOGGER.warning(
-            "legacy observation forwarding failed",
-            extra={"error": type(exc).__name__, "venue": payload.get("venue_id")},
-        )
-        return None
-
-
-def _is_gate(value: object) -> bool:
-    return isinstance(value, dict) and isinstance(value.get("allowed"), bool)
-
-
 @app.get(f"{API_PREFIX}/healthz")
 def healthz() -> dict[str, Any]:
     settings = _settings()
@@ -298,22 +254,22 @@ def healthz() -> dict[str, Any]:
 
 
 @app.get(f"{API_PREFIX}/readyz")
-def readyz() -> dict[str, Any]:
-    settings = _settings()
-    database = ping()
-    email_ready = True
-    if settings.host_owns_delivery:
-        try:
-            load_tencent_email_settings()
-        except RuntimeError:
-            email_ready = False
-    ready = bool(database.get("schema_ready")) and email_ready
-    return {
-        "ok": ready,
-        "databaseReady": bool(database.get("schema_ready")),
-        "emailReady": email_ready,
-        "deliveryOwner": settings.delivery_owner,
-    }
+def readyz() -> JSONResponse:
+    try:
+        settings = _settings()
+        database = ping()
+        load_tencent_email_settings()
+        ready = bool(database.get("schema_ready"))
+        result = {
+            "ok": ready,
+            "databaseReady": ready,
+            "emailReady": True,
+            "deliveryOwner": settings.delivery_owner,
+        }
+    except Exception:
+        ready = False
+        result = {"ok": False, "databaseReady": False, "emailReady": False}
+    return JSONResponse(result, status_code=200 if ready else 503)
 
 
 @app.get(f"{API_PREFIX}/bootstrap")
@@ -496,6 +452,8 @@ def bootstrap(request: Request) -> dict[str, Any]:
             "suppressed": False,
             "precipitationMm": None,
             "thresholdMm": settings.weather_threshold_mm,
+            "policy": "per_booking_date",
+            "priorityBypass": True,
         },
         "metrics": {
             "activeSubscriptions": active_subscriptions,
@@ -546,6 +504,10 @@ def send_verification_code(request: Request, payload: dict[str, Any] = Body(...)
     code = random_verification_code()
     expires_at = now + timedelta(minutes=CHALLENGE_MINUTES)
     with transaction() as connection:
+        for limit_key in sorted(["verification-email:" + email, "verification-ip:" + ip_hash]):
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": limit_key}
+            )
         email_count = int(
             connection.execute(
                 text(
@@ -597,17 +559,18 @@ def send_verification_code(request: Request, payload: dict[str, Any] = Body(...)
                 """
                 INSERT INTO zacks.system_email_outbox(
                     id, dedupe_key, email, email_type, subject, body, status,
-                    attempt_count, next_attempt_at, created_at, updated_at
+                    attempt_count, next_attempt_at, created_at, updated_at, expires_at
                 )
                 VALUES (
                     :id, :dedupe_key, :email, 'verification', :subject, :body,
-                    'pending', 0, :now, :now, :now
+                    'pending', 0, :now, :now, :now, :expires_at
                 )
                 """
             ),
             {
                 "id": str(uuid.uuid4()),
                 "dedupe_key": f"verification:{challenge_id}",
+                "expires_at": expires_at,
                 "email": email,
                 "subject": "Zacks 网球提醒验证码",
                 "body": f"你的验证码是 {code}，{CHALLENGE_MINUTES} 分钟内有效。",
@@ -646,7 +609,8 @@ def verify_email(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         if not row or int(row["attempts"] or 0) >= 5:
             raise HTTPException(status_code=400, detail="验证码无效或已过期")
         expected = hash_verification_code(challenge_id, code, settings.verification_pepper)
-        if not hmac.compare_digest(expected, str(row["code_hash"])):
+        invalid_code = not hmac.compare_digest(expected, str(row["code_hash"]))
+        if invalid_code:
             connection.execute(
                 text(
                     """
@@ -656,71 +620,74 @@ def verify_email(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 ),
                 {"id": challenge_id},
             )
-            raise HTTPException(status_code=400, detail="验证码错误")
-        email = str(row["email"])
-        token = random_token()
-        masked = mask_email(email)
-        expires_at = now + timedelta(days=RECEIPT_DAYS)
-        connection.execute(
-            text(
-                """
-                UPDATE zacks.verification_challenges
-                SET consumed_at = :now WHERE id = :id
-                """
-            ),
-            {"now": now, "id": challenge_id},
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO zacks.verified_receipts(
-                    token_hash, email, masked_email, expires_at, last_used_at, created_at
-                )
-                VALUES (
-                    :token_hash, :email, :masked_email, :expires_at, :now, :now
-                )
-                """
-            ),
-            {
-                "token_hash": _hash_token(token),
-                "email": email,
-                "masked_email": masked,
-                "expires_at": expires_at,
-                "now": now,
-            },
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO zacks.user_profiles(
-                    email, masked_email, first_verified_at, last_verified_at,
-                    last_login_at, last_active_at, created_at, updated_at
-                )
-                VALUES (
-                    :email, :masked_email, :now, :now, :now, :now, :now, :now
-                )
-                ON CONFLICT (email) DO UPDATE SET
-                    masked_email = EXCLUDED.masked_email,
-                    last_verified_at = EXCLUDED.last_verified_at,
-                    last_login_at = EXCLUDED.last_login_at,
-                    last_active_at = EXCLUDED.last_active_at,
-                    updated_at = EXCLUDED.updated_at
-                """
-            ),
-            {"email": email, "masked_email": masked, "now": now},
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO zacks.user_delivery_tiers(
-                    email, tier, created_at, updated_at
-                )
-                VALUES (:email, 'standard', :now, :now)
-                ON CONFLICT (email) DO NOTHING
-                """
-            ),
-            {"email": email, "now": now},
-        )
+
+        else:
+            email = str(row["email"])
+            token = random_token()
+            masked = mask_email(email)
+            expires_at = now + timedelta(days=RECEIPT_DAYS)
+            connection.execute(
+                text(
+                    """
+                    UPDATE zacks.verification_challenges
+                    SET consumed_at = :now WHERE id = :id
+                    """
+                ),
+                {"now": now, "id": challenge_id},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO zacks.verified_receipts(
+                        token_hash, email, masked_email, expires_at, last_used_at, created_at
+                    )
+                    VALUES (
+                        :token_hash, :email, :masked_email, :expires_at, :now, :now
+                    )
+                    """
+                ),
+                {
+                    "token_hash": _hash_token(token),
+                    "email": email,
+                    "masked_email": masked,
+                    "expires_at": expires_at,
+                    "now": now,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO zacks.user_profiles(
+                        email, masked_email, first_verified_at, last_verified_at,
+                        last_login_at, last_active_at, created_at, updated_at
+                    )
+                    VALUES (
+                        :email, :masked_email, :now, :now, :now, :now, :now, :now
+                    )
+                    ON CONFLICT (email) DO UPDATE SET
+                        masked_email = EXCLUDED.masked_email,
+                        last_verified_at = EXCLUDED.last_verified_at,
+                        last_login_at = EXCLUDED.last_login_at,
+                        last_active_at = EXCLUDED.last_active_at,
+                        updated_at = EXCLUDED.updated_at
+                    """
+                ),
+                {"email": email, "masked_email": masked, "now": now},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO zacks.user_delivery_tiers(
+                        email, tier, created_at, updated_at
+                    )
+                    VALUES (:email, 'standard', :now, :now)
+                    ON CONFLICT (email) DO NOTHING
+                    """
+                ),
+                {"email": email, "now": now},
+            )
+    if invalid_code:
+        raise HTTPException(status_code=400, detail="验证码错误")
     return {
         "token": token,
         "email": email,
@@ -737,6 +704,18 @@ def create_subscription(request: Request, payload: dict[str, Any] = Body(...)) -
     settings = _settings()
     now = utc_now()
     with transaction() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "zacks-subscriptions:" + identity["email"]},
+        )
+        connection.execute(
+            text("""
+            UPDATE zacks.subscriptions SET active = false, updated_at = :now
+            WHERE email = :email AND active = true AND active_until <= :now
+              AND auto_renew = false
+        """),
+            {"email": identity["email"], "now": now},
+        )
         tier = _tier(connection, identity["email"])
         candidate = validate_subscription(payload, priority=tier == "priority")
         limit = (
@@ -844,6 +823,13 @@ def cancel_subscription(subscription_id: str, request: Request) -> dict[str, Any
     identity = _identity(request, required=True)
     assert identity is not None
     with transaction() as connection:
+        from .control import DELIVERY_LOCK
+
+        connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": DELIVERY_LOCK})
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "zacks-subscriptions:" + identity["email"]},
+        )
         row = (
             connection.execute(
                 text(
@@ -873,6 +859,14 @@ def cancel_subscription(subscription_id: str, request: Request) -> dict[str, Any
             ),
             {"id": subscription_id, "email": identity["email"]},
         )
+        connection.execute(
+            text("""
+            UPDATE zacks.notification_outbox SET status = 'cancelled', updated_at = now(),
+                lease_owner = NULL, lease_until = NULL, last_error = 'subscription_cancelled'
+            WHERE subscription_id = :id AND status IN ('pending', 'retry', 'processing')
+        """),
+            {"id": subscription_id},
+        )
         increment_subscription_generations(connection, list(venue_ids))
     return {"success": True}
 
@@ -886,6 +880,19 @@ def redeem_priority(request: Request, payload: dict[str, Any] = Body(...)) -> di
     code_hash = hash_invite_code(payload.get("code"), settings.invite_pepper)
     ip_hash = _client_ip_hash(request, settings)
     with transaction() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "invite-attempt:" + identity["email"]},
+        )
+        attempts = connection.execute(
+            text("""
+            SELECT count(*) FROM zacks.priority_invite_attempts
+            WHERE email = :email AND created_at > :since
+        """),
+            {"email": identity["email"], "since": now - timedelta(hours=1)},
+        ).scalar_one()
+        if attempts >= 10:
+            raise HTTPException(status_code=429, detail="邀请码尝试过于频繁")
         row = (
             connection.execute(
                 text(
@@ -921,32 +928,33 @@ def redeem_priority(request: Request, payload: dict[str, Any] = Body(...)) -> di
                 "created_at": now,
             },
         )
-        if not row:
-            raise HTTPException(status_code=400, detail="邀请码无效、已过期或已被使用")
-        connection.execute(
-            text(
-                """
-                UPDATE zacks.priority_invite_codes
-                SET redeemed_by = :email, redeemed_at = :now, updated_at = :now
-                WHERE id = :id
-                """
-            ),
-            {"email": identity["email"], "now": now, "id": row["id"]},
-        )
-        connection.execute(
-            text(
-                """
-                INSERT INTO zacks.user_delivery_tiers(
-                    email, tier, source_invite_id, created_at, updated_at, revoked_at
-                )
-                VALUES (:email, 'priority', :invite_id, :now, :now, NULL)
-                ON CONFLICT (email) DO UPDATE SET
-                    tier = 'priority', source_invite_id = EXCLUDED.source_invite_id,
-                    updated_at = EXCLUDED.updated_at, revoked_at = NULL
-                """
-            ),
-            {"email": identity["email"], "invite_id": row["id"], "now": now},
-        )
+        if row:
+            connection.execute(
+                text(
+                    """
+                    UPDATE zacks.priority_invite_codes
+                    SET redeemed_by = :email, redeemed_at = :now, updated_at = :now
+                    WHERE id = :id
+                    """
+                ),
+                {"email": identity["email"], "now": now, "id": row["id"]},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO zacks.user_delivery_tiers(
+                        email, tier, source_invite_id, created_at, updated_at, revoked_at
+                    )
+                    VALUES (:email, 'priority', :invite_id, :now, :now, NULL)
+                    ON CONFLICT (email) DO UPDATE SET
+                        tier = 'priority', source_invite_id = EXCLUDED.source_invite_id,
+                        updated_at = EXCLUDED.updated_at, revoked_at = NULL
+                    """
+                ),
+                {"email": identity["email"], "invite_id": row["id"], "now": now},
+            )
+    if not row:
+        raise HTTPException(status_code=400, detail="邀请码无效、已过期或已被使用")
     return {
         "success": True,
         "tier": "priority",
@@ -966,6 +974,18 @@ def coffee_session(request: Request) -> dict[str, Any]:
     claimable_at = now + timedelta(seconds=COFFEE_CLAIM_DELAY_SECONDS)
     expires_at = now + timedelta(minutes=COFFEE_SESSION_MINUTES)
     with transaction() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "coffee:" + identity["email"]},
+        )
+        recent = connection.execute(
+            text(
+                "SELECT count(*) FROM zacks.coffee_invite_sessions WHERE email=:email AND created_at>:since"
+            ),
+            {"email": identity["email"], "since": now - timedelta(hours=1)},
+        ).scalar_one()
+        if recent >= 20:
+            raise HTTPException(status_code=429, detail="操作过于频繁，请稍后重试")
         claimed = bool(
             connection.execute(
                 text("SELECT 1 FROM zacks.coffee_invite_claims WHERE email = :email"),
@@ -1012,6 +1032,10 @@ def coffee_invite(request: Request, payload: dict[str, Any] = Body(...)) -> dict
     now = utc_now()
     session_key = f"{session_id}:{_hash_token(secret)}"
     with transaction() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "coffee:" + identity["email"]},
+        )
         existing = (
             connection.execute(
                 text(
@@ -1436,36 +1460,26 @@ def delete_invite(invite_id: str, request: Request) -> dict[str, Any]:
 
 @app.post(f"{API_PREFIX}/internal/observations")
 def internal_observation(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    settings = _settings()
-    local_result = ingest_observation(payload)
-    legacy_result: dict[str, Any] | None = None
-    if settings.legacy_observation_enabled and not settings.host_owns_delivery:
-        legacy_result = _forward_legacy_observation(payload, settings)
+    result = ingest_observation(payload)
+    from .control import runtime_state
 
-    if settings.wechat_gate_source == "off":
-        now = utc_now()
-        local_result["wechatGate"] = {
-            "allowed": True,
-            "source": "disabled",
-            "evaluatedAt": now.isoformat(),
-            "validUntil": (now + timedelta(hours=24)).isoformat(),
-            "revision": int(now.timestamp() * 1_000),
-        }
-    elif settings.wechat_gate_source == "legacy":
-        legacy_gate = legacy_result.get("wechatGate") if legacy_result else None
-        if _is_gate(legacy_gate):
-            local_result["wechatGate"] = legacy_gate
-        elif not _migration_ready():
-            now = utc_now()
-            local_result["wechatGate"] = {
-                "allowed": True,
-                "source": "migration-fail-open",
-                "evaluatedAt": now.isoformat(),
-                "validUntil": (now + timedelta(minutes=30)).isoformat(),
-                "revision": int(now.timestamp() * 1_000),
-            }
-    local_result["legacyForwarded"] = legacy_result is not None
-    return local_result
+    if not runtime_state()["delivery_enabled"]:
+        result["wechatGate"]["allowed"] = False
+    return result
+
+
+@app.get(f"{API_PREFIX}/internal/wechat-gate/{{venue_id}}")
+def internal_wechat_gate(venue_id: str) -> dict[str, Any]:
+    from .service import active_subscription_for_venue
+
+    return {"allowed": active_subscription_for_venue(venue_id), "source": "airflow-host"}
+
+
+@app.post(f"{API_PREFIX}/internal/wechat-enqueue")
+def internal_wechat_enqueue(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    from .wechat_queue import enqueue
+
+    return enqueue(payload)
 
 
 def main() -> None:

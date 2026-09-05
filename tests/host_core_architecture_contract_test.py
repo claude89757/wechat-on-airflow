@@ -23,22 +23,19 @@ def test_release_version_is_consistent() -> None:
 
 
 def test_cloudflare_is_stateless_after_cutover() -> None:
-    wrangler = read("webapp/wrangler.jsonc")
+    import json
+
+    wrangler = json.loads(read("webapp/wrangler.jsonc"))
     edge = read("webapp/cloudflare/edge-entry.ts")
     runtime = yaml.safe_load(read("config/runtime-target.yaml"))
-    webapp = runtime["managed_services"]["webapp"]
-
-    assert '"main": "./cloudflare/edge-entry.ts"' in wrangler
-    assert '"HOST_CORE_CUTOVER": "true"' in wrangler
-    assert 'source: "airflow-host"' in edge
-    assert "cloudflare_edge_cron_ignored_after_host_cutover" in edge
-    assert 'from "./index"' not in edge
-    assert 'from "./deployment-entry"' not in edge
-    assert webapp["runtime"] == "cloudflare_worker_stateless_edge"
-    assert webapp["business_state"] == "none_after_cutover"
-    assert webapp["scheduled_notification_work"] == "disabled_after_cutover"
-    assert webapp["d1"]["mode"] == "read_only_rollback_window"
-    assert webapp["d1"]["deletion_in_cutover"] is False
+    assert wrangler["main"] == "./cloudflare/edge-entry.ts"
+    assert not wrangler.get("d1_databases")
+    assert wrangler["triggers"]["crons"] == []
+    assert "legacyRuntime: false" in edge
+    assert "import " not in edge
+    assert "legacyWorker" not in edge and "env.DB" not in edge
+    assert runtime["managed_services"]["webapp"]["d1"]["mode"] == "unbound_migration_archive"
+    assert runtime["managed_services"]["webapp"]["d1"]["deletion_in_cutover"] is False
 
 
 def test_postgresql_host_core_is_the_durable_business_owner() -> None:
@@ -89,35 +86,14 @@ def test_repository_invariants_no_longer_assign_delivery_to_d1() -> None:
 
 def test_cutover_uses_quota_independent_sql_export_and_one_delivery_owner() -> None:
     workflow = read(".github/workflows/production-host-core.yml")
-    wrapper = read("scripts/host_core_command_with_heartbeat.py")
-    runbook = read("docs/runbooks/host-core-cutover.md")
-
-    assert "workflow_call:" in workflow
+    release = read("scripts/host_core_release.sh")
     assert "scripts/github_release_gate.py" in workflow
-    assert "npx wrangler d1 export zacks-tennis-alerts" in workflow
-    assert "remote migrate-sql --pass-name initial" in workflow
-    assert "remote migrate-sql --pass-name final" in workflow
-    assert "remote enable-dual" in workflow
-    assert "remote prepare-cutover" in workflow
-    assert "remote cutover" in workflow
-    assert "remote pause-host-delivery" in workflow
-    assert "deploy_edge true false false" in workflow
-    assert workflow.index("remote migrate-sql --pass-name initial") < workflow.index(
-        "remote enable-dual"
-    )
-    assert workflow.index("deploy_edge false true true") < workflow.index(
-        "remote migrate-sql --pass-name final"
-    )
-    assert workflow.index("remote prepare-cutover") < workflow.index("deploy_edge true false false")
-    assert workflow.index("deploy_edge true false false") < workflow.index("remote cutover")
-    assert ".wrangler-host-core-runtime.json" in workflow
-    assert "python3 scripts/host_core_command_with_heartbeat.py" in workflow
-    assert "ServerAliveInterval=15" in workflow
-    assert "ServerAliveCountMax=120" in workflow
-    assert "host_core_command_heartbeat" in wrapper
-    assert "subprocess.TimeoutExpired" in wrapper
-    assert "--var " not in workflow
-    assert "remote rollback" in workflow
-    assert "Real test notifications: none" in workflow
-    assert "D1" in runbook
-    assert "delete" not in workflow.lower()
+    assert "scripts/host_core_release.sh" in workflow
+    assert "npx wrangler d1 export zacks-tennis-alerts" in release
+    assert "remote migrate-sql" in release
+    assert "remote pause-host-delivery" in release
+    assert "remote rollback" not in release
+    assert "-n -o BatchMode=yes" in release
+    assert "ServerAliveInterval=15" in release
+    assert "set -Eeuo pipefail" in release
+    assert "migration" in read("docs/runbooks/host-core-cutover.md").lower()

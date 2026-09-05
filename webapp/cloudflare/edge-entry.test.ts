@@ -1,49 +1,30 @@
-import { describe, expect, it } from "vitest";
-
-import {
-  edgeDeploymentHealth,
-  hostCoreCutoverEnabled,
-  hostCoreMigrationEnabled,
-  hostCoreOrigin,
-  hostCoreQuiesceEnabled,
-} from "./edge-entry";
-
-describe("Airflow-host edge gateway", () => {
-  it("keeps cutover, quiesce, and migration switches explicit", () => {
-    expect(hostCoreCutoverEnabled(undefined)).toBe(false);
-    expect(hostCoreCutoverEnabled("false")).toBe(false);
-    expect(hostCoreCutoverEnabled("true")).toBe(true);
-    expect(hostCoreCutoverEnabled("1")).toBe(true);
-    expect(hostCoreQuiesceEnabled("yes")).toBe(true);
-    expect(hostCoreQuiesceEnabled("off")).toBe(false);
-    expect(hostCoreMigrationEnabled("on")).toBe(true);
-    expect(hostCoreMigrationEnabled(undefined)).toBe(false);
+import {afterEach, describe, expect, it, vi} from "vitest";
+import edge, {edgeDeploymentHealth, hostCoreOrigin, originRequest} from "./edge-entry";
+afterEach(() => vi.unstubAllGlobals());
+const env = {DEPLOYMENT_COMMIT: "a".repeat(40), AIRFLOW_PUSH_TOKEN: "test-token"} as never;
+describe("Host Core only gateway", () => {
+  it("rejects insecure origin", () => {
+    expect(hostCoreOrigin(undefined).toString()).toBe("https://airflow.claude89757.cc/zacks-api");
+    expect(() => hostCoreOrigin("http://localhost")).toThrow("must use HTTPS");
   });
-
-  it("accepts only an HTTPS host-core origin", () => {
-    expect(hostCoreOrigin(undefined).toString()).toBe(
-      "https://airflow.claude89757.cc/zacks-api",
-    );
-    expect(() => hostCoreOrigin("http://127.0.0.1:8090")).toThrow(
-      "HOST_CORE_ORIGIN_URL must use HTTPS",
-    );
+  it("reports actual host-only mode", () => {
+    expect(edgeDeploymentHealth(env)).toMatchObject({cutover: true, migrationEndpoint: false, legacyRuntime: false, durableBusinessState: "none"});
   });
-
-  it("reports edge identity without consulting D1 or the host origin", () => {
-    expect(edgeDeploymentHealth({
-      DEPLOYMENT_COMMIT: "a".repeat(40),
-      HOST_CORE_CUTOVER: "true",
-      HOST_CORE_QUIESCE: "false",
-      HOST_CORE_MIGRATION_ENABLED: "false",
-    } as never)).toEqual({
-      ok: true,
-      service: "zacks-tennis-edge",
-      runtime: "cloudflare-stateless-edge",
-      deploymentCommit: "a".repeat(40),
-      cutover: true,
-      quiesced: false,
-      migrationEndpoint: false,
-      durableBusinessState: "none",
-    });
+  it("never routes public internal or migration endpoints", async () => {
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    const response = await edge.fetch(new Request("https://example.test/api/internal/host-secret-envelope", {method: "POST"}), env);
+    expect(response.status).toBe(404); expect(fetch).not.toHaveBeenCalled();
+  });
+  it("replaces spoofable trust headers and preserves user identity", () => {
+    const outgoing = originRequest(new Request("https://example.test/api/bootstrap", {headers: {
+      "Authorization": "Bearer test-receipt", "X-Zacks-Edge-Token": "spoof", "X-Zacks-Client-IP": "spoof", "CF-Connecting-IP": "192.0.2.1",
+    }}), env);
+    expect(outgoing.headers.get("Authorization")).toBe("Bearer test-receipt");
+    expect(outgoing.headers.get("X-Zacks-Edge-Token")).toBe("test-token");
+    expect(outgoing.headers.get("X-Zacks-Client-IP")).toBe("192.0.2.1");
+  });
+  it("origin outage returns 503 and never falls back to D1", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    expect((await edge.fetch(new Request("https://example.test/api/bootstrap"), env)).status).toBe(503);
   });
 });

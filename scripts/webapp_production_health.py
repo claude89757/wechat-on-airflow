@@ -106,7 +106,8 @@ def inspect_production(
         "bootstrap_http_ok": bootstrap_status == 200,
         "expected_venue_count": isinstance(venues, list) and len(venues) == expected_venue_count,
         "bootstrap_contains_no_email": not contains_email(bootstrap),
-        "observation_requires_authentication": observation_status == 401,
+        "observation_requires_authentication": observation_status
+        == (404 if stateless_edge else 401),
     }
     if stateless_edge:
         checks.update(

@@ -12,9 +12,14 @@ from wechat_sender import SendFailedError, SendResult
 
 class SenderAgentTest(unittest.TestCase):
     def setUp(self):
+        self.ledger_dir = tempfile.TemporaryDirectory()
         self.env_patcher = patch.dict(
             os.environ,
-            {"WECHAT_ALLOWED_DEVICE_NAME": "test-device"},
+            {
+                "WECHAT_ALLOWED_DEVICE_NAME": "test-device",
+                "WECHAT_IDEMPOTENCY_PATH": str(Path(self.ledger_dir.name) / "ledger.sqlite"),
+                "DEPLOYMENT_COMMIT": "a" * 40,
+            },
             clear=False,
         )
         self.env_patcher.start()
@@ -23,6 +28,7 @@ class SenderAgentTest(unittest.TestCase):
 
     def tearDown(self):
         self.env_patcher.stop()
+        self.ledger_dir.cleanup()
 
     @patch("sender_agent.app.send_text_messages")
     def test_send_success(self, mock_send):
@@ -95,6 +101,8 @@ class SenderAgentTest(unittest.TestCase):
                 "ok": True,
                 "service": "wechat-sender-agent",
                 "configured": True,
+                "deploymentCommit": "a" * 40,
+                "durableIdempotency": True,
             },
         )
 

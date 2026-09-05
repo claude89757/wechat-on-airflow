@@ -53,6 +53,8 @@ x-airflow-common: &airflow-common
   build:
     context: .
     dockerfile: docker/airflow/Dockerfile
+    args:
+      DEPLOYMENT_COMMIT: ${DEPLOYMENT_COMMIT:-unknown}
   environment: *airflow-env
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
@@ -172,10 +174,13 @@ services:
   zacks-api:
     <<: *airflow-common
     command: python -m wechat_airflow.host_core.api
+    depends_on:
+      postgresql:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8090:8090"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8090/zacks-api/api/healthz"]
+      test: ["CMD", "curl", "--fail", "--max-time", "8", "http://localhost:8090/zacks-api/api/readyz"]
       interval: 15s
       timeout: 10s
       retries: 8
@@ -184,18 +189,34 @@ services:
   zacks-notification-worker:
     <<: *airflow-common
     command: python -m wechat_airflow.host_core.worker
+    depends_on:
+      postgresql:
+        condition: service_healthy
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          python -c "from wechat_airflow.host_core.database import ping; assert ping()['schema_ready']"
+      test: ["CMD", "python", "-m", "wechat_airflow.host_core.health", "--worker", "zacks-notification-worker"]
       interval: 30s
       timeout: 15s
-      retries: 5
+      retries: 3
+      start_period: 60s
+
+  zacks-wechat-worker:
+    <<: *airflow-common
+    command: python -m wechat_airflow.host_core.wechat_worker
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "wechat_airflow.host_core.health", "--worker", "zacks-wechat-worker"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
       start_period: 60s
 
   zacks-secret-sync:
     <<: *airflow-common
+    depends_on:
+      postgresql:
+        condition: service_healthy
     profiles: [maintenance]
     restart: "no"
     user: "0:0"

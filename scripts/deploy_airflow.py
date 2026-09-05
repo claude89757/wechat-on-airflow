@@ -136,12 +136,14 @@ validate_runtime_secrets() {{
 
 compose() {{
     if docker compose version >/dev/null 2>&1; then
+        DEPLOYMENT_COMMIT="$target_commit" \
         AIRFLOW_IMAGE_NAME="$active_image" \
         AIRFLOW_BASE_URL="$base_url" \
         AIRFLOW_EXECUTION_API_SERVER_URL="$execution_api_url" \
         AIRFLOW_SECRET_DIR="$secret_dir" \
         docker compose "$@"
     elif command -v docker-compose >/dev/null 2>&1; then
+        DEPLOYMENT_COMMIT="$target_commit" \
         AIRFLOW_IMAGE_NAME="$active_image" \
         AIRFLOW_BASE_URL="$base_url" \
         AIRFLOW_EXECUTION_API_SERVER_URL="$execution_api_url" \
@@ -317,9 +319,9 @@ rollback() {{
     rc="${{1:-$?}}"
     trap - EXIT HUP INT TERM
     if [ "$rc" -ne 0 ] || [ "$execution_services_stopped" = "true" ]; then
-        git checkout --quiet --detach "$current_commit" || true
-        active_image="$current_image"
-        compose up -d --no-deps {services} >/dev/null 2>&1 || true
+        # Fail closed within Host Core. The protected ship transaction pauses
+        # delivery; repair rolls forward rather than reactivating old collectors.
+        printf 'deployment incomplete; retained target code, no legacy fallback\\n' >&2
         restore_dags "$pause_regex" || true
     fi
     rm -f "$dag_state_file"

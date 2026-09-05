@@ -1,120 +1,103 @@
-# Airflow-host notification core cutover
+# Host Core-only production cutover
 
-## Purpose
+This procedure supersedes the previous shadow/dual-write/legacy rollback plan.
+The source database is preserved; the old runtime is not retained as a serving
+backend. Run only via GitHub's protected `production` Environment. An exact
+commit on `main` with passing `CI / verify` is mandatory.
 
-Move Web subscription state and subscriber-email delivery from Cloudflare D1
-to the PostgreSQL-backed host core without sending a synthetic email or WeChat
-message. D1 is retained read-only as migration evidence and a pre-activation
-rollback source; it is not automatically reactivated after host delivery may
-have begun.
+## Deployment transaction
 
-## Ownership switches
+Use Issue #39: `/release ship 0.7.0 <full-main-SHA> scope=all sender=true`.
+Only the existing owner-authorized ChatOps dispatcher is permitted. Do not add a
+one-time production workflow, bypass CI, restore an old runtime, or expose SSH,
+database, SES, verification or invitation secrets to developer machines.
 
-- `ZACKS_DELIVERY_OWNER`: `cloudflare` or `airflow_host`
-- `ZACKS_OBSERVATION_MODE`: `cloudflare`, `dual`, or `host`
-- `ZACKS_WECHAT_GATE_SOURCE`: `legacy`, `host`, or `off`
-- `HOST_CORE_CUTOVER`: route public `/api/*` to the host core
-- `HOST_CORE_QUIESCE`: reject mutations and skip Worker cron
-- `HOST_CORE_MIGRATION_ENABLED`: expose the protected SES handoff endpoint
+1. Build one exact application image. Ensure the additive `zacks` schema. Create
+   a root-only custom-format PostgreSQL backup. Acquire the durable delivery
+   fence and pause local consumers. Start the local API in prepared mode.
+2. On first activation only, publish the one-time maintenance edge. It blocks
+   business writes and contains no notification Cron. Drain the previous owner
+   for 300 seconds. Transfer provider and identity/invitation secret material in
+   an authenticated RSA-OAEP/AES-GCM envelope directly to the host.
+3. Export D1 through its control-plane SQL export, not quota-limited SQL queries.
+   Hash the gzip snapshot, copy to a root-only host directory, verify again in
+   the API container, and import in one transaction with batched writes.
+4. Reconcile the keys/counts of all 15 source tables and preserve provider message
+   identities/statuses. Preserve old receipt hashes and verification/invitation
+   peppers; verify old invitation ciphertext before re-encrypting locally.
+   Expired non-renewing subscriptions become inactive. Old interrupted sends
+   are quarantined, not replayed. Migration never truncates/deletes D1.
+5. Route observations locally. Publish the production edge with **no D1 binding,
+   no Cron schedule, no migration handler and no legacy imports**. Enable host
+   email delivery; WeChat consumer remains prepared until collectors and device
+   Sender have been deployed to the same commit.
+6. Deploy all Airflow services and the Android Sender. Preserve venue schedules
+   and drain old tasks rather than replaying or forcibly rewriting task state.
+   Verify the Sender's durable idempotency and exact commit.
+7. Run the operator-only API transaction probe on the production database. It
+   exercises verification, creation/listing/deduplication/cancellation and auth,
+   then rolls back every test record. No email/device service is called. Store
+   only the privacy-safe result. This is NOT a browser or real-email probe.
+8. Enable the dedicated WeChat worker and start an acceptance window. Require
+   all 26 venue DAGs to complete three natural cycles with fresh observations;
+   auxiliary services must have recent successful runs. Require exact component
+   identities, fresh worker heartbeats, no stalled queues, reconciled migration,
+   public health/bootstrap/security checks, and actual natural SES-delivered and
+   WeChat-sent evidence. Only then create an immutable release tag.
 
-The safe state before cutover is Cloudflare owner, legacy observation, legacy
-WeChat gate. The safe state after cutover is host owner, host observation, host
-WeChat gate, public host routing, migration disabled.
+The maintenance interval is explicit downtime for Web mutations, not a claim of
+zero-downtime migration. The full import duration depends on the snapshot size.
+Do not claim delivery has been validated merely because a container is running.
 
-## Protected workflow
+## Failure and cancellation
 
-Use `.github/workflows/production-host-core.yml` through the `production`
-Environment and an exact full main SHA. The workflow requires the exact `CI /
-verify` check before any mutation.
+The runner uses `set -Eeuo pipefail` with EXIT/INT/TERM/HUP recovery. SSH does not
+consume script stdin. Remote commands are Python 3.6-compatible wrappers; app
+operations execute in the pinned Python 3.12 image. Errors pause host consumers
+with a PostgreSQL exclusive delivery fence. If the API is down, pause runs in a
+one-shot application container, not through the failed API.
 
-`deploy-shadow` performs a reversible preparation only: it exposes the protected
-SES handoff, creates the local schema and services, transfers SES configuration
-through a hybrid encrypted envelope, imports D1, and enables dual observation.
-Cloudflare remains the only email sender.
+Recovery is a repaired exact-main-commit release. `activated_at` is durable: once
+set, **D1 import is forbidden even while delivery is paused**. Never recreate old
+Cloudflare business ownership. Keep source snapshots and PostgreSQL backups
+root-only and off public artifacts. Never automatically restore a snapshot over
+live post-cutover writes. Data restore is a separate explicitly approved action.
 
-### Quota-independent D1 transfer
+## Notification semantics
 
-The production workflow does not paginate business rows through the public
-Worker. It uses the Cloudflare D1 control-plane SQL export command for both the
-initial snapshot and the final frozen snapshot. This path remains available
-when the account has exhausted the daily D1 row-read allowance.
+Outboxes lease with `FOR UPDATE SKIP LOCKED`. External attempts are recorded
+before dispatch. A provider/UI result that may already have succeeded becomes
+`submission_unknown`; it is not retried without evidence. A provider retention
+window expiring means delivery is unknown, not proven failed. Known connection
+failures/rejections use bounded retry. Expired/changed slots and cancelled
+subscriptions are rechecked before send and do not get replayed as stale alerts.
 
-Each compressed SQL export is SHA-256 verified at three boundaries:
+The Sender stores idempotency keys, payload hashes and results in its persistent
+SQLite WAL database under `/var/lib/wechat-sender`, protected by systemd. Unknown
+UI outcomes survive process restart. Per-group booking-link cooldowns live in
+PostgreSQL. Old bounded collector preclaim caches do not own delivery outcomes.
 
-1. On the GitHub runner immediately after export.
-2. On the Airflow host after the file is transferred into the private
-   `.local/host-core-migration` directory.
-3. Inside `zacks-api` immediately before parsing and importing it.
+## Verification and evidence
 
-The importer reconstructs a temporary SQLite database, requires the critical
-subscription, venue-status, and notification-outbox tables, reads only the
-fixed migration allowlist, and then reuses the transactional PostgreSQL import
-path. Export files and checksums are never printed with row contents.
+`CI / verify` runs Ruff, strict mypy, all Python tests, a disposable PostgreSQL 17
+integration service, Web/Worker tests, browser regression, image and DagBag
+contracts. Test DB fixtures refuse any database other than local `zacks_test`.
+No production secrets or synthetic real notifications are used by CI.
 
-`full-cutover` performs the entire sequence:
+`python -m wechat_airflow.host_core.health --expected-commit <SHA> --require-delivery`
+is read-only and outputs a complete structured report. The protected workflow
+publishes only counts, venue/task status, hashes and component identity. Missing
+sections, stale evidence or absent natural delivery cannot be reported as a pass.
+No customer emails, tokens, message bodies, SQL exports or credential values may
+appear in public reports.
 
-1. Run host and edge preflight.
-2. Deploy the legacy Worker with protected SES handoff enabled.
-3. Start `zacks-api` and `zacks-notification-worker` in shadow mode.
-4. Transfer SES secrets directly Worker-to-host; GitHub receives no plaintext.
-5. Export, verify, and import an initial D1 SQL snapshot.
-6. Send natural Airflow observations to both local PostgreSQL and the legacy
-   Worker, then require recent status from at least 20 of the 26 venues.
-7. Freeze legacy mutations and cron.
-8. Wait for in-flight legacy requests, then export, verify, and import the final
-   D1 SQL snapshot.
-9. Switch observations and the WeChat gate to PostgreSQL, explicitly stop the
-   local notification worker, and verify the host API while delivery is paused.
-10. Route public API calls to the host, disable migration endpoints, and verify
-    both the stateless edge identity and the host API before any host delivery.
-11. Make the host core the only email owner and start the local notification
-    worker.
-12. Verify local and public exact-commit health, readiness, and active ownership.
+## Operational limits
 
-The delivery pause between steps 9 and 11 is an activation barrier. A failed
-edge deployment can therefore return to the legacy path before the host has
-sent anything. Once host delivery is activated, automated recovery never
-reactivates the now-stale D1 sender.
-
-## Failure recovery and rollback
-
-Before host delivery activation, rollback uses this order:
-
-1. Keep or restore the legacy edge in quiesced mode.
-2. Set the host delivery owner to Cloudflare, restore the public legacy
-   observation URL, and start the host services in non-sending mode.
-3. Re-enable the legacy edge only after the host owner has stopped.
-
-After host delivery activation, D1 no longer contains authoritative delivery
-state. Re-enabling its sender could duplicate messages that PostgreSQL already
-submitted. The safe automated response is therefore:
-
-1. Keep the public API routed to the PostgreSQL host core.
-2. Set `ZACKS_DELIVERY_OWNER=cloudflare` only as a neutral paused value.
-3. Stop `zacks-notification-worker`.
-4. Preserve all PostgreSQL Outbox and provider state for diagnosis and
-   roll-forward activation.
-
-This post-activation state is a **safe pause**, not a legacy rollback. Do not
-reactivate D1 delivery without an explicit reconciliation plan. Do not delete or
-rewrite the host schema during either recovery path.
-
-## Verification without real delivery
-
-- `/zacks-api/api/healthz` and public `/api/healthz` report the host SHA.
-- `/api/edge-healthz` independently reports the exact stateless edge SHA.
-- `/zacks-api/api/readyz` confirms PostgreSQL and host SES configuration.
-- All 26 venue rows exist and at least 20 have natural observations in the last
-  15 minutes before cutover.
-- Active subscription count is non-zero after migration.
-- `zacks-notification-worker` is stopped during the public edge activation
-  barrier and running only after `ZACKS_DELIVERY_OWNER=airflow_host`.
-- Worker migration endpoints return 404 after cutover.
-- No test notification is sent. Observe at least three natural schedule cycles.
-
-## D1 retirement
-
-D1 deletion is deliberately outside this release. After a stable evidence
-window, export final evidence, remove the binding and cron from a separate
-human-approved change, then delete D1 only under explicit irreversible-operation
-approval.
+The PostgreSQL instance currently also hosts Airflow metadata: host/DB failure
+is a shared failure boundary. Redis is only the Celery broker, so its failure can
+stop new collection even though already durable email work remains processable.
+Cloudflare is still the public Web/Tunnel ingress. Verify the actual Sender
+transport does not traverse a Cloudflare proxy before claiming end-to-end
+Cloudflare-independent delivery. Neither frontend cache nor D1 is an automatic
+business recovery source. Back up the PG business schema and Sender ledger and
+rehearse recovery in isolation; do not claim high availability from a single host.

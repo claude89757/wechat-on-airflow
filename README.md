@@ -15,8 +15,8 @@
 - **多场馆自动巡检**：26 个深圳场馆巡检 DAG；深圳湾保持 15 秒低延迟例外，其余场馆按 1 分钟默认或显式资源安全周期运行。
 - **主机侧订阅闭环**：本地 `zacks-api` 接收场地观测和 Web 请求；PostgreSQL `zacks` schema 保存用户、订阅、去重、Outbox、配额与投递状态。
 - **邮箱订阅推送**：`zacks-notification-worker` 负责订阅匹配、摘要合并、天气策略、标准/优先额度、Tencent SES 发送、退避重试和送达对账。
-- **微信群提醒**：Airflow 继续直接调用 Android 设备宿主上的 WeChat Sender；发送许可来自本地 PostgreSQL，不再依赖 Cloudflare D1。
-- **Cloudflare 边缘化**：Cloudflare Worker 只提供 React 静态资源和无状态 `/api/*` 代理；D1 仅在迁移后保留为只读回滚副本。
+- **微信群提醒**：场地任务只写入 PostgreSQL 投递队列；独立 `zacks-wechat-worker` 调用 Android Sender，设备端持久幂等记录避免重启后重复发送。
+- **Cloudflare 边缘化**：Cloudflare Worker 只提供 React 静态资源和无状态 `/api/*` 代理；D1 在迁移后解除运行时绑定，仅保留迁移存档，不作为兼容后端。
 - **故障隔离**：Cloudflare/D1 故障不停止已有订阅的邮件与微信；Redis 丢失不能丢失或重复通知；单个发送通道故障不污染另一通道。
 - **精确发布**：GitHub Actions 是唯一生产控制面，所有组件按完整 commit SHA 发布和验收。
 - **完整质量门禁**：`make verify` 覆盖 Ruff、mypy、Python 测试、Web/Worker 测试、浏览器回归、Compose、镜像和 Airflow DagBag 契约。
@@ -36,7 +36,7 @@ flowchart TB
         Worker["zacks-notification-worker"]
         PG[("PostgreSQL 17\nAirflow metadata + zacks schema")]
         Redis[("Redis\nCelery broker / 可丢失协调")]
-        WeChatClient["Airflow WeChat client"]
+        WeChatClient["zacks-wechat-worker"]
     end
 
     subgraph Edge["Cloudflare 边缘"]
@@ -59,7 +59,8 @@ flowchart TB
     API --> PG
     PG --> Worker
     Worker --> SES --> Mail
-    Airflow -->|"本地订阅门控"| WeChatClient --> Android --> Group
+    Airflow -->|"本地持久化微信意图"| API
+    PG --> WeChatClient --> Android --> Group
 
     Browser["手机 / 桌面浏览器"] --> Static
     Browser --> Proxy --> Tunnel --> API
@@ -69,12 +70,14 @@ flowchart TB
 
 1. **PostgreSQL 是唯一业务事实源。** 用户、订阅、场地状态、事件去重、邮件 Outbox、每日额度和投递结果都写入 `zacks` schema。
 2. **Redis 不是事实源。** Redis 仅用于 Celery broker 与可选缓存/唤醒；通知正确性不依赖 Redis 持久化。
-3. **只有一个邮件所有者。** 迁移期间 Cloudflare 继续发送；最终切换后只有主机 Worker 发送。双写观测不等于双重发送。
-4. **微信不依赖 Cloudflare。** Airflow 在本地查询场地是否存在有效订阅，再调用 Android Sender。
+3. **只有一个邮件所有者。** 首次切换先冻结旧端并导入核验，再由主机 Worker 独占投递；不保留双写或旧端回退。
+4. **微信不依赖 Cloudflare。** 独立微信 Worker 根据 PostgreSQL 中的订阅与实时空场决定是否投递，场地 DAG 不等待设备发送。
 5. **Cloudflare 只做边缘。** 静态资源、TLS/WAF、无状态 API 转发和 Tunnel；不查询 D1、不运行通知 Cron、不持有通知决策。
-6. **迁移可回滚。** 初次切换采用影子部署、加密密钥转移、初始导入、自然双写、旧端冻结、最终增量导入和自动回滚；不删除 D1 数据。
+6. **失败后安全暂停、向前修复。** 首次切换采用业务维护窗口、加密密钥转移、批量导入和逐表核验；激活后不再导入 D1，不自动恢复旧方案，不删除原业务数据。
 
-更多细节见 [ARCHITECTURE.md](./ARCHITECTURE.md) 和 [ADR 0012](./docs/adr/0012-airflow-host-notification-core.md)。
+当前生产状态须以受保护工作流的精确提交验收报告为准，不能仅凭本页判断迁移已完成。验收包括 26 场馆三次自然巡检、生产事务回滚式订阅测试，以及真实自然邮件与微信投递记录。
+
+更多细节见 [ARCHITECTURE.md](./ARCHITECTURE.md) 和 [ADR 0013](./docs/adr/0013-host-core-only-reliable-delivery.md)。
 
 ## 🧱 技术栈
 
@@ -140,6 +143,7 @@ airflow-worker
 airflow-triggerer
 zacks-api
 zacks-notification-worker
+zacks-wechat-worker
 ```
 
 初次生产切换必须使用受保护的 `Production Host Core` 工作流和

@@ -30,6 +30,8 @@ sender = [
   "uvicorn==0.51.0",
 ]
 dev = [
+  "psycopg2-binary==2.9.10",
+  "types-PyYAML==6.0.12.20260815",
   "httpx==0.28.1",
   "mypy==1.17.1",
   "pre-commit==4.6.2",

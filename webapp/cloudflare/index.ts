@@ -86,7 +86,8 @@ type WorkerSecrets = {
   INVITE_ADMIN_TOKEN: string;
 };
 
-type WorkerEnv = Env & WorkerSecrets;
+// Archived migration reference types; this module is NOT a production entrypoint.
+type WorkerEnv = Env & WorkerSecrets & {DB: D1Database; ASSETS: Fetcher; TENCENT_REGION: string};
 
 type Identity = {
   email: string;

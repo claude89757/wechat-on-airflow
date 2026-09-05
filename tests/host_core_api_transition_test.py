@@ -41,35 +41,7 @@ def local_result() -> dict[str, object]:
     }
 
 
-def test_dual_mode_persists_locally_but_uses_fresh_legacy_gate() -> None:
-    legacy = {
-        "success": True,
-        "wechatGate": {
-            "allowed": True,
-            "evaluatedAt": "2026-09-03T00:00:00Z",
-            "validUntil": "2026-09-03T00:10:00Z",
-            "revision": 2,
-        },
-    }
-    with (
-        patch.object(
-            api,
-            "_settings",
-            return_value=settings(
-                observation_mode="dual", owner="cloudflare", gate_source="legacy"
-            ),
-        ),
-        patch.object(api, "ingest_observation", return_value=local_result()) as local,
-        patch.object(api, "_forward_legacy_observation", return_value=legacy) as forward,
-    ):
-        result = api.internal_observation({"venue_id": "tops"})
-    local.assert_called_once()
-    forward.assert_called_once()
-    assert result["legacyForwarded"] is True
-    assert result["wechatGate"] == legacy["wechatGate"]
-
-
-def test_host_mode_never_calls_cloudflare_and_returns_host_gate() -> None:
+def test_host_mode_persists_and_never_calls_remote_network():
     with (
         patch.object(
             api,
@@ -78,32 +50,40 @@ def test_host_mode_never_calls_cloudflare_and_returns_host_gate() -> None:
                 observation_mode="host", owner="airflow_host", gate_source="host"
             ),
         ),
-        patch.object(api, "ingest_observation", return_value=local_result()),
-        patch.object(api, "_forward_legacy_observation") as forward,
+        patch.object(api, "ingest_observation", return_value=local_result()) as ingest,
+        patch(
+            "wechat_airflow.host_core.control.runtime_state",
+            return_value={"delivery_enabled": True},
+        ),
+        patch.object(
+            api.requests, "post", side_effect=AssertionError("Cloudflare forbidden")
+        ) as remote,
     ):
         result = api.internal_observation({"venue_id": "tops"})
-    forward.assert_not_called()
-    assert result["legacyForwarded"] is False
-    gate = result["wechatGate"]
-    assert isinstance(gate, dict)
-    assert gate["source"] == "airflow-host"
+    ingest.assert_called_once_with({"venue_id": "tops"})
+    remote.assert_not_called()
+    assert result["wechatGate"]["source"] == "airflow-host"
 
 
-def test_pre_migration_legacy_failure_fails_open_for_wechat_only() -> None:
+def test_paused_owner_cannot_allow_legacy_cached_gate():
+    value = local_result()
+    value["wechatGate"]["allowed"] = True
     with (
         patch.object(
             api,
             "_settings",
-            return_value=settings(
-                observation_mode="dual", owner="cloudflare", gate_source="legacy"
-            ),
+            return_value=settings(observation_mode="host", owner="paused", gate_source="host"),
         ),
-        patch.object(api, "ingest_observation", return_value=local_result()),
-        patch.object(api, "_forward_legacy_observation", return_value=None),
-        patch.object(api, "_migration_ready", return_value=False),
+        patch.object(api, "ingest_observation", return_value=value),
+        patch(
+            "wechat_airflow.host_core.control.runtime_state",
+            return_value={"delivery_enabled": False},
+        ),
+        patch.object(api.requests, "post", side_effect=AssertionError("legacy forbidden")),
     ):
         result = api.internal_observation({"venue_id": "tops"})
-    gate = result["wechatGate"]
-    assert isinstance(gate, dict)
-    assert gate["allowed"] is True
-    assert gate["source"] == "migration-fail-open"
+    assert result["wechatGate"]["allowed"] is False
+
+
+def test_legacy_forwarding_is_not_in_the_runtime():
+    assert not hasattr(api, "_forward_legacy_observation")
