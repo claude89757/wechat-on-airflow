@@ -91,7 +91,9 @@ test("BottomSheet remains mounted while its default exit animation plays", async
   await page.locator(".sheet-trigger").click();
   await expect(page.getByTestId("bottom-sheet")).toBeVisible();
 
-  await page.getByTestId("sheet-overlay").click({ position: { x: 8, y: 8 } });
+  // The device screen clips its top corners with a 42px radius. (8, 8)
+  // is outside the hit-testable screen, not an actual backdrop dismissal.
+  await page.getByTestId("sheet-overlay").click({ position: { x: 60, y: 100 } });
   await expect(page.getByTestId("bottom-sheet")).toHaveCount(1);
   await page.waitForTimeout(500);
   await expect(page.getByTestId("bottom-sheet")).toHaveCount(0);

@@ -9,6 +9,8 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${testPort}`,
     viewport: { width: 1100, height: 1100 },
+    screenshot: "only-on-failure",
+    trace: "retain-on-failure",
   },
   webServer: {
     command: `npm run dev -- --port ${testPort}`,

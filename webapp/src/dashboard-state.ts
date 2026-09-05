@@ -16,6 +16,7 @@ export function resolveVenueDisplayState(
   availability: DashboardAvailability,
   healthy: boolean,
 ): VenueDisplayState {
-  if (availability === "loading" || availability === "unknown") return "unknown";
+  // A cached snapshot is useful history, not proof of current venue health.
+  if (availability !== "ready") return "unknown";
   return healthy ? "healthy" : "unhealthy";
 }

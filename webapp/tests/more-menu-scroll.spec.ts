@@ -81,13 +81,14 @@ test.describe("desktop workspace presentation", () => {
     const createCard = await page.locator(".create-card").boundingBox();
     expect(venueSection).not.toBeNull();
     expect(createCard).not.toBeNull();
-    expect((venueSection?.x ?? 0) + (venueSection?.width ?? 0)).toBeLessThan(createCard?.x ?? 0);
+    expect((createCard?.x ?? 0) + (createCard?.width ?? 0)).toBeLessThan(venueSection?.x ?? 0);
+    expect(venueSection!.width).toBeGreaterThan(createCard!.width * 2);
     expect(Math.abs((venueSection?.y ?? 0) - (createCard?.y ?? 0))).toBeLessThan(4);
     await expect(page.locator(".create-card")).toHaveCSS("position", "sticky");
 
     const venueCards = page.locator(".venue-card");
     expect(await venueCards.count()).toBeGreaterThan(4);
-    const firstRow = await Promise.all([0, 1, 2, 3].map((index) => venueCards.nth(index).boundingBox()));
+    const firstRow = await Promise.all([0, 1, 2].map((index) => venueCards.nth(index).boundingBox()));
     expect(firstRow.every((box) => (box?.width ?? 0) > 205)).toBe(true);
     expect(Math.max(...firstRow.map((box) => box?.y ?? 0)) - Math.min(...firstRow.map((box) => box?.y ?? 0))).toBeLessThan(2);
 

@@ -1,25 +1,17 @@
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import "./court-studio.css";
+import { CourtStudio, StudioMobileNav } from "./CourtStudio";
 import {
-  ArrowsClockwiseIcon,
   BuildingApartmentIcon,
   BuildingsIcon,
-  CalendarDotsIcon,
   CheckCircleIcon,
-  ClockIcon,
   CourtBasketballIcon,
-  DotsThreeIcon,
   EnvelopeSimpleIcon,
-  GithubLogoIcon,
-  ListBulletsIcon,
   MapPinIcon,
-  PlusCircleIcon,
-  QuestionIcon,
   ShieldCheckIcon,
   StarIcon,
   KeyIcon,
   TennisBallIcon,
   TrashIcon,
-  UsersThreeIcon,
   WavesIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,12 +36,11 @@ import {
   type Weekday,
   verifyEmail,
 } from "./api";
-import { resolveDashboardAvailability, resolveVenueDisplayState } from "./dashboard-state";
-import { LULU_LABELS, resolveLuluState } from "./lulu";
+import { resolveDashboardAvailability } from "./dashboard-state";
+import { resolveLuluState } from "./lulu";
 import { AdminPanel, CommunityPanel } from "./OperationsPanel";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
 import { isTextEntry, useNativeKeyboardViewport } from "./nativeKeyboard";
-import { formatInspectionCadence } from "./venue-inspection-display";
 
 type Panel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | "coffee" | null;
 
@@ -57,7 +48,6 @@ type CoffeeInviteSession = Awaited<ReturnType<typeof startCoffeeInviteSession>>;
 type CoffeeInviteReward = Awaited<ReturnType<typeof claimCoffeeInvite>>;
 
 const COFFEE_REVEAL_DELAY_MS = 5_000;
-const GITHUB_REPOSITORY_URL = "https://github.com/claude89757/wechat-on-airflow";
 
 const WEEKDAY_LABELS: Record<Weekday, string> = {
   1: "星期一",
@@ -198,48 +188,6 @@ function SubscriptionCelebration({ celebrationId }: { celebrationId: number }) {
   );
 }
 
-function formatClock(value: string | null): string {
-  if (!value) return "暂无发送";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "暂无发送";
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Shanghai",
-  }).format(date);
-}
-
-function formatRelative(value: string | null): string {
-  if (!value) return "暂无状态记录";
-  const then = new Date(value).getTime();
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 60) return `${Math.max(seconds, 1)} 秒前`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
-  return `${Math.floor(seconds / 3600)} 小时前`;
-}
-
-function formatCompactRelative(value: string | null): string {
-  if (!value) return "暂无";
-  const then = new Date(value).getTime();
-  if (Number.isNaN(then)) return "暂无";
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 60) return `${Math.max(seconds, 1)}秒前`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟前`;
-  return `${Math.floor(seconds / 3600)}小时前`;
-}
-
-function formatCardNotification(
-  value: string | null,
-  venueState: "healthy" | "unhealthy" | "unknown",
-  weatherSuppressed: boolean,
-): string {
-  if (venueState === "unknown") return "状态未知";
-  if (value) return formatClock(value);
-  if (weatherSuppressed) return "邮件暂停";
-  return "今日无送达";
-}
-
 function sameSelection(
   left: readonly (string | number)[],
   right: readonly (string | number)[],
@@ -284,28 +232,6 @@ function waitForImagePaint(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
   });
-}
-
-function Metric({
-  icon,
-  value,
-  label,
-  tone,
-}: {
-  icon: React.ReactNode;
-  value: string | number;
-  label: string;
-  tone: "teal" | "blue" | "green";
-}) {
-  return (
-    <div className={`metric metric-${tone}`}>
-      <div className="metric-icon" aria-hidden="true">
-        {icon}
-      </div>
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
-  );
 }
 
 export default function Prototype() {
@@ -487,16 +413,6 @@ export default function Prototype() {
     ? popularVenues.find((venue) => venue.id === quickVenueId) ?? null
     : null, [popularVenues, quickVenueId]);
   const QuickVenueIcon = quickVenue ? VENUE_ICONS[quickVenue.id] : TennisBallIcon;
-  const activeVenueSubscriptionCounts = useMemo(() => {
-    const counts = new Map<VenueId, number>();
-    for (const subscription of dashboard.subscriptions) {
-      if (!subscription.active || !subscription.eligible) continue;
-      for (const venueId of subscription.venueIds) {
-        counts.set(venueId, (counts.get(venueId) ?? 0) + 1);
-      }
-    }
-    return counts;
-  }, [dashboard.subscriptions]);
   const quickVenueSubscriptions = useMemo(() => quickVenue
     ? dashboard.subscriptions.filter((subscription) =>
         subscription.active
@@ -555,10 +471,8 @@ export default function Prototype() {
       : `数据生成于 ${formatUpdatedAt(dashboard.generatedAt)} · 点击右侧按钮手动刷新`
     : loading ? "正在获取最新数据"
       : storeUnavailable
-        ? "Airflow 后台巡检仍独立运行；Cloudflare D1 免费额度每天 00:00 UTC 自动重置"
+        ? "后台巡检与页面独立运行；暂时无法读取最新状态，请稍后重试"
         : "请求暂时失败，请稍后点击刷新";
-  const quotaPercent = dashboard.identity.dailyLimit > 0
-    ? Math.min(100, Math.round(dashboard.identity.remindersToday / dashboard.identity.dailyLimit * 100)) : 0;
   const luluState = resolveLuluState({
     serviceOnline: serviceOnline && hasSuccessfulDashboard,
     healthyVenues: dashboard.metrics.healthyVenues,
@@ -688,6 +602,7 @@ export default function Prototype() {
   };
 
   const sendCode = async () => {
+    if (formBusy) return;
     setFormBusy(true);
     setFormError("");
     try {
@@ -702,6 +617,7 @@ export default function Prototype() {
   };
 
   const confirmCode = async () => {
+    if (formBusy) return;
     setFormBusy(true);
     setFormError("");
     try {
@@ -863,325 +779,23 @@ export default function Prototype() {
   return (
     <>
       <MobileScroll className="app-screen">
-        <main className="dashboard-screen" aria-label="Zacks 网球提醒">
-          <header className="product-header">
-            <div className="brand-lockup">
-              <span className="brand-mark" aria-hidden="true">
-                <TennisBallIcon weight="fill" size={30} />
-              </span>
-              <div>
-                <h1>Zacks 网球提醒</h1>
-                <p>未来有位，邮件通知你</p>
-              </div>
-            </div>
-            <div className="header-actions">
-              <button
-                className="coffee-button"
-                type="button"
-                aria-label="支持 Zacks，请作者喝咖啡"
-                title="支持 Zacks"
-                onClick={() => openPanel("coffee")}
-              >
-                <span aria-hidden="true">☕</span>
-                <span>支持 Zacks</span>
-              </button>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button
-                    className="more-button"
-                    type="button"
-                    aria-label="更多功能"
-                  >
-                    <DotsThreeIcon size={22} weight="bold" aria-hidden="true" />
-                    <span>更多</span>
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="more-menu"
-                    align="end"
-                    sideOffset={8}
-                    collisionPadding={12}
-                  >
-                    <DropdownMenu.Label className="more-menu-label">更多功能</DropdownMenu.Label>
-                    <DropdownMenu.Item
-                      className="more-menu-item"
-                      onSelect={() => openPanel("subscriptions")}
-                    >
-                      <ListBulletsIcon size={20} weight="bold" aria-hidden="true" />
-                      <span>我的订阅</span>
-                    </DropdownMenu.Item>
-                    {receipt ? (
-                      <DropdownMenu.Item
-                        className="more-menu-item"
-                        onSelect={() => openPanel("community")}
-                      >
-                        <UsersThreeIcon size={20} weight="bold" aria-hidden="true" />
-                        <span>用户社区</span>
-                      </DropdownMenu.Item>
-                    ) : null}
-                    {receipt && dashboard.identity.isAdmin ? (
-                      <DropdownMenu.Item
-                        className="more-menu-item"
-                        onSelect={() => openPanel("admin")}
-                      >
-                        <ShieldCheckIcon size={20} weight="bold" aria-hidden="true" />
-                        <span>管理后台</span>
-                      </DropdownMenu.Item>
-                    ) : null}
-                    <DropdownMenu.Item
-                      className="more-menu-item"
-                      onSelect={() => openPanel("help")}
-                    >
-                      <QuestionIcon size={20} weight="bold" aria-hidden="true" />
-                      <span>查看帮助</span>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Separator className="more-menu-separator" />
-                    <DropdownMenu.Item className="more-menu-item" asChild>
-                      <a
-                        href={GITHUB_REPOSITORY_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <GithubLogoIcon size={20} weight="bold" aria-hidden="true" />
-                        <span>项目开源地址</span>
-                      </a>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Arrow className="more-menu-arrow" />
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </div>
-          </header>
-
-          <div className={`service-line service-${availability}`} aria-live="polite">
-            <span className={`live-dot ${availability === "ready" ? "" : availability}`} aria-hidden="true" />
-            <strong>{statusLabel}</strong>
-            <span>{statusDetail}</span>
-            <button
-              type="button"
-              aria-label="获取最新状态"
-              title="获取最新状态"
-              onClick={() => void refresh(true)}
-              disabled={loading}
-            >
-              <ArrowsClockwiseIcon className={loading ? "is-spinning" : ""} size={18} />
-            </button>
-          </div>
-
-          {dashboard.weatherEmailGate?.suppressed ? (
-            <div className="weather-notice" role="status">
-              <span aria-hidden="true">🌧️</span>
-              <div>
-                <strong>深圳今日预计大雨，普通用户邮件已暂停</strong>
-                <p>
-                  预计降水 {dashboard.weatherEmailGate.precipitationMm ?? "—"} mm，
-                  达到 {dashboard.weatherEmailGate.thresholdMm} mm 阈值；优先用户和微信通知不受影响。
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          <section
-            className="metric-band"
-            aria-label={activeIdentity ? "我的提醒与全站运行概况" : "全站运行概况"}
-          >
-            <Metric
-              icon={<UsersThreeIcon size={25} weight="fill" />}
-              value={hasSuccessfulDashboard
-                ? activeIdentity
-                  ? dashboard.identity.activeSubscriptionCount
-                  : dashboard.metrics.activeSubscriptions
-                : "—"}
-              label={activeIdentity ? "我的有效订阅" : "全站有效订阅"}
-              tone="teal"
-            />
-            <Metric
-              icon={<EnvelopeSimpleIcon size={25} weight="fill" />}
-              value={hasSuccessfulDashboard
-                ? activeIdentity
-                  ? dashboard.identity.deliveredToday
-                  : dashboard.metrics.remindersToday
-                : "—"}
-              label={activeIdentity ? "我的今日送达" : "全站今日提醒"}
-              tone="blue"
-            />
-            <Metric
-              icon={<ShieldCheckIcon size={27} weight="fill" />}
-              value={hasSuccessfulDashboard
-                ? `${dashboard.metrics.healthyVenues}/${dashboard.metrics.totalVenues}`
-                : `—/${dashboard.metrics.totalVenues}`}
-              label="全站最近上报正常"
-              tone="green"
-            />
-          </section>
-
-          <section className="create-card" aria-labelledby="create-card-title">
-            <div className="create-card-main">
-              <div
-                className="lulu-stage"
-                data-lulu-state={luluState}
-                aria-label={LULU_LABELS[luluState]}
-                title={LULU_LABELS[luluState]}
-              >
-                <img
-                  key={luluState}
-                  className="lulu-sprite"
-                  data-testid="lulu-sprite"
-                  src="/assets/lulu-sprite.webp"
-                  alt=""
-                  aria-hidden="true"
-                  decoding="async"
-                  draggable={false}
-                />
-              </div>
-              <div className="create-copy">
-                <h2 id="create-card-title">新建订阅</h2>
-                <div className="feature-line">
-                  <span><MapPinIcon size={18} weight="bold" />选择场地</span>
-                  <i aria-hidden="true">·</i>
-                  <span><CalendarDotsIcon size={18} weight="bold" />指定星期</span>
-                  <i aria-hidden="true">·</i>
-                  <span><ClockIcon size={18} weight="bold" />提醒时段</span>
-                  <i aria-hidden="true">·</i>
-                  <span><ShieldCheckIcon size={18} weight="bold" />
-                    {dashboard.identity.tier === "priority" ? "支持长期" : "7–14天"}
-                  </span>
-                </div>
-                <p>有匹配的未来场地位，系统才会发邮件。</p>
-              </div>
-            </div>
-
-            <div className="identity-row">
-              <span className={activeIdentity ? "identity-ok" : "identity-pending"}>
-                <CheckCircleIcon size={21} weight="fill" />
-                {activeIdentity ? `${activeIdentity} 已验证 · 本机记住` : "验证邮箱后即可创建"}
-              </span>
-              {activeIdentity ? (
-                <button type="button" onClick={changeEmail}>
-                  更换邮箱
-                </button>
-              ) : null}
-            </div>
-
-            {activeIdentity && hasSuccessfulDashboard ? (
-              <>
-                <div className={`tier-row tier-${dashboard.identity.tier}`}>
-                  <span className="tier-summary"><StarIcon size={20} weight="fill" /><span>
-                    <strong>{dashboard.identity.tier === "priority" ? "优先用户" : "普通用户"}</strong>
-                    <small>同时可保留 {dashboard.identity.activeSubscriptionLimit} 个有效订阅</small>
-                  </span></span>
-                  <button type="button" className={dashboard.identity.tier === "priority" ? "tier-enabled" : undefined}
-                    onClick={() => openPanel("priority")}>
-                    {dashboard.identity.tier === "priority" ? "查看规则" : "输入邀请码"}
-                  </button>
-                </div>
-                <div className="quota-card" aria-label="今日邮件额度">
-                  <div><span>今日邮件额度</span><strong>还可接收 {dashboard.identity.remainingToday} 封</strong></div>
-                  <p>每天最多 {dashboard.identity.dailyLimit} 封 · 已提交 {dashboard.identity.submittedToday} 封 · 确认送达 {dashboard.identity.deliveredToday} 封 · 发送失败 {dashboard.identity.failedToday} 封</p>
-                  <span className="quota-track" aria-hidden="true"><i style={{ width: `${quotaPercent}%` }} /></span>
-                </div>
-              </>
-            ) : null}
-
-            <button className="primary-button" type="button" onClick={() => openCreatePanel()}>
-              <PlusCircleIcon size={24} weight="bold" />
-              创建订阅
-            </button>
-          </section>
-
-          <section className="venue-section" aria-labelledby="venue-heading">
-            <div className="section-heading">
-              <div>
-                <h2 id="venue-heading">场地运行状态</h2>
-                <p>点按卡片快速创建提醒 · 页面数据由用户手动刷新</p>
-              </div>
-              <span><ArrowsClockwiseIcon size={17} />点击顶部按钮获取最新数据</span>
-            </div>
-
-            <div className="venue-card-legend" aria-label="卡片指标说明">
-              <span><i className="venue-status-dot healthy" aria-hidden="true" />最近上报</span>
-              <span><ArrowsClockwiseIcon size={14} aria-hidden="true" />记录时间</span>
-              <span><UsersThreeIcon size={14} aria-hidden="true" />关注</span>
-              <span><EnvelopeSimpleIcon size={14} aria-hidden="true" />送达</span>
-            </div>
-
-            <div className="venue-grid">
-              {popularVenues.map((venue) => {
-                const VenueIcon = VENUE_ICONS[venue.id];
-                const venueState = resolveVenueDisplayState(availability, venue.healthy);
-                const inspectionCadence = formatInspectionCadence(venue.id);
-                const compactCadence = inspectionCadence.replace("/次", "");
-                const compactRelative = formatCompactRelative(venue.lastInspectionAt);
-                const existingSubscriptionCount = activeVenueSubscriptionCounts.get(venue.id) ?? 0;
-                const actionState = existingSubscriptionCount > 0
-                  ? "subscribed"
-                  : subscriptionLimitReached ? "full" : "add";
-                const actionLabel = existingSubscriptionCount > 0
-                  ? `✓${existingSubscriptionCount}`
-                  : subscriptionLimitReached ? "已满" : "+";
-                const statusText = venueState === "unknown"
-                  ? availability === "loading" ? "读取中" : "未知"
-                  : venueState === "healthy" ? "正常" : "异常";
-                const mailText = formatCardNotification(
-                  venue.lastNotificationAt,
-                  venueState,
-                  Boolean(dashboard.weatherEmailGate?.suppressed),
-                );
-                const mailTone = venue.lastNotificationAt
-                  ? ""
-                  : dashboard.weatherEmailGate?.suppressed ? "is-paused" : "is-muted";
-
-                return (
-                  <button
-                    className={[
-                      "venue-card",
-                      `venue-card-${venueState}`,
-                      existingSubscriptionCount > 0 ? "is-subscribed" : "",
-                      highlightedVenueId === venue.id ? "is-highlighted" : "",
-                    ].filter(Boolean).join(" ")}
-                    type="button"
-                    key={venue.id}
-                    data-testid={`venue-card-${venue.id}`}
-                    data-venue-id={venue.id}
-                    aria-label={`为${venue.name}快速创建提醒；最近上报${statusText}，后台${inspectionCadence}，记录于${compactRelative}，${venue.subscriberCount}人关注，${mailText}`}
-                    onClick={() => openCreatePanel(venue.id)}
-                  >
-                    <span className="venue-card-heading">
-                      <span className={`venue-card-icon venue-icon-${VENUE_ACCENTS[venue.id]}`} aria-hidden="true">
-                        <VenueIcon size={17} weight="duotone" />
-                      </span>
-                      <span className="venue-card-name">{venue.name}</span>
-                      <span className={`venue-card-action is-${actionState}`} aria-hidden="true">
-                        {actionLabel}
-                      </span>
-                    </span>
-
-                    <span className="venue-card-status">
-                      <i className={`venue-status-dot ${venueState}`} aria-hidden="true" />
-                      <strong>{statusText}</strong>
-                      <small>{compactCadence}</small>
-                    </span>
-
-                    <span className="venue-card-meta">
-                      <span><ArrowsClockwiseIcon size={13} aria-hidden="true" />{compactRelative}</span>
-                      <span className="venue-card-followers">
-                        <UsersThreeIcon size={13} aria-hidden="true" />{venue.subscriberCount}
-                      </span>
-                    </span>
-
-                    <span className={`venue-card-mail ${mailTone}`.trim()}>
-                      <EnvelopeSimpleIcon size={13} weight="fill" aria-hidden="true" />
-                      {mailText}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-        </main>
+        <CourtStudio
+          dashboard={dashboard}
+          availability={availability}
+          hasData={hasSuccessfulDashboard}
+          loading={loading}
+          activeIdentity={activeIdentity}
+          luluState={luluState}
+          statusLabel={statusLabel}
+          statusDetail={statusDetail}
+          highlightedVenueId={highlightedVenueId}
+          onCreate={openCreatePanel}
+          onPanel={openPanel}
+          onRefresh={() => void refresh(true)}
+          onChangeEmail={changeEmail}
+        />
       </MobileScroll>
+      {panel === null ? <StudioMobileNav onCreate={openCreatePanel} onPanel={openPanel} /> : null}
 
       <BottomSheet
         open={panel !== null}
@@ -1289,7 +903,7 @@ export default function Prototype() {
               <div>
                 <strong>后台巡检与页面刷新分开</strong>
                 <p>
-                  场地仍按 15 秒、1 分钟或 3 分钟在后台持续巡检；页面不再自动请求数据，只有首次打开、创建或取消订阅等操作，以及点击顶部刷新按钮时才读取最新状态。卡片时间表示最近一次状态变化上报，真实空位或故障变化仍会立即进入通知链路。
+                  后台按各场地的巡检频率持续检查。关闭网页不影响提醒；页面仅在首次打开、创建或取消订阅、手动刷新时读取数据。卡片显示最近一次巡检上报，不代表当前有空位。
                 </p>
               </div>
             </div>
@@ -1516,7 +1130,7 @@ export default function Prototype() {
               )}
 
               <fieldset aria-describedby="weekday-help">
-                <legend>指定巡检星期 <span>至少选择一天</span></legend>
+                <legend>选择打球星期 <span>至少选择一天</span></legend>
                 <div className="weekday-presets" aria-label="星期快捷选择">
                   {WEEKDAY_PRESETS.map((preset) => {
                     const selected = preset.weekdays.length === weekdays.length
@@ -1557,7 +1171,18 @@ export default function Prototype() {
               </fieldset>
 
               <fieldset>
-                <legend>希望收到提醒的时间段</legend>
+                <legend>希望打球的时间段</legend>
+                <div className="studio-time-presets" role="group" aria-label="打球时段快捷选择">
+                  {[
+                    { label: "清晨", start: "06:00", end: "09:00" },
+                    { label: "午后", start: "12:00", end: "18:00" },
+                    { label: "下班后", start: "18:00", end: "22:00" },
+                  ].map(preset => <button type="button" key={preset.label}
+                    aria-pressed={startTime === preset.start && endTime === preset.end}
+                    onClick={() => { setStartTime(preset.start); setEndTime(preset.end); setFormError(""); }}>
+                    {preset.label}<small>{preset.start}–{preset.end}</small>
+                  </button>)}
+                </div>
                 <div className="time-range">
                   <label>
                     <span>开始</span>
@@ -1658,7 +1283,7 @@ export default function Prototype() {
                   autoComplete="email"
                   placeholder="name@example.com"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => { setEmail(event.target.value); setChallengeId(""); setCode(""); setFormError(""); }}
                 />
               </label>
 

@@ -36,8 +36,11 @@ def test_dashboard_refresh_is_user_driven_and_health_is_last_known() -> None:
     worker = (ROOT / "webapp/cloudflare/index.ts").read_text(encoding="utf-8")
 
     assert "window.setInterval(() => void refresh()" not in prototype
-    assert "onClick={() => void refresh(true)}" in prototype
-    assert 'aria-label="获取最新状态"' in prototype
+    assert "onRefresh={() => void refresh(true)}" in prototype
+    studio = (ROOT / "webapp/src/CourtStudio.tsx").read_text(encoding="utf-8")
+    assert 'aria-label="获取最新状态"' in studio
+    assert "onClick={onRefresh}" in studio
+    assert "setInterval" not in studio
     assert "后台巡检与页面刷新分开" in prototype
     assert 'const requestPath = options.force ? "/api/bootstrap?refresh=1"' in api
     assert "INSPECTION_FRESHNESS_MS" not in worker

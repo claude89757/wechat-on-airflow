@@ -24,10 +24,12 @@ def test_web_labels_last_report_and_manual_refresh_without_adding_an_api_path() 
     prototype = (ROOT / "webapp/src/Prototype.tsx").read_text()
     helper = (ROOT / "webapp/src/venue-inspection-display.ts").read_text()
 
-    assert 'from "./venue-inspection-display"' in prototype
-    assert "记录于${compactRelative}" in prototype
+    studio = (ROOT / "webapp/src/CourtStudio.tsx").read_text()
+    assert 'from "./venue-inspection-display"' in studio
+    assert "记录于${relativeTime(venue.lastInspectionAt)}" in studio
     assert "后台巡检与页面刷新分开" in prototype
-    assert "页面数据由用户手动刷新" in prototype
+    assert "手动刷新时读取数据" in prototype
+    assert "巡检正常 ≠ 当前有位" in studio
     assert "页面每 30 秒更新" not in prototype
     assert "fetch(" not in helper
     assert "/api/" not in helper
