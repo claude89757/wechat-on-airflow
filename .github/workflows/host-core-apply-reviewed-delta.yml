@@ -1,0 +1,69 @@
+name: Materialize verified Host Core source
+on:
+  push:
+    branches: [fix/host-core-hardening-20260905]
+    paths: [.github/workflows/host-core-apply-reviewed-delta.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Verify and materialize exact reviewed non-workflow sources
+        env:
+          BASE_COMMIT: eacd0b813889091382d76a43c146484fd1173881
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, lzma, os, pathlib, subprocess
+          root = pathlib.Path.cwd()
+          encoded = ''.join((root / '.host-core-transfer' / ('part%d.b64' % i)).read_text().strip() for i in range(4))
+          assert hashlib.sha256(encoded.encode()).hexdigest() == 'f346c799e934574b86e2309c970dab1742935c2c34a95c8f0ebe8f3e9c0585c1', 'transport checksum mismatch'
+          raw = lzma.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(raw).hexdigest() == 'cca737be45118f98ae3f2504ed797dea83d8175385ddf2f33dd9137cc6fdaf17', 'delta checksum mismatch'
+          delta = json.loads(raw)
+          assert len(delta) == 67
+          results = {}
+          manifest = {}
+          for name, operations in delta:
+              path = pathlib.PurePosixPath(name)
+              assert not path.is_absolute() and '..' not in path.parts
+              assert path.parts[0] not in {'.git', '.github', '.host-core-transfer'}
+              target = root / name
+              assert not target.is_symlink()
+              base = subprocess.run(['git', 'show', os.environ['BASE_COMMIT'] + ':' + name], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+              original = base.stdout if base.returncode == 0 else b''
+              assert (target.read_bytes() if target.exists() else b'') == original, 'source drift: ' + name
+              if operations is None:
+                  results[name] = None
+                  manifest[name] = None
+                  continue
+              lines = original.decode('utf-8').splitlines(True)
+              content = ''.join(''.join(lines[op[0]:op[1]]) if isinstance(op, list) else op for op in operations).encode('utf-8')
+              results[name] = content
+              manifest[name] = hashlib.sha256(content).hexdigest()
+          digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+          assert digest == '76e1bf2335d7b3e542bf81b859a5ac8b603293d11e9957dc04eaa51c0f580532', 'destination source checksum mismatch'
+          for name, content in results.items():
+              target = root / name
+              if content is None:
+                  target.unlink()
+              else:
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(content)
+              subprocess.run(['git', 'add', '--', name], check=True)
+          os.chmod(root / 'scripts/host_core_release.sh', 0o755)
+          subprocess.run(['git', 'add', '--', 'scripts/host_core_release.sh'], check=True)
+          print(json.dumps({'files': len(manifest), 'verifiedSourceManifestSha256': digest, 'productionAccess': False}))
+          PY
+          git rm -r .host-core-transfer
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          test "$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)" = "$GITHUB_SHA"
+          git commit -m 'feat: harden Host Core as the sole subscription and notification runtime'
+          git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
