@@ -1,0 +1,25 @@
+name: Court Studio source review
+on:
+  push:
+    branches: [review/court-studio-export-20260906]
+    paths: [.github/workflows/court-studio-review-export.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f81d55c9850db6188730496af63a696fc841961b
+          persist-credentials: false
+      - name: Archive only tracked candidate source
+        run: |
+          test "$(git rev-parse HEAD)" = f81d55c9850db6188730496af63a696fc841961b
+          git archive --format=tar HEAD | gzip > /tmp/court-studio-source.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: court-studio-source-f81d55c9850db6188730496af63a696fc841961b
+          path: /tmp/court-studio-source.tar.gz
+          retention-days: 3
