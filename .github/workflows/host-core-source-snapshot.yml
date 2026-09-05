@@ -17,20 +17,22 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
-      - name: Package isolated test runtime without production access
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+      - name: Package isolated verification dependencies
         run: |
           set -euo pipefail
           mkdir -p /tmp/host-tools
-          python -m pip download --dest /tmp/host-tools --only-binary=:all: psycopg2-binary==2.9.10
-          docker pull postgres:17-bookworm
-          docker run --rm --entrypoint sh postgres:17-bookworm -c 'tar -czf - /usr/lib/postgresql/17 /usr/share/postgresql/17 /usr/lib/x86_64-linux-gnu/libicu* /usr/lib/x86_64-linux-gnu/libldap* /usr/lib/x86_64-linux-gnu/liblber* /usr/lib/x86_64-linux-gnu/libssl.so* /usr/lib/x86_64-linux-gnu/libcrypto.so*' > /tmp/host-postgres.tar.gz
-          docker image inspect postgres:17-bookworm --format '{{join .RepoDigests "\n"}}' > /tmp/host-postgres.sha
+          python -m pip download --dest /tmp/host-tools --only-binary=:all: paramiko==3.5.1 types-PyYAML
+          cd webapp
+          npm ci
+          tar -czf /tmp/host-web-tools.tar.gz node_modules
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: host-core-postgres-runtime
+          name: host-core-web-runtime
           path: |
-            /tmp/host-postgres.tar.gz
-            /tmp/host-postgres.sha
+            /tmp/host-web-tools.tar.gz
             /tmp/host-tools
           retention-days: 2
           if-no-files-found: error
