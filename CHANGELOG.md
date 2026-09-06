@@ -5,6 +5,25 @@ and operational changes.
 
 ## Unreleased
 
+## [0.8.1] - 2026-09-06
+
+### Fixed
+
+- Canonicalize contiguous Dashah International (`dsh`) scraper cells into stable
+  maximal availability ranges before publishing them to Host Core. A poll that
+  reports `21:00-21:30` plus `21:30-22:00` now has the same subscriber-email
+  event identity as a later poll that reports `21:00-22:00`, preventing the
+  duplicate reminder reproduced on 2026-09-06.
+- Use the same canonical availability shape for Web subscription observations
+  and the existing WeChat notification path, with regression coverage for the
+  split-half-hour versus merged-one-hour representation.
+
+### Operations
+
+- This is an Airflow-only patch. It does not change Web assets, Sender runtime,
+  polling cadence, PostgreSQL schema, subscription data, or provider credentials,
+  and release acceptance must not emit synthetic email or WeChat notifications.
+
 ## [0.8.0] - 2026-09-05
 
 ### Court Studio
@@ -336,7 +355,7 @@ and operational changes.
   Web health checks, and one release gate spanning Web, Airflow, and the sender.
 - Notify `Zacks_大沙河限定免费` for Dashah River free-court availability after
   the Web observation and WeChat dedupe cache are written.
-- Append venue booking mini-program links to WeChat availability alerts, at most
+- Append venue booking mini-program footers for WeChat availability alerts, at most
   once per chat and mini-program every two hours, with Shenzhen Bay and Greater
   Bay Area sharing the 未来荟 card.
 
