@@ -12,5 +12,8 @@
 .wechat-group-error { padding: 24px 12px; text-align: center; line-height: 1.7; }
 
 @media (min-width: 900px) {
-  .phone-frame.phone-frame-responsive .bottom-sheet:has(.wechat-group) { width: min(480px, calc(100vw - 48px)); }
+  html body .bottom-sheet:has(.wechat-group) {
+    left: max(24px, calc((100vw - 480px) / 2)) !important;
+    right: max(24px, calc((100vw - 480px) / 2)) !important;
+  }
 }
