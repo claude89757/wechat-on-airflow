@@ -134,7 +134,7 @@ def filter_court_data_for_notification(
 
     for court_name, free_slots in court_data.items():
         filtered_slots: list[list[str]] = []
-        for slot in free_slots:
+        for slot in merge_time_ranges(free_slots):
             start_time = datetime.datetime.strptime(slot[0], "%H:%M")
             duration_minutes = (
                 parse_end_time_for_duration(slot[1]) - start_time
