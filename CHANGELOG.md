@@ -5,6 +5,25 @@ and operational changes.
 
 ## Unreleased
 
+## [0.8.1] - 2026-09-06
+
+### Fixed
+
+- Canonicalize contiguous Dashah International (`dsh`) scraper cells into stable
+  maximal availability ranges before publishing them to Host Core. A poll that
+  reports `21:00-21:30` plus `21:30-22:00` now has the same subscriber-email
+  event identity as a later poll that reports `21:00-22:00`, preventing the
+  duplicate reminder reproduced on 2026-09-06.
+- Use the same canonical availability shape for Web subscription observations
+  and the existing WeChat notification path, with regression coverage for the
+  split-half-hour versus merged-one-hour representation.
+
+### Operations
+
+- This is an Airflow-only patch. It does not change Web assets, Sender runtime,
+  polling cadence, PostgreSQL schema, subscription data, or provider credentials,
+  and release acceptance must not emit synthetic email or WeChat notifications.
+
 ## [0.8.0] - 2026-09-05
 
 ### Court Studio

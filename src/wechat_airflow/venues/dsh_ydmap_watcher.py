@@ -90,6 +90,22 @@ def merge_time_ranges(data: list[list[str]]) -> list[list[str]]:
     ]
 
 
+def canonicalize_court_availability(court_data: CourtAvailability) -> CourtAvailability:
+    """Collapse scraper segmentation into stable maximal availability ranges.
+
+    The upstream mini-program may report one continuous hour as two adjacent
+    half-hour cells in one poll and as one one-hour range in the next. Publishing
+    those raw shapes would create different Host Core event identities for the
+    same availability and can produce duplicate subscriber email reminders.
+    """
+    canonical: CourtAvailability = {}
+    for court_name, free_slots in court_data.items():
+        merged = merge_time_ranges(free_slots)
+        if merged:
+            canonical[court_name] = merged
+    return canonical
+
+
 def parse_end_time_for_duration(end_time: str) -> datetime.datetime:
     if end_time == "24:00":
         return datetime.datetime.strptime("23:59", "%H:%M") + datetime.timedelta(minutes=1)
@@ -201,7 +217,8 @@ def run_check_tennis_courts() -> None:
         availability = parse_inspect_payload(payload)
         for offset in range(inspection_days):
             input_date = (now.date() + datetime.timedelta(days=offset)).isoformat()
-            court_data = availability.get(input_date, {})
+            raw_court_data = availability.get(input_date, {})
+            court_data = canonicalize_court_availability(raw_court_data)
             webapp_slots.extend(flatten_court_slots(input_date, court_data))
             print_court_data(input_date, court_data)
             up_for_send_data_list.extend(filter_court_data_for_notification(input_date, court_data))
