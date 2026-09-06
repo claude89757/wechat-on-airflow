@@ -58,6 +58,7 @@ class DshYdmapCanonicalizationTest(unittest.TestCase):
         self.assertEqual(dsh_watcher.canonicalize_court_availability(merged), merged)
 
     def test_run_publishes_same_host_core_slot_for_split_and_merged_shapes(self) -> None:
+        original_load = dsh_watcher._load_device_config
         original_fetch = dsh_watcher.fetch_inspect_payload
         original_publish = dsh_watcher.publish_venue_observation
         original_enqueue = dsh_watcher.enqueue_wechat_message
@@ -102,15 +103,16 @@ class DshYdmapCanonicalizationTest(unittest.TestCase):
             published.append(slots)
             return {"success": True}
 
+        dsh_watcher._load_device_config = lambda: object()
         dsh_watcher.fetch_inspect_payload = fake_fetch
         dsh_watcher.publish_venue_observation = fake_publish
         dsh_watcher.enqueue_wechat_message = lambda message: {"success": True}
         dsh_watcher.datetime = FixedDatetimeModule
         try:
             dsh_watcher.run_check_tennis_courts()
-            FakeVariable.values[dsh_watcher.CACHE_KEY] = []
             dsh_watcher.run_check_tennis_courts()
         finally:
+            dsh_watcher._load_device_config = original_load
             dsh_watcher.fetch_inspect_payload = original_fetch
             dsh_watcher.publish_venue_observation = original_publish
             dsh_watcher.enqueue_wechat_message = original_enqueue
