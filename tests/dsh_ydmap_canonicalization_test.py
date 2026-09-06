@@ -86,9 +86,7 @@ class DshYdmapCanonicalizationTest(unittest.TestCase):
             },
             {
                 "ok": True,
-                "days": [
-                    {"date": "2026-09-06", "courts": {"7号场": [["21:00", "22:00"]]}}
-                ],
+                "days": [{"date": "2026-09-06", "courts": {"7号场": [["21:00", "22:00"]]}}],
             },
         ]
 
