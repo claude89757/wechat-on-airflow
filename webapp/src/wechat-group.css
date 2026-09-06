@@ -1,0 +1,19 @@
+.wechat-group { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 0 0 8px; color: #23392f; }
+.wechat-group-close { align-self: flex-end; flex: 0 0 auto; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: #f0f3ed; color: #344b3e; cursor: pointer; }
+.wechat-group-qr { display: block; width: min(100%, 264px); height: auto; aspect-ratio: 1; border: 1px solid #e5ebe1; border-radius: 16px; background: white; -webkit-touch-callout: default; user-select: auto; }
+.wechat-group-id { margin: 0; font-size: 13px; color: #627060; }
+.wechat-group-id span { margin-left: 8px; color: #214c3d; font-size: 18px; font-weight: 650; letter-spacing: .3px; user-select: all; -webkit-user-select: all; }
+.wechat-group-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; width: 100%; }
+.wechat-group-actions > * { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; padding: 0 14px; border: 1px solid #d8e2d2; border-radius: 10px; background: #f4f7ef; color: #214c3d; font: inherit; font-size: 13px; font-weight: 600; text-decoration: none; cursor: pointer; }
+.wechat-group-actions > button { border-color: #1d5846; background: #1d5846; color: white; }
+.wechat-group :is(button, a):focus-visible { outline: 3px solid #598b70; outline-offset: 3px; }
+.wechat-group-hint, .wechat-group-feedback { margin: 0; font-size: 12px; line-height: 1.6; text-align: center; color: #63745f; }
+.wechat-group-feedback { min-height: 20px; color: #245a40; }
+.wechat-group-error { padding: 24px 12px; text-align: center; line-height: 1.7; }
+
+@media (min-width: 900px) {
+  html body .bottom-sheet:has(.wechat-group) {
+    left: max(24px, calc((100vw - 480px) / 2)) !important;
+    right: max(24px, calc((100vw - 480px) / 2)) !important;
+  }
+}
