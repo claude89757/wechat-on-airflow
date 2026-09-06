@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
 
 const expected = process.argv[2];
@@ -12,6 +13,7 @@ const report = { expectedCommit: expected, uiVersion: '0.8.0', publicWriteReques
 try {
   for (const [name, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844], ['small', 320, 740]]) {
     const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', locale: 'zh-CN', timezoneId: 'Asia/Shanghai' });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -87,8 +89,32 @@ try {
     await page.getByRole('dialog').getByText('提醒如何工作', { exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: '更多功能', exact: true }).click();
+    await page.getByRole('menuitem', { name: '添加微信群', exact: true }).click();
+    const group = page.getByRole('dialog', { name: '加入 Zacks 网球群', exact: true });
+    await expect(group).toBeVisible();
+    await expect(group.getByTestId('wechat-id')).toHaveText('claude89757');
+    const qr = group.getByRole('img');
+    await expect.poll(() => qr.evaluate(el => el.complete && el.naturalWidth === 656)).toBe(true);
+    await expect(qr).toBeInViewport({ ratio: 1 });
+    await group.getByRole('button', { name: '复制微信号', exact: true }).click();
+    await expect(group.getByText('已复制微信号', { exact: true })).toBeVisible();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'claude89757');
+    const downloadPromise = page.waitForEvent('download');
+    await group.getByRole('link', { name: '保存二维码', exact: true }).click();
+    const download = await downloadPromise;
+    assert.equal(download.suggestedFilename(), 'Zacks-wechat.png');
+    const qrSha256 = createHash('sha256').update(await readFile(await download.path())).digest('hex');
+    assert.equal(qrSha256, '45169f938faaa5722d7a560e129804d621f3415b95c0ab27e109ee82a72cd0bd');
+    const closeGroup = group.getByRole('button', { name: '关闭入群说明', exact: true });
+    await expect(closeGroup).toBeInViewport({ ratio: 1 });
+    await closeGroup.click({ trial: true });
+    await page.screenshot({ path: `${output}/${name}-wechat-group.png` });
+    await closeGroup.click();
+    await expect(group).toBeHidden();
+    await expect(page.getByRole('button', { name: '更多功能', exact: true })).toBeFocused();
     assert.deepEqual(errors, []);
-    report.views.push({ name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, passed: true });
+    report.views.push({ name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, passed: true });
     await context.close();
   }
   assert.equal(report.publicWriteRequests, 0, 'public acceptance must never attempt a write');

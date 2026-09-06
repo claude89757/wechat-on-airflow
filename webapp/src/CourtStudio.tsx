@@ -6,12 +6,14 @@ import {
   MapPinIcon, PlusIcon, QuestionIcon, ShieldCheckIcon, StarIcon,
   TennisBallIcon, UsersThreeIcon, XIcon,
 } from "@phosphor-icons/react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dashboard, VenueId } from "./api";
 import { resolveVenueDisplayState } from "./dashboard-state";
 import { LULU_LABELS, type LuluState } from "./lulu";
 import { KeyboardInput } from "./mobile";
 import { formatInspectionCadence } from "./venue-inspection-display";
+
+import { WeChatGroupSheet } from "./WeChatGroupSheet";
 
 export type StudioPanel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | "coffee";
 type Props = {
@@ -47,6 +49,16 @@ export function CourtStudio(props: Props) {
     statusLabel, statusDetail, highlightedVenueId, onCreate, onPanel, onRefresh, onChangeEmail } = props;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [wechatOpen, setWechatOpen] = useState(false);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const wasWechatOpen = useRef(false);
+  useEffect(() => {
+    if (wechatOpen) { wasWechatOpen.current = true; return; }
+    if (!wasWechatOpen.current) return;
+    // Restore keyboard focus after the shared sheet's exit animation.
+    const timer = window.setTimeout(() => moreButtonRef.current?.focus({ preventScroll: true }), 350);
+    return () => window.clearTimeout(timer);
+  }, [wechatOpen]);
   const searchRef = useRef<HTMLInputElement>(null);
   const directoryRef = useRef<HTMLElement>(null);
   const subscribed = useMemo(() => {
@@ -95,7 +107,7 @@ export function CourtStudio(props: Props) {
           </button>
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
-              <button className="more-button" type="button" aria-label="更多功能"><DotsThreeIcon size={22} weight="bold" aria-hidden="true" /><span>更多</span></button>
+              <button ref={moreButtonRef} className="more-button" type="button" aria-label="更多功能"><DotsThreeIcon size={22} weight="bold" aria-hidden="true" /><span>更多</span></button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content className="more-menu" align="end" sideOffset={8} collisionPadding={12}>
@@ -103,6 +115,7 @@ export function CourtStudio(props: Props) {
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("subscriptions")}><ListBulletsIcon size={20} /><span>我的订阅</span></DropdownMenu.Item>
                 {verified ? <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("community")}><UsersThreeIcon size={20} /><span>用户社区</span></DropdownMenu.Item> : null}
                 {verified && dashboard.identity.isAdmin ? <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("admin")}><ShieldCheckIcon size={20} /><span>管理后台</span></DropdownMenu.Item> : null}
+                <DropdownMenu.Item className="more-menu-item" onSelect={() => setWechatOpen(true)}><UsersThreeIcon size={20} /><span>添加微信群</span></DropdownMenu.Item>
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("priority")}><StarIcon size={20} /><span>提醒档位</span></DropdownMenu.Item>
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("help")}><QuestionIcon size={20} /><span>查看帮助</span></DropdownMenu.Item>
                 <DropdownMenu.Separator className="more-menu-separator" />
@@ -187,6 +200,7 @@ export function CourtStudio(props: Props) {
       </section>
       <footer className="studio-footer"><span><TennisBallIcon size={18} /> ZACKS · COURT STUDIO</span><p>认真对待每一次上场的期待。</p><button type="button" onClick={() => onPanel("help")}>提醒规则与帮助 <ArrowUpRightIcon size={15} /></button></footer>
 
+      <WeChatGroupSheet open={wechatOpen} onOpenChange={setWechatOpen} />
     </main>
   );
 }
