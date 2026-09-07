@@ -75,9 +75,7 @@ def test_directly_bookable_slots_preserves_normal_direct_inventory() -> None:
 def test_malformed_enrollment_overlay_does_not_hide_valid_inventory() -> None:
     response = {
         "result": {
-            "slots": [
-                _slot("1号场", "1", "2026-09-08 18:00:00", "2026-09-08 18:59:00")
-            ],
+            "slots": [_slot("1号场", "1", "2026-09-08 18:00:00", "2026-09-08 18:59:00")],
             "enrollSlots": [
                 {
                     "classRoomName": "1号场",
