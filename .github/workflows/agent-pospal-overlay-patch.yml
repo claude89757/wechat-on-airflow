@@ -24,6 +24,7 @@ jobs:
           from __future__ import annotations
 
           from pathlib import Path
+          from textwrap import dedent, indent
 
           def replace_once(path: str, old: str, new: str) -> None:
               file = Path(path)
@@ -33,12 +34,24 @@ jobs:
                   raise SystemExit(f"expected exactly one match in {path}, got {count}")
               file.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          helper = '''"""PosPal direct-booking availability guards.
+          def replace_between(path: str, start_marker: str, end_marker: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f"start marker not found in {path}: {start_marker!r}")
+              end = text.find(end_marker, start + len(start_marker))
+              if end < 0:
+                  raise SystemExit(f"end marker not found in {path}: {end_marker!r}")
+              file.write_text(text[:start] + new + text[end:], encoding="utf-8")
+
+          helper = dedent('''\
+          """PosPal direct-booking availability guards.
 
           PosPal renders organized enrollment sessions from ``result.enrollSlots`` on
-          top of ordinary court inventory from ``result.slots``.  The underlying
+          top of ordinary court inventory from ``result.slots``. The underlying
           ordinary slot can still report ``apptInfo.canApptOrNot = true`` while the
-          mini-program visibly assigns that court to an enrollment activity.  Such a
+          mini-program visibly assigns that court to an enrollment activity. Such a
           slot is not whole-court inventory and must never be published as an empty
           court.
           """
@@ -88,7 +101,7 @@ jobs:
                   return None
               try:
                   begin = datetime.datetime.strptime(begin_raw, DATETIME_FORMAT)
-                  # PosPal represents hour cells as inclusive ranges such as 18:00-18:59.
+                  # PosPal uses inclusive cells such as 18:00:00-18:59:00.
                   end_exclusive = datetime.datetime.strptime(
                       end_raw, DATETIME_FORMAT
                   ) + datetime.timedelta(minutes=1)
@@ -147,12 +160,12 @@ jobs:
 
 
           def directly_bookable_slots(json_data: object) -> list[dict[str, object]]:
-              """Return PosPal slots that are genuinely available for whole-court booking.
+              """Return slots genuinely available for whole-court direct booking.
 
-              ``canApptOrNot`` describes the ordinary appointment layer only.  Every valid
-              interval returned in ``enrollSlots`` is therefore treated as a court blocker,
-              irrespective of enrollment capacity or participant count.  This intentionally
-              prefers suppressing a doubtful alert over announcing inventory that the official
+              ``canApptOrNot`` covers the ordinary appointment layer only. Every valid
+              interval returned in ``enrollSlots`` is therefore a court blocker,
+              irrespective of enrollment capacity or participant count. This prefers
+              suppressing a doubtful alert over announcing inventory that the official
               mini-program does not expose as an empty court.
               """
 
@@ -173,12 +186,14 @@ jobs:
                       continue
                   available.append(slot)
               return available
-          '''
-          helper = "\n".join(line[10:] if line.startswith("          ") else line for line in helper.splitlines()) + "\n"
+          ''')
           Path("src/wechat_airflow/venues/pospal_slots.py").write_text(helper, encoding="utf-8")
 
           import_anchor = "from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort\n"
-          import_with_guard = import_anchor + "from wechat_airflow.venues.pospal_slots import directly_bookable_slots\n"
+          import_with_guard = (
+              import_anchor
+              + "from wechat_airflow.venues.pospal_slots import directly_bookable_slots\n"
+          )
           for path in (
               "src/wechat_airflow/venues/fsb_watcher.py",
               "src/wechat_airflow/venues/ppba_watcher.py",
@@ -187,134 +202,94 @@ jobs:
           ):
               replace_once(path, import_anchor, import_with_guard)
 
-          standalone_old = '''    payload = _as_mapping(json_data)
-              result = _as_mapping(payload.get("result"))
-              slots = result.get("slots")
-              court_availability: dict[str, list[list[str]]] = {}
-              if not isinstance(slots, list):
-                  return {}
-
-              for raw_slot in slots:
-                  slot = _as_mapping(raw_slot)
-                  appt_info = _as_mapping(slot.get("apptInfo"))
-                  if appt_info.get("canApptOrNot") is not True:
-                      continue
-          '''
-          standalone_old = "\n".join(line[10:] if line.startswith("          ") else line for line in standalone_old.splitlines()) + "\n"
-          standalone_new = '''    court_availability: dict[str, list[list[str]]] = {}
-
-              for slot in directly_bookable_slots(json_data):
-          '''
-          standalone_new = "\n".join(line[10:] if line.startswith("          ") else line for line in standalone_new.splitlines()) + "\n"
           for path in (
               "src/wechat_airflow/venues/fsb_watcher.py",
               "src/wechat_airflow/venues/ppba_watcher.py",
           ):
-              replace_once(path, standalone_old, standalone_new)
+              replace_between(
+                  path,
+                  "    payload = _as_mapping(json_data)\n",
+                  "        court_name = ",
+                  "    court_availability: dict[str, list[list[str]]] = {}\n\n"
+                  "    for slot in directly_bookable_slots(json_data):\n",
+              )
 
-          unused_mapping = '''def _as_mapping(value: object) -> dict[str, object]:
-              if isinstance(value, dict):
-                  return {str(key): item for key, item in value.items()}
-              return {}
+          replace_between(
+              "src/wechat_airflow/venues/pospal_venue.py",
+              "    payload = _as_mapping(json_data)\n",
+              "        court_name = ",
+              "    court_availability: dict[str, list[list[str]]] = {}\n\n"
+              "    for slot in directly_bookable_slots(json_data):\n",
+          )
 
+          replace_between(
+              "src/wechat_airflow/venues/tops_watcher.py",
+              "    slots = json_data.get(\"result\", {}).get(\"slots\", [])\n",
+              "        court_name = ",
+              "    court_availability = {}\n\n"
+              "    for slot in directly_bookable_slots(json_data):\n",
+          )
 
-          '''
-          unused_mapping = "\n".join(line[10:] if line.startswith("          ") else line for line in unused_mapping.splitlines())
-          for path in (
-              "src/wechat_airflow/venues/fsb_watcher.py",
-              "src/wechat_airflow/venues/ppba_watcher.py",
-          ):
-              replace_once(path, unused_mapping, "")
+          method_body = dedent('''\
+          def test_enrollment_overlays_are_not_reported_as_empty_courts(self) -> None:
+              slots = []
+              enroll_slots = []
+              for court_name, court_uid in (("5号风雨场", "court-5"), ("6号风雨场", "court-6")):
+                  for hour in range(18, 24):
+                      slots.append(
+                          {
+                              "classRoomName": court_name,
+                              "txtClassroomUid": court_uid,
+                              "beginDatetime": f"2026-09-07 {hour:02d}:00:00",
+                              "endDatetime": f"2026-09-07 {hour:02d}:59:00",
+                              "apptInfo": {"canApptOrNot": True},
+                          }
+                      )
+                  for begin_hour in (18, 20, 22):
+                      enroll_slots.append(
+                          {
+                              "classRoomName": court_name,
+                              "txtClassroomUid": court_uid,
+                              "beginDatetime": f"2026-09-07 {begin_hour:02d}:00:00",
+                              "endDatetime": f"2026-09-07 {begin_hour + 1:02d}:59:00",
+                              "status": 0,
+                              "capacity": 0,
+                          }
+                      )
 
-          shared_old = '''    payload = _as_mapping(json_data)
-              result = _as_mapping(payload.get("result"))
-              slots = result.get("slots")
-              court_availability: dict[str, list[list[str]]] = {}
-              if not isinstance(slots, list):
-                  return {}
+              result = fsb_watcher.parse_availability(
+                  {
+                      "successed": True,
+                      "status": "success",
+                      "result": {"slots": slots, "enrollSlots": enroll_slots},
+                  }
+              )
 
-              for raw_slot in slots:
-                  slot = _as_mapping(raw_slot)
-                  appt_info = _as_mapping(slot.get("apptInfo"))
-                  if appt_info.get("canApptOrNot") is not True:
-                      continue
-          '''
-          shared_old = "\n".join(line[10:] if line.startswith("          ") else line for line in shared_old.splitlines()) + "\n"
-          shared_new = '''    court_availability: dict[str, list[list[str]]] = {}
-
-              for slot in directly_bookable_slots(json_data):
-          '''
-          shared_new = "\n".join(line[10:] if line.startswith("          ") else line for line in shared_new.splitlines()) + "\n"
-          replace_once("src/wechat_airflow/venues/pospal_venue.py", shared_old, shared_new)
-
-          tops_old = '''    slots = json_data.get("result", {}).get("slots", [])
-              court_availability = {}
-
-              for slot in slots:
-                  appt_info = slot.get("apptInfo") or {}
-                  if appt_info.get("canApptOrNot") is not True:
-                      continue
-          '''
-          tops_old = "\n".join(line[10:] if line.startswith("          ") else line for line in tops_old.splitlines()) + "\n"
-          tops_new = '''    court_availability = {}
-
-              for slot in directly_bookable_slots(json_data):
-          '''
-          tops_new = "\n".join(line[10:] if line.startswith("          ") else line for line in tops_new.splitlines()) + "\n"
-          replace_once("src/wechat_airflow/venues/tops_watcher.py", tops_old, tops_new)
-
-          regression = '''
-              def test_enrollment_overlays_are_not_reported_as_empty_courts(self) -> None:
-                  slots = []
-                  enroll_slots = []
-                  for court_name, court_uid in (("5号风雨场", "court-5"), ("6号风雨场", "court-6")):
-                      for hour in range(18, 24):
-                          slots.append(
-                              {
-                                  "classRoomName": court_name,
-                                  "txtClassroomUid": court_uid,
-                                  "beginDatetime": f"2026-09-07 {hour:02d}:00:00",
-                                  "endDatetime": f"2026-09-07 {hour:02d}:59:00",
-                                  "apptInfo": {"canApptOrNot": True},
-                              }
-                          )
-                      for begin_hour in (18, 20, 22):
-                          enroll_slots.append(
-                              {
-                                  "classRoomName": court_name,
-                                  "txtClassroomUid": court_uid,
-                                  "beginDatetime": f"2026-09-07 {begin_hour:02d}:00:00",
-                                  "endDatetime": f"2026-09-07 {begin_hour + 1:02d}:59:00",
-                                  "status": 0,
-                                  "capacity": 0,
-                              }
-                          )
-
-                  result = fsb_watcher.parse_availability(
-                      {
-                          "successed": True,
-                          "status": "success",
-                          "result": {"slots": slots, "enrollSlots": enroll_slots},
-                      }
-                  )
-
-                  self.assertEqual(result, {})
-
-          '''
-          regression = "\n".join(line[14:] if line.startswith("              ") else line for line in regression.splitlines())
+              self.assertEqual(result, {})
+          ''')
+          regression = indent(method_body, "    ") + "\n"
           replace_once(
               "tests/fsb_watcher_test.py",
               "    def test_filter_slots_uses_weekday_and_weekend_windows(self) -> None:\n",
-              regression + "    def test_filter_slots_uses_weekday_and_weekend_windows(self) -> None:\n",
+              regression
+              + "    def test_filter_slots_uses_weekday_and_weekend_windows(self) -> None:\n",
           )
 
-          helper_test = '''#!/usr/bin/env python3
+          helper_test = dedent('''\
+          #!/usr/bin/env python3
           from __future__ import annotations
 
           from wechat_airflow.venues.pospal_slots import directly_bookable_slots
 
 
-          def _slot(court: str, uid: str, begin: str, end: str, *, can_book: bool = True) -> dict[str, object]:
+          def _slot(
+              court: str,
+              uid: str,
+              begin: str,
+              end: str,
+              *,
+              can_book: bool = True,
+          ) -> dict[str, object]:
               return {
                   "classRoomName": court,
                   "txtClassroomUid": uid,
@@ -393,17 +368,19 @@ jobs:
               }
 
               assert len(directly_bookable_slots(response)) == 1
-          '''
-          helper_test = "\n".join(line[10:] if line.startswith("          ") else line for line in helper_test.splitlines()) + "\n"
+          ''')
           Path("tests/pospal_slots_test.py").write_text(helper_test, encoding="utf-8")
 
           replace_once(
               "CHANGELOG.md",
               "## Unreleased\n",
-              "## Unreleased\n\n### Fixed\n\n- Treat PosPal `result.enrollSlots` as occupied court overlays before publishing direct-booking availability. Organized activities can leave the underlying `slots[].apptInfo.canApptOrNot` flag true even though the official mini-program assigns the court; overlapping cells are now suppressed across 福中福, TOPS, PICKLE POP, the shared 泛思博特 chain, and FFT 前海 adapters.\n- Add a regression reproducing the 2026-09-07 福中福 5/6号风雨场 18:00-24:00 enrollment blocks so participant-count activities such as 4/4, 2/4, or 0/4 are never announced as empty whole courts.\n\n### Operations\n\n- Airflow-only parsing correction. No polling cadence, subscriber data, database schema, Web asset, Sender runtime, or provider credential changes; acceptance must use natural inspections without synthetic notifications.\n",
+              "## Unreleased\n\n### Fixed\n\n"
+              "- Treat PosPal `result.enrollSlots` as occupied court overlays before publishing direct-booking availability. Organized activities can leave the underlying `slots[].apptInfo.canApptOrNot` flag true even though the official mini-program assigns the court; overlapping cells are now suppressed across 福中福, TOPS, PICKLE POP, the shared 泛思博特 chain, and FFT 前海 adapters.\n"
+              "- Add a regression reproducing the 2026-09-07 福中福 5/6号风雨场 18:00-24:00 enrollment blocks so participant-count activities such as 4/4, 2/4, or 0/4 are never announced as empty whole courts.\n\n"
+              "### Operations\n\n"
+              "- Airflow-only parsing correction. No polling cadence, subscriber data, database schema, Web asset, Sender runtime, or provider credential changes; acceptance must use natural inspections without synthetic notifications.\n",
           )
 
-          # Keep the branch clean: the patch workflow is implementation scaffolding, not product code.
           Path(".github/workflows/agent-pospal-overlay-patch.yml").unlink()
           PY
       - name: Commit the deterministic repair
