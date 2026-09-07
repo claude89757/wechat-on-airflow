@@ -17,7 +17,7 @@ jobs:
     if: github.actor == github.repository_owner
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Configure protected SSH identity
         env:
@@ -28,7 +28,7 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Read bounded task history and sanitized log counters
+      - name: Trace whole-day detections and durable notification results without writes or sends
         env:
           AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
           AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
@@ -39,68 +39,128 @@ jobs:
           import os
           import shlex
           import subprocess
-          script = r'''
+          worker_script = r'''
+          import contextlib
+          import io
           import json
           import logging
+          import os
           import re
+          import time
+          from collections import Counter, defaultdict
           from datetime import datetime
           from pathlib import Path
           from zoneinfo import ZoneInfo
           logging.disable(logging.CRITICAL)
+          tz = ZoneInfo('Asia/Shanghai')
           def emit(key, value):
-              print(json.dumps({key: value}, ensure_ascii=False, default=str), flush=True)
-          emit('checked_at', datetime.now(ZoneInfo('Asia/Shanghai')).isoformat())
-          from airflow.settings import Session
-          from airflow.configuration import conf
-          from sqlalchemy import text
-          run_ids = []
-          queries = [
-              ('recent_runs', 'SELECT run_id,state,logical_date,start_date,end_date FROM dag_run WHERE dag_id=:dag ORDER BY id DESC LIMIT 12'),
-              ('last_24h', "SELECT state,count(*) AS count,min(start_date) AS first_start,max(end_date) AS last_end FROM dag_run WHERE dag_id=:dag AND logical_date > now() - interval '24 hours' GROUP BY state"),
-          ]
-          for name, query in queries:
-              try:
-                  with Session() as session:
-                      session.execute(text('SET TRANSACTION READ ONLY'))
-                      session.execute(text("SET LOCAL statement_timeout = '15s'"))
-                      rows = session.execute(text(query), {'dag':'大沙河免费场巡检'}).mappings().all()
-                      emit(name, [dict(row) for row in rows])
-                      if name == 'recent_runs':
-                          run_ids = [row['run_id'] for row in rows]
-                      session.rollback()
-              except Exception as exc:
-                  emit(name + '_error', {'type':type(exc).__name__, 'sqlstate':getattr(getattr(exc,'orig',None),'pgcode',None)})
-          try:
-              roots = [Path(conf.get('logging','base_log_folder')), Path('/opt/airflow/logs')]
-              logs = set()
-              for root in roots:
-                  for run in run_ids[:8]:
-                      folder = root / 'dag_id=大沙河免费场巡检' / ('run_id=' + run) / 'task_id=check_free_courts'
-                      if folder.is_dir():
-                          logs.update(folder.glob('attempt=*.log'))
-              evidence = []
-              for path in sorted(logs, key=lambda p:p.stat().st_mtime, reverse=True)[:12]:
-                  if path.stat().st_size > 2_000_000:
-                      continue
-                  value = path.read_text(errors='replace')
-                  counts = re.findall(r'ready_dates=(\d+), free_dates=(\d+), available_slots=(\d+)',value)
-                  errors = sorted(set(re.findall(r'\b(?:NswttAuthExpired|NswttApiError|ConnectTimeout|ReadTimeout|ConnectionError|KeyError|TypeError|ValueError|RuntimeError)\b',value)))
-                  missing_dates = re.findall(r'no free courts released for date=(\d{4}-\d{2}-\d{2})',value)
-                  queue_errors = re.findall(r'\[HOST_WECHAT_QUEUE\] enqueue failed venue=dsh_free, error=([A-Za-z]+)',value)
-                  evidence.append({'run':path.parent.parent.name, 'attempt':path.name, 'inspection_counts':counts[-1:], 'error_types':errors, 'unreleased_dates':missing_dates, 'enqueue_error_types':queue_errors})
-              emit('task_log_evidence',evidence)
-          except Exception as exc:
-              emit('log_read_error',type(exc).__name__)
+              print(json.dumps({key:value},ensure_ascii=False,default=str),flush=True)
+          emit('worker_checked_at',datetime.now(tz).isoformat())
+          with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+              from airflow.configuration import conf
+              from airflow.models.variable import Variable
+              cache = Variable.get('大沙河免费场',default_var=[],deserialize_json=True)
+          cache_dates = Counter()
+          if isinstance(cache,list):
+              for item in cache:
+                  match = re.search(r'\((\d{2}-\d{2})\)',str(item))
+                  if match: cache_dates[match.group(1)] += 1
+          emit('wechat_preclaim_cache',{'count':len(cache) if isinstance(cache,list) else None,'booking_date_counts':dict(cache_dates)})
+          root = Path(conf.get('logging','base_log_folder')) / 'dag_id=大沙河免费场巡检'
+          deadline = time.monotonic()+110
+          total_bytes = 0
+          daily = defaultdict(Counter)
+          hourly = defaultdict(Counter)
+          positives = []
+          anomalies = []
+          if not root.is_dir():
+              emit('log_scan_error','missing_dag_log_directory')
+          else:
+              for entry in os.scandir(root):
+                  name = entry.name
+                  if not name.startswith('run_id=scheduled__'): continue
+                  try: stamp = datetime.fromisoformat(name.split('scheduled__',1)[1]).astimezone(tz)
+                  except ValueError: continue
+                  day = stamp.strftime('%Y-%m-%d')
+                  if not '2026-09-05' <= day <= '2026-09-07': continue
+                  if time.monotonic()>deadline or total_bytes>150_000_000:
+                      emit('scan_truncated',True)
+                      break
+                  for path in (Path(entry.path)/'task_id=check_free_courts').glob('attempt=*.log'):
+                      size=path.stat().st_size
+                      if size>1_000_000: continue
+                      total_bytes+=size
+                      value=path.read_text(errors='replace')
+                      counts=re.findall(r'ready_dates=(\d+), free_dates=(\d+), available_slots=(\d+)',value)
+                      queue_errors=re.findall(r'\[HOST_WECHAT_QUEUE\] enqueue failed venue=dsh_free, error=([A-Za-z]+)',value)
+                      error_types=sorted(set(re.findall(r'\b(?:NswttAuthExpired|NswttApiError|ConnectTimeout|ReadTimeout|ConnectionError)\b',value)))
+                      released=re.findall(r'\[WEBAPP_WECHAT_GATE\] released dedupe venue=dsh_free[^\n]{0,150}?removed=(\d+)',value)
+                      hour=stamp.strftime('%Y-%m-%d %H:00')
+                      record={'at':stamp.isoformat(),'attempt':path.name,'counts':counts[-1:] ,'enqueue_errors':queue_errors,'dedupe_released':released,'errors':error_types}
+                      for bucket in (daily[day],hourly[hour]):
+                          bucket['attempt_logs']+=1
+                          bucket['complete']+=bool(counts)
+                          bucket['positive_polls']+=bool(counts and int(counts[-1][2])>0)
+                          bucket['enqueue_failures']+=len(queue_errors)
+                          bucket['dedupe_releases']+=len(released)
+                          bucket['auth_or_network_errors']+=bool(error_types)
+                          if counts: bucket['max_slots']=max(bucket['max_slots'],int(counts[-1][2]))
+                      if counts and int(counts[-1][2])>0: positives.append(record)
+                      if queue_errors or released or error_types: anomalies.append(record)
+              emit('log_scan',{'bytes_read':total_bytes,'daily':dict(sorted(daily.items())),'today_hourly':{k:v for k,v in sorted(hourly.items()) if k.startswith('2026-09-07')}})
+              today_positive=sorted([r for r in positives if r['at'].startswith('2026-09-07')],key=lambda r:r['at'])
+              emit('today_positive_samples',today_positive[:8]+today_positive[-12:])
+              emit('today_anomaly_samples',sorted([r for r in anomalies if r['at'].startswith('2026-09-07')],key=lambda r:r['at'])[-24:])
           '''
-          remote = 'set -eu; cd ' + shlex.quote(os.environ['AIRFLOW_REPOSITORY_PATH']) + '; '
-          remote += 'printf "DEPLOYED_COMMIT "; git rev-parse HEAD; '
-          remote += 'cid=$(docker ps --filter label=com.docker.compose.service=airflow-worker --format "{{.ID}}" | head -n 1); '
-          remote += 'test -n "$cid"; docker exec -i -e PYTHONDONTWRITEBYTECODE=1 "$cid" python -B -'
-          result = subprocess.run([
-              'ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
-              '-o','ConnectTimeout=15','-o','ServerAliveInterval=15',
-              '-o','ServerAliveCountMax=3','-p',os.environ['AIRFLOW_SSH_PORT'],
-              os.environ['AIRFLOW_SSH_USER']+'@'+os.environ['AIRFLOW_SSH_HOST'],remote,
-          ],input=script,text=True,timeout=120)
-          raise SystemExit(result.returncode)
+          core_script = r'''
+          import json
+          import logging
+          import os
+          import re
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          logging.disable(logging.CRITICAL)
+          from sqlalchemy import text
+          from wechat_airflow.host_core.database import get_engine
+          from wechat_airflow.host_core.wechat_worker import sender_readiness
+          tz=ZoneInfo('Asia/Shanghai')
+          def emit(key,value):
+              print(json.dumps({key:value},ensure_ascii=False,default=str),flush=True)
+          emit('core_checked_at',datetime.now(tz).isoformat())
+          emit('core_runtime_commit',os.environ.get('DEPLOYMENT_COMMIT'))
+          queries=[
+          ('runtime_control',"SELECT delivery_enabled,wechat_enabled,phase,deployment_commit,activated_at,updated_at FROM zacks.runtime_control"),
+          ('venue_status',"SELECT healthy,last_inspection_at,last_notification_at FROM zacks.venue_status WHERE venue_id='dsh_free'"),
+          ('wechat_daily',"SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day,status,count(*) AS intents,sum(attempt_count) AS attempts,min(created_at) AS first_created,max(created_at) AS last_created,max(sent_at) AS last_sent FROM zacks.wechat_outbox WHERE venue_id='dsh_free' AND created_at>=timestamptz '2026-09-01 00:00:00+08' GROUP BY 1,2 ORDER BY 1,2"),
+          ('wechat_today',"SELECT left(id,12) AS intent_id,status,attempt_count,created_at,updated_at,expires_at,sent_at,last_error,jsonb_array_length(event_keys) AS events,(receiver='Zacks_大沙河限定免费') AS intended_free_group FROM zacks.wechat_outbox WHERE venue_id='dsh_free' AND created_at>=timestamptz '2026-09-07 00:00:00+08' ORDER BY created_at LIMIT 100"),
+          ('wechat_all_today',"SELECT status,count(*) AS intents,min(created_at) AS first_created,max(sent_at) AS last_sent FROM zacks.wechat_outbox WHERE created_at>=timestamptz '2026-09-07 00:00:00+08' GROUP BY status"),
+          ('email_daily',"SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day,status,count(*) AS slot_recipient_rows,count(DISTINCT message_id) AS provider_messages,count(DISTINCT email) AS recipients,min(created_at) AS first_created,max(delivered_at) AS last_delivered FROM zacks.notification_outbox WHERE venue_id='dsh_free' AND created_at>=timestamptz '2026-09-01 00:00:00+08' GROUP BY 1,2 ORDER BY 1,2"),
+          ('email_today',"SELECT left(n.id,12) AS row_id,n.status,n.tier,n.attempt_count,n.created_at,n.submitted_at,n.delivered_at,n.last_error,s.booking_date,s.court_name,s.start_time,s.end_time FROM zacks.notification_outbox n LEFT JOIN zacks.observed_slots s USING(event_key) WHERE n.venue_id='dsh_free' AND n.created_at>=timestamptz '2026-09-07 00:00:00+08' ORDER BY n.created_at LIMIT 100"),
+          ('observed_slots_recent',"SELECT booking_date,count(*) AS slot_count,min(first_observed_at) AS first_seen,max(last_observed_at) AS last_seen,count(*) FILTER(WHERE first_observed_at>=timestamptz '2026-09-07 00:00:00+08') AS first_seen_today FROM zacks.observed_slots WHERE venue_id='dsh_free' AND booking_date>='2026-09-01' GROUP BY booking_date ORDER BY booking_date"),
+          ('observed_today',"SELECT court_name,booking_date,start_time,end_time,first_observed_at,last_observed_at FROM zacks.observed_slots WHERE venue_id='dsh_free' AND last_observed_at>=timestamptz '2026-09-07 00:00:00+08' ORDER BY first_observed_at LIMIT 100"),
+          ('active_subscription_rules',"SELECT s.start_time,s.end_time,s.weekday_mask,count(*) AS subscriptions,count(DISTINCT s.email) AS recipients,min(s.created_at) AS earliest_created,min(s.active_until) AS earliest_expiry FROM zacks.subscriptions s JOIN zacks.subscription_venues v ON v.subscription_id=s.id WHERE v.venue_id='dsh_free' AND s.active AND s.active_until>now() GROUP BY s.start_time,s.end_time,s.weekday_mask"),
+          ]
+          for name,query in queries:
+              try:
+                  with get_engine().connect() as c:
+                      c.execute(text('SET TRANSACTION READ ONLY'))
+                      c.execute(text("SET LOCAL statement_timeout = '8s'"))
+                      rows=[dict(r) for r in c.execute(text(query)).mappings()]
+                      for row in rows:
+                          if 'last_error' in row:
+                              error=row.pop('last_error')
+                              row['error_code']=error if error and re.fullmatch(r'[A-Za-z_]{1,80}',error) else ('other_redacted' if error else None)
+                      emit(name,rows)
+                      c.rollback()
+              except Exception as exc:
+                  emit(name+'_error',{'type':type(exc).__name__,'sqlstate':getattr(getattr(exc,'orig',None),'pgcode',None)})
+          emit('sender_readiness',sender_readiness())
+          '''
+          for service,script in [('airflow-worker',worker_script),('zacks-api',core_script)]:
+              remote='set -eu; cd '+shlex.quote(os.environ['AIRFLOW_REPOSITORY_PATH'])+'; '
+              remote+='printf "DEPLOYED_WORKTREE "; git rev-parse HEAD; '
+              remote+='cid=$(docker ps --filter label=com.docker.compose.service='+service+' --format "{{.ID}}" | head -n 1); '
+              remote+='test -n "$cid"; docker exec -i -e PYTHONDONTWRITEBYTECODE=1 "$cid" python -B -'
+              result=subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=3','-p',os.environ['AIRFLOW_SSH_PORT'],os.environ['AIRFLOW_SSH_USER']+'@'+os.environ['AIRFLOW_SSH_HOST'],remote],input=script,text=True,timeout=210)
+              if result.returncode: raise SystemExit(result.returncode)
           RUNNER
