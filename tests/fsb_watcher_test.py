@@ -121,6 +121,42 @@ class FsbWatcherTest(unittest.TestCase):
             },
         )
 
+    def test_enrollment_overlays_are_not_reported_as_empty_courts(self) -> None:
+        slots = []
+        enroll_slots = []
+        for court_name, court_uid in (("5号风雨场", "court-5"), ("6号风雨场", "court-6")):
+            for hour in range(18, 24):
+                slots.append(
+                    {
+                        "classRoomName": court_name,
+                        "txtClassroomUid": court_uid,
+                        "beginDatetime": f"2026-09-07 {hour:02d}:00:00",
+                        "endDatetime": f"2026-09-07 {hour:02d}:59:00",
+                        "apptInfo": {"canApptOrNot": True},
+                    }
+                )
+            for begin_hour in (18, 20, 22):
+                enroll_slots.append(
+                    {
+                        "classRoomName": court_name,
+                        "txtClassroomUid": court_uid,
+                        "beginDatetime": f"2026-09-07 {begin_hour:02d}:00:00",
+                        "endDatetime": f"2026-09-07 {begin_hour + 1:02d}:59:00",
+                        "status": 0,
+                        "capacity": 0,
+                    }
+                )
+
+        result = fsb_watcher.parse_availability(
+            {
+                "successed": True,
+                "status": "success",
+                "result": {"slots": slots, "enrollSlots": enroll_slots},
+            }
+        )
+
+        self.assertEqual(result, {})
+
     def test_filter_slots_uses_weekday_and_weekend_windows(self) -> None:
         weekday_result = fsb_watcher.filter_court_data_for_notification(
             "2026-08-24",

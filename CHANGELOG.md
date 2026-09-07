@@ -5,6 +5,15 @@ and operational changes.
 
 ## Unreleased
 
+### Fixed
+
+- Treat PosPal `result.enrollSlots` as occupied court overlays before publishing direct-booking availability. Organized activities can leave the underlying `slots[].apptInfo.canApptOrNot` flag true even though the official mini-program assigns the court; overlapping cells are now suppressed across 福中福, TOPS, PICKLE POP, the shared 泛思博特 chain, and FFT 前海 adapters.
+- Add a regression reproducing the 2026-09-07 福中福 5/6号风雨场 18:00-24:00 enrollment blocks so participant-count activities such as 4/4, 2/4, or 0/4 are never announced as empty whole courts.
+
+### Operations
+
+- Airflow-only parsing correction. No polling cadence, subscriber data, database schema, Web asset, Sender runtime, or provider credential changes; acceptance must use natural inspections without synthetic notifications.
+
 ## [0.8.1] - 2026-09-06
 
 ### Fixed
