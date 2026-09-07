@@ -10,16 +10,17 @@ number of upstream and public-proxy requests without a corresponding product
 requirement, increased contention for the single-device WeChat sender, and made
 new integrations likely to copy an unnecessarily aggressive default.
 
-Two existing integrations have deliberate exceptions. Shenzhen Bay retains its
-15-second low-latency polling requirement. Dashah International Tennis Center
-retains a three-minute cadence because each run drives a Raspberry Pi Chromium
-scrape and needs a slower resource-safe interval.
+Three integrations have deliberate exceptions. Shenzhen Bay and Dashah River
+free courts use a 15-second low-latency polling requirement. Dashah International
+Tennis Center uses a two-minute cadence because each run drives a Raspberry Pi
+Chromium scrape and still needs a slower resource-safe interval than ordinary API
+polling.
 
 ## Decision
 
 - Set the default production tennis-venue inspection cadence to one minute.
-- Keep Shenzhen Bay at 15 seconds and Dashah International Tennis Center at
-  three minutes.
+- Keep Shenzhen Bay and Dashah River free courts at 15 seconds, and Dashah
+  International Tennis Center at two minutes.
 - Normalize every other active venue DAG, including Shenzhen Sports Center, to
   `timedelta(minutes=1)` and declare `every_1_minutes` in the active-component
   manifest.
@@ -37,7 +38,9 @@ scrape and needs a slower resource-safe interval.
 
 - New venue integrations fail CI when they copy a sub-minute or otherwise
   non-default cadence without an explicit reviewed exception.
-- Existing 30-second venue traffic is reduced by approximately half while the
-  two approved latency/resource exceptions remain unchanged.
-- A venue run that exceeds one minute remains serialized; its effective cadence
-  becomes the task duration rather than creating overlapping upstream traffic.
+- Dashah River free-court polling makes four checks per minute to reduce latency
+  for rapidly released inventory; Dashah International increases from one check
+  every three minutes to one every two minutes while remaining serialized.
+- A venue run that exceeds its configured interval remains serialized; its
+  effective cadence becomes the task duration rather than creating overlapping
+  upstream traffic.
