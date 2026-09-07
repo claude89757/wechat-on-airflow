@@ -163,7 +163,7 @@ active_dags:
 
   - dag_id: 大沙河免费场巡检
     file: dags/tennis_dags/sz_tennis/dashahe_free_watcher.py
-    schedule: every_1_minutes
+    schedule: every_15_seconds
     tasks:
       - check_free_courts
     variables:
@@ -196,7 +196,7 @@ active_dags:
 
   - dag_id: 大沙河国际网球中心巡检
     file: dags/tennis_dags/sz_tennis/dsh_ydmap_watcher.py
-    schedule: every_3_minutes
+    schedule: every_2_minutes
     tasks:
       - check_tennis_courts
     variables:

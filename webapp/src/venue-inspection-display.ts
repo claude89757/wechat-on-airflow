@@ -2,7 +2,8 @@ export const DEFAULT_INSPECTION_CADENCE_SECONDS = 60;
 
 const INSPECTION_CADENCE_SECONDS: Readonly<Record<string, number>> = {
   szw: 15,
-  dsh: 180,
+  dsh_free: 15,
+  dsh: 120,
 };
 
 export function inspectionCadenceSeconds(venueId: string): number {

@@ -13,6 +13,7 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
 
     exception_ids = {
         "深圳湾网球场巡检": "szw",
+        "大沙河免费场巡检": "dsh_free",
         "大沙河国际网球中心巡检": "dsh",
     }
     for dag_id, venue_id in exception_ids.items():

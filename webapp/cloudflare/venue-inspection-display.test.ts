@@ -18,8 +18,13 @@ describe("venue inspection cadence display", () => {
     expect(formatInspectionCadence("szw")).toBe("15秒/次");
   });
 
-  it("shows the resource-safe Dashah International exception", () => {
-    expect(inspectionCadenceSeconds("dsh")).toBe(180);
-    expect(formatInspectionCadence("dsh")).toBe("3分钟/次");
+  it("shows the approved Dashah free-court low-latency exception", () => {
+    expect(inspectionCadenceSeconds("dsh_free")).toBe(15);
+    expect(formatInspectionCadence("dsh_free")).toBe("15秒/次");
+  });
+
+  it("shows the approved Dashah International exception", () => {
+    expect(inspectionCadenceSeconds("dsh")).toBe(120);
+    expect(formatInspectionCadence("dsh")).toBe("2分钟/次");
   });
 });

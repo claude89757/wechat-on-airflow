@@ -21,7 +21,7 @@ dag = DAG(
     "大沙河国际网球中心巡检",
     default_args=DEFAULT_ARGS,
     description="大沙河国际网球中心网球场巡检 - YDMap 树莓派浏览器采集",
-    schedule=timedelta(minutes=3),
+    schedule=timedelta(minutes=2),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
