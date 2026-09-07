@@ -17,7 +17,8 @@ MANIFEST_PATH = ROOT / "config" / "active-components.yaml"
 POLICY_PATH = ROOT / "config" / "venue-schedule-policy.yaml"
 EXPECTED_EXCEPTIONS = {
     "深圳湾网球场巡检": "every_15_seconds",
-    "大沙河国际网球中心巡检": "every_3_minutes",
+    "大沙河免费场巡检": "every_15_seconds",
+    "大沙河国际网球中心巡检": "every_2_minutes",
 }
 
 
