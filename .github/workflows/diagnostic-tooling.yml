@@ -14,9 +14,68 @@ jobs:
         with:
           python-version: '3.13'
       - run: |
-          python -m pip download --only-binary=:all: --dest /tmp/wheels ruff==0.12.11 mypy==1.17.1 types-PyYAML types-requests psycopg2-binary==2.9.10
+          python -m pip download --only-binary=:all: --dest /tmp/wheels paramiko==3.5.1 types-paramiko==3.5.0.20240928
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: isolated-lint-wheels
+          name: isolated-extra-wheels
           path: /tmp/wheels
           retention-days: 1
+  sender:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 4
+    concurrency:
+      group: production-wechat-sender-v2
+      cancel-in-progress: false
+    steps:
+      - name: Configure protected sender identity
+        env:
+          KEY: ${{ secrets.WECHAT_SENDER_SSH_PRIVATE_KEY }}
+          KNOWN: ${{ secrets.WECHAT_SENDER_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+      - name: Read only runtime ledger state and error categories
+        env:
+          HOST: ${{ secrets.WECHAT_SENDER_SSH_HOST }}
+          PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
+          USER: ${{ secrets.WECHAT_SENDER_SSH_USER }}
+        run: |
+          python - <<'RUNNER'
+          import os, subprocess
+          script=r'''
+          import json, sqlite3, subprocess
+          from pathlib import Path
+          def emit(k,v):print(json.dumps({k:v},ensure_ascii=False),flush=True)
+          pid=subprocess.run(['systemctl','show','wechat-sender.service','-p','MainPID','--value'],text=True,capture_output=True,check=True).stdout.strip()
+          settings={}
+          if pid.isdigit() and pid!='0':
+              for part in Path('/proc/'+pid+'/environ').read_bytes().split(b'\0'):
+                  key,sep,value=part.partition(b'=')
+                  if key in (b'WECHAT_IDEMPOTENCY_PATH',b'DEPLOYMENT_COMMIT'):
+                      settings[key.decode()]=value.decode()
+          path=Path(settings.get('WECHAT_IDEMPOTENCY_PATH','/var/lib/wechat-sender/idempotency.sqlite3'))
+          emit('runtime',{'running':pid!='0','ledger_configured':'WECHAT_IDEMPOTENCY_PATH' in settings,'ledger_exists':path.is_file(),'commit':settings.get('DEPLOYMENT_COMMIT')})
+          if path.is_file():
+              try:
+                  db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=5)
+                  db.row_factory=sqlite3.Row;db.execute('PRAGMA query_only=ON')
+                  result=[]
+                  for row in db.execute("SELECT idempotency_key,status,result_json,created_at,updated_at FROM sends WHERE substr(idempotency_key,1,8) IN ('f808b5ca','fb810e0a')"):
+                      value=dict(row);raw=value.pop('result_json');key=value.pop('idempotency_key');value['intent_prefix']=key[:8]
+                      record=json.loads(raw) if raw else {}
+                      value['result']={k:record.get(k) for k in ('success','sent_count','error','navigation_path','session_reused')}
+                      result.append(value)
+                  emit('target_ledger',result);db.close()
+              except Exception as exc:emit('ledger_error',type(exc).__name__)
+          signatures=('StaleElementReferenceException','InvalidSessionIdException','NoSuchDriverError','TimeoutException','contact_not_found','send_failed','submission_unknown','wechat_not_ready','target chat was not verified','receiver did not open','unable to return to WeChat main page','visual send button remained active after tap','UiAutomation not connected')
+          for unit in ('wechat-sender.service','appium-6002.service'):
+              output=subprocess.run(['journalctl','-u',unit,'--since','2026-09-07 02:00:00 UTC','--until','2026-09-07 08:00:00 UTC','--no-pager','-n','8000','-o','cat'],capture_output=True,text=True,timeout=20).stdout
+              emit('journal_categories',{'unit':unit,'lines':len(output.splitlines()),'counts':{s:output.count(s) for s in signatures if s in output}})
+          '''
+          result=subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','-p',os.environ['PORT'],os.environ['USER']+'@'+os.environ['HOST'],'python3 -B -'],input=script,text=True,timeout=100)
+          raise SystemExit(result.returncode)
+          RUNNER
