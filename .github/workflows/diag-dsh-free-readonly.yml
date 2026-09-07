@@ -28,7 +28,7 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Read deployed free-court state without notifications or mutations
+      - name: Read bounded task history and sanitized log counters
         env:
           AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
           AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
@@ -40,110 +40,67 @@ jobs:
           import shlex
           import subprocess
           script = r'''
-          import contextlib
-          import io
           import json
           import logging
           import re
-          from collections import Counter
           from datetime import datetime
           from pathlib import Path
-          from urllib.request import Request, urlopen
           from zoneinfo import ZoneInfo
-
           logging.disable(logging.CRITICAL)
           def emit(key, value):
               print(json.dumps({key: value}, ensure_ascii=False, default=str), flush=True)
-
           emit('checked_at', datetime.now(ZoneInfo('Asia/Shanghai')).isoformat())
+          from airflow.settings import Session
+          from airflow.configuration import conf
+          from sqlalchemy import text
           run_ids = []
+          queries = [
+              ('recent_runs', 'SELECT run_id,state,logical_date,start_date,end_date FROM dag_run WHERE dag_id=:dag ORDER BY id DESC LIMIT 12'),
+              ('last_24h', "SELECT state,count(*) AS count,min(start_date) AS first_start,max(end_date) AS last_end FROM dag_run WHERE dag_id=:dag AND logical_date > now() - interval '24 hours' GROUP BY state"),
+          ]
+          for name, query in queries:
+              try:
+                  with Session() as session:
+                      session.execute(text('SET TRANSACTION READ ONLY'))
+                      session.execute(text("SET LOCAL statement_timeout = '15s'"))
+                      rows = session.execute(text(query), {'dag':'大沙河免费场巡检'}).mappings().all()
+                      emit(name, [dict(row) for row in rows])
+                      if name == 'recent_runs':
+                          run_ids = [row['run_id'] for row in rows]
+                      session.rollback()
+              except Exception as exc:
+                  emit(name + '_error', {'type':type(exc).__name__, 'sqlstate':getattr(getattr(exc,'orig',None),'pgcode',None)})
           try:
-              from airflow.settings import Session
-              from sqlalchemy import text
-              with Session() as session:
-                  session.execute(text('SET TRANSACTION READ ONLY'))
-                  session.execute(text("SET LOCAL statement_timeout = '5s'"))
-                  params = {'dag': '大沙河免费场巡检'}
-                  paused = session.execute(text('SELECT is_paused FROM dag WHERE dag_id=:dag'), params).scalar()
-                  emit('dag_is_paused', paused)
-                  rows = session.execute(text('SELECT run_id,state,start_date,end_date FROM dag_run WHERE dag_id=:dag ORDER BY start_date DESC NULLS LAST LIMIT 12'), params).mappings().all()
-                  emit('recent_runs', [dict(row) for row in rows])
-                  run_ids = [row['run_id'] for row in rows]
-                  rows = session.execute(text("SELECT state,count(*) AS count,min(start_date) AS first_start,max(end_date) AS last_end FROM dag_run WHERE dag_id=:dag AND start_date > now() - interval '24 hours' GROUP BY state"), params).mappings().all()
-                  emit('last_24h', [dict(row) for row in rows])
-                  session.rollback()
-          except Exception as exc:
-              emit('airflow_read_error', type(exc).__name__)
-
-          try:
-              logs = []
-              for root in (Path('/opt/airflow/logs'), Path('/opt/bitnami/airflow/logs')):
+              roots = [Path(conf.get('logging','base_log_folder')), Path('/opt/airflow/logs')]
+              logs = set()
+              for root in roots:
                   for run in run_ids[:8]:
                       folder = root / 'dag_id=大沙河免费场巡检' / ('run_id=' + run) / 'task_id=check_free_courts'
                       if folder.is_dir():
-                          logs.extend(folder.glob('attempt=*.log'))
+                          logs.update(folder.glob('attempt=*.log'))
               evidence = []
-              for path in sorted(logs, key=lambda p: p.stat().st_mtime, reverse=True)[:12]:
+              for path in sorted(logs, key=lambda p:p.stat().st_mtime, reverse=True)[:12]:
                   if path.stat().st_size > 2_000_000:
                       continue
                   value = path.read_text(errors='replace')
-                  counts = re.findall(r'inspection complete[^\n}]{0,180}', value)
-                  errors = sorted(set(re.findall(r'\b(?:NswttAuthExpired|NswttApiError|ConnectTimeout|ReadTimeout|ConnectionError|KeyError|TypeError|ValueError|RuntimeError)\b', value)))
-                  missing_dates = re.findall(r'no free courts released for date=(\d{4}-\d{2}-\d{2})', value)
-                  queue_errors = re.findall(r'\[HOST_WECHAT_QUEUE\] enqueue failed venue=dsh_free, error=([A-Za-z]+)', value)
-                  evidence.append({'run': path.parent.parent.name, 'attempt': path.name, 'inspection_counts': counts[-1:], 'error_types': errors, 'unreleased_dates': missing_dates, 'enqueue_error_types': queue_errors})
-              emit('task_log_evidence', evidence)
+                  counts = re.findall(r'ready_dates=(\d+), free_dates=(\d+), available_slots=(\d+)',value)
+                  errors = sorted(set(re.findall(r'\b(?:NswttAuthExpired|NswttApiError|ConnectTimeout|ReadTimeout|ConnectionError|KeyError|TypeError|ValueError|RuntimeError)\b',value)))
+                  missing_dates = re.findall(r'no free courts released for date=(\d{4}-\d{2}-\d{2})',value)
+                  queue_errors = re.findall(r'\[HOST_WECHAT_QUEUE\] enqueue failed venue=dsh_free, error=([A-Za-z]+)',value)
+                  evidence.append({'run':path.parent.parent.name, 'attempt':path.name, 'inspection_counts':counts[-1:], 'error_types':errors, 'unreleased_dates':missing_dates, 'enqueue_error_types':queue_errors})
+              emit('task_log_evidence',evidence)
           except Exception as exc:
-              emit('log_read_error', type(exc).__name__)
-
-          try:
-              from airflow.models.variable import Variable
-              from wechat_airflow.venues.nswtt_client import NswttClient, NswttConfig
-              from wechat_airflow.venues.dashahe_free_watcher import ready_free_dates, extract_free_slots
-              with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                  config = NswttConfig.from_value(Variable.get('NSWTT_API_CONFIG', deserialize_json=True))
-                  client = NswttClient(config)
-                  calendar = client.calendar_list()
-              data = calendar.get('data')
-              rows = data.get('list') if isinstance(data, dict) else None
-              today = datetime.now(ZoneInfo('Asia/Shanghai')).date()
-              ready = ready_free_dates(data, today=today)
-              emit('upstream_calendar', {'data_type': type(data).__name__, 'list_type': type(rows).__name__, 'row_count': len(rows) if isinstance(rows, list) else None, 'ready_dates': ready, 'date_flags': [{k: row.get(k) for k in ('slicedate','status','openstatus','issale')} for row in rows[:15] if isinstance(row, dict)] if isinstance(rows, list) else []})
-              for day in list(dict.fromkeys([today.isoformat(), *ready]))[:3]:
-                  try:
-                      with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                          payload = client.slice_list(day)
-                          detail = payload.get('data')
-                          has_courts, slots = extract_free_slots(day, detail)
-                      places = (detail.get('placelist') or detail.get('placeList') or []) if isinstance(detail, dict) else []
-                      slices = (detail.get('slicelist') or detail.get('sliceList') or []) if isinstance(detail, dict) else []
-                      emit('upstream_date', {'date':day, 'data_type':type(detail).__name__, 'data_keys':sorted(detail) if isinstance(detail,dict) else [], 'place_count':len(places), 'slice_count':len(slices), 'status_counts':dict(Counter(str(row.get('status')) for row in slices if isinstance(row,dict))), 'has_free_courts':has_courts, 'extracted_slot_count':len(slots), 'slot_sample':slots[:8]})
-                  except Exception as exc:
-                      emit('upstream_date_error', {'date':day,'type':type(exc).__name__})
-          except Exception as exc:
-              emit('upstream_error', type(exc).__name__)
-
-          for endpoint in ('bootstrap','healthz'):
-              try:
-                  request = Request('https://zacks.claude89757.cc/api/' + endpoint, headers={'Accept':'application/json','User-Agent':'dsh-free-readonly-diagnosis'})
-                  with urlopen(request,timeout=12) as response:
-                      payload = json.load(response)
-                  if endpoint == 'bootstrap':
-                      emit('public_venue', [v for v in payload.get('venues',[]) if isinstance(v,dict) and v.get('id') == 'dsh_free'])
-                  else:
-                      emit('public_health', {k:payload.get(k) for k in ('ok','runtime','deploymentCommit')})
-              except Exception as exc:
-                  emit('public_error', {'endpoint':endpoint,'type':type(exc).__name__})
+              emit('log_read_error',type(exc).__name__)
           '''
           remote = 'set -eu; cd ' + shlex.quote(os.environ['AIRFLOW_REPOSITORY_PATH']) + '; '
           remote += 'printf "DEPLOYED_COMMIT "; git rev-parse HEAD; '
           remote += 'cid=$(docker ps --filter label=com.docker.compose.service=airflow-worker --format "{{.ID}}" | head -n 1); '
           remote += 'test -n "$cid"; docker exec -i -e PYTHONDONTWRITEBYTECODE=1 "$cid" python -B -'
           result = subprocess.run([
-              'ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-              '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15',
-              '-o', 'ServerAliveCountMax=3', '-p', os.environ['AIRFLOW_SSH_PORT'],
-              os.environ['AIRFLOW_SSH_USER'] + '@' + os.environ['AIRFLOW_SSH_HOST'], remote,
-          ], input=script, text=True, timeout=210)
+              'ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',
+              '-o','ConnectTimeout=15','-o','ServerAliveInterval=15',
+              '-o','ServerAliveCountMax=3','-p',os.environ['AIRFLOW_SSH_PORT'],
+              os.environ['AIRFLOW_SSH_USER']+'@'+os.environ['AIRFLOW_SSH_HOST'],remote,
+          ],input=script,text=True,timeout=120)
           raise SystemExit(result.returncode)
           RUNNER
