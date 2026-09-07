@@ -1,0 +1,147 @@
+name: Diagnose FSB PosPal false-positive
+
+on:
+  push:
+    branches:
+      - diag/fsb-pospal-false-positive-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Query public PosPal response with privacy-safe projection
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check requests==2.32.5
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import random
+          import re
+          import sys
+          import time
+          from typing import Any
+
+          import requests
+          import urllib3
+
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+          API = "https://wxservice-stg48.pospal.cn/wxapi/AppointmentVenue/LoadValidClassRoomApptSettingV2"
+          PROXIES = "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt"
+          HEADERS = {"STOREID": "6038652", "Content-Type": "application/json"}
+          PROJECT = "1775556129325750199"
+          DATES = ["2026-09-07", "2026-09-08", "2026-09-09"]
+          SENSITIVE = re.compile(r"user|customer|member|phone|mobile|tel|avatar|nick|openid|unionid|email|address", re.I)
+          INTERESTING = re.compile(
+              r"can|status|type|count|num|qty|left|remain|full|book|appoint|appt|cost|price|"
+              r"project|course|class|activity|group|occup|avail|title|name|remark|message|desc|uid|"
+              r"begin|end|time",
+              re.I,
+          )
+          PHONEISH = re.compile(r"(?<!\d)1\d{10}(?!\d)")
+
+          def mapping(v: Any) -> dict[str, Any]:
+              return v if isinstance(v, dict) else {}
+
+          def safe_primitive(key: str, value: Any) -> Any:
+              if SENSITIVE.search(key):
+                  return "<redacted>"
+              if isinstance(value, (bool, int, float)) or value is None:
+                  return value
+              if isinstance(value, str):
+                  text = PHONEISH.sub("<redacted-phone>", value)
+                  return text[:160]
+              return None
+
+          def project_dict(obj: dict[str, Any]) -> dict[str, Any]:
+              out: dict[str, Any] = {}
+              for key, value in obj.items():
+                  if not INTERESTING.search(str(key)):
+                      continue
+                  if isinstance(value, dict):
+                      nested = project_dict(value)
+                      if nested:
+                          out[str(key)] = nested
+                  elif isinstance(value, list):
+                      # Never dump arbitrary list contents; count only.
+                      out[str(key)] = {"list_len": len(value)}
+                  else:
+                      projected = safe_primitive(str(key), value)
+                      if projected is not None:
+                          out[str(key)] = projected
+              return out
+
+          def request(date: str) -> dict[str, Any]:
+              payload = {"dateTime": date, "projectUid": PROJECT}
+              # Try direct first; fall back to the same public proxy source production uses.
+              attempts: list[tuple[str, dict[str, str] | None]] = [("direct", None)]
+              try:
+                  proxy_text = requests.get(PROXIES, timeout=10).text
+                  proxy_list = [line.strip() for line in proxy_text.splitlines() if line.strip()]
+              except Exception:
+                  proxy_list = []
+              random.shuffle(proxy_list)
+              attempts.extend((f"proxy-{i + 1}", {"https": p}) for i, p in enumerate(proxy_list[:30]))
+              last = ""
+              for label, proxies in attempts:
+                  try:
+                      r = requests.post(
+                          API,
+                          headers=HEADERS,
+                          json=payload,
+                          proxies=proxies,
+                          timeout=8,
+                          verify=False,
+                      )
+                      last = f"{label}:http={r.status_code}"
+                      if r.status_code != 200:
+                          continue
+                      data = r.json()
+                      if data.get("successed") is True and data.get("status") == "success":
+                          print(f"source={label} date={date}")
+                          return data
+                  except Exception as exc:
+                      last = f"{label}:{type(exc).__name__}"
+              raise RuntimeError(f"all attempts failed ({last})")
+
+          for date in DATES:
+              data = request(date)
+              result = mapping(data.get("result"))
+              slots = result.get("slots") if isinstance(result.get("slots"), list) else []
+              rooms = result.get("validClassRooms") if isinstance(result.get("validClassRooms"), list) else []
+              print(f"DATE {date}: slots={len(slots)} rooms={len(rooms)}")
+              print("result_keys=" + json.dumps(sorted(result.keys()), ensure_ascii=False))
+
+              selected = []
+              for raw in slots:
+                  slot = mapping(raw)
+                  room = str(slot.get("classRoomName") or "")
+                  begin = str(slot.get("beginDatetime") or "")
+                  appt = mapping(slot.get("apptInfo"))
+                  if room in {"5号风雨场", "6号风雨场"} and any(t in begin for t in ("18:00", "20:00", "22:00")):
+                      selected.append(slot)
+                  elif appt.get("canApptOrNot") is True and len(selected) < 12:
+                      selected.append(slot)
+
+              seen = set()
+              for slot in selected:
+                  marker = (slot.get("classRoomName"), slot.get("beginDatetime"), slot.get("endDatetime"))
+                  if marker in seen:
+                      continue
+                  seen.add(marker)
+                  print("SLOT_KEYS " + json.dumps(sorted(slot.keys()), ensure_ascii=False))
+                  appt = mapping(slot.get("apptInfo"))
+                  print("APPT_KEYS " + json.dumps(sorted(appt.keys()), ensure_ascii=False))
+                  print("SAFE_SLOT " + json.dumps(project_dict(slot), ensure_ascii=False, sort_keys=True))
+              print("---")
+              time.sleep(0.5)
+          PY
