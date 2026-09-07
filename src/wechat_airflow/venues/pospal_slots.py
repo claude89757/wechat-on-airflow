@@ -54,9 +54,9 @@ def _time_range(
     try:
         begin = datetime.datetime.strptime(begin_raw, DATETIME_FORMAT)
         # PosPal uses inclusive cells such as 18:00:00-18:59:00.
-        end_exclusive = datetime.datetime.strptime(
-            end_raw, DATETIME_FORMAT
-        ) + datetime.timedelta(minutes=1)
+        end_exclusive = datetime.datetime.strptime(end_raw, DATETIME_FORMAT) + datetime.timedelta(
+            minutes=1
+        )
     except ValueError:
         return None
     if end_exclusive <= begin:
@@ -96,17 +96,14 @@ def _same_court(slot: dict[str, object], enrollment: _EnrollmentInterval) -> boo
     return bool(slot_name and enrollment.court_name and slot_name == enrollment.court_name)
 
 
-def _blocked_by_enrollment(
-    slot: dict[str, object], enrollments: list[_EnrollmentInterval]
-) -> bool:
+def _blocked_by_enrollment(slot: dict[str, object], enrollments: list[_EnrollmentInterval]) -> bool:
     slot_range = _time_range(slot)
     if slot_range is None:
         return False
     slot_begin, slot_end = slot_range
     return any(
         _same_court(slot, enrollment)
-        and max(slot_begin, enrollment.begin)
-        < min(slot_end, enrollment.end_exclusive)
+        and max(slot_begin, enrollment.begin) < min(slot_end, enrollment.end_exclusive)
         for enrollment in enrollments
     )
 
