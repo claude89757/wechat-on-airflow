@@ -16,6 +16,7 @@ from wechat_airflow.notifications.webapp import (
     publish_venue_observation,
 )
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
+from wechat_airflow.venues.pospal_slots import directly_bookable_slots
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -104,18 +105,9 @@ def parse_slot_time(begin_datetime: str, end_datetime: str) -> list[str]:
 
 
 def parse_availability(json_data: object) -> CourtAvailability:
-    payload = _as_mapping(json_data)
-    result = _as_mapping(payload.get("result"))
-    slots = result.get("slots")
     court_availability: dict[str, list[list[str]]] = {}
-    if not isinstance(slots, list):
-        return {}
 
-    for raw_slot in slots:
-        slot = _as_mapping(raw_slot)
-        appt_info = _as_mapping(slot.get("apptInfo"))
-        if appt_info.get("canApptOrNot") is not True:
-            continue
+    for slot in directly_bookable_slots(json_data):
         court_name = str(slot.get("classRoomName") or "未知场地")
         begin_datetime = slot.get("beginDatetime")
         end_datetime = slot.get("endDatetime")

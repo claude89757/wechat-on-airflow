@@ -20,6 +20,7 @@ from wechat_airflow.notifications.webapp import (
     publish_venue_observation,
 )
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
+from wechat_airflow.venues.pospal_slots import directly_bookable_slots
 
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -117,14 +118,9 @@ def parse_tops_availability(json_data: dict) -> dict[str, list[list[str]]]:
     Returns:
         {"风雨棚1号场": [["18:00", "20:00"], ...], ...}
     """
-    slots = json_data.get("result", {}).get("slots", [])
     court_availability = {}
 
-    for slot in slots:
-        appt_info = slot.get("apptInfo") or {}
-        if appt_info.get("canApptOrNot") is not True:
-            continue
-
+    for slot in directly_bookable_slots(json_data):
         court_name = slot.get("classRoomName") or "未知场地"
         begin_datetime = slot.get("beginDatetime")
         end_datetime = slot.get("endDatetime")

@@ -18,6 +18,7 @@ from wechat_airflow.notifications.webapp import (
     publish_venue_observation,
 )
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
+from wechat_airflow.venues.pospal_slots import directly_bookable_slots
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -308,18 +309,9 @@ def parse_availability(
     excluded_court_tokens: tuple[str, ...] = EXCLUDED_COURT_TOKENS,
     allowed_court_numbers: frozenset[int] | None = None,
 ) -> CourtAvailability:
-    payload = _as_mapping(json_data)
-    result = _as_mapping(payload.get("result"))
-    slots = result.get("slots")
     court_availability: dict[str, list[list[str]]] = {}
-    if not isinstance(slots, list):
-        return {}
 
-    for raw_slot in slots:
-        slot = _as_mapping(raw_slot)
-        appt_info = _as_mapping(slot.get("apptInfo"))
-        if appt_info.get("canApptOrNot") is not True:
-            continue
+    for slot in directly_bookable_slots(json_data):
         court_name = str(slot.get("classRoomName") or "未知场地")
         if not is_standard_tennis_court(court_name, excluded_court_tokens, allowed_court_numbers):
             print(f"skip non-standard court: {court_name}")
