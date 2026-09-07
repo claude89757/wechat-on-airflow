@@ -282,7 +282,8 @@ class SenderAgentTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["error"], "send_failed")
-        self.assertIn("send button missing", response.json()["message"])
+        self.assertEqual(response.json()["submission_state"], "not_submitted")
+        self.assertNotIn("send button missing", response.json()["message"])
 
     @patch("sender_agent.app.send_text_messages")
     def test_reuses_warm_session_and_skips_preflight_cleanup(self, mock_send):

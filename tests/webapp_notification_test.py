@@ -170,6 +170,7 @@ class WebappNotificationTest(TestCase):
         get_variable.side_effect = lambda key, default=None: values.get(key, default)
         response = MagicMock()
         response.raise_for_status.return_value = None
+        response.json.return_value = {"success": True}
         post.return_value = response
 
         result = webapp.publish_venue_observation(
@@ -222,6 +223,7 @@ class WebappNotificationTest(TestCase):
         get_variable.side_effect = lambda key, default=None: values.get(key, default)
         response = MagicMock()
         response.raise_for_status.return_value = None
+        response.json.return_value = {"success": True}
         post.return_value = response
 
         result = webapp.publish_venue_observation(

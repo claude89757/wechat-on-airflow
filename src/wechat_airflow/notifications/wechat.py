@@ -418,7 +418,11 @@ def send_wechat_text_to_chatrooms_best_effort(
             raise RuntimeError("Host Core did not acknowledge the durable intent")
         if result.get("suppressed"):
             _release_subscription_gate_dedupe(str(booking_venue_id or ""), message)
-        return [{"success": True, "queued": True, "result": result}]
+        elif result.get("rejected_lines"):
+            rejected = result["rejected_lines"]
+            if isinstance(rejected, list) and all(isinstance(line, str) for line in rejected):
+                _release_subscription_gate_dedupe(str(booking_venue_id or ""), "\n".join(rejected))
+        return [{"success": True, "queued": bool(result.get("queued")), "result": result}]
     except Exception as exc:
         # Release the watcher preclaim only; the durable queue ID makes retry safe.
         _release_subscription_gate_dedupe(str(booking_venue_id or ""), message)

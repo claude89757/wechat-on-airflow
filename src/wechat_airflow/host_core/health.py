@@ -210,12 +210,22 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
             queues[table] = {"allHistory": groups, "createdThisRelease": recent}
             unknown = sum(row["count"] for row in recent if row["status"] == "submission_unknown")
             checks[f"{table}:noNewUnknownSubmission"] = unknown == 0
+            failed = sum(row["count"] for row in recent if row["status"] == "failed")
+            checks[f"{table}:noNewTerminalFailure"] = failed == 0
             overdue = connection.execute(
                 text(f"""SELECT count(*) FROM zacks.{table}
                 WHERE status IN ('pending','retry','processing','dispatching')
                 AND created_at < now() - interval '15 minutes'""")
             ).scalar_one()
             checks[f"{table}:noStalledBacklog"] = overdue == 0
+        enqueue_incidents = connection.execute(
+            text("""
+            SELECT count(*) FROM zacks.wechat_delivery_incidents
+            WHERE source LIKE 'enqueue:%' AND resolved_at IS NULL AND last_failed_at >= :since
+        """),
+            {"since": since},
+        ).scalar_one()
+        checks["wechatEnqueueIncidentsResolved"] = enqueue_incidents == 0
         natural = dict(
             connection.execute(
                 text("""SELECT
@@ -256,6 +266,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
         "observationScopes": scopes,
         "dags": dag_results,
         "queues": queues,
+        "unresolvedEnqueueIncidents": enqueue_incidents,
         "naturalDelivery": natural,
         "sender": sender,
         "notificationsGeneratedForAcceptance": 0,

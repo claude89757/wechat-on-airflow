@@ -183,7 +183,9 @@ class WeChatSendApiTest(unittest.TestCase):
             patch.object(
                 wechat_send_api.requests,
                 "post",
-                return_value=FakeResponse({"success": True, "durable": True, "ids": ["x"]}),
+                return_value=FakeResponse(
+                    {"success": True, "durable": True, "queued": 1, "ids": ["x"]}
+                ),
             ) as post,
             patch.object(
                 wechat_send_api,

@@ -11,12 +11,16 @@ from sqlalchemy import text
 
 from .database import transaction
 from .domain import VENUES, utc_now
-from .service import active_subscription_for_venue
+from .service import active_subscription_for_venue, record_wechat_incident
 
 LINE = re.compile(
     r"^【(.+)】星期[一二三四五六日]\((\d{2}-\d{2})\)空场[:：]\s*(\d{2}:\d{2})-(\d{2}:\d{2})$"
 )
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+class AvailabilityChanged(ValueError):
+    """One well-formed interval no longer has complete current coverage."""
 
 
 def covered_events(message: str, slots: list[dict[str, Any]]) -> list[str]:
@@ -27,6 +31,8 @@ def covered_events(message: str, slots: list[dict[str, Any]]) -> list[str]:
         if not match:
             raise ValueError("Wechat observation line is invalid")
         court, day, start, end = match.groups()
+        if not "00:00" <= start < end <= "24:00" or start[3:] > "59" or end[3:] > "59":
+            raise ValueError("Wechat observation interval is invalid")
         if end == "24:00":
             end = "23:59"
         candidates = sorted(
@@ -50,14 +56,35 @@ def covered_events(message: str, slots: list[dict[str, Any]]) -> list[str]:
             if cursor >= end:
                 break
         if cursor < end:
-            raise ValueError("Wechat availability changed before enqueue")
+            raise AvailabilityChanged("Wechat availability changed before enqueue")
         result.update(keys)
     if not result:
         raise ValueError("Wechat message has no current availability")
     return sorted(result)
 
 
-def enqueue(payload: dict[str, Any]) -> dict[str, Any]:
+def current_message(message: str, slots: list[dict[str, Any]]) -> tuple[str, list[str], list[str]]:
+    """Drop unavailable lines without letting one poison unrelated valid lines.
+
+    Malformed lines remain errors. Never trim a partially covered interval into
+    an invented availability interval. Rejected lines can release collector claims.
+    """
+    retained: list[str] = []
+    rejected: list[str] = []
+    keys: set[str] = set()
+    for line in sorted(set(message.splitlines())):
+        line = line.strip()
+        try:
+            covered = covered_events(line, slots)
+        except AvailabilityChanged:
+            rejected.append(line)
+        else:
+            retained.append(line)
+            keys.update(covered)
+    return "\n".join(retained), sorted(keys), rejected
+
+
+def _enqueue(payload: dict[str, Any]) -> dict[str, Any]:
     venue = str(payload.get("venue_id") or "")
     message = str(payload.get("message") or "").strip()
     device = str(payload.get("device_name") or "").strip()
@@ -97,8 +124,17 @@ def enqueue(payload: dict[str, Any]) -> dict[str, Any]:
                 {"venue": venue},
             ).mappings()
         ]
-        keys = covered_events(message, slots)
-        start_at = min(
+        message, keys, rejected = current_message(message, slots)
+        if not keys:
+            return {
+                "success": True,
+                "queued": 0,
+                "suppressed": True,
+                "reason": "availability_changed",
+                "rejected_lines": rejected,
+            }
+        # An early-starting line must not expire later lines in the same digest.
+        start_at = max(
             datetime.combine(
                 s["booking_date"], datetime.strptime(s["start_time"], "%H:%M").time(), SHANGHAI
             )
@@ -130,4 +166,53 @@ def enqueue(payload: dict[str, Any]) -> dict[str, Any]:
                 },
             )
             ids.append(key)
-    return {"success": True, "queued": len(ids), "ids": ids, "durable": True}
+    return {
+        "success": True,
+        "queued": len(ids),
+        "ids": ids,
+        "durable": True,
+        "rejected_lines": rejected,
+    }
+
+
+def enqueue(payload: dict[str, Any]) -> dict[str, Any]:
+    """Record transport-independent failures without exposing targets or content."""
+    venue = str(payload.get("venue_id") or "")
+    message = str(payload.get("message") or "").strip()
+    receivers = payload.get("receivers")
+    groups = [str(r).strip() for r in receivers[:20]] if isinstance(receivers, list) else []
+    source = f"enqueue:{venue}"
+    try:
+        result = _enqueue(payload)
+    except Exception as exc:
+        if venue in VENUES:
+            for receiver in groups:
+                record_wechat_incident(
+                    source=source,
+                    receiver=receiver,
+                    message=message,
+                    error=RuntimeError(type(exc).__name__),
+                    error_code=type(exc).__name__,
+                )
+        raise
+    # A subsequent acknowledged retry resolves only this digest's own incident.
+    # A resolution-write failure must not turn an already durable enqueue into failure.
+    try:
+        with transaction() as connection:
+            connection.execute(
+                text("""
+                UPDATE zacks.wechat_delivery_incidents SET resolved_at=now()
+                WHERE source=:source AND message_hash=:message
+                  AND receiver_hash=ANY(:receivers) AND resolved_at IS NULL
+            """),
+                {
+                    "source": source,
+                    "message": hashlib.sha256(message.encode()).hexdigest(),
+                    "receivers": [
+                        hashlib.sha256(receiver.encode()).hexdigest() for receiver in groups
+                    ],
+                },
+            )
+    except Exception:
+        pass
+    return result

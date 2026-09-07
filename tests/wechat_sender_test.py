@@ -13,6 +13,7 @@ from wechat_sender.appium_text_sender import (
     InvalidSendRequestError,
     OcrLine,
     SendFailedError,
+    SendProgress,
     SendResult,
     TextWeChatOperator,
     _fingerprints_match,
@@ -564,6 +565,7 @@ class WeChatSenderTest(unittest.TestCase):
     def test_visual_input_clear_uses_batched_adb_key_events(self, mock_run):
         mock_run.return_value.returncode = 0
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.device_name = "test-device"
         regions = []
         operator._find_visual_green_button = lambda *, region: regions.append(region)
@@ -582,6 +584,7 @@ class WeChatSenderTest(unittest.TestCase):
     @patch("wechat_sender.appium_text_sender.time.sleep")
     def test_visual_send_checks_only_the_bottom_input_row(self, _mock_sleep):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.set_clipboard_text = lambda _value: None
         operator.driver.press_keycode = lambda _value: None
@@ -612,6 +615,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_visual_only_device_opens_visible_chat_without_scrolling(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.current_receiver = None
         operator.is_at_main_page = lambda: True
@@ -640,6 +644,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_visible_candidates_prefer_exact_numbered_group_over_earlier_prefix(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator._ocr_lines = lambda **_kwargs: [
             OcrLine("Zacks网球场预定小助手", 100, 300, 700, 360),
             OcrLine("Zacks网球场预定小助手_2群", 100, 500, 800, 560),
@@ -660,6 +665,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_unambiguous_recent_chat_uses_activity_when_title_ocr_is_unavailable(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator._wait_for_activity = lambda suffix, timeout: suffix == "ChattingUI" and bool(
             timeout
         )
@@ -677,6 +683,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_ambiguous_recent_chat_still_requires_matching_title(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator._wait_for_activity = lambda *_args, **_kwargs: True
         operator._wait_for_chat = lambda receiver, timeout: False
 
@@ -690,6 +697,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_visual_recent_chat_rescans_after_the_list_reorders(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.current_receiver = None
         operator.navigation_path = "unknown"
@@ -717,6 +725,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_visual_recent_chat_never_taps_or_searches_with_stale_coordinates(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.current_receiver = None
         operator.navigation_path = "unknown"
@@ -739,6 +748,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_partial_accessibility_still_checks_visible_chat_without_scrolling(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.current_receiver = None
         operator.is_at_main_page = lambda: True
@@ -773,6 +783,7 @@ class WeChatSenderTest(unittest.TestCase):
                 return None
 
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.current_receiver = None
         operator.is_at_main_page = lambda: True
@@ -788,6 +799,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_non_chat_wechat_page_is_not_accepted_as_target_chat(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".plugin.profile.ui.ContactInfoUI"
         operator._has_accessible_title = lambda _receiver: True
@@ -803,6 +815,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_chat_activity_requires_matching_title(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.chatting.ChattingUI"
         operator._has_accessible_title = lambda _receiver: False
@@ -812,6 +825,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_launcher_activity_accepts_verified_chat_title(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.LauncherUI"
         operator._is_visual_main_page = lambda: False
@@ -821,6 +835,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_launcher_main_page_is_not_accepted_as_chat(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.LauncherUI"
         operator._is_visual_main_page = lambda: True
@@ -857,6 +872,7 @@ class WeChatSenderTest(unittest.TestCase):
         pil_module.Image = image_module
 
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.get_screenshot_as_png = lambda: b"png"
 
@@ -871,6 +887,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_send_reuses_an_already_open_verified_target_chat(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.current_receiver = None
         operator.is_target_chat_open = lambda _receiver: True
         operator.is_contact_in_recent_chats = lambda _receiver: (_ for _ in ()).throw(
@@ -892,6 +909,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_send_uses_visible_numbered_group_without_opening_search(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.current_receiver = None
         operator.navigation_path = "unknown"
@@ -914,6 +932,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_verified_chat_does_not_repeat_unstable_title_ocr(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.chatting.ChattingUI"
         operator.current_receiver = "Zacks网球场预定小助手_2群"
@@ -925,6 +944,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_return_to_chats_clears_verified_launcher_chat(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.LauncherUI"
         operator.current_receiver = "Zacks网球场预定小助手_2群"
@@ -952,6 +972,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_search_tries_next_visual_result_after_wrong_entry(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.FTSMainUI"
         operator.driver.set_clipboard_text = lambda _value: None
@@ -996,6 +1017,7 @@ class WeChatSenderTest(unittest.TestCase):
                 self.rect = {"x": 100, "y": top, "width": 700, "height": 80}
 
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.FTSMainUI"
         operator.driver.set_clipboard_text = lambda _value: None
@@ -1040,6 +1062,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_search_button_is_accepted_when_click_leaves_main_page(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator._wait_for_search_page = lambda timeout: False
         operator.is_at_main_page = lambda: False
@@ -1070,6 +1093,7 @@ class WeChatSenderTest(unittest.TestCase):
 
     def test_launcher_search_page_is_detected_from_top_input(self):
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.current_activity = ".ui.LauncherUI"
         operator._activity_ends_with = lambda suffix: suffix == "LauncherUI"
@@ -1082,6 +1106,7 @@ class WeChatSenderTest(unittest.TestCase):
             rect = {"x": 0, "y": 2000, "width": 900, "height": 100}
 
         operator = TextWeChatOperator.__new__(TextWeChatOperator)
+        operator.progress = SendProgress()
         operator.driver = VisualOnlyDriver()
         operator.driver.find_elements = lambda **_kwargs: [Input()]
 

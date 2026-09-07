@@ -609,3 +609,146 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
     )
     report = health.business_report("a" * 40)
     assert not report["checks"]["allNaturalDagCycles"]
+
+
+def test_wechat_mixed_stale_batch_keeps_valid_lines_and_dispatch_prunes_again():
+    from wechat_airflow.host_core import wechat_queue, wechat_worker
+
+    with client() as c:
+        assert subscription(c, identity(), start="08:00", end="23:00").status_code == 201
+        payload = observation()
+        day = payload["slots"][0]["date"]
+        late = {
+            **payload["slots"][0],
+            "court_name": "2号场",
+            "start_time": "20:00",
+            "end_time": "21:00",
+        }
+        payload["slots"].append(late)
+        service.ingest_observation(payload)
+    early_line = f"【1号场】星期日({day[5:]})空场: 18:00-19:00"
+    late_line = f"【2号场】星期日({day[5:]})空场: 20:00-21:00"
+    stale_line = f"【9号场】星期日({day[5:]})空场: 10:00-11:00"
+    request = {
+        "venue_id": "tops",
+        "receivers": ["test-only-group"],
+        "device_name": "test-device",
+        "message": "\n".join([early_line, stale_line, late_line]),
+        "source": "test",
+    }
+    first = wechat_queue.enqueue(request)
+    assert first["queued"] == 1
+    assert first["rejected_lines"] == [stale_line]
+    assert wechat_queue.enqueue(request)["ids"] == first["ids"]
+    assert sql("SELECT count(*) n FROM zacks.wechat_outbox")[0]["n"] == 1
+    row = wechat_worker._claim("test-worker")
+    service.ingest_observation(observation(slots=[late]))
+    assert wechat_worker._prepare(row, "test-worker") is True
+    saved = sql("SELECT message,event_keys,status FROM zacks.wechat_outbox")[0]
+    assert saved["message"] == late_line
+    assert len(saved["event_keys"]) == 1
+    assert saved["status"] == "dispatching"
+    # No send function was invoked; both validations use the real isolated DB.
+
+
+def test_wechat_invalid_enqueue_is_durable_and_successful_retry_resolves_incident():
+    from wechat_airflow.host_core import wechat_queue
+
+    with client() as c:
+        assert subscription(c, identity()).status_code == 201
+        payload = observation()
+        service.ingest_observation(payload)
+    day = payload["slots"][0]["date"]
+    request = {
+        "venue_id": "tops",
+        "receivers": ["test-only-group"],
+        "device_name": "",
+        "message": f"【1号场】星期日({day[5:]})空场: 18:00-19:00",
+    }
+    with pytest.raises(ValueError):
+        wechat_queue.enqueue(request)
+    incident = sql(
+        "SELECT error_code,error_message,resolved_at FROM zacks.wechat_delivery_incidents"
+    )[0]
+    assert incident == {
+        "error_code": "ValueError",
+        "error_message": "ValueError",
+        "resolved_at": None,
+    }
+    request["device_name"] = "test-device"
+    assert wechat_queue.enqueue(request)["queued"] == 1
+    assert (
+        sql("SELECT resolved_at FROM zacks.wechat_delivery_incidents")[0]["resolved_at"] is not None
+    )
+
+
+@pytest.mark.parametrize("inactive", [True, False])
+def test_disabled_or_expired_subscription_never_creates_email_or_reactivates(inactive):
+    with client() as c:
+        assert subscription(c, identity()).status_code == 201
+    if inactive:
+        sql("UPDATE zacks.subscriptions SET active=false")
+    else:
+        sql("UPDATE zacks.subscriptions SET active_until=now()-interval '1 second'")
+    result = service.ingest_observation(observation())
+    assert result["matchedNotifications"] == 0
+    assert not sql("SELECT id FROM zacks.notification_outbox")
+    assert service.active_subscription_for_venue("tops") is False
+
+
+def test_past_slots_never_create_email_even_with_an_active_all_day_subscription():
+    with client() as c:
+        assert subscription(c, identity(), start="00:00", end="23:59").status_code == 201
+    day = (utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date() - timedelta(days=1)).isoformat()
+    payload = observation(
+        slots=[{"date": day, "court_name": "1号场", "start_time": "10:00", "end_time": "11:00"}]
+    )
+    assert service.ingest_observation(payload)["matchedNotifications"] == 0
+    assert not sql("SELECT id FROM zacks.notification_outbox")
+
+
+def test_unknown_reconciliation_is_status_only_and_does_not_replay(monkeypatch):
+    from wechat_airflow.host_core import wechat_queue, wechat_worker
+
+    with client() as c:
+        assert subscription(c, identity()).status_code == 201
+        payload = observation()
+        service.ingest_observation(payload)
+    day = payload["slots"][0]["date"]
+    wechat_queue.enqueue(
+        {
+            "venue_id": "tops",
+            "receivers": ["test-only-group"],
+            "device_name": "test-device",
+            "message": f"【1号场】星期日({day[5:]})空场: 18:00-19:00",
+        }
+    )
+    row = wechat_worker._claim("test-worker")
+    assert wechat_worker._prepare(row, "test-worker")
+    wechat_worker._finish(row, "test-worker", "submission_unknown", "ReadTimeout")
+    sql("UPDATE zacks.wechat_outbox SET next_attempt_at=now()-interval '1 second'")
+    monkeypatch.setattr(
+        wechat_worker, "_first_value", lambda _: "http://isolated.invalid/v1/wechat/send"
+    )
+    urls = []
+
+    def lookup(url, **kwargs):
+        assert url.endswith("/v1/wechat/status")
+        assert set(kwargs["json"]) == {"idempotency_key", "payload_hash"}
+        urls.append(url)
+        return SimpleNamespace(
+            status_code=200,
+            raise_for_status=lambda: None,
+            json=lambda: {
+                "status": "sent",
+                "confirmed": True,
+                "sent_count": 1,
+                "updated_at": utc_now().isoformat(),
+            },
+        )
+
+    monkeypatch.setattr(wechat_worker.requests, "post", lookup)
+    wechat_worker.reconcile_unknown()
+    assert urls
+    assert sql("SELECT status FROM zacks.wechat_outbox")[0]["status"] == "sent"
+    assert wechat_worker._claim("test-worker") is None

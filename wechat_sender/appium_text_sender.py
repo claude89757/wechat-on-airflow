@@ -38,6 +38,20 @@ class SendFailedError(WeChatSenderError):
     error_code = "send_failed"
 
 
+@dataclass
+class SendProgress:
+    before_submit: Callable[[], None] = lambda: None
+    submission_started: bool = False
+    confirmed_count: int = 0
+    cleanup_failed: bool = False
+
+    def submitting(self) -> None:
+        if not self.submission_started:
+            # Set memory first. A failed checkpoint must never permit a click.
+            self.submission_started = True
+            self.before_submit()
+
+
 @dataclass(frozen=True)
 class SendResult:
     success: bool
@@ -428,6 +442,7 @@ class TextWeChatOperator:
         self.device_name = device_name
         self.current_receiver: str | None = None
         self.navigation_path = "unknown"
+        self.progress = SendProgress()
         self.driver = AppiumWebDriver(
             command_executor=appium_server_url,
             options=UiAutomator2Options().load_capabilities(capabilities),
@@ -453,7 +468,11 @@ class TextWeChatOperator:
         else:
             self._send_visual_messages(messages)
 
-        self.return_to_chats()
+        try:
+            self.return_to_chats()
+        except Exception:
+            # Every message was confirmed. Navigation cleanup is not a failed send.
+            self.progress.cleanup_failed = True
 
     def is_contact_in_recent_chats(self, receiver: str) -> bool:
         if not self.is_at_main_page():
@@ -695,21 +714,34 @@ class TextWeChatOperator:
         for index, message in enumerate(messages):
             try:
 
-                def send_current_message(current_message: str = message) -> None:
+                def prepare_current_message(current_message: str = message) -> Any:
                     message_input = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located(
                             (AppiumBy.XPATH, "//android.widget.EditText")
                         )
                     )
+                    message_input.clear()
                     message_input.send_keys(current_message)
                     send_btn = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located(
                             (AppiumBy.XPATH, "//android.widget.Button[@text='发送']")
                         )
                     )
-                    send_btn.click()
+                    return send_btn
 
-                _run_stale_retry(send_current_message)
+                send_btn = _run_stale_retry(prepare_current_message)
+                self.progress.submitting()
+                # Never retry a click after a stale-element/transport exception.
+                send_btn.click()
+                WebDriverWait(self.driver, 10).until(
+                    lambda driver: any(
+                        not str(element.get_attribute("text") or "").strip()
+                        for element in driver.find_elements(
+                            AppiumBy.XPATH, "//android.widget.EditText"
+                        )
+                    )
+                )
+                self.progress.confirmed_count += 1
                 if index < len(messages) - 1:
                     time.sleep(random.uniform(0.3, 3))
             except TimeoutException as exc:
@@ -739,19 +771,24 @@ class TextWeChatOperator:
                     )
                 if send_line is None:
                     raise AppiumTimeoutError("visual send button was not found")
+                self.progress.submitting()
                 self._tap_ocr_line(send_line)
                 time.sleep(0.8)
                 if self.driver.current_package != "com.tencent.mm":
                     raise SendFailedError("WeChat left the chat page during send")
                 if self._find_visual_green_button(region=VISUAL_SEND_BUTTON_REGION) is not None:
                     raise SendFailedError("visual send button remained active after tap")
+                self.progress.confirmed_count += 1
                 if index < len(messages) - 1:
                     time.sleep(random.uniform(0.3, 3))
             except WeChatSenderError:
                 raise
             except Exception as exc:
                 raise SendFailedError(str(exc)) from exc
-        self.driver.set_clipboard_text("")
+        try:
+            self.driver.set_clipboard_text("")
+        except Exception:
+            self.progress.cleanup_failed = True
 
     def _clear_visual_input(self) -> None:
         commands = (
@@ -1212,6 +1249,7 @@ def send_text_messages(
     sleeper: Callable[[float], None] = time.sleep,
     existing_operator: TextWeChatOperator | None = None,
     close_operator: bool = True,
+    progress: SendProgress | None = None,
 ) -> SendResult:
     normalized_messages = _validate_send_request(
         appium_server_url=appium_server_url,
@@ -1262,8 +1300,9 @@ def send_text_messages(
                 if not _operator_can_send(operator, normalized_receiver):
                     raise DeviceNotReadyError("WeChat main page is not available")
 
+        operator.progress = progress or SendProgress()
         operator.send_message(receiver=normalized_receiver, messages=normalized_messages)
-        failed = False
+        failed = operator.progress.cleanup_failed
         return SendResult(
             success=True,
             device_name=device_name,
@@ -1271,7 +1310,7 @@ def send_text_messages(
             sent_count=len(normalized_messages),
             navigation_path=getattr(operator, "navigation_path", "unknown"),
             session_reused=session_reused,
-            operator=None if close_operator else operator,
+            operator=None if close_operator or failed else operator,
         )
     except WeChatSenderError:
         raise

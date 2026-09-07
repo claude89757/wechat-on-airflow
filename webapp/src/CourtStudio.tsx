@@ -168,11 +168,12 @@ export function CourtStudio(props: Props) {
           <div className={`tier-row tier-${dashboard.identity.tier}`}><span><StarIcon size={16} />{dashboard.identity.tier === "priority" ? "优先用户" : "普通用户"}</span><button type="button" onClick={() => onPanel("priority")}>{dashboard.identity.tier === "priority" ? "查看规则" : "输入邀请码"}</button></div>
           <div className="quota-card" aria-label="今日邮件额度"><div><span>今日邮件额度</span><strong>剩余 {dashboard.identity.remainingToday} / {dashboard.identity.dailyLimit}</strong></div><span className="quota-track" aria-hidden="true"><i style={{ width: `${quotaPercent}%` }} /></span><p>已提交 {dashboard.identity.submittedToday} · 送达 {dashboard.identity.deliveredToday} · 失败 {dashboard.identity.failedToday}</p></div>
         </> : null}
+        {verified && dashboard.identity.activeSubscriptionCount === 0 ? <p role="status" className="studio-disclaimer">当前邮箱没有有效订阅，不会收到场地邮件。已停用或过期的订阅不会自动恢复，请创建新的订阅。</p> : null}
         <p className="studio-disclaimer"><ShieldCheckIcon size={15} />只做提醒，不代订，也不保证订到。</p>
       </section>
 
       <section className="venue-section studio-directory" ref={directoryRef} id="studio-directory" aria-labelledby="venue-heading">
-        <div className="section-heading"><div><span className="studio-eyebrow">THE COURT DIRECTORY</span><h2 id="venue-heading">找到你想去的球场<span>{dashboard.venues.length}</span></h2><p>点按场地，直接设置提醒。状态仅表示后台最近巡检结果。</p></div></div>
+        <div className="section-heading"><div><span className="studio-eyebrow">THE COURT DIRECTORY</span><h2 id="venue-heading">找到你想去的球场<span>{dashboard.venues.length}</span></h2><p>点按场地，直接设置提醒。巡检、邮件和微信是独立环节；场地邮件时间为全站记录，不代表当前邮箱或微信群已收到。</p></div></div>
         <div className="studio-toolbar">
           <label className="studio-search"><MagnifyingGlassIcon size={19} aria-hidden="true" /><KeyboardInput ref={searchRef} type="search" aria-label="搜索场地" placeholder="搜索场地名称…" autoComplete="off" value={query} onChange={event => setQuery(event.target.value)} />{query ? <button type="button" aria-label="清除搜索" onClick={() => { setQuery(""); searchRef.current?.focus(); }}><XIcon size={16} /></button> : null}</label>
           <div className="studio-filters" role="group" aria-label="筛选场地">
@@ -192,7 +193,7 @@ export function CourtStudio(props: Props) {
               <span className="venue-card-name">{venue.name}</span>
               <span className="venue-card-status"><span><i className={`venue-status-dot ${state}`} />{stateText}</span><small>{cadence} / 次</small></span>
               <span className="venue-card-meta"><span><ClockIcon size={13} />{relativeTime(venue.lastInspectionAt)}</span><span className="venue-card-followers"><UsersThreeIcon size={13} />{hasData ? venue.subscriberCount : "—"}</span></span>
-              <span className="venue-card-mail"><EnvelopeSimpleIcon size={13} />{mail}</span>
+              <span className="venue-card-mail"><EnvelopeSimpleIcon size={13} />邮件渠道 · {mail}</span>
             </button>;
           })}
         </div>

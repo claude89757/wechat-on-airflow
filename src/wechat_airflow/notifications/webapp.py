@@ -235,9 +235,9 @@ def publish_venue_observation(
             response_payload = response.json()
         except ValueError:
             response_payload = {}
-        gate = _normalize_gate(
-            response_payload.get("wechatGate") if isinstance(response_payload, dict) else None
-        )
+        if not isinstance(response_payload, dict) or response_payload.get("success") is not True:
+            raise RuntimeError("observation_not_acknowledged")
+        gate = _normalize_gate(response_payload.get("wechatGate"))
         print(
             f"[WEBAPP] observation published venue={venue_id}, "
             f"scope={normalized_scope}, healthy={healthy}, slots={slot_count}, "

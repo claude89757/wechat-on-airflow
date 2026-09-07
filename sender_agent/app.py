@@ -18,6 +18,7 @@ from wechat_sender import (
     cleanup_appium_device,
     send_text_messages,
 )
+from wechat_sender.appium_text_sender import SendProgress
 
 APP_NAME = "wechat-sender-agent"
 DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
@@ -197,6 +198,24 @@ def readyz():
     }
 
 
+class StatusRequest(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=256)
+    payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@app.post("/v1/wechat/status")
+def send_status(request: StatusRequest):
+    """Read ledger evidence only. Missing/unknown is never permission to resend."""
+    if not device_lock.acquire(blocking=False):
+        return _json_error(409, "device_busy", "sender currently processing")
+    try:
+        return ledger.lookup(request.idempotency_key, request.payload_hash)
+    except Exception:
+        return _json_error(503, "ledger_unavailable", "durable sender ledger is unavailable")
+    finally:
+        device_lock.release()
+
+
 @app.post("/v1/wechat/send")
 def send_wechat(request: SendRequest):
     global _warm_operator, _warm_appium_url
@@ -228,7 +247,7 @@ def send_wechat(request: SendRequest):
         payload_hash = hashlib.sha256(canonical.encode()).hexdigest()
         key = request.idempotency_key or payload_hash
         try:
-            phase, cached = ledger.claim(key, payload_hash)
+            phase, cached = ledger.claim(key, payload_hash, preparing=True)
         except Exception:
             return _json_error(503, "ledger_unavailable", "durable sender ledger is unavailable")
         if phase == "sent":
@@ -244,6 +263,7 @@ def send_wechat(request: SendRequest):
 
         appium_url = _appium_url()
         existing_operator = _usable_warm_operator(request.device_name, appium_url)
+        progress = SendProgress(before_submit=lambda: ledger.mark_submitting(key))
         try:
             result = send_text_messages(
                 appium_server_url=appium_url,
@@ -252,13 +272,28 @@ def send_wechat(request: SendRequest):
                 messages=request.messages,
                 existing_operator=existing_operator,
                 close_operator=False,
+                progress=progress,
                 preflight_cleanup=None if existing_operator else cleanup_appium_device,
                 startup_wait_seconds=0 if existing_operator else 1.0,
             )
-        except Exception:
+        except Exception as exc:
             _discard_warm_operator()
-            ledger.finish(key, "submission_unknown")
-            raise
+            code = exc.error_code if isinstance(exc, WeChatSenderError) else "send_failed"
+            outcome = "submission_unknown" if progress.submission_started else "not_submitted"
+            payload = {
+                "success": False,
+                "error": code,
+                "message": "sender outcome requires reconciliation"
+                if progress.submission_started
+                else "sender failed before submission",
+                "submission_state": outcome,
+                "safe_to_retry": not progress.submission_started,
+                "sent_count": progress.confirmed_count,
+            }
+            ledger.finish(key, outcome, payload)
+            return JSONResponse(
+                status_code=504 if code == "appium_timeout" else 500, content=payload
+            )
 
         _warm_operator = result.operator
         _warm_appium_url = appium_url

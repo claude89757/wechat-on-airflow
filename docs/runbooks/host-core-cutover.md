@@ -101,3 +101,31 @@ transport does not traverse a Cloudflare proxy before claiming end-to-end
 Cloudflare-independent delivery. Neither frontend cache nor D1 is an automatic
 business recovery source. Back up the PG business schema and Sender ledger and
 rehearse recovery in isolation; do not claim high availability from a single host.
+
+## Notification reliability releases (0.8.2 and later)
+
+A change under `src/wechat_airflow/host_core/` requires `scope=all sender=true`
+and the protected **ship** lifecycle, not an Airflow-only apply. The lifecycle
+builds and checks the new Host Core image, fences delivery, updates all consumers,
+then requires exact identities, three natural venue cycles, API transaction
+rollback acceptance and natural email/WeChat evidence before tagging. A verified
+existing migration checkpoint skips the D1 import. Never clear the checkpoint or
+reimport the archive to get a later release through its gate.
+
+Collection, enqueue and delivery are separate signals. In particular, a green
+venue DAG is not a delivery receipt. Enqueue failures are recorded as hashed
+`wechat_delivery_incidents` and checked independently by business acceptance;
+new terminal send failures and unknown submissions fail the release health gate.
+The website's latest venue email receipt is channel-wide, not the logged-in
+subscriber's receipt or a WeChat receipt. No effective subscription means no
+email will be generated; do not automatically revive cancelled/expired rules.
+
+Expired availability lines are removed individually at enqueue and dispatch;
+malformed lines remain protocol errors. Sender records `preparing` before UI
+navigation and durably switches to `dispatching` immediately before the first
+irreversible send action. Only proven `not_submitted` outcomes get bounded
+retries. Historical `dispatching`/`submission_unknown` rows are never replayed.
+Read-only status reconciliation requires both idempotency key and payload hash,
+and can only mark a message sent when the device ledger confirms it. Missing
+or uncertain device evidence stays quarantined for operator review. Never send
+synthetic notifications or reset old queue/cache entries as acceptance.

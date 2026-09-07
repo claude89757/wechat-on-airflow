@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from wechat_airflow.notifications.webapp import publish_venue_observation
 from wechat_airflow.notifications.wechat import send_wechat_text_to_chatrooms_best_effort
@@ -15,6 +16,39 @@ VENUE_NAME = "大沙河免费场"
 DAG_ID = "大沙河免费场巡检"
 WECHAT_CHATROOMS = ("Zacks_大沙河限定免费",)
 MAX_SUBSCRIPTION_DAYS = 14
+SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+class NswttProtocolError(ValueError):
+    """A missing/malformed collection is not evidence of an empty venue."""
+
+
+def _rows(data: object, *names: str) -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        raise NswttProtocolError("NSWTT data must be an object")
+    for name in names:
+        if name in data:
+            value = data[name]
+            if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+                raise NswttProtocolError("NSWTT collection must be a list of objects")
+            return cast(list[dict[str, Any]], value)
+    raise NswttProtocolError("NSWTT collection is missing")
+
+
+def future_slots(
+    slots: list[dict[str, str]], *, now: datetime | None = None
+) -> list[dict[str, str]]:
+    instant = now or datetime.now(SHANGHAI)
+    if instant.tzinfo is None:
+        raise ValueError("now must include a timezone")
+    return [
+        slot
+        for slot in slots
+        if datetime.fromisoformat(f"{slot['date']}T{slot['start_time']}").replace(tzinfo=SHANGHAI)
+        > instant
+    ]
+
+
 TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 
@@ -73,15 +107,11 @@ def ready_free_dates(
     *,
     today: date | None = None,
 ) -> list[str]:
-    if not isinstance(calendar_data, dict):
-        return []
-    current_date = today or date.today()
+    rows = _rows(calendar_data, "list")
+    current_date = today or datetime.now(SHANGHAI).date()
     last_date = current_date + timedelta(days=MAX_SUBSCRIPTION_DAYS)
-    rows = cast(dict[str, Any], calendar_data).get("list") or []
     ready: list[str] = []
     for row in rows:
-        if not isinstance(row, dict):
-            continue
         try:
             booking_date = date.fromisoformat(str(row.get("slicedate") or ""))
         except ValueError:
@@ -122,11 +152,11 @@ def extract_free_slots(
     booking_date: str,
     slice_data: object,
 ) -> tuple[bool, list[dict[str, str]]]:
-    if not isinstance(slice_data, dict):
-        return False, []
-    data = cast(dict[str, Any], slice_data)
-    places = data.get("placelist") or data.get("placeList") or []
-    if not isinstance(places, list) or not places:
+    places = _rows(slice_data, "placelist", "placeList")
+    raw_slots = _rows(slice_data, "slicelist", "sliceList")
+    if not places:
+        if raw_slots:
+            raise NswttProtocolError("NSWTT slots have no corresponding courts")
         return False, []
     place_names = {
         str(place.get("id") or place.get("placeid") or ""): str(
@@ -136,9 +166,6 @@ def extract_free_slots(
         if isinstance(place, dict)
     }
     slots: list[dict[str, str]] = []
-    raw_slots = data.get("slicelist") or data.get("sliceList") or []
-    if not isinstance(raw_slots, list):
-        return True, []
     for raw_slot in raw_slots:
         if not isinstance(raw_slot, dict) or not _slice_is_free(raw_slot):
             continue
@@ -149,8 +176,9 @@ def extract_free_slots(
             not court_name
             or not TIME_PATTERN.fullmatch(start_time)
             or not TIME_PATTERN.fullmatch(end_time)
+            or start_time >= end_time
         ):
-            continue
+            raise NswttProtocolError("NSWTT available slot has invalid court or times")
         slots.append(
             {
                 "date": booking_date,
@@ -196,7 +224,8 @@ def run_check_dashahe_free_courts() -> dict[str, object]:
                 slots.extend(date_slots)
             except Exception as exc:
                 errors.append(f"{booking_date}: {type(exc).__name__}")
-        publish_venue_observation(
+        slots = future_slots(slots)
+        observation = publish_venue_observation(
             VENUE_ID,
             VENUE_NAME,
             slots,
@@ -205,14 +234,25 @@ def run_check_dashahe_free_courts() -> dict[str, object]:
         )
         if errors:
             raise RuntimeError("one or more NSWTT free-date checks failed")
+        # No WeChat preclaim until the email/observation authority durably ACKs.
+        if observation.get("success") is not True:
+            print("[NSWTT] notification pipeline degraded: observation_not_acknowledged")
+            return {
+                "ready_dates": dates,
+                "free_dates": free_dates,
+                "available_slot_count": len(slots),
+                "observation_published": False,
+                "wechat_queued": False,
+            }
         cache = _load_cache()
+        delivery: list[dict[str, Any]] = []
         pending_messages = [
             message for message in format_wechat_messages(slots) if message not in cache
         ]
         if pending_messages:
             cache.extend(pending_messages)
             _store_cache(cache)
-            send_wechat_text_to_chatrooms_best_effort(
+            delivery = send_wechat_text_to_chatrooms_best_effort(
                 list(WECHAT_CHATROOMS),
                 "\n".join(pending_messages),
                 source=DAG_ID,
@@ -226,6 +266,10 @@ def run_check_dashahe_free_courts() -> dict[str, object]:
             "ready_dates": dates,
             "free_dates": free_dates,
             "available_slot_count": len(slots),
+            "observation_published": True,
+            "wechat_queued": bool(delivery)
+            and all(item.get("queued") is True for item in delivery),
+            "wechat_enqueue_failed": any(item.get("success") is not True for item in delivery),
         }
     except Exception as exc:
         if (
