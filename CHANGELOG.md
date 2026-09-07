@@ -3,16 +3,32 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
-## Unreleased
+## [0.8.2] - 2026-09-07
 
 ### Fixed
 
-- Treat PosPal `result.enrollSlots` as occupied court overlays before publishing direct-booking availability. Organized activities can leave the underlying `slots[].apptInfo.canApptOrNot` flag true even though the official mini-program assigns the court; overlapping cells are now suppressed across 福中福, TOPS, PICKLE POP, the shared 泛思博特 chain, and FFT 前海 adapters.
-- Add a regression reproducing the 2026-09-07 福中福 5/6号风雨场 18:00-24:00 enrollment blocks so participant-count activities such as 4/4, 2/4, or 0/4 are never announced as empty whole courts.
+- Include the mainline PosPal enrollment-overlay fix (#216); occupied activity courts
+  are no longer advertised as directly bookable whole courts.
+- Exclude already-started Dashah free slots using Asia/Shanghai and reject malformed
+  upstream collections instead of publishing a false healthy-empty result.
+- Require a durable observation acknowledgement before claiming WeChat notices;
+  stale lines no longer block unrelated valid lines at enqueue or dispatch.
+- Distinguish sender preparation from irreversible UI submission with a durable
+  checkpoint; only proven-unsent outcomes retry (bounded), never ambiguous sends.
+  Remove click-level stale-element retries and preserve privacy-safe error codes.
+- Reconcile uncertain transport outcomes with the sender ledger using the exact
+  payload hash; only confirmed sent records are finalized, never replayed.
+- Explain inactive/expired personal subscriptions separately from global email
+  delivery. Existing disabled subscriptions remain untouched.
+- Run the fenced Host Core lifecycle and natural-delivery acceptance for every
+  scope=all ship, not only 0.7.0. Reject Host Core changes under a partial scope.
 
 ### Operations
 
-- Airflow-only parsing correction. No polling cadence, subscriber data, database schema, Web asset, Sender runtime, or provider credential changes; acceptance must use natural inspections without synthetic notifications.
+- Ship with `scope=all sender=true` after exact-SHA CI. All runtime components
+  must pass production acceptance before the immutable release is published.
+- Preserve historical unknown outcomes, subscriptions, credentials and the D1
+  archive. No synthetic emails or WeChat messages are sent for verification.
 
 ## [0.8.1] - 2026-09-06
 

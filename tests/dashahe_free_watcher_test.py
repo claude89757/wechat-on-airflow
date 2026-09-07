@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
-from datetime import date
+from datetime import date, timedelta
 from types import ModuleType
 from unittest.mock import Mock, patch
 
@@ -131,7 +131,9 @@ def test_inspection_skips_unreleased_date_before_publishing() -> None:
             watcher, "_load_config_value", return_value={"app_version": "v", "cookie": "sid=x"}
         ),
         patch.object(watcher, "NswttClient", return_value=client),
-        patch.object(watcher, "publish_venue_observation") as publish,
+        patch.object(
+            watcher, "publish_venue_observation", return_value={"success": True}
+        ) as publish,
         patch.object(watcher, "_load_cache", return_value=[]),
         patch.object(watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
     ):
@@ -165,7 +167,7 @@ def test_format_wechat_messages_uses_venue_and_weekday() -> None:
 
 def test_wechat_notifies_only_the_dashah_free_group_after_cache_write() -> None:
     client = Mock()
-    today = date.today().isoformat()
+    today = (date.today() + timedelta(days=1)).isoformat()
     client.calendar_list.return_value = {
         "data": {
             "list": [
@@ -199,7 +201,9 @@ def test_wechat_notifies_only_the_dashah_free_group_after_cache_write() -> None:
             watcher, "_load_config_value", return_value={"app_version": "v", "cookie": "sid=x"}
         ),
         patch.object(watcher, "NswttClient", return_value=client),
-        patch.object(watcher, "publish_venue_observation") as publish,
+        patch.object(
+            watcher, "publish_venue_observation", return_value={"success": True}
+        ) as publish,
         patch.object(watcher, "_load_cache", return_value=[]),
         patch.object(watcher, "_store_cache", side_effect=lambda cache: stored.append(list(cache))),
         patch.object(watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
@@ -277,7 +281,7 @@ def test_wechat_skips_already_cached_dashah_messages() -> None:
             watcher, "_load_config_value", return_value={"app_version": "v", "cookie": "sid=x"}
         ),
         patch.object(watcher, "NswttClient", return_value=client),
-        patch.object(watcher, "publish_venue_observation"),
+        patch.object(watcher, "publish_venue_observation", return_value={"success": True}),
         patch.object(watcher, "_load_cache", return_value=[message]),
         patch.object(watcher, "_store_cache") as store,
         patch.object(watcher, "send_wechat_text_to_chatrooms_best_effort") as send,

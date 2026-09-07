@@ -123,6 +123,7 @@ jobs:
           if [ "$INCLUDE_SENDER" = true ]; then
             args+=(--include-sender)
           fi
+          python scripts/host_core_release_scope.py --scope "$SCOPE"
           python scripts/release_plan.py "${args[@]}" | tee /tmp/release-plan.json
           {
             echo "## Release plan"

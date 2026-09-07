@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import socket
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -22,10 +24,26 @@ from .control import delivery_guard, runtime_state
 from .database import ensure_schema, get_engine, transaction
 from .service import active_subscription_for_venue, runtime_heartbeat
 from .settings import _first_value, load_settings
+from .wechat_queue import current_message
 
 LOGGER = logging.getLogger(__name__)
 # One host consumer across all devices; the sender independently serializes each device.
 CONSUMER_LOCK = 728190316
+MAX_ATTEMPTS = 3
+SENDER_ERRORS = {
+    "device_busy",
+    "device_not_ready",
+    "service_misconfigured",
+    "ledger_unavailable",
+    "wechat_not_ready",
+    "contact_not_found",
+    "appium_timeout",
+    "send_failed",
+    "submission_unknown",
+    "idempotency_conflict",
+    "invalid_request",
+    "device_not_allowed",
+}
 
 
 def sender_readiness() -> dict[str, Any]:
@@ -91,6 +109,13 @@ def _claim(worker_id: str) -> dict[str, Any] | None:
 
 
 def _finish(row: dict[str, Any], worker: str, status: str, reason: str | None = None) -> None:
+    if status in {"failed", "submission_unknown"}:
+        LOGGER.error(
+            "WeChat delivery requires attention venue=%s status=%s reason=%s",
+            row["venue_id"],
+            status,
+            reason,
+        )
     with transaction() as connection:
         connection.execute(
             text("""
@@ -121,20 +146,25 @@ def _prepare(row: dict[str, Any], worker: str) -> bool:
         _finish(row, worker, "cancelled", "no_active_subscription")
         return False
     with transaction() as connection:
-        keys = row["event_keys"]
-        count = connection.execute(
-            text("""
-            SELECT count(*) FROM zacks.observed_slots s WHERE s.event_key = ANY(:keys)
+        slots = [
+            dict(slot)
+            for slot in connection.execute(
+                text("""
+            SELECT s.* FROM zacks.observed_slots s WHERE s.event_key = ANY(:keys)
             AND (s.booking_date + CAST(s.start_time AS time)) AT TIME ZONE 'Asia/Shanghai' > now()
             AND EXISTS (SELECT 1 FROM zacks.current_availability c
                 WHERE c.event_key = s.event_key AND c.last_seen_at > now() - interval '15 minutes')
-        """),
-            {"keys": keys},
-        ).scalar_one()
-        if count != len(keys):
-            valid = False
-        else:
-            valid = True
+            """),
+                {"keys": row["event_keys"]},
+            ).mappings()
+        ]
+        message, keys, _rejected = current_message(row["message"], slots)
+        valid = bool(keys)
+        if valid:
+            if message != row["message"]:
+                row["outbound_message"] = None
+                row["message"] = message
+            row["event_keys"] = keys
             outbound = row.get("outbound_message") or row["message"]
             program = program_for_venue(str(row["venue_id"]))
             program_id = row.get("program_id")
@@ -159,14 +189,25 @@ def _prepare(row: dict[str, Any], worker: str) -> bool:
             connection.execute(
                 text("""
                 UPDATE zacks.wechat_outbox SET status = 'dispatching', outbound_message = :message,
-                    program_id = :program, updated_at = now()
+                    message = :source_message, event_keys = CAST(:keys AS jsonb), program_id = :program, updated_at = now()
                 WHERE id = :id AND lease_owner = :worker AND status = 'processing'
             """),
-                {"message": outbound, "program": program_id, "id": row["id"], "worker": worker},
+                {
+                    "message": outbound,
+                    "source_message": row["message"],
+                    "keys": json.dumps(keys),
+                    "program": program_id,
+                    "id": row["id"],
+                    "worker": worker,
+                },
             )
     if not valid:
         _finish(row, worker, "expired", "availability_changed")
     return valid
+
+
+def _retry(row: dict[str, Any], worker: str, reason: str) -> None:
+    _finish(row, worker, "retry" if row["attempt_count"] < MAX_ATTEMPTS else "failed", reason)
 
 
 def deliver(row: dict[str, Any], worker: str) -> None:
@@ -181,7 +222,7 @@ def deliver(row: dict[str, Any], worker: str) -> None:
             or not readiness.get("durableIdempotency")
             or readiness.get("deploymentCommit") != os.environ.get("DEPLOYMENT_COMMIT")
         ):
-            _finish(row, worker, "retry", "sender_not_ready")
+            _retry(row, worker, "sender_not_ready")
             return
         if not _prepare(row, worker):
             return
@@ -193,28 +234,131 @@ def deliver(row: dict[str, Any], worker: str) -> None:
                     "receiver": row["receiver"],
                     "device_name": row["device_name"],
                     "messages": [row["outbound_message"]],
-                    "idempotency_key": row["id"],
+                    # Retries with an unchanged payload keep the same identity.
+                    # A known-unsent digest pruned before retry gets its own payload identity.
+                    "idempotency_key": hashlib.sha256(
+                        (row["id"] + "\0" + row["outbound_message"]).encode()
+                    ).hexdigest(),
                 },
                 timeout=210,
             )
             payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("sender_response_invalid")
+            error = str(payload.get("error") or "sender_result_unknown")
+            if error not in SENDER_ERRORS:
+                error = "sender_result_unknown"
             if response.status_code == 200 and payload.get("success") is True:
                 _finish(row, worker, "sent")
-            elif payload.get("error") in {
+            elif error in {
                 "device_busy",
                 "device_not_ready",
                 "service_misconfigured",
-            }:
-                _finish(row, worker, "retry", str(payload.get("error")))
+                "ledger_unavailable",
+            } or (
+                payload.get("safe_to_retry") is True
+                and payload.get("submission_state") == "not_submitted"
+                and payload.get("sent_count") == 0
+                and error in SENDER_ERRORS
+            ):
+                _retry(row, worker, error)
             elif payload.get("error") in {"invalid_request", "device_not_allowed"}:
                 _finish(row, worker, "failed", str(payload.get("error")))
             else:
                 # Unknown/partial UI send is NOT retried automatically.
-                _finish(row, worker, "submission_unknown", "sender_result_unknown")
+                _finish(row, worker, "submission_unknown", error)
         except requests.ConnectTimeout:
-            _finish(row, worker, "retry", "connection_timeout_before_submission")
+            _retry(row, worker, "connection_timeout_before_submission")
         except Exception as exc:
             _finish(row, worker, "submission_unknown", type(exc).__name__)
+
+
+def reconcile_unknown() -> None:
+    """A ledger-confirmed send may clear uncertainty; all other states stay quarantined."""
+    endpoint = _first_value("WECHAT_SEND_API_URL") or ""
+    if not endpoint:
+        return
+    parsed = urlsplit(endpoint)
+    endpoint = urlunsplit((parsed.scheme, parsed.netloc, "/v1/wechat/status", "", ""))
+    with transaction() as connection:
+        rows = [
+            dict(row)
+            for row in connection.execute(
+                text("""
+            SELECT * FROM zacks.wechat_outbox WHERE status='submission_unknown'
+            AND created_at > now() - interval '1 day' AND next_attempt_at <= now()
+            ORDER BY next_attempt_at LIMIT 5 FOR UPDATE SKIP LOCKED
+        """)
+            ).mappings()
+        ]
+        for row in rows:
+            connection.execute(
+                text("""
+                UPDATE zacks.wechat_outbox SET next_attempt_at=now()+interval '5 minutes'
+                WHERE id=:id AND status='submission_unknown'
+            """),
+                {"id": row["id"]},
+            )
+    for row in rows:
+        if not row.get("outbound_message"):
+            continue
+        canonical = json.dumps(
+            {
+                "device": row["device_name"],
+                "receiver": row["receiver"],
+                "messages": [row["outbound_message"]],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        payload_hash = hashlib.sha256(canonical.encode()).hexdigest()
+        derived_key = hashlib.sha256(
+            (row["id"] + "\0" + row["outbound_message"]).encode()
+        ).hexdigest()
+        # Old rows used the queue ID directly. Either lookup must match the full payload.
+        for key in (derived_key, row["id"]):
+            try:
+                response = requests.post(
+                    endpoint, json={"idempotency_key": key, "payload_hash": payload_hash}, timeout=5
+                )
+                response.raise_for_status()
+                evidence = response.json()
+                if (
+                    not isinstance(evidence, dict)
+                    or evidence.get("confirmed") is not True
+                    or evidence.get("sent_count") != 1
+                ):
+                    continue
+                stamp = datetime.fromisoformat(str(evidence["updated_at"]).replace("Z", "+00:00"))
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=UTC)
+                with transaction() as connection:
+                    connection.execute(
+                        text("""
+                        UPDATE zacks.wechat_outbox SET status='sent', sent_at=:sent,
+                        last_error=NULL, lease_owner=NULL, lease_until=NULL, updated_at=now()
+                        WHERE id=:id AND status='submission_unknown'
+                    """),
+                        {"id": row["id"], "sent": stamp},
+                    )
+                    if row.get("program_id"):
+                        connection.execute(
+                            text("""
+                            INSERT INTO zacks.booking_link_cooldowns(receiver_hash,program_id,sent_at)
+                            VALUES(:receiver,:program,:sent) ON CONFLICT(receiver_hash,program_id)
+                            DO UPDATE SET sent_at=GREATEST(zacks.booking_link_cooldowns.sent_at,EXCLUDED.sent_at)
+                        """),
+                            {
+                                "receiver": hashlib.sha256(row["receiver"].encode()).hexdigest(),
+                                "program": row["program_id"],
+                                "sent": stamp,
+                            },
+                        )
+                break
+            except Exception as exc:
+                LOGGER.warning("Sender reconciliation unavailable: %s", type(exc).__name__)
+                break
 
 
 def main() -> None:
@@ -228,6 +372,7 @@ def main() -> None:
             raise RuntimeError("Another WeChat consumer already owns the device queue")
         backend_pid = lock.execute(text("SELECT pg_backend_pid()")).scalar_one()
         lock.commit()
+        next_reconcile = 0.0
         while True:
             # Losing the dedicated lock connection is fatal: never auto-reconnect
             # and continue sending without the session-level device fence.
@@ -250,6 +395,9 @@ def main() -> None:
                 )
                 if row:
                     deliver(row, worker)
+                elif time.monotonic() >= next_reconcile:
+                    reconcile_unknown()
+                    next_reconcile = time.monotonic() + 60
                 else:
                     time.sleep(5)
             except KeyboardInterrupt:

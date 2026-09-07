@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection
 
 from .database import transaction
 from .domain import (
+    SHANGHAI,
     VenueObservation,
     format_slot_line,
     observation_fingerprint,
@@ -265,6 +266,11 @@ def ingest_observation(payload: object) -> dict[str, Any]:
         matched_notifications = 0
         if observation.healthy:
             for slot in observation.slots:
+                start_at = datetime.combine(
+                    slot.booking_date, datetime.strptime(slot.start_time, "%H:%M").time(), SHANGHAI
+                )
+                if start_at <= now:
+                    continue
                 event_key = slot_event_key(observation.venue_id, slot)
                 for subscription in subscriptions:
                     if not slot_matches(

@@ -32,7 +32,7 @@ def connection():
         database.close()
 
 
-def claim(key: str, payload_hash: str) -> tuple[str, dict | None]:
+def claim(key: str, payload_hash: str, *, preparing: bool = False) -> tuple[str, dict | None]:
     with connection() as database:
         database.execute("BEGIN IMMEDIATE")
         try:
@@ -45,12 +45,18 @@ def claim(key: str, payload_hash: str) -> tuple[str, dict | None]:
                     result = ("conflict", None)
                 elif row[1] == "sent":
                     result = ("sent", json.loads(row[2]))
+                elif preparing and row[1] in {"preparing", "not_submitted"}:
+                    database.execute(
+                        "UPDATE sends SET status='preparing', result_json=NULL, updated_at=CURRENT_TIMESTAMP WHERE idempotency_key=?",
+                        (key,),
+                    )
+                    result = ("claimed", None)
                 else:
                     result = ("submission_unknown", None)
             else:
                 database.execute(
-                    "INSERT INTO sends(idempotency_key,payload_hash,status) VALUES(?,?,'dispatching')",
-                    (key, payload_hash),
+                    "INSERT INTO sends(idempotency_key,payload_hash,status) VALUES(?,?,?)",
+                    (key, payload_hash, "preparing" if preparing else "dispatching"),
                 )
                 result = ("claimed", None)
             database.execute("COMMIT")
@@ -60,14 +66,27 @@ def claim(key: str, payload_hash: str) -> tuple[str, dict | None]:
             raise
 
 
+def mark_submitting(key: str) -> None:
+    """Durably cross the irreversible boundary BEFORE the first UI send action."""
+    with connection() as database:
+        changed = database.execute(
+            "UPDATE sends SET status='dispatching', updated_at=CURRENT_TIMESTAMP "
+            "WHERE idempotency_key=? AND status='preparing'",
+            (key,),
+        ).rowcount
+        if changed != 1:
+            raise RuntimeError("sender checkpoint was not acknowledged")
+
+
 def finish(key: str, status: str, result: dict | None = None) -> None:
-    if status not in {"sent", "submission_unknown"}:
+    if status not in {"sent", "submission_unknown", "not_submitted"}:
         raise ValueError("invalid sender ledger result")
     with connection() as database:
         database.execute(
             "UPDATE sends SET status=?, result_json=?, updated_at=CURRENT_TIMESTAMP "
-            "WHERE idempotency_key=? AND status='dispatching'",
-            (status, json.dumps(result, ensure_ascii=False) if result else None, key),
+            "WHERE idempotency_key=? AND status IN ('preparing','dispatching') "
+            "AND (? != 'not_submitted' OR status='preparing')",
+            (status, json.dumps(result, ensure_ascii=False) if result else None, key, status),
         )
 
 
@@ -77,3 +96,20 @@ def ready() -> bool:
             return database.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     except (OSError, RuntimeError, sqlite3.Error):
         return False
+
+
+def lookup(key: str, payload_hash: str) -> dict:
+    with connection() as database:
+        row = database.execute(
+            "SELECT status, result_json, updated_at FROM sends WHERE idempotency_key=? AND payload_hash=?",
+            (key, payload_hash),
+        ).fetchone()
+    if row is None:
+        return {"status": "not_found"}
+    payload = json.loads(row[1]) if row[1] else {}
+    return {
+        "status": row[0],
+        "updated_at": row[2],
+        "confirmed": row[0] == "sent" and payload.get("success") is True,
+        "sent_count": payload.get("sent_count", 0),
+    }
