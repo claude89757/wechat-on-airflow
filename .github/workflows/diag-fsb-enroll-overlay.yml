@@ -1,0 +1,44 @@
+name: Diagnose FSB enroll overlay shape
+
+on:
+  push:
+    branches:
+      - diag/fsb-pospal-false-positive-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Print only public response field names and types
+        run: |
+          python -m pip install --disable-pip-version-check requests==2.32.5
+          python - <<'PY'
+          import json
+          import requests
+
+          response = requests.post(
+              "https://wxservice-stg48.pospal.cn/wxapi/AppointmentVenue/LoadValidClassRoomApptSettingV2",
+              headers={"STOREID": "6038652", "Content-Type": "application/json"},
+              json={"dateTime": "2026-09-07", "projectUid": "1775556129325750199"},
+              timeout=10,
+          )
+          response.raise_for_status()
+          data = response.json()
+          result = data.get("result") or {}
+          enroll = result.get("enrollSlots") or []
+          print("enroll_count=", len(enroll))
+          all_keys = sorted({str(k) for item in enroll if isinstance(item, dict) for k in item.keys()})
+          print("enroll_keys=", json.dumps(all_keys, ensure_ascii=False))
+          for index, item in enumerate(enroll[:10]):
+              if not isinstance(item, dict):
+                  continue
+              shape = {str(k): type(v).__name__ for k, v in item.items()}
+              print(f"enroll_shape[{index}]=", json.dumps(shape, ensure_ascii=False, sort_keys=True))
+          PY
