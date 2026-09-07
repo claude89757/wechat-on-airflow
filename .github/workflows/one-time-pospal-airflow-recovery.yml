@@ -1,0 +1,20 @@
+name: One-time PosPal Airflow recovery
+
+on:
+  push:
+    branches:
+      - ops/pospal-airflow-recovery-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: deploy_recovery
+      target_commit: 2698e2cba4b2c171c260c275fe4db9d65eedb68e
+      request_id: pospal-recovery-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
