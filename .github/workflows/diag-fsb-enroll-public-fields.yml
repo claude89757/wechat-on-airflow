@@ -1,0 +1,49 @@
+name: Diagnose FSB enroll public fields
+
+on:
+  push:
+    branches:
+      - diag/fsb-pospal-false-positive-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Print venue-visible enrollment overlay fields only
+        run: |
+          python -m pip install --disable-pip-version-check requests==2.32.5
+          python - <<'PY'
+          import json
+          import requests
+
+          response = requests.post(
+              "https://wxservice-stg48.pospal.cn/wxapi/AppointmentVenue/LoadValidClassRoomApptSettingV2",
+              headers={"STOREID": "6038652", "Content-Type": "application/json"},
+              json={"dateTime": "2026-09-07", "projectUid": "1775556129325750199"},
+              timeout=10,
+          )
+          response.raise_for_status()
+          result = (response.json().get("result") or {})
+          enroll = result.get("enrollSlots") or []
+          for item in enroll:
+              if not isinstance(item, dict):
+                  continue
+              rule = item.get("enrollmentRule")
+              public = {
+                  "classRoomName": item.get("classRoomName"),
+                  "beginDatetime": item.get("beginDatetime"),
+                  "endDatetime": item.get("endDatetime"),
+                  "capacity": item.get("capacity"),
+                  "status": item.get("status"),
+                  "cost": item.get("cost"),
+                  "enrollmentRuleKeys": sorted(rule.keys()) if isinstance(rule, dict) else [],
+              }
+              print(json.dumps(public, ensure_ascii=False, sort_keys=True))
+          PY
