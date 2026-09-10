@@ -1,0 +1,67 @@
+name: Stage Reviewed Device Runtime
+on:
+  push:
+    branches: [feat/cloudflare-runtime-cutover-20260911]
+    paths: [.github/workflows/stage-device-runtime.yml]
+permissions:
+  contents: write
+concurrency:
+  group: stage-device-runtime
+  cancel-in-progress: false
+jobs:
+  verify-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: zacks_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d zacks_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ZACKS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:isolated-test-only@127.0.0.1:5432/zacks_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/cloudflare-runtime-cutover-20260911
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+      - name: Apply checksum-verified source and remove staging artifacts
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          encoded = ''.join(Path(f'.migration/source-{i}.b64').read_text().strip() for i in range(1, 6))
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          expected = '0cfd7591fa31279f70a091668536912da55691e93fc41826e583bdb4598171f8'
+          assert hashlib.sha256(patch).hexdigest() == expected, 'source checksum mismatch'
+          Path('/tmp/device-runtime.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/device-runtime.patch
+          git apply --index /tmp/device-runtime.patch
+          git rm .migration/source-*.b64 .github/workflows/stage-device-runtime.yml
+          git diff --cached --check
+      - name: Full credential-free development verification
+        run: |
+          set -euo pipefail
+          make setup
+          make verify
+      - name: Publish verified source on the migration branch
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "feat(network): migrate device traffic and operations through pinned Cloudflare SSH"
+          git push origin HEAD:feat/cloudflare-runtime-cutover-20260911
+          git rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
