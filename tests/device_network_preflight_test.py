@@ -88,7 +88,10 @@ def test_invalid_hostname_is_rejected_before_starting_proxy():
 
 def test_tunnel_missing_credentials_never_starts_login():
     with patch.dict(probe.os.environ, {}, clear=True):
-        assert probe.tunnel_inventory("ssh.example.test")["reason"] == "protected_pi_credentials_missing"
+        assert (
+            probe.tunnel_inventory("ssh.example.test")["reason"]
+            == "protected_pi_credentials_missing"
+        )
 
 
 def test_installer_verifies_download_before_replacing_existing_file(tmp_path):
