@@ -1,0 +1,80 @@
+name: Production Device Network
+on:
+  workflow_call:
+    inputs:
+      target_commit:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Exact reviewed main commit for read-only migration preflight
+        type: string
+        required: true
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: production-device-network
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      TARGET_COMMIT: ${{ inputs.target_commit }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Require reviewed exact main commit and successful CI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          PYTHONPATH=scripts python scripts/github_release_gate.py \
+            --target-commit "$TARGET_COMMIT" --wait-seconds 0 --format json
+      - name: Install bounded probe dependencies and verified tunnel client
+        run: |
+          set -euo pipefail
+          python -m pip install paramiko==3.5.1 cryptography==50.0.1 PyYAML==6.0.3
+          python scripts/install_cloudflared.py --destination "$HOME/.local/bin/cloudflared"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Configure protected SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Read actual identities and test pinned new route without sending
+        env:
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.DEVICE_TUNNEL_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.DEVICE_TUNNEL_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src:scripts python scripts/device_network_preflight.py \
+            --target-commit "$TARGET_COMMIT" | tee /tmp/device-network-preflight.json
+      - name: Record privacy-safe preflight evidence
+        if: always()
+        run: |
+          if test -s /tmp/device-network-preflight.json; then
+            echo '### Read-only device migration preflight' >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/device-network-preflight.json >> "$GITHUB_STEP_SUMMARY"
+          fi
