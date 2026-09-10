@@ -1,0 +1,148 @@
+name: Production Current Release Control
+run-name: current-release/${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  checks: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: production-current-control-${{ github.event.comment.id }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    if: >-
+      github.event.issue.number == 39 &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, '/release-current ')
+    runs-on: ubuntu-latest
+    outputs:
+      target_commit: ${{ steps.resolve.outputs.target_commit }}
+      scope: ${{ steps.command.outputs.scope }}
+      include_sender: ${{ steps.command.outputs.include_sender }}
+    steps:
+      - name: Parse exact owner command
+        id: command
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import shlex
+          from pathlib import Path
+
+          tokens = shlex.split(os.environ["BODY"].strip())
+          scopes = {"auto", "all", "webapp", "airflow", "sender", "control"}
+          if tokens[:2] != ["/release-current", "deploy"]:
+              raise SystemExit("expected /release-current deploy")
+
+          values = {"scope": "auto", "include_sender": "false"}
+          seen: set[str] = set()
+          for option in tokens[2:]:
+              if "=" not in option:
+                  raise SystemExit(f"invalid option: {option}")
+              key, raw = option.split("=", 1)
+              if key in seen:
+                  raise SystemExit(f"duplicate option: {key}")
+              seen.add(key)
+              if key == "scope" and raw in scopes:
+                  values["scope"] = raw
+              elif key == "sender" and raw in {"true", "false"}:
+                  values["include_sender"] = raw
+              else:
+                  raise SystemExit(f"invalid option: {option}")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+      - name: Resolve and lock current main commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          target_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq .sha)"
+          printf '%s\n' "$target_commit" | grep -Eq '^[0-9a-f]{40}$'
+          echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Locked production target"
+            echo
+            echo "- Branch: \`$DEFAULT_BRANCH\`"
+            echo "- Commit: \`$target_commit\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Explain invalid command
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - <<EOF
+          Production current-main command was rejected before release execution.
+
+          Supported form:
+          - \`/release-current deploy [scope=auto|all|webapp|airflow|sender|control] [sender=true|false]\`
+
+          The command resolves the current default-branch SHA once, then runs protected preflight and apply against that same immutable commit. Run: $RUN_URL
+          EOF
+
+  preflight:
+    if: needs.route.result == 'success'
+    needs: route
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: preflight
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      scope: ${{ needs.route.outputs.scope }}
+      include_sender: ${{ needs.route.outputs.include_sender == 'true' }}
+    secrets: inherit
+
+  apply:
+    if: needs.preflight.result == 'success'
+    needs: [route, preflight]
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: apply
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      scope: ${{ needs.route.outputs.scope }}
+      include_sender: ${{ needs.route.outputs.include_sender == 'true' }}
+    secrets: inherit
+
+  report:
+    if: always() && needs.route.result != 'skipped'
+    needs: [route, preflight, apply]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish authoritative current-main release result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TARGET_COMMIT: ${{ needs.route.outputs.target_commit }}
+          REQUESTED_SCOPE: ${{ needs.route.outputs.scope }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          APPLY_RESULT: ${{ needs.apply.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$PREFLIGHT_RESULT" = success ] && [ "$APPLY_RESULT" = success ]; then
+            icon='✅'
+            result='success'
+          else
+            icon='❌'
+            result='failure'
+          fi
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - <<EOF
+          $icon Protected current-main production release: \`$result\`; target=\`$TARGET_COMMIT\`; requested_scope=\`$REQUESTED_SCOPE\`; preflight=\`$PREFLIGHT_RESULT\`; apply=\`$APPLY_RESULT\`. No real email or WeChat probe was requested. Run: $RUN_URL
+          EOF
+          test "$PREFLIGHT_RESULT" = success
+          test "$APPLY_RESULT" = success
