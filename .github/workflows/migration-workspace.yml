@@ -1,0 +1,29 @@
+name: Migration Workspace
+on:
+  push:
+    branches: [feat/cloudflare-device-migration-20260911]
+    paths: [.github/workflows/migration-workspace.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Package exact source without credentials or runtime state
+        run: |
+          mkdir -p /tmp/migration-source
+          git bundle create /tmp/migration-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/migration-source/commit.txt
+          cd /tmp/migration-source
+          sha256sum source.bundle > source.bundle.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: migration-source-${{ github.sha }}
+          path: /tmp/migration-source/
+          if-no-files-found: error
+          retention-days: 1
