@@ -14,9 +14,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Package exact source without credentials or runtime state
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: Package verification tools without runtime credentials
         run: |
-          mkdir -p /tmp/migration-source
+          mkdir -p /tmp/migration-source/wheels
+          python -m pip download --only-binary=:all: --dest /tmp/migration-source/wheels ruff==0.12.11 mypy==1.17.1 paramiko==3.5.1 types-paramiko==3.5.0.20240928 types-requests types-PyYAML
           git bundle create /tmp/migration-source/source.bundle HEAD
           git rev-parse HEAD > /tmp/migration-source/commit.txt
           cd /tmp/migration-source
