@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "public_ssh_hostname": "ssh.claude89757.cc",
+  "cloudflared": {
+    "version": "2026.9.0",
+    "linux-amd64": "53b7a7a5420d188758d24341294acb0d1bca54296548ac05e38811a694ac6134"
+  }
+}

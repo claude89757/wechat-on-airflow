@@ -105,6 +105,11 @@ jobs:
                   outputs["target_commit"] = tokens[3].lower()
               else:
                   fail(f"unknown release command: {command}")
+          elif tokens[:2] == ["/ops", "device-network-preflight"]:
+              if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
+                  fail("device network preflight requires a full 40-character SHA")
+              outputs["action"] = "device_network_preflight"
+              outputs["target_commit"] = tokens[2].lower()
           elif tokens[:2] == ["/ops", "webapp-observation-diagnose"]:
               if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
                   fail("webapp observation diagnosis requires a full 40-character SHA")
@@ -146,6 +151,7 @@ jobs:
           - \`/release preflight <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release apply <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release tag <version> <40-char-sha>\`
+          - \`/ops device-network-preflight <40-char-sha>\`
           - \`/ops webapp-observation-diagnose <40-char-sha>\`
           - \`/ops wechat-contact-probe <40-char-sha> <simple-contact-name>\`
           - on PR #188 only: \`/format-host-core <40-char-pr-head-sha>\`
@@ -181,6 +187,14 @@ jobs:
     uses: ./.github/workflows/release-tag-chatops.yml
     with:
       version: ${{ needs.route.outputs.version }}
+      target_commit: ${{ needs.route.outputs.target_commit }}
+    secrets: inherit
+
+  device_network_preflight:
+    if: needs.route.outputs.action == 'device_network_preflight'
+    needs: route
+    uses: ./.github/workflows/production-device-network.yml
+    with:
       target_commit: ${{ needs.route.outputs.target_commit }}
     secrets: inherit
 
@@ -258,6 +272,7 @@ jobs:
       - ship
       - tag
       - webapp_observation_diagnose
+      - device_network_preflight
       - wechat_contact_probe
       - format_host_core
     runs-on: ubuntu-latest
@@ -282,6 +297,7 @@ jobs:
           SHIP_AIRFLOW: ${{ needs.ship.outputs.deploy_airflow }}
           SHIP_SENDER: ${{ needs.ship.outputs.deploy_sender }}
           TAG_RESULT: ${{ needs.tag.result }}
+          DEVICE_NETWORK_RESULT: ${{ needs.device_network_preflight.result }}
           WEB_DIAG_RESULT: ${{ needs.webapp_observation_diagnose.result }}
           WECHAT_PROBE_RESULT: ${{ needs.wechat_contact_probe.result }}
           FORMAT_RESULT: ${{ needs.format_host_core.result }}
@@ -308,6 +324,14 @@ jobs:
             tag)
               result="$TAG_RESULT"
               label="tag $VERSION"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            device_network_preflight)
+              result="$DEVICE_NETWORK_RESULT"
+              label="read-only device network preflight"
               resolved="n/a"
               webapp=""
               airflow=""
