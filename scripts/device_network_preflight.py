@@ -28,7 +28,7 @@ from wechat_airflow.host_core.database import transaction
 from wechat_airflow.host_core.settings import _first_value
 
 report = {"runtimeCommit": os.environ.get("DEPLOYMENT_COMMIT"), "externalTestSends": 0}
-for label, url in (("api", "http://127.0.0.1:8090/api/healthz"),
+for label, url in (("api", "http://127.0.0.1:8090/zacks-api/api/healthz"),
                    ("sender", _first_value("WECHAT_SEND_API_URL") or "")):
     try:
         if label == "sender":
