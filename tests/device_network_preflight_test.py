@@ -39,12 +39,7 @@ def test_remote_probe_is_valid_python_and_does_not_write_or_send():
 
 
 def test_ssh_failure_does_not_echo_stderr_or_configuration():
-    remote = {
-        "repository_path": "/root/project",
-        "host": "host",
-        "port": "22",
-        "username": "user",
-    }
+    remote = {"repository_path": "/root/project", "host": "host", "port": "22", "username": "user"}
     result = subprocess.CompletedProcess([], 255, "", "secret-password-and-host")
     with (
         patch.object(probe, "airflow_remote", return_value=remote),
