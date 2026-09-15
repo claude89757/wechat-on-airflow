@@ -1,8 +1,28 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
-from wechat_airflow.venues.dsh_safety import reject_implausible_full_day
+
+class FakeVariable:
+    @classmethod
+    def get(cls, key: str, default: object = None, deserialize_json: bool = False) -> object:
+        return default
+
+    @classmethod
+    def set(cls, *args: object, **kwargs: object) -> None:
+        return None
+
+
+airflow_module = types.ModuleType("airflow")
+airflow_sdk_module = types.ModuleType("airflow.sdk")
+airflow_sdk_module.Variable = FakeVariable
+sys.modules.setdefault("airflow", airflow_module)
+sys.modules.setdefault("airflow.sdk", airflow_sdk_module)
+
+from wechat_airflow.venues.dsh_safety import reject_implausible_full_day  # noqa: E402
 
 
 def test_rejects_screenshot_pattern_eight_courts_full_day() -> None:
