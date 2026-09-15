@@ -5,6 +5,7 @@ import logging
 import paramiko
 
 from wechat_airflow.clients.android_device import PinnedSHA256HostKeyPolicy
+from wechat_airflow.clients.cloudflare import CloudflareProxy, ssh_proxy
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_SECONDS = 180
@@ -19,13 +20,17 @@ def exec_pi_command(
     cmd: str,
     *,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    transport: str = "direct",
 ) -> tuple[str | None, str | None, int | None]:
     """Run one bounded command on the Raspberry Pi scrape host."""
     ssh: paramiko.SSHClient | None = None
+    proxy: CloudflareProxy | None = None
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(host_key_sha256))
+        proxy = ssh_proxy(host, transport)
         ssh.connect(
+            sock=proxy,
             hostname=host,
             port=port,
             username=username,
@@ -48,5 +53,9 @@ def exec_pi_command(
         LOGGER.exception("pi_host_ssh_failed host=%s port=%s", host, port)
         return None, str(exc), None
     finally:
-        if ssh is not None:
-            ssh.close()
+        try:
+            if ssh is not None:
+                ssh.close()
+        finally:
+            if proxy is not None:
+                proxy.close()
