@@ -1,0 +1,59 @@
+name: BAWTT One-time Formatting Reconciliation
+on:
+  push:
+    branches: [feat/bawtt-ydmap-onboarding-20260916]
+    paths: [.github/workflows/bawtt-format-once.yml]
+permissions:
+  contents: write
+concurrency:
+  group: bawtt-format-once
+  cancel-in-progress: false
+jobs:
+  format:
+    if: github.repository == 'claude89757/wechat-on-airflow' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Format only the three known files without semantic changes
+        run: |
+          python -m pip install --disable-pip-version-check ruff==0.12.11 pytest==9.1.1 pyyaml==6.0.3
+          python - <<'PY'
+          import ast
+          import subprocess
+          from pathlib import Path
+          paths = [
+              'scripts/probe_bawtt_public_browser.py',
+              'tests/bawtt_public_browser_test.py',
+              'tests/github_check_pagination_test.py',
+          ]
+          before = {p: ast.dump(ast.parse(Path(p).read_text())) for p in paths}
+          subprocess.run(['ruff', 'format', *paths], check=True)
+          assert before == {p: ast.dump(ast.parse(Path(p).read_text())) for p in paths}
+          changed = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+          assert set(changed) <= set(paths)
+          print('Formatting AST equivalence passed for', len(paths), 'files')
+          PY
+          ruff check .
+          ruff format --check .
+          python -m pytest -q tests/bawtt_live_query_test.py tests/bawtt_probe_test.py tests/bawtt_public_browser_test.py tests/github_release_gate_test.py tests/github_check_pagination_test.py
+      - name: Commit only formatting to this unchanged feature branch
+        env:
+          TARGET_BRANCH: feat/bawtt-ydmap-onboarding-20260916
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$TARGET_BRANCH"
+          test "$(git rev-parse FETCH_HEAD)" = "$(git rev-parse HEAD)"
+          git add -- scripts/probe_bawtt_public_browser.py tests/bawtt_public_browser_test.py tests/github_check_pagination_test.py
+          if git diff --cached --quiet; then
+            echo 'No formatting change is needed.'
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(bawtt): reconcile parallel probe and pagination test formatting'
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          echo "Formatting-only commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
