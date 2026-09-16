@@ -45,9 +45,9 @@ jobs:
           from wechat_airflow.clients.android_device import PinnedSHA256HostKeyPolicy
           logging.getLogger('paramiko').setLevel(logging.CRITICAL)
           code = r'''
-          import http.cookiejar, json, os, re, subprocess, urllib.request, urllib.error, uuid
+          import http.cookiejar, importlib.util, json, os, re, subprocess, urllib.request, urllib.error, uuid
           from pathlib import Path
-          report = {'productionChanged':False,'externalTestSends':0,'delegationSubmitted':False}
+          report = {'productionRuntimeChanged':False,'externalTestSends':0,'delegationSubmitted':False}
           root = Path.home()/'.local/state/wechat-on-airflow/dsh-assist'
           auth = root/'auth.json'
           jar = http.cookiejar.CookieJar()
@@ -60,14 +60,17 @@ jobs:
               req = urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers=headers)
               try: response = opener.open(req,timeout=12)
               except urllib.error.HTTPError as error: response = error
-              with response: return response.status, response.read(524289)
+              with response: return response.status, response.read(524289), response.headers.get_content_type()
           def catalog(origin,cookies=None):
               payload = {'type':'client-request','rpcId':uuid.uuid4().hex,'method':'session/modelCatalog','payload':{'args':{}}}
-              status,raw = request(origin+'/api/session/modelCatalog',payload,cookies)
+              status,raw,_ = request(origin+'/api/session/modelCatalog',payload,cookies)
               if status != 200: raise RuntimeError('catalog_http_'+str(status))
               value = json.loads(raw)['result']
               if not value.get('ok'): raise RuntimeError('catalog_rejected')
               return value['value']
+          def command(args):
+              proc = subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,timeout=12,check=False)
+              return proc.returncode,proc.stdout[:524288].strip()
           try:
               saved, models = None, None
               if auth.is_file() and not auth.is_symlink() and not auth.stat().st_mode & 0o077:
@@ -76,18 +79,36 @@ jobs:
                   models = catalog(saved['url'],saved['cookies'])
                   report['loginMethod'] = 'existing_owner_cookie'
               else:
-                  def command(args):
-                      return subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,timeout=10,check=False).stdout.strip()
-                  invocation = command(['systemctl','show','dsh-web.service','--property=InvocationID','--value'])
-                  text = ''
-                  if re.fullmatch(r'[0-9a-f]{32}',invocation):
-                      text = command(['journalctl','_SYSTEMD_INVOCATION_ID='+invocation,'--no-pager','-o','cat','-n','200'])
+                  chunks, summaries = [], []
+                  for user in (False,True):
+                      base = ['systemctl']+(['--user'] if user else [])
+                      rc,raw = command(base+['show','dsh-web.service','--property=InvocationID,ActiveState,MainPID,StandardOutput,StandardError'])
+                      props = dict(line.split('=',1) for line in raw.splitlines() if '=' in line)
+                      item = {'userService':user,'queryExitCode':rc,'activeState':props.get('ActiveState'),'mainPid':props.get('MainPID'),'stdoutKind':props.get('StandardOutput','').split(':',1)[0]}
+                      invocation = props.get('InvocationID','')
+                      if props.get('ActiveState') == 'active' and re.fullmatch(r'[0-9a-f]{32}',invocation):
+                          jrc,text = command(['journalctl','_SYSTEMD_INVOCATION_ID='+invocation,'--no-pager','-o','cat','-n','5000'])
+                          item.update(journalExitCode=jrc,journalBytes=len(text)); chunks.append(text)
+                          for key in ('StandardOutput','StandardError'):
+                              output = props.get(key,'')
+                              if output.startswith(('append:/','file:/','truncate:/')):
+                                  log = Path(output.split(':',1)[1])
+                                  if log.is_file() and not log.is_symlink():
+                                      with log.open('rb') as handle:
+                                          head = handle.read(262144)
+                                          if log.stat().st_size > 262144:
+                                              handle.seek(max(0,log.stat().st_size-262144)); head += handle.read(262144)
+                                      chunks.append(head.decode(errors='replace')); item['fileLogRead'] = True
+                      summaries.append(item)
+                  report['serviceLogs'] = summaries
+                  text = '\n'.join(chunks)
                   matches = re.findall(r'http://(?:127\.0\.0\.1|localhost):3080/\?token=[A-Za-z0-9._~-]+',text)
-                  report['currentServiceLaunchLinkFound'] = bool(matches)
+                  report['normalLaunchLinkFound'] = bool(matches)
                   if not matches: raise RuntimeError('normal_launch_link_required')
                   launch = matches[-1]
                   origin = launch.split('/?token=',1)[0]
-                  status,_ = request(launch)
+                  status,_,_ = request(launch)
+                  report['loginHttpStatus'] = status
                   if status != 303 or not list(jar): raise RuntimeError('normal_login_rejected')
                   saved = {'url':origin,'cookies':{c.name:c.value for c in jar}}
                   models = catalog(origin,saved['cookies'])
@@ -95,29 +116,33 @@ jobs:
                   if root.is_symlink() or root.stat().st_mode & 0o077: raise RuntimeError('unsafe_state_directory')
                   fd = os.open(str(auth),os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
                   with os.fdopen(fd,'w') as out: json.dump(saved,out)
-                  report['loginMethod'] = 'normal_current_service_launch_link'
+                  report['loginMethod'] = 'normal_service_launch_link'
               def safe(value):
                   return value if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_./:-]{1,100}',value) else None
               report['authenticated'] = True
               report['defaultModel'] = {k:safe(v) for k,v in models.get('default',{}).items() if k in ('provider','model','reasoningEffort')}
-              report['modelRoutes'] = [{'provider':safe(g.get('id')),'models':[safe(m.get('id')) for m in g.get('models',[])]} for g in models.get('groups',[])]
+              report['modelRoutes'] = [{'provider':safe(g.get('id')),'models':[{'id':safe(m.get('id')),'efforts':[safe(e.get('id')) for e in m.get('reasoning',{}).get('efforts',[])]} for m in g.get('models',[])]} for g in models.get('groups',[])]
               report['routableProviders'] = [safe(v) for v in models.get('routableProviders',[])]
               report['clientAuthStoredOnPiOnly'] = True
-              import importlib.util
-              report['websocketsInstalled'] = importlib.util.find_spec('websockets') is not None
-              report['websocketClientInstalled'] = importlib.util.find_spec('websocket') is not None
           except Exception as error:
               report['authenticated'] = False
               report['errorClass'] = type(error).__name__
               reason = str(error)
               if re.fullmatch(r'[a-z_0-9]{1,80}',reason): report['reason'] = reason
+          report['websocketsInstalled'] = importlib.util.find_spec('websockets') is not None
+          report['websocketClientInstalled'] = importlib.util.find_spec('websocket') is not None
+          try:
+              status,raw,ctype = request('http://127.0.0.1:8788/healthz')
+              value = json.loads(raw)
+              report['directPiScraperHealth'] = {'httpStatus':status,'contentType':ctype,'json':True,'ok':value.get('ok') is True}
+          except Exception as error: report['directPiScraperHealth'] = {'errorClass':type(error).__name__}
           print(json.dumps(report,sort_keys=True))
           '''
           client = paramiko.SSHClient()
           try:
               client.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(os.environ['PI_DEVICE_SSH_HOST_KEY_SHA256']))
               client.connect(os.environ['PI_DEVICE_SSH_HOST'],port=int(os.environ['PI_DEVICE_SSH_PORT']),username=os.environ['PI_DEVICE_SSH_USER'],password=os.environ['PI_DEVICE_SSH_PASSWORD'],timeout=12,auth_timeout=12,banner_timeout=12,allow_agent=False,look_for_keys=False)
-              stdin,stdout,stderr = client.exec_command('python3 -',timeout=100)
+              stdin,stdout,stderr = client.exec_command('python3 -',timeout=120)
               stdin.write(code); stdin.flush(); stdin.channel.shutdown_write()
               report = json.loads(stdout.read(131073))
               rendered = json.dumps(report,sort_keys=True)
