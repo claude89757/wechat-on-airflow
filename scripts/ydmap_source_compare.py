@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from bawtt_live_query import read_queries
+
 SOURCES = {
     "dashah_control": ("wxsports.ydmap.cn", "100220", "100000"),
     "indoor": ("bawtt.ydmap.cn", "104036", "111317"),
@@ -41,7 +43,15 @@ for(const row of table?.rows||[]) for(const c of Array.isArray(row)?row:Object.v
   if(cells.length<4) cells.push({start:c.startTimeText,end:c.endTimeText,className:cls,expired:c.expired});
 }
 const err=layout?.$data?.error;
-return {url:location.href,title:document.title,components,appText:root?.innerText||'',
+const visibleVerifications=[];
+for(const vm of seen) {
+  const o=vm.$options||{}, name=o.name||o._componentTag||'';
+  if(!/NeVerify|Slider/.test(name) || !vm.$el || !vm.$el.getBoundingClientRect) continue;
+  const r=vm.$el.getBoundingClientRect(), style=getComputedStyle(vm.$el);
+  if(r.width>0 && r.height>0 && style.display!=='none' && style.visibility!=='hidden')
+    visibleVerifications.push(name);
+}
+return {url:location.href,title:document.title,components,visibleVerifications,appText:root?.innerText||'',
   error:typeof err==='string'?err:(err?.message||''),
   challenge:/Access Verification|slide to verify|验证码|人机验证|安全验证/i.test(text),
   loginRequired:/请先登录|登录后查看|sign in to continue/i.test(text),
@@ -92,7 +102,24 @@ def command_help() -> dict[str, Any]:
         (p for p in candidates if p and os.path.isfile(p) and os.access(p, os.X_OK)), None
     )
     if not binary:
-        return {"available": False}
+        report: dict[str, Any] = {"available": False}
+        for prop in ("WorkingDirectory", "ExecStart"):
+            try:
+                found = subprocess.run(
+                    ["systemctl", "show", "dsh-web.service", "--property=" + prop, "--value"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                ).stdout.strip()
+                if prop == "WorkingDirectory" and re.fullmatch(r"/[A-Za-z0-9_./-]{1,180}", found):
+                    report["workingDirectory"] = found
+                if prop == "ExecStart":
+                    paths = re.findall(r"(?:path=|argv\[\]=)(/[A-Za-z0-9_./-]+)", found)
+                    report["launcherPaths"] = list(dict.fromkeys(paths))[:3]
+            except Exception as error:
+                report["errorClass"] = type(error).__name__
+        return report
     try:
         result = subprocess.run(
             [binary, "--help"], capture_output=True, text=True, timeout=12, check=False
@@ -114,6 +141,29 @@ def health() -> dict[str, Any]:
         return {"ok": data.get("ok") is True}
     except Exception as error:
         return {"ok": False, "errorClass": type(error).__name__}
+
+
+def classify(
+    page: dict[str, Any], matched: bool, queries: list[dict[str, Any]], source: str
+) -> str:
+    if (
+        page.get("challenge")
+        or page.get("loginRequired")
+        or page.get("visibleVerifications")
+        or any(q.get("accessChallenge") for q in queries)
+    ):
+        return "human_verification_required"
+    if not matched:
+        return "unexpected_source"
+    paths = {q.get("path", "").rsplit("/", 1)[-1] for q in queries if q.get("json") is True}
+    cells = sum(page.get("classes", {}).values())
+    if (
+        page.get("tableFound")
+        and cells > 0
+        and (source == "dashah_control" or {"getVenueCalendarList", "getVenueOrderList"} <= paths)
+    ):
+        return "query_samples_observed_not_bookability_acceptance"
+    return "schedule_component_only" if page.get("tableFound") else "initialization_incomplete"
 
 
 def observe(source: str) -> dict[str, Any]:
@@ -151,7 +201,7 @@ def observe(source: str) -> dict[str, Any]:
                 "--accept-lang=zh-CN,zh,en-US,en",
                 "--window-size=1280,800",
                 "--window-position=80,40",
-                f"https://{host}/booking/schedule/{venue}?salesItemId={product}",
+                "about:blank",
             ]
             proc = subprocess.Popen(
                 args,
@@ -176,11 +226,16 @@ def observe(source: str) -> dict[str, Any]:
             time.sleep(4)
             options = Options()
             options.debugger_address = f"127.0.0.1:{port}"
+            options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
             driver = webdriver.Chrome(
                 service=Service(shutil.which("chromedriver") or "/usr/local/bin/chromedriver"),
                 options=options,
             )
             driver.set_script_timeout(5)
+            driver.set_page_load_timeout(35)
+            driver.get(f"https://{host}/booking/schedule/{venue}?salesItemId={product}")
+            pending: dict[str, str] = {}
+            report["queries"], report["networkResources"] = [], []
             deadline = time.monotonic() + 35
             while True:
                 result = driver.execute_script(PUBLIC_JS)
@@ -189,9 +244,24 @@ def observe(source: str) -> dict[str, Any]:
                 if (
                     result.get("challenge")
                     or result.get("loginRequired")
-                    or result.get("tableFound")
+                    or result.get("visibleVerifications")
+                ):
+                    report["state"] = "human_verification_required"
+                    break
+                read_queries(driver, pending, report["queries"], report["networkResources"])
+                state = classify(
+                    result, source_matches(result.get("url", ""), source), report["queries"], source
+                )
+                if (
+                    state
+                    in (
+                        "human_verification_required",
+                        "unexpected_source",
+                        "query_samples_observed_not_bookability_acceptance",
+                    )
                     or time.monotonic() >= deadline
                 ):
+                    report["state"] = state
                     break
                 time.sleep(1)
             report["sourceMatches"] = source_matches(result.pop("url", ""), source)
@@ -203,13 +273,6 @@ def observe(source: str) -> dict[str, Any]:
                 result[key] = redact(result.get(key))
             result["courts"] = [redact(v)[:80] for v in result.get("courts", [])[:20]]
             report["page"] = result
-            report["state"] = (
-                "human_verification_required"
-                if result.get("challenge") or result.get("loginRequired")
-                else "schedule_observed"
-                if result.get("tableFound") and report["sourceMatches"]
-                else "initialization_incomplete"
-            )
         except Exception as error:
             report.update(state="probe_failed", errorClass=type(error).__name__)
         finally:
