@@ -30,8 +30,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 420 --format json
-          git show b42f48788d55113fbcdd6055a1ae9694a4547a29:scripts/bawtt_live_query.py > scripts/bawtt_live_query.py
-          git show b42f48788d55113fbcdd6055a1ae9694a4547a29:tests/bawtt_live_query_test.py > tests/bawtt_live_query_test.py
+          git show 27988092a6acd70af2f6d9008aa9335ae0611508:scripts/bawtt_live_query.py > scripts/bawtt_live_query.py
+          git show 27988092a6acd70af2f6d9008aa9335ae0611508:tests/bawtt_live_query_test.py > tests/bawtt_live_query_test.py
           python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1 pytest==9.1.1 ruff==0.12.11
           ruff check scripts/bawtt_live_query.py tests/bawtt_live_query_test.py
           ruff format --check scripts/bawtt_live_query.py tests/bawtt_live_query_test.py
