@@ -67,7 +67,10 @@ def test_empty_table_component_does_not_pass():
 
 def test_cells_without_query_responses_do_not_pass_new_source():
     page = {"tableFound": True, "classes": {"": 8}}
-    assert compare.classify(page, True, [], "indoor") == "schedule_cells_observed_without_query_samples"
+    assert (
+        compare.classify(page, True, [], "indoor")
+        == "schedule_cells_observed_without_query_samples"
+    )
     queries = [
         {"path": "/x/getVenueCalendarList", "json": True},
         {"path": "/x/getVenueOrderList", "json": True},

@@ -1,4 +1,4 @@
-name: BAWTT Live Query Preflight
+name: YDMap Native Source Preflight
 on:
   workflow_dispatch:
   push:
