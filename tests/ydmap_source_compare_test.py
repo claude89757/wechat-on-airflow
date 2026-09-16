@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 SPEC = importlib.util.spec_from_file_location(
     "compare", Path(__file__).resolve().parents[1] / "scripts/ydmap_source_compare.py"
@@ -53,3 +56,29 @@ def test_production_browser_never_reused_and_no_spoofing():
         assert forbidden not in text
     assert "port == 9224" in text
     assert 'bookabilityVerified": False' in text
+
+
+def test_empty_table_component_does_not_pass():
+    assert (
+        compare.classify({"tableFound": True, "classes": {}}, True, [], "indoor")
+        == "schedule_component_only"
+    )
+
+
+def test_cells_without_query_responses_do_not_pass_new_source():
+    page = {"tableFound": True, "classes": {"": 8}}
+    assert compare.classify(page, True, [], "indoor") == "schedule_component_only"
+    queries = [
+        {"path": "/x/getVenueCalendarList", "json": True},
+        {"path": "/x/getVenueOrderList", "json": True},
+    ]
+    assert (
+        compare.classify(page, True, queries, "indoor")
+        == "query_samples_observed_not_bookability_acceptance"
+    )
+
+
+def test_visible_verification_or_wrong_source_never_passes():
+    page = {"tableFound": True, "classes": {"": 8}, "visibleVerifications": ["NeVerify"]}
+    assert compare.classify(page, True, [], "dashah_control") == "human_verification_required"
+    assert compare.classify({"tableFound": True}, False, [], "indoor") == "unexpected_source"
