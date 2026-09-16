@@ -95,6 +95,7 @@ return {
   dateLabels: [...new Set(dates)].slice(0,14), bodyTextLength: text.length,
   tablePropNames: table ? Object.keys(table.$props || {}).sort() : [],
   tableDataNames: table ? Object.keys(table.$data || {}).sort() : [],
+  visibility: document.visibilityState,
   documentState: document.readyState,
   scriptCount: document.scripts.length,
   iframeCount: document.querySelectorAll('iframe').length,
@@ -102,6 +103,27 @@ return {
   wasmAvailable: typeof WebAssembly !== 'undefined',
   publicText: text.slice(0, 1000)
 };
+"""
+
+
+BOOTSTRAP_JS = r"""
+const root = document.querySelector('#app');
+const rows = [], seen = new Set();
+function visit(vm, depth) {
+  if (!vm || seen.has(vm) || rows.length >= 24 || depth > 6) return;
+  seen.add(vm);
+  const o = vm.$options || {}, d = vm.$data || {}, p = vm.$props || {};
+  const item = {name: o.name || o._componentTag || 'anonymous', depth,
+    dataFields: Object.keys(d).filter(k => /^[A-Za-z_][A-Za-z0-9_]{0,60}$/.test(k)),
+    propFields: Object.keys(p).filter(k => /^[A-Za-z_][A-Za-z0-9_]{0,60}$/.test(k)),
+    flags: {}};
+  for (const key of ['loading', 'ready', 'initialized', 'visible', 'isLoading'])
+    if (typeof d[key] === 'boolean') item.flags[key] = d[key];
+  rows.push(item);
+  for (const child of vm.$children || []) visit(child, depth + 1);
+}
+visit(root && root.__vue__, 0);
+return rows;
 """
 
 
@@ -233,6 +255,7 @@ def observe(driver: Any, target: str) -> dict[str, Any]:
     driver.get_log("browser")
     driver.get(f"{ORIGIN}/booking/schedule/104036?salesItemId={TARGETS[target]}")
     until = time.monotonic() + 45
+    focus_checked = False
     while True:
         page = driver.execute_script(PAGE_JS)
         if "publicText" in page:
@@ -248,6 +271,14 @@ def observe(driver: Any, target: str) -> dict[str, Any]:
         if not result["sourceMatches"]:
             result["state"] = "unexpected_source"
             return result
+        if not focus_checked:
+            result["initialVisibility"] = page.get("visibility", "unknown")
+            # Bring an ordinary hidden window forward; no visibility spoofing,
+            # security state changes, fingerprint patches or page reloads.
+            if page.get("visibility") == "hidden":
+                driver.execute_cdp_cmd("Page.bringToFront", {})
+                result["focusedHiddenWindow"] = True
+            focus_checked = True
         read_queries(driver, pending, result["queries"], result["resources"])
         if any(q.get("accessChallenge") for q in result["queries"]):
             result["state"] = "human_verification_required"
@@ -261,6 +292,7 @@ def observe(driver: Any, target: str) -> dict[str, Any]:
             result["state"] = "query_samples_observed_not_bookability_acceptance"
             return result
         if time.monotonic() >= until:
+            result["bootstrapComponents"] = driver.execute_script(BOOTSTRAP_JS)
             result["state"] = "query_acquisition_incomplete"
             return result
         time.sleep(1)
