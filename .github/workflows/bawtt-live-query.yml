@@ -1,0 +1,81 @@
+name: BAWTT Live Query Preflight
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/bawtt-ydmap-onboarding-20260916]
+    paths: [.github/workflows/bawtt-live-query.yml]
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: bawtt-live-query-preflight
+  cancel-in-progress: false
+jobs:
+  query-preflight:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 126c359919556081f68cf8199f5de9898129694b
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Verify transport baseline and credential-free probe tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 0 --format json
+          git show 4b4a140130d65dde4426d1ec2cc21b9f35ef9bd4:scripts/bawtt_live_query.py > scripts/bawtt_live_query.py
+          git show 4b4a140130d65dde4426d1ec2cc21b9f35ef9bd4:tests/bawtt_live_query_test.py > tests/bawtt_live_query_test.py
+          python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1 pytest==9.1.1 ruff==0.12.11
+          ruff check scripts/bawtt_live_query.py tests/bawtt_live_query_test.py
+          python -m pytest -q tests/bawtt_live_query_test.py
+      - name: Observe only normal public browser queries without notifications
+        env:
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          import json
+          import logging
+          import os
+          from pathlib import Path
+          import paramiko
+          from wechat_airflow.clients.android_device import PinnedSHA256HostKeyPolicy
+          logging.getLogger('paramiko').setLevel(logging.CRITICAL)
+          client = paramiko.SSHClient()
+          try:
+              client.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(os.environ['PI_DEVICE_SSH_HOST_KEY_SHA256']))
+              client.connect(os.environ['PI_DEVICE_SSH_HOST'],port=int(os.environ['PI_DEVICE_SSH_PORT']),username=os.environ['PI_DEVICE_SSH_USER'],password=os.environ['PI_DEVICE_SSH_PASSWORD'],timeout=12,auth_timeout=12,banner_timeout=12,allow_agent=False,look_for_keys=False)
+              client.get_transport().set_keepalive(15)
+              stdin,stdout,stderr = client.exec_command('timeout 190s python3 -u -',timeout=210)
+              stdin.write(Path('scripts/bawtt_live_query.py').read_text())
+              stdin.flush()
+              stdin.channel.shutdown_write()
+              raw = stdout.read(131073)
+              if len(raw) > 131072:
+                  raise ValueError('oversized_report')
+              report = json.loads(raw)
+              report['remoteExitCode'] = stdout.channel.recv_exit_status()
+              rendered = json.dumps(report,ensure_ascii=False,sort_keys=True)
+              print(rendered)
+              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+                  out.write('### Public-query samples, not notification or release acceptance\n```json\n'+rendered+'\n```\n')
+              if report['remoteExitCode']:
+                  raise SystemExit(1)
+          except SystemExit:
+              raise
+          except Exception as error:
+              print(json.dumps({'state':'preflight_failed','errorClass':type(error).__name__,'productionChanged':False}))
+              raise SystemExit(1)
+          finally:
+              client.close()
+          PY
