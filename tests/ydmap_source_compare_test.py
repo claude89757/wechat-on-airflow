@@ -100,3 +100,97 @@ def test_generic_slider_is_not_a_captcha_component():
     assert "NeVerify|Slider" not in compare.PUBLIC_JS
     assert "style.opacity" in compare.PUBLIC_JS
     assert "innerHeight" in compare.PUBLIC_JS
+
+
+def test_visible_access_check_against_real_javascript_cases():
+    import json
+    import shutil
+    import subprocess
+
+    import pytest
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required to execute the actual browser extractor")
+    setup = r"""
+    const cases=[
+      {name:'Slider',text:'网球',height:48,top:0,opacity:'1',expected:[]},
+      {name:'NeVerify',text:'',height:0,top:766,opacity:'1',expected:[]},
+      {name:'NeVerify',text:'',height:48,top:40,opacity:'1',expected:['NeVerify']},
+      {name:'NeVerify',text:'',height:48,top:700,opacity:'1',expected:[]},
+      {name:'NeVerify',text:'',height:48,top:40,opacity:'0',expected:[]},
+    ];
+    const result=[];
+    for(const item of cases) {
+      const ancestor={parentElement:null,style:{display:'block',visibility:'visible',opacity:item.opacity}};
+      const el={parentElement:ancestor,innerText:item.text,
+        style:{display:'block',visibility:'visible',opacity:'1'},
+        getBoundingClientRect:()=>({width:300,height:item.height,left:0,right:300,top:item.top,bottom:item.top+item.height})};
+      const child={$options:{name:item.name},$children:[],$el:el};
+      const root={$options:{name:'Layout'},$data:{},$children:[child]};
+      const context={
+        document:{querySelector:()=>({__vue__:root,innerText:item.text}),body:{innerText:item.text},title:'booking',readyState:'complete'},
+        location:{href:'https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317'},
+        navigator:{language:'zh-CN',webdriver:false,userAgent:'test'},
+        performance:{getEntriesByType:()=>[]},getComputedStyle:(node)=>node.style,
+        innerHeight:668,innerWidth:1248,
+      };
+      const actual=require('vm').runInNewContext('(function(){'+SOURCE+'})()',context);
+      result.push({actual:actual.visibleVerifications,expected:item.expected});
+    }
+    console.log(JSON.stringify(result));
+    """
+    program = "const SOURCE=" + json.dumps(compare.PUBLIC_JS) + ";\n" + setup
+    result = subprocess.run(
+        [node, "-e", program], capture_output=True, text=True, timeout=10, check=True
+    )
+    assert all(item["actual"] == item["expected"] for item in json.loads(result.stdout))
+
+
+def test_loaded_business_resources_do_not_replay_requests_or_export_private_values():
+    import json
+
+    class Driver:
+        def __init__(self):
+            self.commands = []
+
+        def execute_script(self, expression):
+            return [
+                "https://bawtt.ydmap.cn/api/account?token=never-export",
+                "https://bawtt.ydmap.cn/srv100244/api/pub/sport/venue/getVenueOrderList?token=never-export",
+                "https://other.example/js/booking-schedule-venue.b6226c5c.js",
+            ]
+
+        def execute_cdp_cmd(self, name, params):
+            self.commands.append(name)
+            if name == "Page.getResourceTree":
+                return {"frameTree": {"frame": {"id": "test"}, "resources": []}}
+            assert name == "Page.getResourceContent"
+            return {"content": json.dumps({"code": 500, "success": False, "phone": "never-export"})}
+
+    driver = Driver()
+    result = compare.loaded_business_evidence(driver, "indoor")
+    assert len(result) == 1
+    assert result[0]["jsonParsed"] is True
+    assert result[0]["businessSuccessVerified"] is False
+    assert "never-export" not in str(result)
+    assert driver.commands == ["Page.getResourceTree", "Page.getResourceContent"]
+
+
+def test_loaded_verification_response_stops_further_body_reads():
+    class Driver:
+        def execute_script(self, expression):
+            return [
+                "https://bawtt.ydmap.cn/srv100244/api/pub/sport/venue/getVenueOrderList",
+                "https://bawtt.ydmap.cn/srv100244/api/pub/sport/venue/getVenueCalendarList",
+            ]
+
+        def execute_cdp_cmd(self, name, params):
+            if name == "Page.getResourceTree":
+                return {"frameTree": {"frame": {"id": "test"}, "resources": []}}
+            return {"content": "<html>Access Verification</html>"}
+
+    result = compare.loaded_business_evidence(Driver(), "indoor")
+    assert len(result) == 1
+    assert result[0]["accessChallenge"] is True
+    assert result[0]["reason"] == "verification_response_stop"

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -74,6 +75,10 @@ return {url:location.href,title:document.title,components,visibleVerifications,a
   loginRequired:/请先登录|登录后查看|sign in to continue/i.test(text),
   readyState:document.readyState,language:navigator.language,webdriver:navigator.webdriver,
   browser:navigator.userAgent,tableFound:Boolean(table),selectedDate,selectedProduct:parent?.salesItemId,classes,courts:[...courts],cells,
+  businessMethodNames: Object.keys(parent?.$options?.methods||{}).filter(k=>/^[A-Za-z_][A-Za-z0-9_]{0,60}$/.test(k)),
+  businessQueryMethods: Object.entries(parent?.$options?.methods||{}).filter(([k,v])=>/calendar|venue|schedule|order/i.test(k) && /get|query|load|fetch/i.test(k) && !/sign|auth|secret|captcha|verify|fingerprint/i.test(k) && typeof v==='function').slice(0,8).map(([name,fn])=>({name,text:fn.toString().slice(0,1800)})),
+  businessFieldNames: Object.keys(parent?.$data||{}).filter(k=>/^[A-Za-z_][A-Za-z0-9_]{0,60}$/.test(k)),
+  businessFlags: Object.fromEntries(Object.entries(parent?.$data||{}).filter(([k,v])=>/^(loading|isLoading|tableLoading|ready|isReady|initializing|error|errorCode|saleStatus|status|success|curDate|salesItemId)$/.test(k) && (v===null || ['boolean','number'].includes(typeof v)))),
   bookingContext: Object.fromEntries(Object.entries(table?.$parent?.$data||{}).filter(([k])=>/^(curDate|date|currentDate|selectedDate|bookingDate|salesItemId|salesItemList|calendarList|venueCalendarList|platformList|venueList|orderList)$/.test(k))),
   resources:performance.getEntriesByType('resource').map(r=>r.name)};
 """
@@ -186,6 +191,100 @@ def classify(
     return "schedule_component_only" if page.get("tableFound") else "initialization_incomplete"
 
 
+def loaded_business_evidence(driver: Any, source: str) -> list[dict[str, Any]]:
+    """Read already-loaded public business resources, never fetch or replay a request."""
+    host = SOURCES[source][0]
+    tree = driver.execute_cdp_cmd("Page.getResourceTree", {})["frameTree"]
+    frame_id = tree["frame"]["id"]
+    urls = driver.execute_script("return performance.getEntriesByType('resource').map(r=>r.name)")
+    metadata = {item["url"]: item for item in tree.get("resources", [])}
+    reports: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r"/srv[0-9]+/api/pub/sport/venue/"
+        r"(?:getSalesItemList|getSportVenueConfig|getVenueCalendarList|getVenueOrderList)$"
+    )
+    for url in urls:
+        parsed = urlsplit(url)
+        is_script = parsed.path == "/js/booking-schedule-venue.b6226c5c.js"
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != host
+            or not (is_script or pattern.fullmatch(parsed.path))
+            or parsed.path in seen
+        ):
+            continue
+        seen.add(parsed.path)
+        item: dict[str, Any] = {
+            "path": parsed.path,
+            "kind": "public_business_script" if is_script else "public_booking_query",
+            "httpStatusObserved": False,
+            "mimeType": metadata.get(url, {}).get("mimeType"),
+        }
+        try:
+            response = driver.execute_cdp_cmd(
+                "Page.getResourceContent", {"frameId": frame_id, "url": url}
+            )
+            content = response.get("content", "")
+            if (
+                not isinstance(content, str)
+                or len(content) > 1000000
+                or response.get("base64Encoded")
+            ):
+                item["reason"] = "nontext_or_oversized_resource"
+            else:
+                item["bytes"] = len(content.encode())
+                item["sha256"] = hashlib.sha256(content.encode()).hexdigest()
+                item["accessChallenge"] = bool(
+                    re.search(
+                        r"Access Verification|slide to verify|aliyun_waf|验证码|人机验证",
+                        content[:2000],
+                        re.I,
+                    )
+                )
+                if item["accessChallenge"]:
+                    item["reason"] = "verification_response_stop"
+                elif is_script:
+                    excerpts = []
+                    for term in (
+                        "getVenueCalendarList",
+                        "getVenueOrderList",
+                        "getSportVenueConfig",
+                        "getSalesItemList",
+                        "className:",
+                        "col-completed",
+                        "not-open",
+                        "created:",
+                        "mounted:",
+                    ):
+                        matches = list(re.finditer(re.escape(term), content))
+                        for match in matches[:2]:
+                            excerpts.append(
+                                {
+                                    "term": term,
+                                    "matches": len(matches),
+                                    "text": redact(
+                                        content[max(0, match.start() - 200) : match.end() + 800]
+                                    ),
+                                }
+                            )
+                    item["businessExcerpts"] = excerpts
+                else:
+                    try:
+                        value = json.loads(content)
+                        item["jsonParsed"] = True
+                        item["schema"] = shape(value)
+                        item["businessSuccessVerified"] = False
+                    except ValueError:
+                        item["jsonParsed"] = False
+        except Exception as error:
+            item["readErrorClass"] = type(error).__name__
+        reports.append(item)
+        if item.get("accessChallenge"):
+            break
+    return reports
+
+
 def observe(source: str) -> dict[str, Any]:
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
@@ -251,7 +350,8 @@ def observe(source: str) -> dict[str, Any]:
                 options=options,
             )
             driver.set_script_timeout(5)
-            deadline = time.monotonic() + 35
+            data_wait_started = time.monotonic()
+            deadline = data_wait_started + 35
             while True:
                 result = driver.execute_script(PUBLIC_JS)
                 if not isinstance(result, dict):
@@ -277,6 +377,7 @@ def observe(source: str) -> dict[str, Any]:
                     report["state"] = state
                     break
                 time.sleep(1)
+            report["dataWaitSeconds"] = round(time.monotonic() - data_wait_started, 2)
             report["sourceMatches"] = source_matches(result.pop("url", ""), source)
             resources = result.pop("resources", [])
             result["resources"] = list(
@@ -286,7 +387,16 @@ def observe(source: str) -> dict[str, Any]:
                 result[key] = redact(result.get(key))
             result["courts"] = [redact(v)[:80] for v in result.get("courts", [])[:20]]
             result["bookingContext"] = shape(result.get("bookingContext", {}))
+            for method in result.get("businessQueryMethods", []):
+                method["text"] = redact(method["text"])
             report["page"] = result
+            if report["sourceMatches"] and report.get("state") != "human_verification_required":
+                try:
+                    report["loadedBusinessEvidence"] = loaded_business_evidence(driver, source)
+                    if any(item.get("accessChallenge") for item in report["loadedBusinessEvidence"]):
+                        report["state"] = "human_verification_required"
+                except Exception as error:
+                    report["businessEvidenceErrorClass"] = type(error).__name__
         except Exception as error:
             report.update(state="probe_failed", errorClass=type(error).__name__)
         finally:
