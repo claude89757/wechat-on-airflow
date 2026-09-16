@@ -1,0 +1,132 @@
+name: BAWTT DSH Collaboration
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/bawtt-ydmap-onboarding-20260916]
+    paths: [.github/workflows/bawtt-dsh-collaborate.yml]
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: bawtt-dsh-collaborate
+  cancel-in-progress: false
+jobs:
+  collaborate:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 126c359919556081f68cf8199f5de9898129694b
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Verify reviewed SSH baseline
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 0 --format json
+          python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
+      - name: Check normal DSH authentication on the verified Pi
+        env:
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          import json, logging, os
+          import paramiko
+          from wechat_airflow.clients.android_device import PinnedSHA256HostKeyPolicy
+          logging.getLogger('paramiko').setLevel(logging.CRITICAL)
+          code = r'''
+          import http.cookiejar, json, os, re, subprocess, urllib.request, urllib.error, uuid
+          from pathlib import Path
+          report = {'productionChanged':False,'externalTestSends':0,'delegationSubmitted':False}
+          root = Path.home()/'.local/state/wechat-on-airflow/dsh-assist'
+          auth = root/'auth.json'
+          jar = http.cookiejar.CookieJar()
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl): return None
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPCookieProcessor(jar),NoRedirect())
+          def request(url, payload=None, cookies=None):
+              headers = {'Content-Type':'application/json'}
+              if cookies: headers['Cookie'] = '; '.join(k+'='+v for k,v in cookies.items())
+              req = urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers=headers)
+              try: response = opener.open(req,timeout=12)
+              except urllib.error.HTTPError as error: response = error
+              with response: return response.status, response.read(524289)
+          def catalog(origin,cookies=None):
+              payload = {'type':'client-request','rpcId':uuid.uuid4().hex,'method':'session/modelCatalog','payload':{'args':{}}}
+              status,raw = request(origin+'/api/session/modelCatalog',payload,cookies)
+              if status != 200: raise RuntimeError('catalog_http_'+str(status))
+              value = json.loads(raw)['result']
+              if not value.get('ok'): raise RuntimeError('catalog_rejected')
+              return value['value']
+          try:
+              saved, models = None, None
+              if auth.is_file() and not auth.is_symlink() and not auth.stat().st_mode & 0o077:
+                  saved = json.loads(auth.read_text())
+                  if saved.get('url') not in ('http://127.0.0.1:3080','http://localhost:3080'): raise RuntimeError('unexpected_saved_origin')
+                  models = catalog(saved['url'],saved['cookies'])
+                  report['loginMethod'] = 'existing_owner_cookie'
+              else:
+                  def command(args):
+                      return subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,timeout=10,check=False).stdout.strip()
+                  invocation = command(['systemctl','show','dsh-web.service','--property=InvocationID','--value'])
+                  text = ''
+                  if re.fullmatch(r'[0-9a-f]{32}',invocation):
+                      text = command(['journalctl','_SYSTEMD_INVOCATION_ID='+invocation,'--no-pager','-o','cat','-n','200'])
+                  matches = re.findall(r'http://(?:127\.0\.0\.1|localhost):3080/\?token=[A-Za-z0-9._~-]+',text)
+                  report['currentServiceLaunchLinkFound'] = bool(matches)
+                  if not matches: raise RuntimeError('normal_launch_link_required')
+                  launch = matches[-1]
+                  origin = launch.split('/?token=',1)[0]
+                  status,_ = request(launch)
+                  if status != 303 or not list(jar): raise RuntimeError('normal_login_rejected')
+                  saved = {'url':origin,'cookies':{c.name:c.value for c in jar}}
+                  models = catalog(origin,saved['cookies'])
+                  root.mkdir(parents=True,exist_ok=True,mode=0o700)
+                  if root.is_symlink() or root.stat().st_mode & 0o077: raise RuntimeError('unsafe_state_directory')
+                  fd = os.open(str(auth),os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                  with os.fdopen(fd,'w') as out: json.dump(saved,out)
+                  report['loginMethod'] = 'normal_current_service_launch_link'
+              def safe(value):
+                  return value if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_./:-]{1,100}',value) else None
+              report['authenticated'] = True
+              report['defaultModel'] = {k:safe(v) for k,v in models.get('default',{}).items() if k in ('provider','model','reasoningEffort')}
+              report['modelRoutes'] = [{'provider':safe(g.get('id')),'models':[safe(m.get('id')) for m in g.get('models',[])]} for g in models.get('groups',[])]
+              report['routableProviders'] = [safe(v) for v in models.get('routableProviders',[])]
+              report['clientAuthStoredOnPiOnly'] = True
+              import importlib.util
+              report['websocketsInstalled'] = importlib.util.find_spec('websockets') is not None
+              report['websocketClientInstalled'] = importlib.util.find_spec('websocket') is not None
+          except Exception as error:
+              report['authenticated'] = False
+              report['errorClass'] = type(error).__name__
+              reason = str(error)
+              if re.fullmatch(r'[a-z_0-9]{1,80}',reason): report['reason'] = reason
+          print(json.dumps(report,sort_keys=True))
+          '''
+          client = paramiko.SSHClient()
+          try:
+              client.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(os.environ['PI_DEVICE_SSH_HOST_KEY_SHA256']))
+              client.connect(os.environ['PI_DEVICE_SSH_HOST'],port=int(os.environ['PI_DEVICE_SSH_PORT']),username=os.environ['PI_DEVICE_SSH_USER'],password=os.environ['PI_DEVICE_SSH_PASSWORD'],timeout=12,auth_timeout=12,banner_timeout=12,allow_agent=False,look_for_keys=False)
+              stdin,stdout,stderr = client.exec_command('python3 -',timeout=100)
+              stdin.write(code); stdin.flush(); stdin.channel.shutdown_write()
+              report = json.loads(stdout.read(131073))
+              rendered = json.dumps(report,sort_keys=True)
+              print(rendered)
+              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out: out.write('### DSH normal login verification\n```json\n'+rendered+'\n```\n')
+              if not report.get('authenticated'): raise SystemExit(1)
+          except SystemExit: raise
+          except Exception as error:
+              print(json.dumps({'errorClass':type(error).__name__,'delegationSubmitted':False}))
+              raise SystemExit(1)
+          finally: client.close()
+          PY
