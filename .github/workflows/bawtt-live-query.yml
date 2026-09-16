@@ -15,7 +15,7 @@ jobs:
     if: github.actor == github.repository_owner
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -29,7 +29,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 0 --format json
+          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 420 --format json
           git show b42f48788d55113fbcdd6055a1ae9694a4547a29:scripts/bawtt_live_query.py > scripts/bawtt_live_query.py
           git show b42f48788d55113fbcdd6055a1ae9694a4547a29:tests/bawtt_live_query_test.py > tests/bawtt_live_query_test.py
           python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1 pytest==9.1.1 ruff==0.12.11
