@@ -16,7 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ydmap_query_evidence import QueryTrace
+from ydmap_query_evidence import QueryTrace, public_text
 from ydmap_source_compare import PUBLIC_JS, SOURCES, health, source_matches
 
 
@@ -49,7 +49,38 @@ def blocked(page: dict[str, Any], trace: QueryTrace | None = None) -> bool:
     )
 
 
-def observe(source: str) -> dict[str, Any]:
+def overlay_evidence(driver: Any) -> dict[str, Any]:
+    value = driver.execute_script(r"""
+    const matches=[...document.querySelectorAll('body *')].filter(e=>
+      e.childElementCount===0 && /^\d{2}-\d{2}$/.test((e.innerText||'').trim()));
+    const candidate=matches.find(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0;});
+    const r=candidate?.getBoundingClientRect();
+    const x=r?Math.min(innerWidth-1,Math.max(0,r.left+r.width/2)):innerWidth/2;
+    const y=r?Math.min(innerHeight-1,Math.max(0,r.top+r.height/2)):innerHeight/2;
+    return {publicText:document.body?.innerText||'', dateElementFound:Boolean(candidate),
+      hitElements:document.elementsFromPoint(x,y).slice(0,8).map(e=>{
+        const s=getComputedStyle(e),b=e.getBoundingClientRect();
+        return {tag:e.tagName,classes:typeof e.className==='string'?e.className:'',
+          role:e.getAttribute('role'),text:(e.innerText||'').slice(0,300),
+          display:s.display,visibility:s.visibility,opacity:s.opacity,
+          width:b.width,height:b.height};})};
+    """)
+    result = {
+        "dateElementFound": value.get("dateElementFound"),
+        "publicText": public_text(value.get("publicText")),
+        "hitElements": [],
+    }
+    for item in value.get("hitElements", []):
+        result["hitElements"].append(
+            {k: public_text(v) if isinstance(v, str) else v for k, v in item.items()}
+        )
+    image = driver.get_screenshot_as_base64()
+    if len(image) <= 1400000:
+        result["screenshotPNGBase64"] = image
+    return result
+
+
+def observe(source: str, *, visual_only: bool = False) -> dict[str, Any]:
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
@@ -120,6 +151,8 @@ def observe(source: str) -> dict[str, Any]:
             page = snapshot(driver, source)
             report["initial"] = page
             if blocked(page) or not page["sourceMatches"]:
+                if visual_only and page["sourceMatches"]:
+                    report["overlay"] = overlay_evidence(driver)
                 report["state"] = "verification_required" if blocked(page) else "source_mismatch"
                 return report
             with opener.open(f"http://127.0.0.1:{port}/json/list", timeout=5) as response:
@@ -136,6 +169,11 @@ def observe(source: str) -> dict[str, Any]:
                 trace.drain()
                 page = snapshot(driver, source)
                 if blocked(page, trace) or not page["sourceMatches"]:
+                    if visual_only and page["sourceMatches"]:
+                        report["overlay"] = overlay_evidence(driver)
+                    break
+                if visual_only and time.monotonic() >= click_after:
+                    report["overlay"] = overlay_evidence(driver)
                     break
                 if (
                     not report["dateClicks"]
@@ -165,6 +203,13 @@ def observe(source: str) -> dict[str, Any]:
             )
         except Exception as error:
             report.update(state="probe_failed", errorClass=type(error).__name__)
+            if trace:
+                report["queries"] = trace.results
+            if driver:
+                try:
+                    report["final"] = snapshot(driver, source)
+                except Exception:
+                    pass
         finally:
             report["elapsedSeconds"] = round(time.monotonic() - started, 2)
             if trace:
@@ -187,9 +232,9 @@ def observe(source: str) -> dict[str, Any]:
     return report
 
 
-def main() -> None:
+def main(*, visual_only: bool = False) -> None:
     report: dict[str, Any] = {
-        "mode": "normal_date_switch_evidence",
+        "mode": "overlay_observation_no_click" if visual_only else "normal_date_switch_evidence",
         "observedAt": datetime.now(UTC).isoformat(),
         "productionChanged": False,
         "productionReady": False,
@@ -197,8 +242,8 @@ def main() -> None:
         "healthBefore": health(),
         "sources": [],
     }
-    for source in SOURCES:
-        result = observe(source)
+    for source in (("indoor", "outdoor") if visual_only else SOURCES):
+        result = observe(source, visual_only=visual_only)
         report["sources"].append(result)
         if result["state"] == "verification_required":
             break
