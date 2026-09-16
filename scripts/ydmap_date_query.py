@@ -242,7 +242,7 @@ def main(*, visual_only: bool = False) -> None:
         "healthBefore": health(),
         "sources": [],
     }
-    for source in (("indoor", "outdoor") if visual_only else SOURCES):
+    for source in ("indoor", "outdoor") if visual_only else SOURCES:
         result = observe(source, visual_only=visual_only)
         report["sources"].append(result)
         if result["state"] == "verification_required":
