@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from bawtt_live_query import read_queries
+from bawtt_live_query import shape
 
 SOURCES = {
     "dashah_control": ("wxsports.ydmap.cn", "100220", "100000"),
@@ -57,6 +57,7 @@ return {url:location.href,title:document.title,components,visibleVerifications,a
   loginRequired:/请先登录|登录后查看|sign in to continue/i.test(text),
   readyState:document.readyState,language:navigator.language,webdriver:navigator.webdriver,
   browser:navigator.userAgent,tableFound:Boolean(table),classes,courts:[...courts],cells,
+  bookingContext: Object.fromEntries(Object.entries(table?.$parent?.$data||{}).filter(([k])=>/^(curDate|date|currentDate|selectedDate|bookingDate|salesItemId|salesItemList|calendarList|venueCalendarList|platformList|venueList|orderList)$/.test(k))),
   resources:performance.getEntriesByType('resource').map(r=>r.name)};
 """
 
@@ -163,6 +164,8 @@ def classify(
         and (source == "dashah_control" or {"getVenueCalendarList", "getVenueOrderList"} <= paths)
     ):
         return "query_samples_observed_not_bookability_acceptance"
+    if page.get("tableFound") and cells > 0:
+        return "schedule_cells_observed_without_query_samples"
     return "schedule_component_only" if page.get("tableFound") else "initialization_incomplete"
 
 
@@ -201,7 +204,7 @@ def observe(source: str) -> dict[str, Any]:
                 "--accept-lang=zh-CN,zh,en-US,en",
                 "--window-size=1280,800",
                 "--window-position=80,40",
-                "about:blank",
+                f"https://{host}/booking/schedule/{venue}?salesItemId={product}",
             ]
             proc = subprocess.Popen(
                 args,
@@ -226,16 +229,11 @@ def observe(source: str) -> dict[str, Any]:
             time.sleep(4)
             options = Options()
             options.debugger_address = f"127.0.0.1:{port}"
-            options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
             driver = webdriver.Chrome(
                 service=Service(shutil.which("chromedriver") or "/usr/local/bin/chromedriver"),
                 options=options,
             )
             driver.set_script_timeout(5)
-            driver.set_page_load_timeout(35)
-            driver.get(f"https://{host}/booking/schedule/{venue}?salesItemId={product}")
-            pending: dict[str, str] = {}
-            report["queries"], report["networkResources"] = [], []
             deadline = time.monotonic() + 35
             while True:
                 result = driver.execute_script(PUBLIC_JS)
@@ -248,16 +246,14 @@ def observe(source: str) -> dict[str, Any]:
                 ):
                     report["state"] = "human_verification_required"
                     break
-                read_queries(driver, pending, report["queries"], report["networkResources"])
-                state = classify(
-                    result, source_matches(result.get("url", ""), source), report["queries"], source
-                )
+                state = classify(result, source_matches(result.get("url", ""), source), [], source)
                 if (
                     state
                     in (
                         "human_verification_required",
                         "unexpected_source",
                         "query_samples_observed_not_bookability_acceptance",
+                        "schedule_cells_observed_without_query_samples",
                     )
                     or time.monotonic() >= deadline
                 ):
@@ -272,6 +268,7 @@ def observe(source: str) -> dict[str, Any]:
             for key in ("title", "appText", "error", "browser"):
                 result[key] = redact(result.get(key))
             result["courts"] = [redact(v)[:80] for v in result.get("courts", [])[:20]]
+            result["bookingContext"] = shape(result.get("bookingContext", {}))
             report["page"] = result
         except Exception as error:
             report.update(state="probe_failed", errorClass=type(error).__name__)
