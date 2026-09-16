@@ -11,33 +11,7 @@ concurrency:
   group: bawtt-public-contract-validation
   cancel-in-progress: false
 jobs:
-  source:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 3275e6175754e87534f53d203faa31bdcb259d7b
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with:
-          python-version: '3.12'
-      - name: Validate isolated public-data probe and package public source
-        run: |
-          python -m pip install ruff==0.12.11 pytest==9.1.1
-          ruff format scripts/probe_bawtt_public_browser.py tests/bawtt_public_browser_test.py
-          ruff check scripts/probe_bawtt_public_browser.py tests/bawtt_public_browser_test.py
-          python -m pytest -q tests/bawtt_public_browser_test.py tests/bawtt_probe_test.py
-          mkdir -p "$RUNNER_TEMP/bawtt-public-source"
-          git ls-files -z | tar --null -T - -czf "$RUNNER_TEMP/bawtt-public-source/source.tar.gz"
-          python -m pip download --only-binary=:all: --no-deps ruff==0.12.11 -d "$RUNNER_TEMP/bawtt-public-source"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: bawtt-public-source
-          path: ${{ runner.temp }}/bawtt-public-source/
-          retention-days: 1
   public-page:
-    needs: source
     if: github.actor == github.repository_owner
     runs-on: ubuntu-latest
     environment: production
@@ -51,15 +25,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Verify transport baseline and fixed probe identity
+      - name: Verify transport baseline and exact diagnostic source
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 0 --format json
-          git show 3275e6175754e87534f53d203faa31bdcb259d7b:scripts/probe_bawtt_public_browser.py > "$RUNNER_TEMP/probe.py"
+          git show e66dd4555709eee7cc53be4e9b3ad9efa5ed3a9e:scripts/bawtt_page_diagnosis.py > "$RUNNER_TEMP/probe.py"
           python -m py_compile "$RUNNER_TEMP/probe.py"
           python -m pip install paramiko==3.5.1 cryptography==50.0.1
-      - name: Inspect public page in an isolated ordinary browser once
+      - name: Inspect only public page initialization errors
         env:
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
           PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
@@ -82,21 +56,22 @@ jobs:
               stdin.write((Path(os.environ['RUNNER_TEMP'])/'probe.py').read_text())
               stdin.flush()
               stdin.channel.shutdown_write()
-              raw = stdout.read(262145)
-              if len(raw) > 262144:
+              raw = stdout.read(131073)
+              if len(raw) > 131072:
                   raise ValueError('oversized_public_summary')
               report = json.loads(raw)
               report['remoteExitCode'] = stdout.channel.recv_exit_status()
+              report['productionReady'] = False
               text = json.dumps(report, ensure_ascii=False, sort_keys=True)
               print(text)
               with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
-                  out.write('### Public browser contract only; not release acceptance\n```json\n'+text+'\n```\n')
-              if not report.get('targets') or any(t.get('reason') != 'public_contract_observed' for t in report['targets']) or len(report['targets']) != 2:
+                  out.write('### Public UI diagnosis; never release acceptance\n```json\n'+text+'\n```\n')
+              if report['remoteExitCode'] or report.get('errorClass'):
                   raise SystemExit(1)
           except SystemExit:
               raise
           except Exception as error:
-              print(json.dumps({'reason':'public_contract_probe_failed','errorClass':type(error).__name__,'productionChanged':False}))
+              print(json.dumps({'reason':'public_ui_diagnosis_failed','errorClass':type(error).__name__,'productionChanged':False}))
               raise SystemExit(1)
           finally:
               client.close()
