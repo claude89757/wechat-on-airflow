@@ -16,6 +16,31 @@ QUERY = re.compile(
     r"getVenueCalendarList|getVenueOrderList)|basic/getConfig)"
 )
 
+CHALLENGE_TEXT = re.compile(
+    r"aliyun_waf|waf-nc-mask|Access\s+Verification|slide\s+to\s+verify|"
+    r"访问\s*验证|安全\s*验证|人机\s*验证|验证码|滑动\s*验证",
+    re.I,
+)
+PAGE_ACCESS_JS = r"""
+const text=document.body?.innerText||'';
+const textPresent=/Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证|人机\s*验证|验证码|滑动\s*验证/i.test(text);
+function visible(el) {
+  const r=el.getBoundingClientRect();
+  if(r.width<=0 || r.height<=0 || r.right<=0 || r.bottom<=0 ||
+     r.left>=innerWidth || r.top>=innerHeight) return false;
+  for(let ancestor=el;ancestor;ancestor=ancestor.parentElement) {
+    const s=getComputedStyle(ancestor);
+    if(s.display==='none' || s.visibility==='hidden' || s.visibility==='collapse' ||
+       Number(s.opacity)===0 || s.contentVisibility==='hidden') return false;
+  }
+  return true;
+}
+// This mask is outside the Vue component tree. Generic date Sliders are unrelated.
+const maskVisible=[...document.querySelectorAll('.waf-nc-mask')].some(visible);
+return {accessChallenge:textPresent||maskVisible,
+        accessChallengeText:textPresent,wafMaskVisible:maskVisible};
+"""
+
 
 def public_text(value: object) -> str:
     text = str(value or "")[:2000]
@@ -47,7 +72,7 @@ def summarize_body(status: object, mime: str, raw: str) -> dict[str, Any]:
     }
     if len(raw) > 500000:
         return {**result, "state": "oversized_response"}
-    if re.search(r"aliyun_waf|Access Verification|人机验证|验证码|滑动验证", raw, re.I):
+    if CHALLENGE_TEXT.search(raw):
         return {**result, "state": "access_verification_required", "accessChallenge": True}
     try:
         value = json.loads(raw)
@@ -73,6 +98,9 @@ def summarize_body(status: object, mime: str, raw: str) -> dict[str, Any]:
     for key in ("message", "msg", "error"):
         if isinstance(value.get(key), str):
             result[key] = public_text(value[key])
+            # The envelope may encode Chinese text as JSON Unicode escapes.
+            if CHALLENGE_TEXT.search(value[key]):
+                return {**result, "state": "access_verification_required", "accessChallenge": True}
     if value.get("success") is False or value.get("ok") is False:
         result["state"] = "business_error"
     return result

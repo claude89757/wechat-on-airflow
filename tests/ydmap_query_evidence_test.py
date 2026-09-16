@@ -115,3 +115,65 @@ def test_trace_keeps_http_evidence_and_reads_only_matching_source(monkeypatch):
     assert trace.results[0]["httpStatus"] == 200
     assert "SECRET" not in str(trace.results)
     assert [s["method"] for s in sent] == ["Network.enable", "Network.getResponseBody"]
+
+
+def test_chinese_access_challenge_is_not_empty_data():
+    for body in (
+        "<div>访问验证</div><p>为保证您的正常访问,请进行如下验证</p>",
+        '<div class="waf-nc-mask"></div>',
+        "<title>访问 验证</title>",
+        r'{"code":403,"msg":"\u8bbf\u95ee\u9a8c\u8bc1"}',
+    ):
+        result = summarize_body(200, "text/html", body)
+        assert result["state"] == "access_verification_required"
+        assert result["accessChallenge"]
+        assert not result["businessSuccess"]
+        assert not result["bookabilityVerified"]
+
+
+def test_real_dom_detector_handles_external_mask_not_generic_slider():
+    import json
+    import shutil
+    import subprocess
+
+    import pytest
+    from ydmap_query_evidence import PAGE_ACCESS_JS
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the actual browser JavaScript regression")
+    harness = r"""
+const js=JSON.parse(process.argv[1]);
+const run=new Function('document','getComputedStyle','innerWidth','innerHeight',js);
+function element({hidden=false,outside=false,transparentAncestor=false}={}) {
+  return {parentElement:transparentAncestor?{style:{opacity:'0'}}:null,
+    style:{display:hidden?'none':'block',visibility:'visible',opacity:'0.5'},
+    getBoundingClientRect:()=>({width:100,height:100,left:outside?1300:0,
+      top:0,right:outside?1400:100,bottom:100})};
+}
+const cases=[
+  {text:'访问验证',elements:[],expected:true},
+  {text:'',elements:[element()],expected:true},
+  {text:'09-16 星期三 网球',elements:[],expected:false},
+  {text:'',elements:[element({hidden:true})],expected:false},
+  {text:'',elements:[element({outside:true})],expected:false},
+  {text:'',elements:[element({transparentAncestor:true})],expected:false}
+];
+for(const c of cases){
+  const doc={body:{innerText:c.text},querySelectorAll:selector=>{
+    if(selector!=='.waf-nc-mask') throw new Error('unexpected or generic selector');
+    return c.elements;
+  }};
+  const actual=run(doc,e=>({display:'block',visibility:'visible',opacity:'1',...e.style}),1248,668);
+  if(actual.accessChallenge!==c.expected) throw new Error('incorrect challenge classification');
+}
+console.log(JSON.stringify({cases:cases.length,passed:true}));
+"""
+    result = subprocess.run(
+        [node, "-e", harness, json.dumps(PAGE_ACCESS_JS)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    assert json.loads(result.stdout) == {"cases": 6, "passed": True}

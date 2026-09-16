@@ -16,13 +16,18 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from ydmap_query_evidence import QueryTrace, public_text
+from ydmap_query_evidence import PAGE_ACCESS_JS, QueryTrace, public_text
 from ydmap_source_compare import PUBLIC_JS, SOURCES, health, source_matches
 
 
 def snapshot(driver: Any, source: str) -> dict[str, Any]:
     page = driver.execute_script(PUBLIC_JS)
+    access = driver.execute_script(PAGE_ACCESS_JS)
+    if not isinstance(access, dict):
+        raise RuntimeError("invalid_access_check_result")
     return {
+        "accessChallenge": access.get("accessChallenge") is True,
+        "wafMaskVisible": access.get("wafMaskVisible") is True,
         "sourceMatches": source_matches(page.get("url", ""), source),
         **{
             k: page.get(k)
@@ -42,7 +47,8 @@ def snapshot(driver: Any, source: str) -> dict[str, Any]:
 
 def blocked(page: dict[str, Any], trace: QueryTrace | None = None) -> bool:
     return bool(
-        page.get("challenge")
+        page.get("accessChallenge")
+        or page.get("challenge")
         or page.get("loginRequired")
         or page.get("visibleVerifications")
         or (trace and any(q.get("accessChallenge") for q in trace.results))

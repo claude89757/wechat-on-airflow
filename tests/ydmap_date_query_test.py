@@ -10,6 +10,7 @@ from ydmap_date_query import blocked, snapshot  # noqa: E402
 
 def test_real_verification_stops_even_with_loaded_cells():
     for key, value in [
+        ("accessChallenge", True),
         ("challenge", True),
         ("loginRequired", True),
         ("visibleVerifications", ["NeVerify"]),
@@ -55,3 +56,24 @@ def test_probe_does_not_use_prod_browser_or_slot_actions():
     assert "port == 9224" in source
     assert "visible[0].click()" in source
     assert 'not report["dateClicks"]' in source
+
+
+def test_external_waf_mask_stops_without_vue_verify_component():
+    from ydmap_query_evidence import PAGE_ACCESS_JS
+
+    page = {
+        "url": "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+        "selectedDate": "2026-09-16",
+        "tableFound": True,
+        "challenge": False,
+        "visibleVerifications": [],
+    }
+    driver = SimpleNamespace(
+        execute_script=lambda js: (
+            {"accessChallenge": True, "wafMaskVisible": True} if js == PAGE_ACCESS_JS else page
+        )
+    )
+    result = snapshot(driver, "indoor")
+    assert result["sourceMatches"]
+    assert result["wafMaskVisible"]
+    assert blocked(result)
