@@ -97,3 +97,43 @@ def test_public_diagnostics_preserve_error_messages() -> None:
         == "TypeError: WebAssembly is undefined"
     )
     assert len(probe.public_text("错误" * 1000)) <= 600
+
+
+@pytest.mark.parametrize("visibility,expected_focus", [("visible", 0), ("hidden", 1)])
+def test_focuses_only_hidden_normal_window(
+    monkeypatch: pytest.MonkeyPatch, visibility: str, expected_focus: int
+) -> None:
+    class Browser:
+        current_url = "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=103224"
+        focus_calls = 0
+
+        def get_log(self, _):
+            return []
+
+        def get(self, _):
+            pass
+
+        def execute_script(self, script):
+            if script == probe.BOOTSTRAP_JS:
+                return [{"name": "App", "dataFields": []}]
+            return {
+                "challenge": False,
+                "loginRequired": False,
+                "visibility": visibility,
+                "tableFound": False,
+                "cells": 0,
+            }
+
+        def execute_cdp_cmd(self, method, params):
+            assert method == "Page.bringToFront" and params == {}
+            self.focus_calls += 1
+            return {}
+
+    browser = Browser()
+    moments = iter([0, 46])
+    monkeypatch.setattr(probe.time, "monotonic", lambda: next(moments))
+    result = probe.observe(browser, "outdoor")
+    assert browser.focus_calls == expected_focus
+    assert result["state"] == "query_acquisition_incomplete"
+    assert result["queries"] == []
+    assert result["bootstrapComponents"] == [{"name": "App", "dataFields": []}]
