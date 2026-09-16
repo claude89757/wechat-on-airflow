@@ -98,6 +98,12 @@ def observe(source: str, *, visual_only: bool = False) -> dict[str, Any]:
         "dateClicks": 0,
         "bookabilityVerified": False,
         "queries": [],
+        "browserProfile": "fresh_temporary",
+        "traceCoverage": {
+            "started": False,
+            "fullNavigationCaptured": False,
+            "triggerRateEstimable": False,
+        },
     }
     proc = driver = trace = None
     started = time.monotonic()
@@ -168,6 +174,7 @@ def observe(source: str, *, visual_only: bool = False) -> dict[str, Any]:
                 for p in pages
                 if p.get("type") == "page" and source_matches(p.get("url", ""), source)
             )
+            report["observerAttachedAfterSeconds"] = round(time.monotonic() - started, 3)
             trace = QueryTrace(target["webSocketDebuggerUrl"], host)
             deadline = time.monotonic() + 30
             click_after = time.monotonic() + 6
@@ -219,6 +226,9 @@ def observe(source: str, *, visual_only: bool = False) -> dict[str, Any]:
         finally:
             report["elapsedSeconds"] = round(time.monotonic() - started, 2)
             if trace:
+                # Preserve partial evidence even when a click, socket, or body read fails.
+                report["queries"] = trace.results
+                report["traceCoverage"] = {"started": True, **trace.coverage()}
                 try:
                     trace.close()
                 except Exception:
