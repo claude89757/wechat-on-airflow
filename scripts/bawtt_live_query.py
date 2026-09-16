@@ -25,10 +25,32 @@ QUERIES = {
 }
 PRIVATE = re.compile(r"user|member|customer|phone|mobile|email|token|secret|cookie|auth|sign", re.I)
 SAFE_SCALARS = {
-    "code", "success", "status", "state", "saleStatus", "orderStatus", "isOpen",
-    "isAvailable", "available", "canBook", "bookable", "expired", "price", "venueId",
-    "salesItemId", "date", "bookDate", "bookingDate", "startTime", "endTime",
-    "startDate", "endDate", "venueName", "salesItemName", "platformName", "className",
+    "code",
+    "success",
+    "status",
+    "state",
+    "saleStatus",
+    "orderStatus",
+    "isOpen",
+    "isAvailable",
+    "available",
+    "canBook",
+    "bookable",
+    "expired",
+    "price",
+    "venueId",
+    "salesItemId",
+    "date",
+    "bookDate",
+    "bookingDate",
+    "startTime",
+    "endTime",
+    "startDate",
+    "endDate",
+    "venueName",
+    "salesItemName",
+    "platformName",
+    "className",
 }
 PAGE_JS = r"""
 const text = document.body ? document.body.innerText : '';
@@ -72,9 +94,38 @@ return {
   fieldNames: [...fields].sort(), classCounts: classes, courtNames: [...courts], sample,
   dateLabels: [...new Set(dates)].slice(0,14), bodyTextLength: text.length,
   tablePropNames: table ? Object.keys(table.$props || {}).sort() : [],
-  tableDataNames: table ? Object.keys(table.$data || {}).sort() : []
+  tableDataNames: table ? Object.keys(table.$data || {}).sort() : [],
+  documentState: document.readyState,
+  scriptCount: document.scripts.length,
+  iframeCount: document.querySelectorAll('iframe').length,
+  vuePresent: Boolean(root && root.__vue__),
+  wasmAvailable: typeof WebAssembly !== 'undefined',
+  publicText: text.slice(0, 1000)
 };
 """
+
+
+def public_text(value: object) -> str:
+    """Bound ordinary unauthenticated-page diagnostics; exclude identifiers."""
+    text = str(value or "")[:2000]
+    text = re.sub(r"https?://[^\s\"'<>]+", "[url]", text)
+    text = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[email]", text)
+    text = re.sub(
+        r"(?i)(token|password|cookie|authorization|secret|api[_-]?key)\s*[:=]\s*\S+",
+        r"\1=[omitted]",
+        text,
+    )
+    text = re.sub(r"[A-Za-z0-9_+/=-]{20,}", "[opaque]", text)
+    text = re.sub(r"\b\d{11,}\b", "[number]", text)
+    return text[:600]
+
+
+def browser_diagnostics(driver: Any) -> list[dict[str, str]]:
+    rows = []
+    for entry in driver.get_log("browser"):
+        if entry.get("level") in ("SEVERE", "WARNING"):
+            rows.append({"level": entry["level"], "message": public_text(entry.get("message"))})
+    return rows[:12]
 
 
 def query_path(url: str) -> str | None:
@@ -115,13 +166,32 @@ def shape(value: Any, key: str = "", depth: int = 0) -> Any:
     return type(value).__name__
 
 
-def read_queries(driver: Any, pending: dict[str, str], results: list[dict[str, Any]]) -> None:
+def read_queries(
+    driver: Any,
+    pending: dict[str, str],
+    results: list[dict[str, Any]],
+    resources: list[dict[str, Any]],
+) -> None:
     for entry in driver.get_log("performance"):
         message = json.loads(entry["message"])["message"]
         params = message.get("params", {})
         request_id = params.get("requestId")
         if message["method"] == "Network.responseReceived":
             response = params["response"]
+            parsed = urlsplit(response["url"])
+            if (
+                (parsed.hostname == "ydmap.cn" or str(parsed.hostname).endswith(".ydmap.cn"))
+                and params.get("type") in ("Document", "Script", "Fetch", "XHR")
+                and len(resources) < 50
+            ):
+                resources.append(
+                    {
+                        "path": parsed.path,
+                        "type": params.get("type"),
+                        "status": response.get("status"),
+                        "mime": response.get("mimeType"),
+                    }
+                )
             path = query_path(response["url"])
             if path:
                 pending[request_id] = path
@@ -137,8 +207,14 @@ def read_queries(driver: Any, pending: dict[str, str], results: list[dict[str, A
             if len(raw) > 500000:
                 item["error"] = "oversized_query_response"
             else:
-                value = json.loads(raw)
-                item.update(json=True, shape=shape(value))
+                try:
+                    value = json.loads(raw)
+                    item.update(json=True, shape=shape(value))
+                except ValueError:
+                    item["accessChallenge"] = bool(
+                        re.search(r"aliyun_waf|Access Verification|验证码|人机验证", raw, re.I)
+                    )
+                    item["error"] = "non_json_query_response"
         except Exception as exc:
             item["errorClass"] = type(exc).__name__
         if len(results) < 12:
@@ -146,14 +222,24 @@ def read_queries(driver: Any, pending: dict[str, str], results: list[dict[str, A
 
 
 def observe(driver: Any, target: str) -> dict[str, Any]:
-    result: dict[str, Any] = {"target": target, "salesItemId": TARGETS[target], "queries": []}
+    result: dict[str, Any] = {
+        "target": target,
+        "salesItemId": TARGETS[target],
+        "queries": [],
+        "resources": [],
+    }
     pending: dict[str, str] = {}
     driver.get_log("performance")
+    driver.get_log("browser")
     driver.get(f"{ORIGIN}/booking/schedule/104036?salesItemId={TARGETS[target]}")
     until = time.monotonic() + 45
     while True:
         page = driver.execute_script(PAGE_JS)
+        if "publicText" in page:
+            page["publicText"] = public_text(page["publicText"])
         result["page"] = page
+        result.setdefault("browserErrors", []).extend(browser_diagnostics(driver))
+        result["browserErrors"] = result["browserErrors"][:12]
         result["sourceMatches"] = source_matches(driver.current_url, target)
         # Never retry a challenge by changing network, profile, headers or source.
         if page["challenge"] or page["loginRequired"]:
@@ -162,7 +248,10 @@ def observe(driver: Any, target: str) -> dict[str, Any]:
         if not result["sourceMatches"]:
             result["state"] = "unexpected_source"
             return result
-        read_queries(driver, pending, result["queries"])
+        read_queries(driver, pending, result["queries"], result["resources"])
+        if any(q.get("accessChallenge") for q in result["queries"]):
+            result["state"] = "human_verification_required"
+            return result
         paths = {q["path"].rsplit("/", 1)[-1] for q in result["queries"] if q["json"]}
         if (
             page["tableFound"]
@@ -199,7 +288,7 @@ def main() -> int:
                 "--disable-dev-shm-usage",
             ):
                 options.add_argument(arg)
-            options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+            options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
             options.binary_location = shutil.which("chromium") or "/usr/lib/chromium/chromium"
             os.environ.setdefault("DISPLAY", ":0")
             if (Path.home() / ".Xauthority").is_file():
