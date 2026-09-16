@@ -1,14 +1,26 @@
 import importlib.util
 from pathlib import Path
 
-SPEC = importlib.util.spec_from_file_location("bawtt_public", Path(__file__).resolve().parents[1] / "scripts/probe_bawtt_public_browser.py")
+SPEC = importlib.util.spec_from_file_location(
+    "bawtt_public", Path(__file__).resolve().parents[1] / "scripts/probe_bawtt_public_browser.py"
+)
 assert SPEC and SPEC.loader
 probe = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(probe)
 
 
 def test_no_private_field_values_are_exported():
-    result = probe.field_summary({"token": "private-token", "customerName": "private-name", "phone": 12345678901, "orderId": 8765, "venueName": "1号场", "status": 1, "className": "disabled"})
+    result = probe.field_summary(
+        {
+            "token": "private-token",
+            "customerName": "private-name",
+            "phone": 12345678901,
+            "orderId": 8765,
+            "venueName": "1号场",
+            "status": 1,
+            "className": "disabled",
+        }
+    )
     assert "private" not in str(result)
     assert "12345678901" not in str(result)
     assert "8765" not in str(result)

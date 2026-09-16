@@ -40,7 +40,8 @@ def test_required_verify_after_one_hundred_other_checks():
     assert gate.required_check_result(result, "verify")["ok"]
     assert len(result["check_runs"]) == 104
     assert [call.args[0].full_url.rsplit("page=", 1)[1] for call in request.call_args_list] == [
-        "1", "2"
+        "1",
+        "2",
     ]
 
 
@@ -78,9 +79,7 @@ def test_malformed_metadata_never_passes(payload):
     ],
 )
 def test_incomplete_changed_duplicate_or_wrong_commit_evidence_fails(second):
-    with patch.object(
-        gate.urllib.request, "urlopen", side_effect=[page(2, [check(1)]), second]
-    ):
+    with patch.object(gate.urllib.request, "urlopen", side_effect=[page(2, [check(1)]), second]):
         with pytest.raises(gate.OpsError):
             gate.fetch_check_runs("owner/repo", SHA, "test-only")
 

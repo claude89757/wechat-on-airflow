@@ -261,7 +261,7 @@ def main() -> None:
 
     payload = release_payload(
         target_commit=args.target_commit,
-        required_check= args.required_check,
+        required_check=args.required_check,
         on_main=on_main,
         target_is_main_head=target_is_main_head,
         effective_missing_check_wait=effective_missing_check_wait,

@@ -23,16 +23,35 @@ from urllib.parse import parse_qs, urlsplit
 
 ORIGIN = "https://bawtt.ydmap.cn"
 TARGETS = {"indoor": "111317", "outdoor": "103224"}
-API_NAMES = {
-    "getSalesItemList", "getSportVenueConfig", "getVenueCalendarList", "getVenueOrderList"
-}
+API_NAMES = {"getSalesItemList", "getSportVenueConfig", "getVenueCalendarList", "getVenueOrderList"}
 PUBLIC_NUMBERS = {
-    "code", "status", "saleStatus", "available", "bookable", "canBook", "isOpen",
-    "isSale", "disabled", "expired", "price", "salesItemId", "venueId", "curDate",
-    "startTime", "endTime", "total", "count", "isAvailable", "canSale", "isExpired",
+    "code",
+    "status",
+    "saleStatus",
+    "available",
+    "bookable",
+    "canBook",
+    "isOpen",
+    "isSale",
+    "disabled",
+    "expired",
+    "price",
+    "salesItemId",
+    "venueId",
+    "curDate",
+    "startTime",
+    "endTime",
+    "total",
+    "count",
+    "isAvailable",
+    "canSale",
+    "isExpired",
 }
 PUBLIC_TEXT = {"startTimeText", "endTimeText", "className", "venueName", "salesItemName"}
-FORBIDDEN = re.compile(r"token|secret|password|cookie|authorization|phone|mobile|email|user|customer|member|contact", re.I)
+FORBIDDEN = re.compile(
+    r"token|secret|password|cookie|authorization|phone|mobile|email|user|customer|member|contact",
+    re.I,
+)
 
 
 def field_summary(value: object, key: str = "", depth: int = 0) -> object:
@@ -48,7 +67,11 @@ def field_summary(value: object, key: str = "", depth: int = 0) -> object:
             if isinstance(k, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,60}", k)
         }
     if isinstance(value, list):
-        return {"type": "list", "length": len(value), "sample": [field_summary(v, key, depth + 1) for v in value[:3]]}
+        return {
+            "type": "list",
+            "length": len(value),
+            "sample": [field_summary(v, key, depth + 1) for v in value[:3]],
+        }
     if value is None:
         return {"type": "null"}
     if type(value) in (bool, int, float):
@@ -56,7 +79,11 @@ def field_summary(value: object, key: str = "", depth: int = 0) -> object:
     if isinstance(value, str):
         if key in PUBLIC_NUMBERS and re.fullmatch(r"[0-9]{1,16}", value):
             return {"type": "str", "value": value}
-        if key in PUBLIC_TEXT and len(value) <= 80 and not re.search(r"https?://|@|[A-Za-z0-9_-]{32}", value):
+        if (
+            key in PUBLIC_TEXT
+            and len(value) <= 80
+            and not re.search(r"https?://|@|[A-Za-z0-9_-]{32}", value)
+        ):
             return {"type": "str", "value": value}
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}|\d{2}:\d{2}", value):
             return {"type": "str", "value": value}
@@ -107,7 +134,10 @@ return {
 class CDP:
     def __init__(self, url: str) -> None:
         import websocket
-        self.ws = websocket.create_connection(url, timeout=5, suppress_origin=True, http_no_proxy=["127.0.0.1", "localhost"])
+
+        self.ws = websocket.create_connection(
+            url, timeout=5, suppress_origin=True, http_no_proxy=["127.0.0.1", "localhost"]
+        )
         self.sequence = 0
         self.events: list[dict[str, Any]] = []
 
@@ -133,7 +163,12 @@ class CDP:
 def probe_target(cdp: CDP, target: str) -> dict[str, Any]:
     product = TARGETS[target]
     url = f"{ORIGIN}/booking/schedule/104036?salesItemId={product}"
-    report: dict[str, Any] = {"target": target, "salesItemId": product, "bookabilityVerified": False, "api": []}
+    report: dict[str, Any] = {
+        "target": target,
+        "salesItemId": product,
+        "bookabilityVerified": False,
+        "api": [],
+    }
     cdp.events.clear()
     cdp.call("Page.navigate", {"url": url})
     tracked: dict[str, dict[str, Any]] = {}
@@ -155,7 +190,12 @@ def probe_target(cdp: CDP, target: str) -> dict[str, Any]:
             time.sleep(0.2)
             continue
         parsed = urlsplit(str(page.get("source", "")))
-        if parsed.scheme != "https" or parsed.netloc != "bawtt.ydmap.cn" or parsed.path != "/booking/schedule/104036" or parse_qs(parsed.query).get("salesItemId") != [product]:
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != "bawtt.ydmap.cn"
+            or parsed.path != "/booking/schedule/104036"
+            or parse_qs(parsed.query).get("salesItemId") != [product]
+        ):
             report["reason"] = "source_mismatch"
             return report
         events, cdp.events = cdp.events, []
@@ -166,7 +206,12 @@ def probe_target(cdp: CDP, target: str) -> dict[str, Any]:
                 response = params.get("response", {})
                 name = api_name(str(response.get("url", "")))
                 if name:
-                    tracked[request_id] = {"name": name, "path": urlsplit(response["url"]).path, "httpStatus": response.get("status"), "mimeType": response.get("mimeType")}
+                    tracked[request_id] = {
+                        "name": name,
+                        "path": urlsplit(response["url"]).path,
+                        "httpStatus": response.get("status"),
+                        "mimeType": response.get("mimeType"),
+                    }
             elif event.get("method") == "Network.loadingFinished":
                 finished.add(request_id)
         for request_id in (set(tracked) & finished) - processed:
@@ -183,7 +228,9 @@ def probe_target(cdp: CDP, target: str) -> dict[str, Any]:
                         item["json"] = True
                     except ValueError:
                         item["json"] = False
-                        item["accessChallenge"] = bool(re.search(r"aliyun_waf|Access Verification|验证码|人机验证", body, re.I))
+                        item["accessChallenge"] = bool(
+                            re.search(r"aliyun_waf|Access Verification|验证码|人机验证", body, re.I)
+                        )
             except Exception as error:
                 item["errorClass"] = type(error).__name__
             report["api"].append(item)
@@ -194,12 +241,24 @@ def probe_target(cdp: CDP, target: str) -> dict[str, Any]:
         if page.get("tableFound") and names == API_NAMES:
             break
         time.sleep(1)
-    report.update(reason="public_contract_observed" if page.get("tableFound") else "schedule_not_ready", page={k: page.get(k) for k in ("appRoot", "scripts", "loading", "tableFound", "rowCount")}, componentSchema=field_summary({k: page.get(k) for k in ("cells", "parentFields", "tableFields")}))
+    report.update(
+        reason="public_contract_observed" if page.get("tableFound") else "schedule_not_ready",
+        page={k: page.get(k) for k in ("appRoot", "scripts", "loading", "tableFound", "rowCount")},
+        componentSchema=field_summary(
+            {k: page.get(k) for k in ("cells", "parentFields", "tableFields")}
+        ),
+    )
     return report
 
 
 def main() -> dict[str, Any]:
-    result: dict[str, Any] = {"mode": "single_attempt_public_browser_contract", "productionChanged": False, "externalTestSends": 0, "productionReady": False, "targets": []}
+    result: dict[str, Any] = {
+        "mode": "single_attempt_public_browser_contract",
+        "productionChanged": False,
+        "externalTestSends": 0,
+        "productionReady": False,
+        "targets": [],
+    }
     binary = shutil.which("chromium") or shutil.which("chromium-browser")
     if binary is None:
         result["reason"] = "chromium_missing"
@@ -210,7 +269,20 @@ def main() -> dict[str, Any]:
         try:
             env = os.environ.copy()
             env.setdefault("DISPLAY", ":0")
-            process = subprocess.Popen([binary, f"--user-data-dir={profile}", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "about:blank"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            process = subprocess.Popen(
+                [
+                    binary,
+                    f"--user-data-dir={profile}",
+                    "--remote-debugging-port=0",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "about:blank",
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
             marker = Path(profile) / "DevToolsActivePort"
             deadline = time.monotonic() + 15
             while not marker.is_file():
