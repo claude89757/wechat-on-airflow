@@ -28,6 +28,19 @@ INSPECT_JS = r"""
 const text = document.body ? document.body.innerText : '';
 const challenge = /Access Verification|slide to verify|人机验证|滑动验证|安全验证/i.test(text);
 const root = document.querySelector('#app');
+const navigation = performance.getEntriesByType('navigation')[0];
+const page = {
+  httpStatus: navigation && navigation.responseStatus || 0,
+  appRootPresent: Boolean(root),
+  vue2Present: Boolean(root && root.__vue__),
+  vue3Present: Boolean(root && root.__vue_app__),
+  scriptCount: document.scripts.length,
+  iframeCount: document.querySelectorAll('iframe').length,
+  bodyTextLength: text.length,
+  documentComplete: document.readyState === 'complete',
+  loginRequired: /请先登录|登录后|授权登录|sign in to continue/i.test(text),
+  accessDenied: /access denied|forbidden|拒绝访问|访问受限|403/i.test(text)
+};
 const seen = new Set();
 function find(vm) {
   if (!vm || seen.has(vm)) return null;
@@ -61,7 +74,7 @@ for (const row of rows) {
     }
   }
 }
-return {challenge, tableFound: Boolean(table), cells, cellsWithCourt,
+return {challenge, page, tableFound: Boolean(table), cells, cellsWithCourt,
   cellsWithExplicitClass, classCounts, fieldNames: [...fieldNames].sort()};
 """
 
@@ -98,6 +111,24 @@ def summarize(target: str, url: str, payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         result["reason"] = "invalid_browser_payload"
         return result
+    page = payload.get("page")
+    if isinstance(page, dict):
+        result["page"] = {
+            key: page[key]
+            for key in (
+                "httpStatus",
+                "appRootPresent",
+                "vue2Present",
+                "vue3Present",
+                "scriptCount",
+                "iframeCount",
+                "bodyTextLength",
+                "documentComplete",
+                "loginRequired",
+                "accessDenied",
+            )
+            if type(page.get(key)) in (bool, int)
+        }
     if payload.get("challenge") is True:
         result["reason"] = "access_verification_required"
         return result
