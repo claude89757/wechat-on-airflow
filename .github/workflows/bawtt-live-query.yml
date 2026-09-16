@@ -1,9 +1,6 @@
 name: YDMap Loaded Booking Evidence
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/bawtt-ydmap-onboarding-20260916]
-    paths: [.github/workflows/bawtt-live-query.yml]
 permissions:
   contents: read
   checks: read
