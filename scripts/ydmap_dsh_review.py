@@ -22,7 +22,7 @@ PROMPT = """用户授权你作为DSH协作智能体复核 wechat-on-airflow PR22
 问题：同属YDMap，大沙河正常，新场馆此前卡住。已确认：大沙河生产代码每轮也重建临时profile；其启动方式是先原生Chromium打开URL、等4秒再让Selenium连接。旧BAWTT脚本由ChromeDriver启动浏览器。
 新的实际Pi对照run35068987410使用同一原生启动流程、各源独立profile，无UA或navigator覆写：大沙河出现8场号125时段单元，BAWTT室内111317和室外103224也出现ScheduleTable、产品及日期标签，但过早返回时cells/courts仍为空。三个来源均加载app.23918b62.js和booking-schedule-venue.b6226c5c.js。只能确定初始化路径有所推进，不能把空组件当成取数成功，也不能从一次组合配置改变直接证明某个单一参数就是根因。
 补充最新对照：run35069607529改为about:blank启动、先附加Selenium及performance日志再driver.get导航时，连大沙河也停在AccessLoadingHolder，三个源的getConfig资源响应标为HTTP200/text-html；navigator.webdriver仍然false，不能单独据此归因该标志。先恢复原URL启动再延迟连接的成功顺序，避免观测工具改变初始化。
-latest_observation.json是已完成运行日志的人工归一化事实摘要，含run/job/时间，可用作证据索引，不是新采集结果。最新run35070716599在大沙河发现自称可见的Slider组件后立即停止，BAWTT未访问。注意该检测只检查组件自身矩形/display/visibility，未检查祖先opacity/viewport等，不能直接把Slider组件存在当成确定的人机验证证据。请重点复核这个检测和后续等待数据的方式；不再访问站点。
+最新视觉核验run35071385101已确认：Slider实际是网球产品/日期选择条，非验证码；NeVerify容器高度为0。此前该检测是误判。当前代码已限定NeVerify并检查祖先样式和视口，但没有删除或绕过网站的真实验证。latest_observation.json包含本轮修复后实际运行的公开DOM观察，优先以它判断当前状态，不要将过去失败重复当作最新结果。请做静态复核；不要重新访问站点。
 请检查提供的ydmap_source_compare.py、bawtt_live_query.py、dashah_server.py与latest_observation.json，给出：1. 已有证据能/不能支持的原因；2. 查询捕获是否丢失早期请求或接受业务错误JSON；3. 下一步最小必要修复与回归测试；4. 同供应商也必须按来源验证的日期/可订状态规则。
 重要边界：本任务只可读当前工作目录内三个公开代码文件和latest_observation.json，并可在本工作目录写无网络测试。不要访问网站、启动浏览器、读取系统/服务/其他DSH会话/认证/模型配置/.env/Cookie/密码/令牌，不修改生产、不重启、不安装依赖、不git push、不发通知、不下单。不要解决验证码或推荐绕过访问限制。不要读取此前受阻的任何DSH产物；它们与本任务无关。
 输出最终一个JSON对象：{"result":"reviewed|partial","findings":["有依据的结论"],"minimal_fix":"具体建议","missing_evidence":["尚缺证据"]}。不要声称已完成上线或bookability验收，不要输出内部思考过程。
@@ -71,6 +71,12 @@ def service_roots() -> tuple[list[Path], list[str]]:
 
 
 def installed_command(report: dict[str, Any]) -> list[str] | None:
+    # Exact non-secret executable paths observed in service metadata in run35071385101.
+    node = Path("/opt/node-v22/bin/node")
+    launcher = Path("/opt/dsh-harness/bin/dsh")
+    if node.is_file() and launcher.is_file() and os.access(node, os.X_OK):
+        report["launcherSource"] = "observed_service_program"
+        return [str(node), str(launcher)]
     binary = shutil.which("dsh")
     if binary:
         return [binary]
@@ -131,7 +137,9 @@ def main() -> None:
         )
         if help_result.returncode or "--profile" not in help_result.stdout:
             report.update(
-                state="installed_cli_contract_unconfirmed", helpExit=help_result.returncode
+                state="installed_cli_contract_unconfirmed",
+                helpExit=help_result.returncode,
+                publicHelp=redact(help_result.stdout),
             )
             return
         with tempfile.TemporaryDirectory(prefix="ydmap-dsh-static-review-") as workspace:

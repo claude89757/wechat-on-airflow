@@ -85,3 +85,18 @@ def test_visible_verification_or_wrong_source_never_passes():
     page = {"tableFound": True, "classes": {"": 8}, "visibleVerifications": ["NeVerify"]}
     assert compare.classify(page, True, [], "dashah_control") == "human_verification_required"
     assert compare.classify({"tableFound": True}, False, [], "indoor") == "unexpected_source"
+
+
+def test_control_without_response_bodies_is_not_mislabeled_query_success():
+    page = {"tableFound": True, "classes": {"completed": 8}}
+    assert (
+        compare.classify(page, True, [], "dashah_control")
+        == "schedule_cells_observed_without_query_samples"
+    )
+
+
+def test_generic_slider_is_not_a_captcha_component():
+    assert "name!=='NeVerify'" in compare.PUBLIC_JS
+    assert "NeVerify|Slider" not in compare.PUBLIC_JS
+    assert "style.opacity" in compare.PUBLIC_JS
+    assert "innerHeight" in compare.PUBLIC_JS

@@ -42,13 +42,30 @@ for(const row of table?.rows||[]) for(const c of Array.isArray(row)?row:Object.v
   if(c.platformInfo?.venueName) courts.add(String(c.platformInfo.venueName));
   if(cells.length<4) cells.push({start:c.startTimeText,end:c.endTimeText,className:cls,expired:c.expired});
 }
+const parent=table?.$parent;
+let selectedDate=null;
+const rawDate=parent?.curDate;
+if(typeof rawDate==='number' && Number.isFinite(rawDate) && rawDate>1000000000000 && rawDate<10000000000000) {
+  const date=new Date(rawDate+8*3600000); selectedDate=date.toISOString().slice(0,10);
+} else if(typeof rawDate==='string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) selectedDate=rawDate;
 const err=layout?.$data?.error;
 const visibleVerifications=[];
+function visibleAccessCheck(el) {
+  if(!el || !el.getBoundingClientRect) return false;
+  const r=el.getBoundingClientRect();
+  if(r.width<=0 || r.height<=0 || r.bottom<=0 || r.right<=0 || r.top>=innerHeight || r.left>=innerWidth) return false;
+  for(let ancestor=el;ancestor;ancestor=ancestor.parentElement) {
+    const style=getComputedStyle(ancestor);
+    if(style.display==='none' || style.visibility==='hidden' || style.visibility==='collapse' ||
+       Number(style.opacity)===0 || style.contentVisibility==='hidden') return false;
+  }
+  return true;
+}
 for(const vm of seen) {
   const o=vm.$options||{}, name=o.name||o._componentTag||'';
-  if(!/NeVerify|Slider/.test(name) || !vm.$el || !vm.$el.getBoundingClientRect) continue;
-  const r=vm.$el.getBoundingClientRect(), style=getComputedStyle(vm.$el);
-  if(r.width>0 && r.height>0 && style.display!=='none' && style.visibility!=='hidden')
+  // Slider is the product/date strip, not a verification control (visual run35071385101).
+  if(name!=='NeVerify') continue;
+  if(visibleAccessCheck(vm.$el))
     visibleVerifications.push(name);
 }
 return {url:location.href,title:document.title,components,visibleVerifications,appText:root?.innerText||'',
@@ -56,7 +73,7 @@ return {url:location.href,title:document.title,components,visibleVerifications,a
   challenge:/Access Verification|slide to verify|验证码|人机验证|安全验证/i.test(text),
   loginRequired:/请先登录|登录后查看|sign in to continue/i.test(text),
   readyState:document.readyState,language:navigator.language,webdriver:navigator.webdriver,
-  browser:navigator.userAgent,tableFound:Boolean(table),classes,courts:[...courts],cells,
+  browser:navigator.userAgent,tableFound:Boolean(table),selectedDate,selectedProduct:parent?.salesItemId,classes,courts:[...courts],cells,
   bookingContext: Object.fromEntries(Object.entries(table?.$parent?.$data||{}).filter(([k])=>/^(curDate|date|currentDate|selectedDate|bookingDate|salesItemId|salesItemList|calendarList|venueCalendarList|platformList|venueList|orderList)$/.test(k))),
   resources:performance.getEntriesByType('resource').map(r=>r.name)};
 """
@@ -161,7 +178,7 @@ def classify(
     if (
         page.get("tableFound")
         and cells > 0
-        and (source == "dashah_control" or {"getVenueCalendarList", "getVenueOrderList"} <= paths)
+        and {"getVenueCalendarList", "getVenueOrderList"} <= paths
     ):
         return "query_samples_observed_not_bookability_acceptance"
     if page.get("tableFound") and cells > 0:
