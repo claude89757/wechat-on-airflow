@@ -1,6 +1,9 @@
 name: BAWTT Live Query Preflight
 on:
   workflow_dispatch:
+  push:
+    branches: [feat/bawtt-ydmap-onboarding-20260916]
+    paths: [.github/workflows/bawtt-live-query.yml]
 permissions:
   contents: read
   checks: read
@@ -12,7 +15,7 @@ jobs:
     if: github.actor == github.repository_owner
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 12
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -22,18 +25,19 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Verify transport baseline and credential-free probe tests
+      - name: Verify exact baseline and fixed comparison source
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 420 --format json
-          git show 27988092a6acd70af2f6d9008aa9335ae0611508:scripts/bawtt_live_query.py > scripts/bawtt_live_query.py
-          git show 27988092a6acd70af2f6d9008aa9335ae0611508:tests/bawtt_live_query_test.py > tests/bawtt_live_query_test.py
+          git show 8c6577b3c21d84d5aac5a94ee7717d09ccd9737c:scripts/github_release_gate.py > scripts/github_release_gate.py
+          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 0 --format json
+          git show 05c6314490a4e51bc4ea6cf7b0a7bff134da4bdb:scripts/ydmap_source_compare.py > scripts/ydmap_source_compare.py
+          git show 05c6314490a4e51bc4ea6cf7b0a7bff134da4bdb:tests/ydmap_source_compare_test.py > tests/ydmap_source_compare_test.py
           python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1 pytest==9.1.1 ruff==0.12.11
-          ruff check scripts/bawtt_live_query.py tests/bawtt_live_query_test.py
-          ruff format --check scripts/bawtt_live_query.py tests/bawtt_live_query_test.py
-          python -m pytest -q tests/bawtt_live_query_test.py
-      - name: Observe only normal public browser queries without notifications
+          ruff check scripts/ydmap_source_compare.py tests/ydmap_source_compare_test.py
+          ruff format --check scripts/ydmap_source_compare.py tests/ydmap_source_compare_test.py
+          python -m pytest -q tests/ydmap_source_compare_test.py
+      - name: Compare three isolated sources without changing production
         env:
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
           PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
@@ -42,9 +46,7 @@ jobs:
           PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
         run: |
           PYTHONPATH=src python - <<'PY'
-          import json
-          import logging
-          import os
+          import json, logging, os
           from pathlib import Path
           import paramiko
           from wechat_airflow.clients.android_device import PinnedSHA256HostKeyPolicy
@@ -52,10 +54,10 @@ jobs:
           client = paramiko.SSHClient()
           try:
               client.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(os.environ['PI_DEVICE_SSH_HOST_KEY_SHA256']))
-              client.connect(os.environ['PI_DEVICE_SSH_HOST'],port=int(os.environ['PI_DEVICE_SSH_PORT']),username=os.environ['PI_DEVICE_SSH_USER'],password=os.environ['PI_DEVICE_SSH_PASSWORD'],timeout=12,auth_timeout=12,banner_timeout=12,allow_agent=False,look_for_keys=False)
+              client.connect(os.environ['PI_DEVICE_SSH_HOST'], port=int(os.environ['PI_DEVICE_SSH_PORT']), username=os.environ['PI_DEVICE_SSH_USER'], password=os.environ['PI_DEVICE_SSH_PASSWORD'], timeout=12, auth_timeout=12, banner_timeout=12, allow_agent=False, look_for_keys=False)
               client.get_transport().set_keepalive(15)
-              stdin,stdout,stderr = client.exec_command('timeout 190s python3 -u -',timeout=210)
-              stdin.write(Path('scripts/bawtt_live_query.py').read_text())
+              stdin, stdout, stderr = client.exec_command('timeout --kill-after=10s 190s python3 -u -', timeout=210)
+              stdin.write(Path('scripts/ydmap_source_compare.py').read_text())
               stdin.flush()
               stdin.channel.shutdown_write()
               raw = stdout.read(131073)
@@ -63,16 +65,17 @@ jobs:
                   raise ValueError('oversized_report')
               report = json.loads(raw)
               report['remoteExitCode'] = stdout.channel.recv_exit_status()
-              rendered = json.dumps(report,ensure_ascii=False,sort_keys=True)
+              report['productionReady'] = False
+              rendered = json.dumps(report, ensure_ascii=False, sort_keys=True)
               print(rendered)
-              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
-                  out.write('### Public-query samples, not notification or release acceptance\n```json\n'+rendered+'\n```\n')
-              if report['remoteExitCode']:
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+                  out.write('### Same-launcher differential diagnosis; not release acceptance\n```json\n'+rendered+'\n```\n')
+              if report['remoteExitCode'] or len(report.get('sources', [])) != 3 or any(s.get('state') != 'schedule_observed' for s in report['sources']):
                   raise SystemExit(1)
           except SystemExit:
               raise
           except Exception as error:
-              print(json.dumps({'state':'preflight_failed','errorClass':type(error).__name__,'productionChanged':False}))
+              print(json.dumps({'state':'comparison_failed','errorClass':type(error).__name__,'productionChanged':False}))
               raise SystemExit(1)
           finally:
               client.close()
