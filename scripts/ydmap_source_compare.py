@@ -393,7 +393,9 @@ def observe(source: str) -> dict[str, Any]:
             if report["sourceMatches"] and report.get("state") != "human_verification_required":
                 try:
                     report["loadedBusinessEvidence"] = loaded_business_evidence(driver, source)
-                    if any(item.get("accessChallenge") for item in report["loadedBusinessEvidence"]):
+                    if any(
+                        item.get("accessChallenge") for item in report["loadedBusinessEvidence"]
+                    ):
                         report["state"] = "human_verification_required"
                 except Exception as error:
                     report["businessEvidenceErrorClass"] = type(error).__name__

@@ -1,4 +1,4 @@
-name: YDMap Loaded Business Evidence
+name: YDMap Loaded Booking Evidence
 on:
   workflow_dispatch:
   push:
