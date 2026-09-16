@@ -1,4 +1,4 @@
-name: YDMap Native Source Preflight
+name: YDMap DSH Evidence Review
 on:
   workflow_dispatch:
   push:
@@ -11,11 +11,11 @@ concurrency:
   group: bawtt-public-contract-validation
   cancel-in-progress: false
 jobs:
-  query-preflight:
+  static-review:
     if: github.actor == github.repository_owner
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 9
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
-      - name: Verify exact baseline and fixed observation and review source
+      - name: Verify exact baseline and static-only review inputs
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ github.sha }}
@@ -35,14 +35,14 @@ jobs:
           for path in scripts/ydmap_source_compare.py scripts/ydmap_dsh_review.py tests/ydmap_source_compare_test.py tests/ydmap_dsh_review_test.py; do
             git show "$SOURCE_SHA:$path" > "$path"
           done
+          git show "$SOURCE_SHA:docs/evidence/ydmap-native-comparison-20260916.json" > scripts/latest_observation.json
           git show 8c6577b3c21d84d5aac5a94ee7717d09ccd9737c:scripts/bawtt_live_query.py > scripts/bawtt_live_query.py
-          git show 8c6577b3c21d84d5aac5a94ee7717d09ccd9737c:tests/bawtt_live_query_test.py > tests/bawtt_live_query_test.py
           git show 126c359919556081f68cf8199f5de9898129694b:pi_host/dsh_ydmap/server.py > scripts/dashah_server.py
           python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1 pytest==9.1.1 ruff==0.12.11
           ruff check scripts/ydmap_source_compare.py scripts/ydmap_dsh_review.py tests/ydmap_source_compare_test.py tests/ydmap_dsh_review_test.py
           ruff format --check scripts/ydmap_source_compare.py scripts/ydmap_dsh_review.py tests/ydmap_source_compare_test.py tests/ydmap_dsh_review_test.py
-          python -m pytest -q tests/ydmap_source_compare_test.py tests/ydmap_dsh_review_test.py tests/bawtt_live_query_test.py
-      - name: Observe native URL startup then request independent DSH static review
+          python -m pytest -q tests/ydmap_source_compare_test.py tests/ydmap_dsh_review_test.py
+      - name: Ask installed DSH to review supplied public code and existing evidence only
         env:
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
           PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
@@ -56,45 +56,37 @@ jobs:
           import paramiko
           from wechat_airflow.clients.android_device import PinnedSHA256HostKeyPolicy
           logging.getLogger('paramiko').setLevel(logging.CRITICAL)
-          names = ('ydmap_source_compare.py', 'ydmap_dsh_review.py', 'bawtt_live_query.py', 'dashah_server.py')
-          sources = {name: Path('scripts', name).read_text() for name in names}
-          code = 'import contextlib,io,json,pathlib,tempfile,sys,runpy\nsources=' + repr(sources) + '\n'
-          code += "with tempfile.TemporaryDirectory(prefix='ydmap-readonly-code-') as directory:\n"
-          code += "    for name, content in sources.items():\n        pathlib.Path(directory, name).write_text(content)\n"
-          code += "    sys.path.insert(0, directory)\n    import ydmap_source_compare\n    buffer=io.StringIO()\n"
-          code += "    with contextlib.redirect_stdout(buffer):\n        ydmap_source_compare.main()\n"
-          code += "    report=json.loads(buffer.getvalue())\n    print(json.dumps(report,ensure_ascii=False),flush=True)\n"
-          code += "    pathlib.Path(directory,'latest_observation.json').write_text(json.dumps(report,ensure_ascii=False))\n"
-          code += "    runpy.run_path(str(pathlib.Path(directory, 'ydmap_dsh_review.py')), run_name='__main__')\n"
-          compile(code, '<fixed-public-source-bundle>', 'exec')
-          client = paramiko.SSHClient()
+          names=('ydmap_source_compare.py','ydmap_dsh_review.py','bawtt_live_query.py','dashah_server.py','latest_observation.json')
+          sources={name:Path('scripts',name).read_text() for name in names}
+          code='import pathlib,tempfile,sys,runpy\nsources='+repr(sources)+'\n'
+          code+="with tempfile.TemporaryDirectory(prefix='ydmap-static-inputs-') as directory:\n"
+          code+="    for name,content in sources.items():\n        pathlib.Path(directory,name).write_text(content)\n"
+          code+="    sys.path.insert(0,directory)\n    runpy.run_path(str(pathlib.Path(directory,'ydmap_dsh_review.py')),run_name='__main__')\n"
+          compile(code,'<static-review-only>','exec')
+          client=paramiko.SSHClient()
           try:
               client.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(os.environ['PI_DEVICE_SSH_HOST_KEY_SHA256']))
-              client.connect(os.environ['PI_DEVICE_SSH_HOST'], port=int(os.environ['PI_DEVICE_SSH_PORT']), username=os.environ['PI_DEVICE_SSH_USER'], password=os.environ['PI_DEVICE_SSH_PASSWORD'], timeout=12, auth_timeout=12, banner_timeout=12, allow_agent=False, look_for_keys=False)
+              client.connect(os.environ['PI_DEVICE_SSH_HOST'],port=int(os.environ['PI_DEVICE_SSH_PORT']),username=os.environ['PI_DEVICE_SSH_USER'],password=os.environ['PI_DEVICE_SSH_PASSWORD'],timeout=12,auth_timeout=12,banner_timeout=12,allow_agent=False,look_for_keys=False)
               client.get_transport().set_keepalive(15)
-              stdin, stdout, stderr = client.exec_command('timeout --kill-after=10s 380s python3 -u -', timeout=410)
+              stdin,stdout,stderr=client.exec_command('timeout --kill-after=10s 245s python3 -u -',timeout=265)
               stdin.write(code)
               stdin.flush()
               stdin.channel.shutdown_write()
-              reports=[]
-              for _ in range(2):
-                  raw = stdout.readline(131073)
-                  if len(raw) > 131072 or not raw:
-                      raise ValueError('missing_or_oversized_report')
-                  report=json.loads(raw)
-                  reports.append(report)
-                  print(json.dumps(report,ensure_ascii=False,sort_keys=True),flush=True)
-              remote_exit=stdout.channel.recv_exit_status()
-              rendered=json.dumps({'reports':reports,'remoteExitCode':remote_exit,'productionReady':False},ensure_ascii=False,sort_keys=True)
-              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
-                  out.write('### Native schedule observation and DSH static review; not release acceptance\n```json\n'+rendered+'\n```\n')
-              states={'query_samples_observed_not_bookability_acceptance','schedule_cells_observed_without_query_samples'}
-              if remote_exit or len(reports[0].get('sources',[])) != 3 or any(s.get('state') not in states for s in reports[0]['sources']) or reports[1].get('state') != 'review_completed':
+              raw=stdout.read(65537)
+              if len(raw)>65536 or not raw:
+                  raise ValueError('missing_or_oversized_review')
+              report=json.loads(raw)
+              report['remoteExitCode']=stdout.channel.recv_exit_status()
+              rendered=json.dumps(report,ensure_ascii=False,sort_keys=True)
+              print(rendered)
+              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+                  out.write('### Independent static review only; no site visit or release\n```json\n'+rendered+'\n```\n')
+              if report['remoteExitCode'] or report.get('state')!='review_completed':
                   raise SystemExit(1)
           except SystemExit:
               raise
           except Exception as error:
-              print(json.dumps({'state':'observation_or_review_incomplete','errorClass':type(error).__name__,'productionChanged':False}))
+              print(json.dumps({'state':'static_review_incomplete','errorClass':type(error).__name__,'productionChanged':False}))
               raise SystemExit(1)
           finally:
               client.close()

@@ -47,3 +47,21 @@ def test_manifest_cannot_escape_its_package(tmp_path, monkeypatch):
     monkeypatch.setattr(review, "service_roots", lambda: ([tmp_path], ["/usr/bin/node"]))
     monkeypatch.setattr(review.shutil, "which", lambda name: None)
     assert review.installed_command({}) is None
+
+
+def test_scoped_npm_package_launcher_is_discovered_without_flags(monkeypatch):
+    values = iter(
+        [
+            "/home/example/dsh-workspace",
+            "{ path=/opt/node-v22/bin/node ; argv[]=/opt/node-v22/bin/node /opt/apps/node_modules/@deepseek-ai/dsh/lib/bin.js --secret=must-not-escape ; ignore_errors=no ; }",
+        ]
+    )
+    monkeypatch.setattr(
+        review.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=next(values))
+    )
+    monkeypatch.setattr(review.shutil, "which", lambda name: None)
+    roots, nodes = review.service_roots()
+    assert Path("/opt/apps/node_modules/@deepseek-ai/dsh") in roots
+    assert Path("/opt/node-v22/lib/node_modules/@deepseek-ai/dsh") in roots
+    assert nodes == ["/opt/node-v22/bin/node"]
+    assert "must-not-escape" not in str(roots)
