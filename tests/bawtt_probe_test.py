@@ -74,9 +74,7 @@ def test_visible_grid_does_not_authorize_notifications() -> None:
 
 
 def test_redirect_cannot_relabel_another_venue() -> None:
-    result = probe.summarize(
-        INDOOR, probe.booking_url(OUTDOOR), {"tableFound": True, "cells": 100}
-    )
+    result = probe.summarize(INDOOR, probe.booking_url(OUTDOOR), {"tableFound": True, "cells": 100})
     assert not result["structureReady"]
     assert result["reason"] == "unexpected_redirect_or_source"
 
