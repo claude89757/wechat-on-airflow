@@ -76,3 +76,24 @@ def test_challenge_stops_before_query_body_reads(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(probe, "read_queries", forbidden)
     assert probe.observe(Browser(), "outdoor")["state"] == "human_verification_required"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "token=some-private-value",
+        "https://bawtt.ydmap.cn/page?token=some-private-value",
+        "Cookie: some-private-value",
+        "some-private-value@example.com",
+    ],
+)
+def test_public_diagnostics_remove_credentials(text: str) -> None:
+    assert "some-private-value" not in probe.public_text(text)
+
+
+def test_public_diagnostics_preserve_error_messages() -> None:
+    assert (
+        probe.public_text("TypeError: WebAssembly is undefined")
+        == "TypeError: WebAssembly is undefined"
+    )
+    assert len(probe.public_text("错误" * 1000)) <= 600
