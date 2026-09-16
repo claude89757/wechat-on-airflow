@@ -32,7 +32,7 @@ jobs:
           git show 8c6577b3c21d84d5aac5a94ee7717d09ccd9737c:scripts/github_release_gate.py > scripts/github_release_gate.py
           PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit 126c359919556081f68cf8199f5de9898129694b --wait-seconds 0 --format json
           for path in scripts/ydmap_date_query.py scripts/ydmap_query_evidence.py tests/ydmap_date_query_test.py tests/ydmap_query_evidence_test.py; do
-            git show "bd3956b519b98a21f8db7d376b680a53a82eaf5f:$path" > "$path"
+            git show "db9871e5bc5d06897b0d0db81992abcc2ed6ed68:$path" > "$path"
           done
           git show 60251efc990faf79014a24ff952e75dd622dea5f:scripts/ydmap_source_compare.py > scripts/ydmap_source_compare.py
           git show 8c6577b3c21d84d5aac5a94ee7717d09ccd9737c:scripts/bawtt_live_query.py > scripts/bawtt_live_query.py
