@@ -13,9 +13,9 @@ describe("venue inspection cadence display", () => {
     expect(formatInspectionCadence("gba")).toBe("1分钟/次");
   });
 
-  it("shows the approved Shenzhen Bay low-latency exception", () => {
-    expect(inspectionCadenceSeconds("szw")).toBe(15);
-    expect(formatInspectionCadence("szw")).toBe("15秒/次");
+  it("shows Shenzhen Bay at the one-minute default", () => {
+    expect(inspectionCadenceSeconds("szw")).toBe(60);
+    expect(formatInspectionCadence("szw")).toBe("1分钟/次");
   });
 
   it("shows the approved Dashah free-court low-latency exception", () => {
