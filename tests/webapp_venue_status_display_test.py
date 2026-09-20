@@ -10,12 +10,13 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
     source = (ROOT / "webapp/src/venue-inspection-display.ts").read_text()
 
     assert f"DEFAULT_INSPECTION_CADENCE_SECONDS = {policy['default_interval_seconds']}" in source
+    assert "szw:" not in source
 
     exception_ids = {
-        "深圳湾网球场巡检": "szw",
         "大沙河免费场巡检": "dsh_free",
         "大沙河国际网球中心巡检": "dsh",
     }
+    assert set(policy["exceptions"]) == set(exception_ids)
     for dag_id, venue_id in exception_ids.items():
         interval = policy["exceptions"][dag_id]["interval_seconds"]
         assert f"{venue_id}: {interval}" in source
