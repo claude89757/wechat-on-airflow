@@ -5,10 +5,6 @@ scope:
 default_schedule: every_1_minutes
 default_interval_seconds: 60
 exceptions:
-  深圳湾网球场巡检:
-    schedule: every_15_seconds
-    interval_seconds: 15
-    reason: Existing business-approved low-latency polling exception.
   大沙河免费场巡检:
     schedule: every_15_seconds
     interval_seconds: 15

@@ -21,7 +21,7 @@ dag = DAG(
     "深圳湾网球场巡检",
     default_args=DEFAULT_ARGS,
     description="深圳湾网球场巡检（并行多天）",
-    schedule=timedelta(seconds=15),
+    schedule=timedelta(minutes=1),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
