@@ -85,7 +85,7 @@ def upload_deployment_bundle(
 
 
 def remote_script() -> str:
-    return r"""
+    script = r"""
 set -eu
 target_commit="$1"
 mode="$2"
@@ -447,6 +447,13 @@ fetch_target() {
     git -C "$install_dir" cat-file -e "$target_commit^{commit}"
 }
 
+legacy_backup=""
+preserve_reviewed_drift() {
+    python3 - "$install_dir" "$mode" <<'LEGACY_PY'
+__LEGACY_PATCH_HELPER__
+LEGACY_PY
+}
+
 credentials_ready=false
 if [ -s "$credential_dir/wechat_allowed_device_name" ] && \
    [ -s "$credential_dir/wechat_appium_url" ]; then
@@ -454,6 +461,7 @@ if [ -s "$credential_dir/wechat_allowed_device_name" ] && \
 fi
 if [ "$mode" = "dry-run" ]; then
     test "$credentials_ready" = true
+    preserve_reviewed_drift >/dev/null
     fetch_target
     python3 - "$current_commit" "$target_commit" <<'PY'
 import json
@@ -488,6 +496,9 @@ rollback() {
         if [ -n "$current_commit" ]; then
             git -C "$install_dir" checkout --quiet --detach "$current_commit" || true
         fi
+        if [ -n "$legacy_backup" ] && [ -f "$legacy_backup" ]; then
+            cp "$legacy_backup" "$install_dir/sender_agent/app.py" || true
+        fi
         if [ -s "$unit_backup" ]; then
             cp -p "$unit_backup" "$service_file" || true
         fi
@@ -511,6 +522,7 @@ trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
 fetch_target
+legacy_backup="$(preserve_reviewed_drift)"
 git -C "$install_dir" checkout --quiet --detach "$target_commit"
 "$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit" </dev/null
 "$install_dir/scripts/install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null
@@ -521,6 +533,8 @@ cleanup_bundle
 trap - EXIT HUP INT TERM
 health
 """
+    helper = Path(__file__).with_name("preserve_sender_legacy_patch.py").read_text()
+    return script.replace("__LEGACY_PATCH_HELPER__", helper)
 
 
 def main() -> None:

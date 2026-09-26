@@ -144,6 +144,7 @@ def test_partial_enqueue_ack_releases_only_the_stale_preclaim():
 
 
 def test_sender_pre_submit_failure_is_retryable_but_click_failure_never_is(tmp_path, monkeypatch):
+    monkeypatch.setenv("WECHAT_DEVICE_LOCK_DIR", str(tmp_path))
     monkeypatch.setenv("WECHAT_IDEMPOTENCY_PATH", str(tmp_path / "sender.sqlite3"))
     monkeypatch.setenv("WECHAT_ALLOWED_DEVICE_NAME", "test-device")
     sender.reset_runtime_state()

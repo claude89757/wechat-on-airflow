@@ -17,6 +17,7 @@ class SenderAgentTest(unittest.TestCase):
             os.environ,
             {
                 "WECHAT_ALLOWED_DEVICE_NAME": "test-device",
+                "WECHAT_DEVICE_LOCK_DIR": self.ledger_dir.name,
                 "WECHAT_IDEMPOTENCY_PATH": str(Path(self.ledger_dir.name) / "ledger.sqlite"),
                 "DEPLOYMENT_COMMIT": "a" * 40,
             },
@@ -27,6 +28,7 @@ class SenderAgentTest(unittest.TestCase):
         self.client = TestClient(sender_app.app)
 
     def tearDown(self):
+        sender_app.reset_runtime_state()
         self.env_patcher.stop()
         self.ledger_dir.cleanup()
 
