@@ -16,3 +16,15 @@ retried as a side effect of device recovery.
 Deploy through the protected Sender workflow. Install the reader configuration
 only after the runtime directory exists. Observe natural sends and reader sweeps;
 never use the send endpoint for an unapproved synthetic notification.
+
+The protected deploy preserves the previously reviewed September 13 idle-session
+hotpatch under a root-only `/var/backups/wechat-sender/legacy-idle-*` directory
+before replacing it with the versioned implementation. It accepts only the
+recorded SHA-256 and sole unstaged `sender_agent/app.py` change; any unknown
+drift stops the release. Failed installation restores the preserved file before
+restarting the previous service.
+
+Development dependencies pin SQLAlchemy 2.0.54 and Starlette 1.6.0 to the last
+successful CI baseline; a fresh SQLAlchemy 2.1 resolution broke existing strict
+typing, and Starlette 1.7 changed the test-client dependency requirements. The
+Sender runtime continues to use its separate production requirements lock.
