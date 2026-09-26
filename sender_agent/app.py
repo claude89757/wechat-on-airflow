@@ -2,8 +2,9 @@ import hashlib
 import json
 import os
 import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Timer
 from urllib.request import urlopen
 
 from fastapi import FastAPI
@@ -12,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from sender_agent import ledger
+from sender_agent.device_lease import DeviceLease
 from wechat_sender import (
     InvalidSendRequestError,
     WeChatSenderError,
@@ -24,10 +26,22 @@ APP_NAME = "wechat-sender-agent"
 DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
 DEVICE_LOCK_WAIT_SECONDS = 150
 
-app = FastAPI(title=APP_NAME)
+
+@asynccontextmanager
+async def lifespan(_app):
+    try:
+        yield
+    finally:
+        reset_runtime_state()
+
+
+app = FastAPI(title=APP_NAME, lifespan=lifespan)
 device_lock = Lock()
 _warm_operator = None
 _warm_appium_url = ""
+_device_lease = None
+_warm_idle_timer = None
+_warm_generation = 0
 
 
 class SendRequest(BaseModel):
@@ -114,20 +128,56 @@ def _device_readiness(device_name: str) -> tuple[bool, str | None]:
 
 def reset_runtime_state() -> None:
     global _warm_operator, _warm_appium_url
-    _discard_warm_operator()
+    with device_lock:
+        _discard_warm_operator()
 
 
 def _discard_warm_operator() -> None:
-    global _warm_operator, _warm_appium_url
+    global _warm_operator, _warm_appium_url, _device_lease
+    _cancel_warm_idle_timer()
     operator = _warm_operator
     _warm_operator = None
     _warm_appium_url = ""
-    if operator is None:
+    try:
+        if operator is not None:
+            operator.close()
+    except Exception:
+        pass
+    finally:
+        if _device_lease is not None:
+            _device_lease.release()
+            _device_lease = None
+
+
+def _cancel_warm_idle_timer() -> None:
+    global _warm_idle_timer, _warm_generation
+    _warm_generation += 1
+    timer, _warm_idle_timer = _warm_idle_timer, None
+    if timer is not None:
+        timer.cancel()
+
+
+def _expire_warm_operator(generation: int) -> None:
+    # Never close an operator in the middle of a send. A new request cancels
+    # the timer under this same mutex, and its finally block rearms it.
+    with device_lock:
+        if generation == _warm_generation:
+            _discard_warm_operator()
+
+
+def _arm_warm_idle_timer() -> None:
+    global _warm_idle_timer
+    _cancel_warm_idle_timer()
+    if _warm_operator is None:
         return
     try:
-        operator.close()
-    except Exception:
-        return
+        seconds = min(max(float(os.getenv("WECHAT_WARM_IDLE_SECONDS", "5")), 0.1), 30)
+    except ValueError:
+        seconds = 5.0
+    timer = Timer(seconds, _expire_warm_operator, args=(_warm_generation,))
+    timer.daemon = True
+    _warm_idle_timer = timer
+    timer.start()
 
 
 def _usable_warm_operator(device_name: str, appium_url: str):
@@ -161,6 +211,9 @@ def healthz():
 def readyz():
     if not _allowed_device_name() or not _appium_url():
         return _json_error(503, "service_misconfigured", "sender is not configured")
+    lock_directory = os.getenv("WECHAT_DEVICE_LOCK_DIR", "/run/wechat-device")
+    if not os.access(lock_directory, os.W_OK | os.X_OK):
+        return _json_error(503, "device_lock_unavailable", "shared phone lock is not writable")
 
     try:
         with urlopen(f"{_appium_url().rstrip('/')}/status", timeout=5) as response:
@@ -218,7 +271,7 @@ def send_status(request: StatusRequest):
 
 @app.post("/v1/wechat/send")
 def send_wechat(request: SendRequest):
-    global _warm_operator, _warm_appium_url
+    global _warm_operator, _warm_appium_url, _device_lease
     allowed_device_name = _allowed_device_name()
     if not allowed_device_name:
         return _json_error(
@@ -233,6 +286,7 @@ def send_wechat(request: SendRequest):
     if not acquired:
         return _json_error(409, "device_busy", "device queue wait timed out")
 
+    _cancel_warm_idle_timer()
     try:
         canonical = json.dumps(
             {
@@ -246,6 +300,15 @@ def send_wechat(request: SendRequest):
         )
         payload_hash = hashlib.sha256(canonical.encode()).hexdigest()
         key = request.idempotency_key or payload_hash
+        appium_url = _appium_url()
+        existing_operator = _usable_warm_operator(request.device_name, appium_url)
+        # Every create/reset/cleanup and retained warm session owns the same
+        # kernel lock as the reader. Busy is rejected before claiming the job.
+        if _device_lease is None:
+            lease = DeviceLease(request.device_name)
+            if not lease.acquire(timeout=5):
+                return _json_error(409, "device_busy", "phone is owned by another worker")
+            _device_lease = lease
         try:
             phase, cached = ledger.claim(key, payload_hash, preparing=True)
         except Exception:
@@ -261,8 +324,6 @@ def send_wechat(request: SendRequest):
                 409, "submission_unknown", "previous UI outcome requires reconciliation"
             )
 
-        appium_url = _appium_url()
-        existing_operator = _usable_warm_operator(request.device_name, appium_url)
         progress = SendProgress(before_submit=lambda: ledger.mark_submitting(key))
         try:
             result = send_text_messages(
@@ -315,4 +376,8 @@ def send_wechat(request: SendRequest):
     except Exception:
         return _json_error(500, "submission_unknown", "send result requires reconciliation")
     finally:
+        if _warm_operator is None:
+            _discard_warm_operator()
+        else:
+            _arm_warm_idle_timer()
         device_lock.release()

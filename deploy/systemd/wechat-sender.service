@@ -13,6 +13,11 @@ LoadCredential=wechat_allowed_device_name:/etc/wechat-sender/credentials/wechat_
 LoadCredential=wechat_appium_url:/etc/wechat-sender/credentials/wechat_appium_url
 StateDirectory=wechat-sender
 StateDirectoryMode=0700
+RuntimeDirectory=wechat-device
+RuntimeDirectoryMode=2770
+RuntimeDirectoryPreserve=yes
+Environment=WECHAT_DEVICE_LOCK_DIR=/run/wechat-device
+Environment=WECHAT_WARM_IDLE_SECONDS=5
 EnvironmentFile=/etc/wechat-sender/release.env
 Environment=WECHAT_IDEMPOTENCY_PATH=/var/lib/wechat-sender/idempotency.sqlite3
 Environment=PYTHONDONTWRITEBYTECODE=1
