@@ -113,6 +113,7 @@ jobs:
       target_commit: ${{ inputs.target_commit }}
       scope: ${{ inputs.scope }}
       include_sender: ${{ inputs.include_sender }}
+      host_core_prepared: ${{ needs.host_core_cutover.result == 'success' }}
     secrets: inherit
 
   natural_cycles:

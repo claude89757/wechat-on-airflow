@@ -72,6 +72,21 @@ def _json_error(status_code: int, error: str, message: str) -> JSONResponse:
     )
 
 
+def _busy_before_submission(message: str) -> JSONResponse:
+    # Only use before ledger.claim or any UI submission for this request.
+    return JSONResponse(
+        status_code=409,
+        content={
+            "success": False,
+            "error": "device_busy",
+            "message": message,
+            "submission_state": "not_submitted",
+            "safe_to_retry": True,
+            "sent_count": 0,
+        },
+    )
+
+
 def _runtime_setting(environment_name: str, credential_name: str, default: str = "") -> str:
     environment_value = os.getenv(environment_name, "").strip()
     if environment_value:
@@ -284,7 +299,7 @@ def send_wechat(request: SendRequest):
 
     acquired = device_lock.acquire(timeout=DEVICE_LOCK_WAIT_SECONDS)
     if not acquired:
-        return _json_error(409, "device_busy", "device queue wait timed out")
+        return _busy_before_submission("device queue wait timed out")
 
     _cancel_warm_idle_timer()
     try:
@@ -307,7 +322,7 @@ def send_wechat(request: SendRequest):
         if _device_lease is None:
             lease = DeviceLease(request.device_name)
             if not lease.acquire(timeout=5):
-                return _json_error(409, "device_busy", "phone is owned by another worker")
+                return _busy_before_submission("phone is owned by another worker")
             _device_lease = lease
         try:
             phase, cached = ledger.claim(key, payload_hash, preparing=True)

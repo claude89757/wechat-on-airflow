@@ -104,13 +104,25 @@ rehearse recovery in isolation; do not claim high availability from a single hos
 
 ## Notification reliability releases (0.8.2 and later)
 
-A change under `src/wechat_airflow/host_core/` requires `scope=all sender=true`
-and the protected **ship** lifecycle, not an Airflow-only apply. The lifecycle
+A change to Host Core or the Sender runtime/deployment surface requires
+`scope=all sender=true` and the protected **ship** lifecycle. The lifecycle
 builds and checks the new Host Core image, fences delivery, updates all consumers,
 then requires exact identities, three natural venue cycles, API transaction
 rollback acceptance and natural email/WeChat evidence before tagging. A verified
 existing migration checkpoint skips the D1 import. Never clear the checkpoint or
 reimport the archive to get a later release through its gate.
+
+Standalone Sender `apply` and standalone Production Release `apply` with Sender
+in scope are rejected, including same-SHA reapplication. Use Production Ship
+with `scope=all sender=true` for recovery as well as upgrades. Ship passes the
+internal `host_core_prepared` reusable-workflow input only after the exact-target
+Host Core cutover succeeds; it is not a manual-dispatch input or operator bypass.
+Release validates that proof before any component deployment and Sender checks
+it again before remote access. Reused workflows retain their original caller's
+event, so `workflow_dispatch` alone does not identify a standalone invocation.
+Direct preflight, Sender dry-run, health, diagnostics, screenshots and bounded
+device recovery remain available. A ready device does not prove that the host
+consumer and Sender are compatible.
 
 Collection, enqueue and delivery are separate signals. In particular, a green
 venue DAG is not a delivery receipt. Enqueue failures are recorded as hashed

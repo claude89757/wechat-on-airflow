@@ -77,6 +77,15 @@ Component identities may therefore differ after a Web-only or control-only
 release. The release summary records the target, diff base, resolved scope, and
 each component result instead of pretending every runtime was replaced.
 
+Host Core and Sender are a coupled exception: their runtime/deployment changes
+require `/release ship <version> <full-sha> scope=all sender=true`. Ship prepares
+the exact-target Host Core before the common Release workflow can apply Sender,
+then activates workers and requires business acceptance before tagging. Direct
+Sender apply and common Release apply with Sender in scope fail closed, even
+for same-SHA reapplication. Preflight and independent component operations remain
+available. See `docs/runbooks/host-core-cutover.md` for recovery and the internal
+reusable-workflow preparation contract.
+
 ## CI Efficiency and Authority
 
 The required check remains named `verify` for release-gate compatibility. It
@@ -100,8 +109,13 @@ the matching protected reusable workflow directly with the prior recorded
 component commit:
 
 - `production-webapp.yml` for Web;
-- `production-airflow.yml` for Airflow application services;
-- `production-wechat-sender.yml` for the sender, with explicit approval.
+- `production-airflow.yml` for Airflow application services.
+
+Sender cannot be rolled back independently of its exact-version Host Core
+consumer. Its direct workflow remains available for dry-run and health, but
+apply requires a repaired coordinated Ship release with `scope=all sender=true`.
+After Host Core activation, use the roll-forward procedure in
+`docs/runbooks/host-core-cutover.md`; do not restore legacy business ownership.
 
 Use the full production release path only for a reviewed repository-wide
 rollback whose scope intentionally includes every detected component. The

@@ -104,8 +104,10 @@ connection changes. It verifies active venue subscriptions, actual current slot
 coverage, message validity and expiry before device dispatch. No stale remote
 Cloudflare subscription gate participates. The Sender's readiness, exact commit
 and durable ledger are checked before use. The ledger binds each idempotency key
-to a payload hash and stores sent/uncertain outcomes across restarts. Known busy
-conditions retry; unknown UI outcomes are quarantined, not replayed. PostgreSQL
+to a payload hash and stores sent/uncertain outcomes across restarts. Explicit
+pre-submission busy responses defer until the original intent expiry without
+consuming the three-attempt send-failure budget. Each retry still rechecks current
+eligibility; unknown UI outcomes are quarantined, not replayed. PostgreSQL
 owns per-group mini-program cooldowns and the host queue; the device ledger owns
 the final device-side idempotency boundary.
 

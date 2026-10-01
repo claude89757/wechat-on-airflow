@@ -10,10 +10,17 @@ The Sender retains a warm session for at most five idle seconds by default
 (`WECHAT_WARM_IDLE_SECONDS`, clamped to 0.1–30 seconds). Its expiry callback takes
 the same in-process mutex as requests and checks a generation number before
 closing, so an old timer cannot terminate a new send. Busy acquisition returns
-409 before claiming the durable message ledger. Unknown submissions are never
-retried as a side effect of device recovery.
+409 before claiming the durable message ledger, with `safe_to_retry=true`,
+`submission_state=not_submitted` and `sent_count=0`. Only this explicit response
+defers the Host Core queue without consuming its three actual-send attempts.
+Deferral releases the worker lease and waits up to 15 seconds, capped by the
+original intent expiry (normally five minutes). Each claim rechecks subscriptions
+and current availability; unchanged payloads keep the same idempotency key.
+Missing or contradictory busy evidence is quarantined as `submission_unknown`.
+Unknown submissions are never retried as a side effect of device recovery.
 
-Deploy through the protected Sender workflow. Install the reader configuration
+Deploy through Production Ship with `scope=all sender=true`; it prepares Host
+Core before invoking the protected Sender workflow. Install the reader configuration
 only after the runtime directory exists. Observe natural sends and reader sweeps;
 never use the send endpoint for an unapproved synthetic notification.
 

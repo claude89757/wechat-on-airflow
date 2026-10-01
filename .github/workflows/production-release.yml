@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      host_core_prepared:
+        description: Internal Ship proof that Host Core was prepared for this exact target
+        required: false
+        default: false
+        type: boolean
     outputs:
       base_commit:
         description: Semantic release base used for component planning
@@ -132,6 +137,21 @@ jobs:
             cat /tmp/release-plan.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Require coordinated Host Core release
+        env:
+          MODE: ${{ inputs.mode }}
+          SENDER_PLANNED: ${{ steps.plan.outputs.deploy_sender }}
+          HOST_CORE_PREPARED: ${{ inputs.host_core_prepared }}
+          SCOPE: ${{ inputs.scope }}
+          INCLUDE_SENDER: ${{ inputs.include_sender }}
+        run: |
+          set -euo pipefail
+          if [[ "$MODE" == apply && "$SENDER_PLANNED" == true ]]; then
+            if [[ "$HOST_CORE_PREPARED" != true || "$SCOPE" != all || "$INCLUDE_SENDER" != true ]]; then
+              echo 'Sender apply requires Production Ship with scope=all sender=true and successful exact-target Host Core preparation' >&2
+              exit 2
+            fi
+          fi
       - name: Require exact main commit and successful CI
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -184,6 +204,7 @@ jobs:
       operation: ${{ inputs.mode == 'apply' && 'apply' || 'dry_run' }}
       target_commit: ${{ inputs.target_commit }}
       request_id: release-${{ github.run_id }}
+      host_core_prepared: ${{ inputs.host_core_prepared == true }}
     secrets: inherit
 
   record:

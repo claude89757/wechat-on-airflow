@@ -210,6 +210,23 @@ def _retry(row: dict[str, Any], worker: str, reason: str) -> None:
     _finish(row, worker, "retry" if row["attempt_count"] < MAX_ATTEMPTS else "failed", reason)
 
 
+def _defer_device_busy(row: dict[str, Any], worker: str) -> None:
+    """Wait for phone ownership without charging the send-failure budget."""
+    with transaction() as connection:
+        connection.execute(
+            text("""
+            UPDATE zacks.wechat_outbox SET
+                status = CASE WHEN expires_at <= now() THEN 'expired' ELSE 'retry' END,
+                last_error = 'device_busy',
+                attempt_count = GREATEST(attempt_count - 1, 0),
+                next_attempt_at = LEAST(now() + interval '15 seconds', expires_at),
+                lease_owner = NULL, lease_until = NULL, updated_at = now()
+            WHERE id = :id AND lease_owner = :worker AND status = 'dispatching'
+        """),
+            {"id": row["id"], "worker": worker},
+        )
+
+
 def deliver(row: dict[str, Any], worker: str) -> None:
     # Pause/cancel takes the exclusive lock; it waits for this bounded call to finish.
     with delivery_guard() as enabled:
@@ -250,8 +267,19 @@ def deliver(row: dict[str, Any], worker: str) -> None:
                 error = "sender_result_unknown"
             if response.status_code == 200 and payload.get("success") is True:
                 _finish(row, worker, "sent")
+            elif error == "device_busy":
+                if (
+                    response.status_code == 409
+                    and payload.get("success") is False
+                    and payload.get("safe_to_retry") is True
+                    and payload.get("submission_state") == "not_submitted"
+                    and payload.get("sent_count") == 0
+                ):
+                    _defer_device_busy(row, worker)
+                else:
+                    # Busy alone is not evidence that no UI submission occurred.
+                    _finish(row, worker, "submission_unknown", error)
             elif error in {
-                "device_busy",
                 "device_not_ready",
                 "service_misconfigured",
                 "ledger_unavailable",

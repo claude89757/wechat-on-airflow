@@ -13,6 +13,11 @@ on:
       request_id:
         required: true
         type: string
+      host_core_prepared:
+        description: Internal Ship proof that Host Core was prepared for this exact target
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       operation:
@@ -53,6 +58,18 @@ jobs:
       WECHAT_SENDER_SSH_PORT: ${{ secrets.WECHAT_SENDER_SSH_PORT }}
       WECHAT_SENDER_SSH_USER: ${{ secrets.WECHAT_SENDER_SSH_USER }}
     steps:
+      - name: Require coordinated Host Core release
+        env:
+          OPERATION: ${{ inputs.operation }}
+          HOST_CORE_PREPARED: ${{ inputs.host_core_prepared }}
+        run: |
+          set -euo pipefail
+          # Reused workflows retain the caller's event; workflow_dispatch can
+          # mean a coordinated Ship run as well as a standalone Sender run.
+          if [[ "$OPERATION" == apply && "$HOST_CORE_PREPARED" != true ]]; then
+            echo 'Sender apply requires Production Ship with scope=all sender=true and successful exact-target Host Core preparation' >&2
+            exit 2
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.target_commit }}

@@ -69,8 +69,13 @@ Never use local Wrangler credentials for production deployment.
 
 ## WeChat Sender
 
-Sender deployment remains separately approved. `scope=auto` will reject a
-sender change unless the command includes `sender=true`. Verify systemd is
+Sender deployment remains separately approved and coupled to Host Core. Use
+`/release ship <version> <full-sha> scope=all sender=true`; Sender runtime changes
+cannot use `scope=auto` or standalone apply. Ship must successfully prepare the
+same exact Host Core target before Release can apply Sender. The internal
+`host_core_prepared` input is only passed through reusable workflows, never
+exposed as a manual bypass. Standalone preflight, dry-run, health, diagnosis,
+screenshots and bounded device recovery remain available. Verify systemd is
 enabled and active and both `/healthz` and `/readyz` succeed. Do not use the
 send endpoint as a smoke test; a real send requires explicit approval.
 
@@ -92,8 +97,10 @@ probe.
 
 The release planner is for forward release diffs. For a component-only rollback,
 invoke the matching protected reusable workflow directly with the prior recorded
-component commit: `production-webapp.yml`, `production-airflow.yml`, or
-`production-wechat-sender.yml`. Use the full release path only for a reviewed
-repository-wide rollback whose detected scope intentionally includes all
+component commit: `production-webapp.yml` or `production-airflow.yml`. Sender
+cannot roll back independently of its Host Core consumer; use a repaired
+coordinated Ship release with `scope=all sender=true`, following the post-cutover
+roll-forward contract in `docs/runbooks/host-core-cutover.md`. Use the full
+release path only for a reviewed repository-wide rollback whose detected scope intentionally includes all
 components. Database restore, Airflow major-version migration, and metadata
 deletion are separate high-risk operations requiring explicit approval.

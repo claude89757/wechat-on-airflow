@@ -183,9 +183,13 @@ with the prior recorded component commit:
 
 - `production-webapp.yml` with `operation=deploy_apply` for Web;
 - `production-airflow.yml` with `operation=deploy_apply` for Airflow application
-  services;
-- `production-wechat-sender.yml` with `operation=apply` for the sender, after
-  explicit real-host approval.
+  services outside the coupled Host Core/Sender runtime.
+
+After Host Core activation, Sender and its Host Core consumer must roll forward
+together through Production Ship with `scope=all sender=true`, using a repaired
+exact main commit and full business acceptance. Standalone Sender `apply` and
+direct Release Sender apply are rejected even for a same-SHA reapply. Do not
+restore an older Sender beside a newer consumer or replay historical messages.
 
 Each workflow preserves its normal preflight and exact-commit health checks. Use
 the full production release path only for a reviewed repository-wide rollback
