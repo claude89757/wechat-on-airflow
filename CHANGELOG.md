@@ -3,6 +3,27 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [0.8.3] - 2026-10-01
+
+### Fixed
+
+- Require coordinated Host Core and Sender publication when either runtime changes.
+  A Sender-only upgrade can pass device readiness while the exact-version consumer
+  refuses every notification; partial release scopes now reject this combination.
+- Include the shared-phone lease and synchronized idle-session cleanup from #225,
+  retaining durable idempotency and unknown-submission quarantine.
+- Extend protected read-only inventory with current PostgreSQL WeChat queue counts,
+  bounded 24-hour error categories and lifetime outcomes. Never expose recipients,
+  message bodies or raw exception text; historical uncertainty remains visible.
+
+### Operations
+
+- Recover the split deployment documented in #226 using the existing protected
+  `scope=all sender=true` ship lifecycle after exact-SHA CI, then verify natural
+  venue cycles and actual delivery before publishing the immutable release.
+- Preserve PostgreSQL, Sender SQLite, subscriptions, credentials and historical
+  failed/unknown records. Do not replay stale alerts or emit synthetic messages.
+
 ## [0.8.2] - 2026-09-07
 
 ### Fixed

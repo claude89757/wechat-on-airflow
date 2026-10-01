@@ -60,6 +60,35 @@ with transaction() as connection:
         "EXTRACT(EPOCH FROM now() - updated_at)::integer AS age_seconds "
         "FROM zacks.runtime_heartbeats ORDER BY component"
     )).mappings()]
+# Diagnose the authoritative queue even when worktree and runtime versions differ.
+# Keep lifetime uncertainty visible separately from the bounded incident window.
+try:
+    with transaction() as connection:
+        connection.execute(text("SET TRANSACTION READ ONLY"))
+        connection.execute(text("SET LOCAL statement_timeout = '5s'"))
+        report["wechatQueue"] = {
+            "windowHours": 24,
+            "allHistory": [dict(row) for row in connection.execute(text(
+                "SELECT status, count(*) AS count, max(sent_at)::text AS last_sent_at "
+                "FROM zacks.wechat_outbox GROUP BY status ORDER BY status"
+            )).mappings()],
+            "last24Hours": [dict(row) for row in connection.execute(text(
+                "SELECT status, CASE WHEN last_error IN "
+                "('sender_not_ready','device_busy','device_not_ready','service_misconfigured',"
+                "'ledger_unavailable','appium_timeout','send_failed','submission_unknown',"
+                "'contact_not_found','wechat_not_ready','idempotency_conflict','invalid_request',"
+                "'device_not_allowed','sender_result_unknown','connection_timeout_before_submission',"
+                "'availability_changed','no_active_subscription','delivery_paused',"
+                "'ReadTimeout','ConnectTimeout','ConnectionError') THEN last_error "
+                "WHEN last_error IS NULL THEN NULL ELSE 'other_redacted' END AS error_category, "
+                "count(*) AS count, min(created_at)::text AS first_created_at, "
+                "max(created_at)::text AS last_created_at, max(attempt_count) AS max_attempts "
+                "FROM zacks.wechat_outbox WHERE created_at >= now() - interval '24 hours' "
+                "GROUP BY 1,2 ORDER BY 1,2"
+            )).mappings()],
+        }
+except Exception as exc:
+    report["wechatQueue"] = {"ok": False, "errorClass": type(exc).__name__}
 try:
     from wechat_airflow.host_core.health import business_report
     business = business_report(report["runtimeCommit"], require_delivery=False)
