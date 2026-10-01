@@ -79,7 +79,9 @@ def test_incident_inventory_preserves_history_and_never_reads_message_content():
         ast.literal_eval(node.value)
         for node in tree.body
         if isinstance(node, ast.Assign)
-        and any(isinstance(target, ast.Name) and target.id == "HOST_PROBE" for target in node.targets)
+        and any(
+            isinstance(target, ast.Name) and target.id == "HOST_PROBE" for target in node.targets
+        )
     )
     compile(probe, "host_probe", "exec")
     queue_section = probe.split("# Diagnose the authoritative queue", 1)[1].split(
