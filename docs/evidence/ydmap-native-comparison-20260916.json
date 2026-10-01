@@ -1,0 +1,38 @@
+{
+  "evidenceKind": "manually_normalized_summary_of_completed_GitHub_job_logs",
+  "productionChanged": false,
+  "bookabilityVerified": false,
+  "observations": [
+    {
+      "runId": 35068987410,
+      "jobId": 104705779360,
+      "resultAt": "2026-09-16T07:32:21Z",
+      "mode": "native_target_url_before_selenium_attach",
+      "dashah": {"tableFound": true, "courtCount": 8, "renderedCellCount": 125},
+      "indoor": {"tableFound": true, "courtCount": 0, "renderedCellCount": 0},
+      "outdoor": {"tableFound": true, "courtCount": 0, "renderedCellCount": 0},
+      "limitation": "Probe returned on component presence, before proving data readiness. Zero counts are not evidence of no availability. Shared asset filenames were observed, not byte hashes."
+    },
+    {
+      "runId": 35069607529,
+      "jobId": 104707739732,
+      "resultAt": "2026-09-16T07:41:27Z",
+      "mode": "native_blank_then_attach_performance_logs_then_driver_get",
+      "allSources": {"tableFound": false, "component": "AccessLoadingHolder", "queryCount": 0, "navigatorWebdriver": false},
+      "getConfig": {"httpStatus": 200, "mimeType": "text/html", "bodyNotInspected": true},
+      "limitation": "Control also failed. This does not establish a BAWTT-only outage or single causal browser flag."
+    },
+    {
+      "runId": 35070716599,
+      "jobId": 104711322421,
+      "resultAt": "2026-09-16T07:52:19Z",
+      "mode": "native_target_url_before_attach_with_verification_detector",
+      "dashah": {"tableFound": true, "renderedCellCount": 0, "visibleVerificationComponents": ["Slider"], "challengeTextDetected": false, "selectedDate": null},
+      "indoor": {"attempted": false},
+      "outdoor": {"attempted": false},
+      "healthBefore": true,
+      "healthAfter": true,
+      "limitation": "Conservative detector stopped on Slider self-element geometry/style. No screenshot or full ancestor/viewport visibility evidence was collected. This is not conclusive evidence of a displayed CAPTCHA."
+    }
+  ]
+}

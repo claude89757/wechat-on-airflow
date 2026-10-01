@@ -36,25 +36,60 @@ def required_check_result(payload: Any, name: str) -> dict[str, Any]:
 
 
 def fetch_check_runs(repository: str, commit: str, token: str) -> Any:
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{repository}/commits/{commit}/check-runs?per_page=100",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "User-Agent": "wechat-on-airflow-release-gate/1.0",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-    try:
-        response = urllib.request.urlopen(request, timeout=20)
-    except urllib.error.HTTPError as exc:
-        raise OpsError(f"GitHub check-runs API returned HTTP {exc.code}") from exc
-    except urllib.error.URLError as exc:
-        raise OpsError(f"GitHub check-runs API failed: {exc.reason}") from exc
-    try:
-        return json.loads(response.read().decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OpsError("GitHub check-runs API returned invalid JSON") from exc
+    """Read all check pages, failing closed on incomplete or changing evidence.
+
+    Ops comments can create more than 100 checks on one main commit. Looking at
+    only page one then falsely reports its older required verify check missing.
+    Pages are constructed locally rather than following a credential-bearing
+    request to a server-provided redirect or pagination URL.
+    """
+    if not REPOSITORY_PATTERN.fullmatch(repository) or not COMMIT_PATTERN.fullmatch(commit):
+        raise OpsError("Invalid repository or exact commit for check-runs lookup")
+    runs: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    total: int | None = None
+    for page in range(1, 51):
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/{repository}/commits/{commit}/check-runs"
+            f"?per_page=100&page={page}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "wechat-on-airflow-release-gate/1.0",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise OpsError(f"GitHub check-runs API returned HTTP {exc.code}") from exc
+        except urllib.error.URLError as exc:
+            raise OpsError("GitHub check-runs API transport failed") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise OpsError("GitHub check-runs API returned invalid JSON") from exc
+        count = payload.get("total_count") if isinstance(payload, dict) else None
+        items = payload.get("check_runs") if isinstance(payload, dict) else None
+        if type(count) is not int or count < 0 or not isinstance(items, list):
+            raise OpsError("GitHub check-runs API returned invalid pagination metadata")
+        if total is not None and total != count:
+            raise OpsError("GitHub check-run evidence changed during pagination; retry")
+        total = count
+        for item in items:
+            if (
+                not isinstance(item, dict)
+                or type(item.get("id")) is not int
+                or item["id"] in seen
+                or item.get("head_sha") != commit
+            ):
+                raise OpsError("GitHub check-runs page contains duplicate or mismatched evidence")
+            seen.add(item["id"])
+            runs.append(item)
+        if len(runs) == total:
+            return {"total_count": total, "check_runs": runs}
+        if not items or len(runs) > total:
+            raise OpsError("GitHub check-runs pagination is incomplete")
+    raise OpsError("GitHub check-runs pagination limit exceeded")
 
 
 def effective_missing_check_wait_seconds(
