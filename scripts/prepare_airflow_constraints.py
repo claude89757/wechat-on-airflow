@@ -6,7 +6,6 @@ import sys
 import urllib.request
 from pathlib import Path
 
-
 SECURITY_PINS = ("cryptography", "gcloud-aio-auth", "pyOpenSSL")
 
 
