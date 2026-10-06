@@ -1,4 +1,4 @@
-"""Apply the sole cryptography security exception to upstream Airflow constraints."""
+"""Apply the bounded cryptography compatibility exceptions to upstream Airflow constraints."""
 
 from __future__ import annotations
 
@@ -7,18 +7,23 @@ import urllib.request
 from pathlib import Path
 
 
+SECURITY_PINS = ("cryptography", "gcloud-aio-auth", "pyOpenSSL")
+
+
 def patch_constraints(upstream: str, requirements: str) -> str:
-    """Keep every upstream line except its one cryptography version pin."""
-    pins = [line for line in requirements.splitlines() if line.startswith("cryptography==")]
-    if len(pins) != 1:
-        raise ValueError("Expected exactly one explicit cryptography security pin")
+    """Preserve upstream constraints outside the reviewed security dependency set."""
     lines = upstream.splitlines(keepends=True)
-    indices = [i for i, line in enumerate(lines) if line.startswith("cryptography==")]
-    if len(indices) != 1:
-        raise ValueError("Expected exactly one upstream cryptography constraint")
-    index = indices[0]
-    ending = "\r\n" if lines[index].endswith("\r\n") else "\n"
-    lines[index] = pins[0] + ending
+    for package in SECURITY_PINS:
+        prefix = f"{package}=="
+        pins = [line for line in requirements.splitlines() if line.startswith(prefix)]
+        if len(pins) != 1:
+            raise ValueError(f"Expected exactly one explicit {package} security pin")
+        indices = [i for i, line in enumerate(lines) if line.startswith(prefix)]
+        if len(indices) != 1:
+            raise ValueError(f"Expected exactly one upstream {package} constraint")
+        index = indices[0]
+        ending = "\r\n" if lines[index].endswith("\r\n") else "\n"
+        lines[index] = pins[0] + ending
     return "".join(lines)
 
 
