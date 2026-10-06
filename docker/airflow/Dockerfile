@@ -7,9 +7,14 @@ ARG PYTHON_VERSION=3.12
 ARG CONSTRAINTS_URL=https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt
 
 COPY --chown=airflow:root docker/airflow/requirements.txt /tmp/requirements-airflow.txt
-RUN pip install --no-cache-dir \
-    --constraint "${CONSTRAINTS_URL}" \
-    --requirement /tmp/requirements-airflow.txt
+COPY --chown=airflow:root scripts/prepare_airflow_constraints.py /tmp/prepare_airflow_constraints.py
+# Preserve upstream pins except the explicit cryptography security baseline.
+RUN python /tmp/prepare_airflow_constraints.py "${CONSTRAINTS_URL}" \
+    /tmp/requirements-airflow.txt /tmp/constraints-airflow.txt \
+    && pip install --no-cache-dir \
+    --constraint /tmp/constraints-airflow.txt \
+    --requirement /tmp/requirements-airflow.txt \
+    && pip check
 
 COPY --chown=airflow:root pyproject.toml README.md LICENSE /opt/airflow/project/
 COPY --chown=airflow:root dags /opt/airflow/dags
