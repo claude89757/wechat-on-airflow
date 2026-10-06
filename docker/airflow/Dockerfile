@@ -8,7 +8,7 @@ ARG CONSTRAINTS_URL=https://raw.githubusercontent.com/apache/airflow/constraints
 
 COPY --chown=airflow:root docker/airflow/requirements.txt /tmp/requirements-airflow.txt
 COPY --chown=airflow:root scripts/prepare_airflow_constraints.py /tmp/prepare_airflow_constraints.py
-# Preserve upstream pins except the explicit cryptography security baseline.
+# Preserve upstream pins except the explicit cryptography compatibility set.
 RUN python /tmp/prepare_airflow_constraints.py "${CONSTRAINTS_URL}" \
     /tmp/requirements-airflow.txt /tmp/constraints-airflow.txt \
     && pip install --no-cache-dir \
