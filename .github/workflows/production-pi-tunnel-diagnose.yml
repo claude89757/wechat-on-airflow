@@ -1,0 +1,55 @@
+name: Production Pi Tunnel Diagnosis
+on:
+  workflow_call:
+    inputs:
+      target_commit:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Exact reviewed main commit for one read-only Pi diagnosis
+        type: string
+        required: true
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: production-pi-tunnel-diagnose
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Require reviewed exact main commit and successful CI
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+          PYTHONPATH=scripts python scripts/github_release_gate.py \
+            --target-commit "$TARGET_COMMIT" --wait-seconds 0 --format json
+      - name: Install pinned diagnostic dependency
+        run: python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
+      - name: Collect allowlisted status and error categories through existing pinned SSH
+        env:
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+        run: python scripts/diagnose_pi_tunnel.py
