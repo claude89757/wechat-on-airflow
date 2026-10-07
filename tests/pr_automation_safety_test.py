@@ -38,6 +38,9 @@ def test_known_cryptography_security_baseline_is_patched() -> None:
 
     assert "cryptography==50.0.1" in project["dependencies"]
     assert "cryptography==48.0.1" not in project["dependencies"]
+    airflow_requirements = (ROOT / "docker/airflow/requirements.txt").read_text().splitlines()
+    assert "cryptography==50.0.1" in airflow_requirements
+    assert "cryptography==48.0.1" not in airflow_requirements
 
 
 def test_legacy_dependabot_mutation_and_automerge_workflows_are_removed() -> None:
