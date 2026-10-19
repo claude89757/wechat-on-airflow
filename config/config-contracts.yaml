@@ -43,6 +43,10 @@ variables:
     type: string
     required_by: [深圳湾网球场巡检, 大湾区网球场巡检]
     sensitive: true
+  SZW_API_AUTHORIZATIONS:
+    type: json_list
+    required_by: [深圳湾网球场巡检, 大湾区网球场巡检]
+    sensitive: true
   SYSH_PROXY_CACHE:
     type: json_list
     required_by: [上越沙河网球场巡检]

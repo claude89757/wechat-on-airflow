@@ -2,10 +2,12 @@
 import base64
 import datetime
 import importlib
+import io
 import json
 import sys
 import types
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 
@@ -80,15 +82,25 @@ tops_watcher = importlib.import_module("wechat_airflow.venues.tops_watcher")
 tyzx_watcher = importlib.import_module("wechat_airflow.venues.tyzx_watcher")
 
 
-def make_szw_authorization(exp: int) -> str:
+def make_szw_authorization(
+    exp: int | float,
+    account: str = "test-account",
+    *,
+    claims: dict | None = None,
+) -> str:
     def encode(value: dict) -> str:
         raw = json.dumps(value, separators=(",", ":")).encode()
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
-    return f"Wechat {encode({'alg': 'HS256', 'typ': 'JWT'})}.{encode({'exp': exp})}.signature"
+    payload = {"exp": exp, "sub": account, "openid": account, **(claims or {})}
+    signature = base64.urlsafe_b64encode(b"\x00" * 32).rstrip(b"=").decode()
+    return f"Wechat {encode({'alg': 'HS256', 'typ': 'JWT'})}.{encode(payload)}.{signature}"
 
 
 class VenueDomainTest(unittest.TestCase):
+    def setUp(self):
+        FakeVariable.values = {"SZW_API_AUTHORIZATION": make_szw_authorization(4_102_444_800)}
+
     def test_proxy_sources_are_isolated(self):
         original_get = https_proxy_watcher.requests.get
 
@@ -233,10 +245,10 @@ class VenueDomainTest(unittest.TestCase):
         self.assertEqual(headers["projectUuid"], "0ddda9c33d4e11f1b51c2273436a3e4e")
         self.assertEqual(
             headers["Referer"],
-            "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
+            "https://servicewechat.com/wx020209beec4251e0/69/page-frame.html",
         )
         self.assertIn("Chrome/144.0.0.0", headers["User-Agent"])
-        self.assertIn("XWEB/25300", headers["User-Agent"])
+        self.assertIn("XWEB/25561", headers["User-Agent"])
 
     def test_szw_session_enables_legacy_tls_only_for_its_host(self):
         session = szw_watcher.create_crland_http_session()
@@ -451,6 +463,7 @@ class VenueDomainTest(unittest.TestCase):
                 return cls(2026, 8, 16, 12, 0, tzinfo=tz)
 
         variables = {
+            "SZW_API_AUTHORIZATION": make_szw_authorization(4_102_444_800),
             "SZ_TENNIS_CHATROOMS": "Zacks_A\nZacks_B",
             "大湾区网球场": [],
         }
@@ -543,6 +556,302 @@ class VenueDomainTest(unittest.TestCase):
         )
 
         self.assertEqual(result, {"1号场": [["07:00", "09:00"]]})
+
+
+class CrlandAuthorizationRotationTest(unittest.TestCase):
+    def setUp(self):
+        self.minute = datetime.datetime(2026, 10, 19, 4, 0, tzinfo=datetime.UTC)
+        self.now = self.minute.timestamp()
+        self.authorizations = [
+            make_szw_authorization(4_102_444_800, account=f"rotation-test-{index}")
+            for index in range(3)
+        ]
+        FakeVariable.values = {
+            "SZW_API_AUTHORIZATIONS": json.dumps(self.authorizations),
+            "SZW_API_AUTHORIZATION": make_szw_authorization(4_102_444_800, account="legacy-test"),
+        }
+
+    def tearDown(self):
+        FakeVariable.values = {}
+
+    def test_three_consecutive_minutes_rotate_then_repeat(self):
+        selected = [
+            szw_watcher.select_crland_authorization(
+                data_interval_end=self.minute + datetime.timedelta(minutes=offset),
+                now=self.now,
+            )
+            for offset in range(7)
+        ]
+        self.assertEqual(selected, self.authorizations * 2 + self.authorizations[:1])
+
+    def test_pool_normalizes_raw_tokens(self):
+        pool = [authorization.removeprefix("Wechat ") for authorization in self.authorizations]
+        self.assertEqual(
+            szw_watcher.validate_szw_authorization_pool(json.dumps(pool), now=self.now),
+            tuple(self.authorizations),
+        )
+
+    def test_airflow_minute_is_stable_for_delayed_execution_and_retries(self):
+        for delay_seconds in (0, 70, 125, 420):
+            with self.subTest(delay_seconds=delay_seconds):
+                self.assertEqual(
+                    szw_watcher.select_crland_authorization(
+                        data_interval_end=self.minute,
+                        logical_date=self.minute - datetime.timedelta(minutes=1),
+                        now=self.now + delay_seconds,
+                    ),
+                    self.authorizations[0],
+                )
+
+    def test_logical_date_fallback_and_timezone_equivalence(self):
+        for boundary in (
+            self.minute,
+            self.minute.replace(tzinfo=None),
+            self.minute.astimezone(datetime.timezone(datetime.timedelta(hours=8))),
+            self.minute.isoformat(),
+        ):
+            self.assertEqual(
+                szw_watcher.select_crland_authorization(logical_date=boundary, now=self.now + 70),
+                self.authorizations[0],
+            )
+        self.assertEqual(
+            szw_watcher.select_crland_authorization(now=self.now + 70),
+            self.authorizations[1],
+        )
+
+    def test_same_scheduled_minute_is_shared_across_venues_dates_and_areas(self):
+        class NoonDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 10, 19, 12, 0, tzinfo=tz)
+
+        clock = [self.now + 70]
+
+        def fake_get_courts(*args, **kwargs):
+            clock[0] += 61
+            return {}
+
+        logs = io.StringIO()
+        with (
+            patch.object(szw_watcher.datetime, "datetime", NoonDateTime),
+            patch.object(szw_watcher.time, "time", side_effect=lambda: clock[0]),
+            patch.object(
+                szw_watcher, "get_free_tennis_court_infos_for_szw", side_effect=fake_get_courts
+            ) as get_courts,
+            patch.object(szw_watcher, "publish_venue_observation") as publish,
+            patch.object(szw_watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+            redirect_stdout(logs),
+        ):
+            for venue_key, day_count in (("szw", 4), ("gba", 3)):
+                for day_offset in range(day_count):
+                    szw_watcher.check_and_notify_for_day(
+                        day_offset,
+                        venue_key=venue_key,
+                        data_interval_end=self.minute,
+                        logical_date=self.minute - datetime.timedelta(minutes=1),
+                    )
+
+        self.assertEqual(get_courts.call_count, 11)
+        self.assertEqual(
+            {call.kwargs["authorization"] for call in get_courts.call_args_list},
+            {self.authorizations[0]},
+        )
+        self.assertEqual(
+            {call.args[0] for call in get_courts.call_args_list},
+            {"2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"},
+        )
+        self.assertEqual(
+            {call.kwargs["field_area_uuid"] for call in get_courts.call_args_list},
+            {
+                szw_watcher.SZW_FIELD_AREA_UUID,
+                szw_watcher.SZW_COVERED_FIELD_AREA_UUID,
+                szw_watcher.GBA_FIELD_AREA_UUID,
+            },
+        )
+        self.assertEqual(publish.call_count, 7)
+        send.assert_not_called()
+        self.assertEqual(
+            logs.getvalue().count(
+                "CRLand authorization: mode=rotation slot=1/3 "
+                "round_minute_utc=2026-10-19T04:00+00:00"
+            ),
+            7,
+        )
+        for authorization in self.authorizations:
+            self.assertNotIn(authorization, logs.getvalue())
+        self.assertNotIn("rotation-test", logs.getvalue())
+
+    def test_legacy_fallback_is_used_only_when_pool_is_missing(self):
+        del FakeVariable.values["SZW_API_AUTHORIZATIONS"]
+        self.assertEqual(
+            szw_watcher.select_crland_authorization(now=self.now),
+            FakeVariable.values["SZW_API_AUTHORIZATION"],
+        )
+
+    def test_malformed_expired_or_duplicate_pool_never_falls_back_or_calls_network(self):
+        invalid_pools = {
+            "empty": "",
+            "malformed_json": "[unparseable",
+            "null": "null",
+            "object": "{}",
+            "no_accounts": "[]",
+            "two_accounts": json.dumps(self.authorizations[:2]),
+            "four_accounts": json.dumps([*self.authorizations, self.authorizations[0]]),
+            "non_string_account": json.dumps([*self.authorizations[:2], None]),
+            "expired_account": json.dumps(
+                [*self.authorizations[:2], make_szw_authorization(self.now - 1, "expired-test")]
+            ),
+            "duplicate_token": json.dumps([*self.authorizations[:2], self.authorizations[0]]),
+            "duplicate_account": json.dumps(
+                [
+                    *self.authorizations[:2],
+                    make_szw_authorization(
+                        4_102_444_800, "duplicate-test", claims={"openid": "rotation-test-0"}
+                    ),
+                ]
+            ),
+            "missing_identity": json.dumps(
+                [
+                    *self.authorizations[:2],
+                    make_szw_authorization(4_102_444_800, "", claims={"sub": None}),
+                ]
+            ),
+        }
+        for reason, value in invalid_pools.items():
+            with self.subTest(reason=reason):
+                FakeVariable.values["SZW_API_AUTHORIZATIONS"] = value
+                with (
+                    patch.object(szw_watcher, "create_crland_http_session") as session,
+                    patch.object(
+                        szw_watcher.Variable, "get", wraps=FakeVariable.get
+                    ) as get_variable,
+                    patch.object(szw_watcher.time, "time", return_value=self.now),
+                    self.assertRaises(ValueError) as raised,
+                ):
+                    szw_watcher.get_free_tennis_court_infos_for_szw(
+                        "2026-10-20", ["不使用代理"], {"start_time": "09:00", "end_time": "21:00"}
+                    )
+                session.assert_not_called()
+                self.assertEqual(
+                    [call.args[0] for call in get_variable.call_args_list],
+                    ["SZW_API_AUTHORIZATIONS"],
+                )
+                for authorization in self.authorizations:
+                    self.assertNotIn(authorization, str(raised.exception))
+                self.assertNotIn("rotation-test", str(raised.exception))
+
+    def test_jwt_shape_and_expiration_validation_rejects_unsafe_values(self):
+        valid_token = self.authorizations[0]
+        header, payload, signature = valid_token.removeprefix("Wechat ").split(".")
+        invalid_tokens = {
+            "newline": valid_token + "\n",
+            "invalid_scheme": valid_token.replace("Wechat ", "Bearer "),
+            "empty_segment": f"Wechat {header}..{signature}",
+            "invalid_base64": f"Wechat {header}.{payload}!.{signature}",
+            "invalid_header": f"Wechat {payload}.{payload}.{signature}",
+            "non_object_payload": f"Wechat {header}.W10.{signature}",
+            "invalid_signature": f"Wechat {header}.{payload}.short",
+            "nan_expiration": make_szw_authorization(float("nan")),
+            "infinite_expiration": make_szw_authorization(float("inf")),
+            "boolean_expiration": make_szw_authorization(True),
+            "past_expiration": make_szw_authorization(self.now - 1),
+        }
+        for reason, token in invalid_tokens.items():
+            with self.subTest(reason=reason), self.assertRaises(ValueError):
+                szw_watcher.validate_szw_authorization(token, now=self.now)
+
+    def test_expiration_uses_execution_time_instead_of_historical_schedule(self):
+        FakeVariable.values["SZW_API_AUTHORIZATIONS"] = json.dumps(
+            [make_szw_authorization(self.now + 60, "expiring-test"), *self.authorizations[1:]]
+        )
+        with self.assertRaisesRegex(ValueError, "已过期"):
+            szw_watcher.select_crland_authorization(
+                data_interval_end=self.minute, now=self.now + 120
+            )
+
+    def test_invalid_schedule_never_silently_selects_a_wallclock_account(self):
+        with self.assertRaisesRegex(ValueError, "调度时间格式非法"):
+            szw_watcher.select_crland_authorization(data_interval_end="invalid", now=self.now)
+
+    def test_retries_keep_one_account_when_request_crosses_minute(self):
+        captured_authorizations = []
+        clock = [self.now + 59]
+
+        class FakeSession:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def post(self, *args, **kwargs):
+                captured_authorizations.append(kwargs["headers"]["Authorization"])
+                clock[0] += 60
+                return types.SimpleNamespace(
+                    status_code=503 if len(captured_authorizations) < 3 else 200,
+                    json=lambda: {"code": 200, "result": {"fieldList": [], "matrix": []}},
+                )
+
+        with (
+            patch.object(szw_watcher, "create_crland_http_session", return_value=FakeSession()),
+            patch.object(szw_watcher.time, "time", side_effect=lambda: clock[0]),
+            patch.object(szw_watcher.time, "sleep"),
+        ):
+            self.assertEqual(
+                szw_watcher.get_free_tennis_court_infos_for_szw(
+                    "2026-10-20", ["不使用代理"], {"start_time": "09:00", "end_time": "21:00"}
+                ),
+                {},
+            )
+        self.assertEqual(captured_authorizations, [self.authorizations[0]] * 3)
+
+    def test_authentication_failure_does_not_try_other_accounts_and_redacts_response(self):
+        for http_status in (200, 401):
+            with self.subTest(http_status=http_status):
+                session = unittest.mock.MagicMock()
+                session.__enter__.return_value = session
+                session.post.return_value = types.SimpleNamespace(
+                    status_code=http_status,
+                    json=lambda: {"code": 401, "text": self.authorizations[1] + " rotation-test-1"},
+                )
+                logs = io.StringIO()
+                with (
+                    patch.object(szw_watcher, "create_crland_http_session", return_value=session),
+                    patch.object(szw_watcher.time, "time", return_value=self.now + 61),
+                    patch.object(szw_watcher.time, "sleep"),
+                    redirect_stdout(logs),
+                    self.assertRaisesRegex(Exception, "code=401") as raised,
+                ):
+                    szw_watcher.get_free_tennis_court_infos_for_szw(
+                        "2026-10-20", ["不使用代理"], {"start_time": "09:00", "end_time": "21:00"}
+                    )
+                session.post.assert_called_once()
+                self.assertEqual(
+                    session.post.call_args.kwargs["headers"]["Authorization"],
+                    self.authorizations[1],
+                )
+                self.assertNotIn(self.authorizations[1], logs.getvalue() + str(raised.exception))
+                self.assertNotIn("rotation-test", logs.getvalue() + str(raised.exception))
+
+    def test_transport_errors_cannot_expose_headers_or_account_identifiers(self):
+        session = unittest.mock.MagicMock()
+        session.__enter__.return_value = session
+        session.post.side_effect = szw_watcher.requests.ConnectionError(
+            self.authorizations[0] + " rotation-test-0"
+        )
+        logs = io.StringIO()
+        with (
+            patch.object(szw_watcher, "create_crland_http_session", return_value=session),
+            patch.object(szw_watcher.time, "time", return_value=self.now),
+            patch.object(szw_watcher.time, "sleep"),
+            redirect_stdout(logs),
+            self.assertRaisesRegex(Exception, "ConnectionError") as raised,
+        ):
+            szw_watcher.get_free_tennis_court_infos_for_szw(
+                "2026-10-20", ["不使用代理"], {"start_time": "09:00", "end_time": "21:00"}
+            )
+        self.assertNotIn(self.authorizations[0], logs.getvalue() + str(raised.exception))
+        self.assertNotIn("rotation-test", logs.getvalue() + str(raised.exception))
 
 
 class TopsWatcherTest(unittest.TestCase):

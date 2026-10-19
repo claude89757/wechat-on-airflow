@@ -3,6 +3,29 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [0.8.4] - 2026-10-19
+
+### Changed
+
+- Rotate three CRLand accounts in shared one-minute rounds for Shenzhen Bay
+  and Greater Bay Area. Both venues inspect every minute; each account is
+  selected once per three minutes. Keep the same account for every date and
+  booking area within a scheduled round, including delayed tasks and retries.
+- Preserve the existing DAG/task identities, date coverage, concurrency and
+  notification rules. Keep the one-minute policy and Web labels consistent.
+- Prefer the sensitive `SZW_API_AUTHORIZATIONS` three-account pool, retaining
+  the single `SZW_API_AUTHORIZATION` fallback only when the pool is absent.
+
+### Operations
+
+- Add a protected `szw_authorization_sync` operation for the shared account
+  pool. Validate all three accounts against Shenzhen Bay outdoor, covered and
+  Greater Bay Area queries before replacing the Airflow Variables, and verify
+  the transaction without exposing credentials or account identifiers.
+- Require exact-commit CI and the existing production Environment for the
+  credential sync and release. Verify three natural successful cycles after
+  deployment without sending synthetic email or WeChat notifications.
+
 ## [0.8.3] - 2026-10-01
 
 ### Fixed

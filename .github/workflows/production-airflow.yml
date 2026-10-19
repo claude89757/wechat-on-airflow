@@ -39,6 +39,7 @@ on:
           - wechat_delivery_probe
           - wechat_quiesce
           - airflow_resume
+          - szw_authorization_sync
           - nswtt_config_sync
           - pi_device_ssh_sync
       target_commit:
@@ -62,6 +63,7 @@ on:
         type: string
 
 permissions:
+  checks: read
   contents: read
 
 concurrency:
@@ -103,6 +105,14 @@ jobs:
           cache-dependency-path: webapp/package-lock.json
       - name: Install operations dependencies
         run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Require verified exact commit for CRLand credential rotation
+        if: inputs.operation == 'szw_authorization_sync'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          PYTHONPATH=scripts python scripts/github_release_gate.py \
+            --target-commit "${{ inputs.target_commit }}" \
+            --required-check verify --format json
       - name: Install Web diagnostic dependencies
         if: inputs.operation == 'webapp_observation_diagnose'
         working-directory: webapp
@@ -122,6 +132,7 @@ jobs:
           TARGET_COMMIT: ${{ inputs.target_commit }}
           CONFIRM_REAL_SEND: ${{ inputs.confirm_real_send }}
           PROBE_TARGET_MEMBERSHIP: ${{ inputs.probe_target_membership }}
+          SZW_API_AUTHORIZATIONS: ${{ inputs.operation == 'szw_authorization_sync' && secrets.SZW_API_AUTHORIZATIONS || '' }}
           NSWTT_API_CONFIG: ${{ secrets.NSWTT_API_CONFIG }}
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
           PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
@@ -180,6 +191,9 @@ jobs:
             airflow_resume)
               PYTHONPATH=scripts python scripts/resume_airflow_scheduling.py \
                 --target-commit "$TARGET_COMMIT" --format json
+              ;;
+            szw_authorization_sync)
+              PYTHONPATH=scripts python scripts/sync_szw_authorization.py
               ;;
             nswtt_config_sync)
               PYTHONPATH=scripts python scripts/sync_nswtt_config.py

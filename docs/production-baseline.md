@@ -1,5 +1,34 @@
 # Production Baseline
 
+## CRLand Account Rotation Baseline On 2026-10-19
+
+The pre-change protected Airflow health run
+[39274914834](https://github.com/claude89757/wechat-on-airflow/actions/runs/39274914834)
+reported deployed commit `1de8a876c5a5bd00b285262eb59c258f910be298`
+(release `0.8.3`) at `2026-10-19T15:07:20Z`. Airflow 3.3.0, application
+services, the execution API, tunnel and Sender health were available. There
+were no import errors, paused active DAGs, missing Variables or missing DAG
+sources. The only failing health requirement was recent run history: both
+`深圳湾网球场巡检` and `大湾区网球场巡检` had three failed natural runs.
+This health result establishes the failure, not its upstream cause.
+
+The authorized repair uses three replacement CRLand accounts in shared
+one-minute scheduled rounds. Both DAGs already use the one-minute policy;
+the change distributes their requests across accounts while preserving DAG
+identities, date coverage and booking areas. Before deploying the pool-aware
+runtime, the protected `szw_authorization_sync` operation must validate all
+nine account/area combinations and atomically update the pool plus its first
+account in the legacy Variable. This keeps the previous runtime usable if an
+application rollback is required. No credential values or account claims are
+part of this evidence.
+
+Release acceptance requires exact-commit `CI / verify`, a successful protected
+configuration sync, and the production Airflow health gate with three natural
+successful cycles for both affected DAGs. The per-task rotation log exposes
+only account slot `1/3`–`3/3` and scheduled UTC minute for correlation. This
+section records the pre-change baseline; completion evidence belongs to the
+protected sync and release runs, not to the failing baseline run above.
+
 ## Fansibote Chain Ten More Stores On 2026-08-30
 
 Named release `0.6.0` is

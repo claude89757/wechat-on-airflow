@@ -22,17 +22,49 @@ When adding a Variable:
 
 ## CRLand Booking Authorization
 
-`SZW_API_AUTHORIZATION` stores the shared CRLand booking API JWT used by the
-Shenzhen Bay outdoor area, Shenzhen Bay covered area, and Greater Bay Area
-venue. The canonical form includes the `Wechat ` prefix; the adapter also
-accepts the legacy raw JWT and adds the prefix in memory. Keep it only in
-Airflow Variables; never place it in source, documentation, shell history, or
-logs.
+`SZW_API_AUTHORIZATIONS` is a sensitive JSON list of exactly three CRLand
+booking API JWTs for distinct accounts. Shenzhen Bay outdoor, Shenzhen Bay
+covered, and Greater Bay Area share the pool. Each canonical entry includes
+the `Wechat ` prefix; raw JWT entries are normalized in memory. The runtime
+reads only Airflow Variables. Stage an explicitly authorized replacement pool
+in the GitHub `production` Environment secret `SZW_API_AUTHORIZATIONS`; never
+place values in source, documentation, workflow inputs, issue comments, shell
+history, or logs.
 
-The venue adapter validates the JWT structure and `exp` claim before each request. A missing,
-malformed, or expired value marks the Web observation unhealthy and fails the affected Airflow
-task so its configured retry and failure visibility remain effective. Renewing the credential only
-requires replacing this Variable; it does not require a code deployment.
+After the exact main commit passes `CI / verify`, dispatch the protected
+`Production Airflow` workflow with operation `szw_authorization_sync` and that
+full `target_commit`. The operation checks every JWT's structure, expiry, and
+distinct `sub`/`openid` identity without reporting claim values. It streams the
+pool over pinned SSH stdin and performs nine read-only matrix queries for
+tomorrow in Asia/Shanghai: every account against Shenzhen Bay outdoor,
+Shenzhen Bay covered, and Greater Bay Area. Each query has a bounded timeout;
+queries are spaced by two seconds and never follow redirects or environment
+proxies. No observation, notification, booking, or Airflow Variable is written
+by these probes.
+
+Only after all nine API responses succeed does the operation replace the pool
+and set the legacy `SZW_API_AUTHORIZATION` to its first account in one database
+transaction. It compares both stored values before committing, so a failed
+probe preserves the old values and a failed readback rolls back both writes.
+The legacy value keeps the previous runtime and a reviewed rollback usable
+during the pool deployment. Logs contain only fixed error categories, account
+indices, and confirmation counts, never token claims, response bodies, or
+credential values. A transport timeout has an uncertain completion state and
+requires checking the protected result before claiming success. Verify three
+subsequent natural cycles for both venue DAGs; do not trigger synthetic email
+or WeChat notifications.
+
+Both venue DAGs run every minute, rotating through the three accounts so each
+account is selected approximately every three minutes. Selection uses the UTC
+minute of the Airflow data interval end (logical date when unavailable), so
+both venues and every day task share the same account for a scheduled minute.
+The selected account stays fixed across all areas and request retries within
+the task; expiry is checked against actual execution time. The legacy single
+Variable is a compatibility fallback only when the pool is absent. An invalid,
+incomplete, duplicate-account, or expired configured pool fails closed instead
+of silently concentrating requests on one account. Credential renewal uses
+the protected sync operation and does not require a runtime code deployment
+after the pool-capable release is installed.
 
 The Greater Bay Area API permits today plus the next two calendar days. Its DAG
 therefore runs `day_0` through `day_2`; longer-lived Web subscriptions continue
