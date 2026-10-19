@@ -127,6 +127,7 @@ def main() -> None:
             "wechat_delivery_probe",
             "wechat_quiesce",
             "airflow_resume",
+            "szw_authorization_sync",
             "nswtt_config_sync",
             "pi_device_ssh_sync",
         },

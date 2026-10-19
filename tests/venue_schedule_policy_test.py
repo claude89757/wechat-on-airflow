@@ -29,23 +29,28 @@ def load_mapping(path: Path) -> dict[str, Any]:
 
 
 class VenueSchedulePolicyTest(TestCase):
-    def test_shenzhen_bay_uses_one_minute_and_preserves_task_identity(self) -> None:
+    def test_crland_venues_use_one_minute_and_preserve_task_identity(self) -> None:
         manifest = load_mapping(MANIFEST_PATH)
         policy = load_mapping(POLICY_PATH)
-        component = next(
-            item for item in manifest["active_dags"] if item["dag_id"] == "深圳湾网球场巡检"
-        )
-
-        self.assertNotIn("深圳湾网球场巡检", policy["exceptions"])
-        self.assertEqual(component["schedule"], "every_1_minutes")
-        self.assertEqual(component["file"], "dags/tennis_dags/sz_tennis/szw_watcher.py")
-        self.assertEqual(
-            component["tasks"], [f"check_and_notify_day_{day_offset}" for day_offset in range(4)]
-        )
-        self.assertEqual(
-            check_active_components.dag_schedule_contract(ROOT / component["file"]),
-            "every_1_minutes",
-        )
+        for dag_id, filename, day_count in (
+            ("深圳湾网球场巡检", "szw_watcher.py", 4),
+            ("大湾区网球场巡检", "gba_watcher.py", 3),
+        ):
+            with self.subTest(dag_id=dag_id):
+                component = next(
+                    item for item in manifest["active_dags"] if item["dag_id"] == dag_id
+                )
+                self.assertNotIn(dag_id, policy["exceptions"])
+                self.assertEqual(component["schedule"], "every_1_minutes")
+                self.assertEqual(component["file"], f"dags/tennis_dags/sz_tennis/{filename}")
+                self.assertEqual(
+                    component["tasks"],
+                    [f"check_and_notify_day_{day_offset}" for day_offset in range(day_count)],
+                )
+                self.assertEqual(
+                    check_active_components.dag_schedule_contract(ROOT / component["file"]),
+                    "every_1_minutes",
+                )
 
     def test_active_venue_dags_follow_the_one_minute_default(self) -> None:
         manifest = load_mapping(MANIFEST_PATH)

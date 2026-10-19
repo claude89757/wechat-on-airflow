@@ -9,14 +9,17 @@ import {
 describe("venue inspection cadence display", () => {
   it("keeps the one-minute default for ordinary venues", () => {
     expect(DEFAULT_INSPECTION_CADENCE_SECONDS).toBe(60);
-    expect(inspectionCadenceSeconds("gba")).toBe(60);
-    expect(formatInspectionCadence("gba")).toBe("1分钟/次");
+    expect(inspectionCadenceSeconds("tops")).toBe(60);
+    expect(formatInspectionCadence("tops")).toBe("1分钟/次");
   });
 
-  it("shows Shenzhen Bay at the one-minute default", () => {
-    expect(inspectionCadenceSeconds("szw")).toBe(60);
-    expect(formatInspectionCadence("szw")).toBe("1分钟/次");
-  });
+  it.each(["szw", "gba"])(
+    "shows the one-minute CRLand inspection cadence for %s",
+    (venueId) => {
+      expect(inspectionCadenceSeconds(venueId)).toBe(60);
+      expect(formatInspectionCadence(venueId)).toBe("1分钟/次");
+    },
+  );
 
   it("shows the approved Dashah free-court low-latency exception", () => {
     expect(inspectionCadenceSeconds("dsh_free")).toBe(15);

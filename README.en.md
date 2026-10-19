@@ -19,7 +19,7 @@
 
 ## ✨ Features
 
-- **Multi-venue polling**: 26 Shenzhen venue DAGs. Shenzhen Bay keeps its approved 15-second exception; other venues use the one-minute default or an explicit resource-safe cadence.
+- **Multi-venue polling**: 26 Shenzhen venue DAGs. Shenzhen Bay and Greater Bay Area share one CRLand account per minute, rotating three accounts across consecutive rounds; other venues use the one-minute default or an explicit policy exception.
 - **Host-owned subscription core**: local `zacks-api` accepts observations and Web requests; PostgreSQL schema `zacks` stores identities, subscriptions, dedupe state, Outboxes, quotas, and delivery results.
 - **Subscriber email**: `zacks-notification-worker` performs matching, digesting, tier limits, weather policy, Tencent SES submission, retries, and delivery reconciliation.
 - **WeChat alerts**: Airflow continues to call the Android-hosted WeChat Sender directly. The venue gate is read from local PostgreSQL rather than Cloudflare D1.

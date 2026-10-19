@@ -10,6 +10,7 @@ import base64
 import binascii
 import datetime
 import json
+import math
 import re
 import ssl
 import time
@@ -37,6 +38,7 @@ GBA_PROJECT_UUID = "0ddda9c33d4e11f1b51c2273436a3e4e"
 GBA_FIELD_AREA_UUID = "cec42d973dee11f1b51c2273436a3e4e"
 CRLAND_REQUEST_ATTEMPTS = 3
 CRLAND_RETRY_DELAY_SECONDS = 2
+CRLAND_AUTHORIZATION_POOL_SIZE = 3
 SSL_OP_LEGACY_SERVER_CONNECT = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
 
 
@@ -189,13 +191,18 @@ def extract_time_hhmm(time_value: str) -> str:
     return ""
 
 
+def _decode_szw_jwt_segment(segment: str) -> object:
+    encoded = segment + "=" * (-len(segment) % 4)
+    return json.loads(base64.b64decode(encoded, altchars=b"-_", validate=True).decode("utf-8"))
+
+
 def validate_szw_authorization(authorization: str, *, now: float | None = None) -> str:
     """校验并规范化 Airflow Variable 中的 Wechat JWT，不记录令牌内容。"""
-    authorization = authorization.strip()
-    if not authorization:
+    if not isinstance(authorization, str) or not authorization.strip():
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 未配置")
     if "\n" in authorization or "\r" in authorization:
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 格式非法")
+    authorization = authorization.strip()
 
     if authorization.startswith("Wechat "):
         token = authorization.removeprefix("Wechat ")
@@ -204,22 +211,37 @@ def validate_szw_authorization(authorization: str, *, now: float | None = None) 
     else:
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 必须是 Wechat JWT")
 
-    token_parts = token.split(".")
-    if len(token_parts) != 3:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", token):
         raise ValueError("Airflow Variable SZW_API_AUTHORIZATION 必须是 Wechat JWT")
 
     try:
-        payload_segment = token_parts[1]
-        payload_segment += "=" * (-len(payload_segment) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(payload_segment).decode("utf-8"))
+        header_segment, payload_segment, signature_segment = token.split(".")
+        header = _decode_szw_jwt_segment(header_segment)
+        payload = _decode_szw_jwt_segment(payload_segment)
+        if not isinstance(header, dict) or header.get("alg") != "HS256":
+            raise ValueError("invalid signing algorithm")
+        if not isinstance(payload, dict):
+            raise ValueError("invalid payload")
+        signature = base64.b64decode(
+            signature_segment + "=" * (-len(signature_segment) % 4),
+            altchars=b"-_",
+            validate=True,
+        )
+        if len(signature) != 32:
+            raise ValueError("invalid signature length")
         expires_at = payload["exp"]
-        if isinstance(expires_at, bool) or not isinstance(expires_at, int | float):
+        if (
+            isinstance(expires_at, bool)
+            or not isinstance(expires_at, int | float)
+            or not math.isfinite(expires_at)
+        ):
             raise TypeError("exp must be numeric")
     except (
         KeyError,
         TypeError,
         ValueError,
         UnicodeDecodeError,
+        OverflowError,
         binascii.Error,
         json.JSONDecodeError,
     ):
@@ -231,6 +253,94 @@ def validate_szw_authorization(authorization: str, *, now: float | None = None) 
     return f"Wechat {token}"
 
 
+def validate_szw_authorization_pool(
+    value: str | list[str], *, now: float | None = None
+) -> tuple[str, ...]:
+    """Validate all three distinct accounts before starting a rotation round."""
+    try:
+        pool = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATIONS 必须是 JSON 数组") from None
+    if not isinstance(pool, list) or len(pool) != CRLAND_AUTHORIZATION_POOL_SIZE:
+        raise ValueError("Airflow Variable SZW_API_AUTHORIZATIONS 必须配置 3 个账号")
+
+    current_time = time.time() if now is None else now
+    authorizations = []
+    account_identifiers: set[str] = set()
+    for value in pool:
+        try:
+            authorization = validate_szw_authorization(value, now=current_time)
+        except ValueError as error:
+            raise ValueError(
+                str(error).replace("SZW_API_AUTHORIZATION", "SZW_API_AUTHORIZATIONS")
+            ) from None
+        payload = _decode_szw_jwt_segment(authorization.split(".")[1])
+        identifiers = {
+            claim.strip()
+            for key in ("sub", "openid")
+            if isinstance(claim := payload.get(key), str) and claim.strip()
+        }
+        if not identifiers:
+            raise ValueError("Airflow Variable SZW_API_AUTHORIZATIONS 缺少账号标识")
+        if account_identifiers & identifiers or authorization in authorizations:
+            raise ValueError("Airflow Variable SZW_API_AUTHORIZATIONS 必须是 3 个不同账号")
+        account_identifiers.update(identifiers)
+        authorizations.append(authorization)
+    return tuple(authorizations)
+
+
+def select_crland_authorization(
+    *,
+    data_interval_end: datetime.datetime | str | None = None,
+    logical_date: datetime.datetime | str | None = None,
+    now: float | None = None,
+    log_selection: bool = False,
+) -> str:
+    """Use one account for the same scheduled minute across venues and day tasks.
+
+    Airflow injects scheduling context into the Python callable. A delayed task
+    or task retry therefore keeps its scheduled round, regardless of wall time.
+    Direct calls without Airflow context use one captured wall-clock timestamp.
+    """
+    current_time = time.time() if now is None else now
+    pool_value = Variable.get("SZW_API_AUTHORIZATIONS", default=None)
+    if pool_value is None:
+        authorization = validate_szw_authorization(
+            Variable.get("SZW_API_AUTHORIZATION", default=""), now=current_time
+        )
+        if log_selection:
+            print("CRLand authorization: mode=legacy-single")
+        return authorization
+    authorizations = validate_szw_authorization_pool(pool_value, now=current_time)
+
+    scheduled_at = data_interval_end if data_interval_end is not None else logical_date
+    if scheduled_at is None:
+        round_timestamp = current_time
+    else:
+        try:
+            if isinstance(scheduled_at, str):
+                scheduled_at = datetime.datetime.fromisoformat(scheduled_at)
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=datetime.UTC)
+            round_timestamp = scheduled_at.timestamp()
+            if not math.isfinite(round_timestamp):
+                raise ValueError("invalid scheduled timestamp")
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            raise ValueError("华润巡检调度时间格式非法") from None
+
+    minute = int(round_timestamp // 60)
+    slot = minute % len(authorizations)
+    if log_selection:
+        minute_utc = datetime.datetime.fromtimestamp(minute * 60, datetime.UTC).isoformat(
+            timespec="minutes"
+        )
+        print(
+            f"CRLand authorization: mode=rotation slot={slot + 1}/{len(authorizations)} "
+            f"round_minute_utc={minute_utc}"
+        )
+    return authorizations[slot]
+
+
 def get_free_tennis_court_infos_for_szw(
     date: str,
     proxy_list: list,
@@ -239,6 +349,7 @@ def get_free_tennis_court_infos_for_szw(
     project_uuid: str = SZW_PROJECT_UUID,
     field_area_uuid: str = SZW_FIELD_AREA_UUID,
     court_name_prefix: str = "",
+    authorization: str | None = None,
 ) -> dict:
     """
     获取可预订的场地信息
@@ -249,8 +360,10 @@ def get_free_tennis_court_infos_for_szw(
     Returns:
         dict: 场地信息，格式为{场地名: [[开始时间, 结束时间], ...]}
     """
-    szw_authorization = validate_szw_authorization(
-        Variable.get("SZW_API_AUTHORIZATION", default="")
+    szw_authorization = (
+        select_crland_authorization()
+        if authorization is None
+        else validate_szw_authorization(authorization)
     )
 
     got_response = False
@@ -274,12 +387,12 @@ def get_free_tennis_court_infos_for_szw(
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 "
         "Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) "
         "NetType/WIFI MiniProgramEnv/Mac MacWechat/WMPF "
-        "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641c1d) XWEB/25300",
+        "MacWechat/3.8.7(0x13080712) UnifiedPCMacWechat(0xf2641d55) XWEB/25561",
         "Accept": "*/*",
         "Sec-Fetch-Site": "cross-site",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
-        "Referer": "https://servicewechat.com/wx020209beec4251e0/59/page-frame.html",
+        "Referer": "https://servicewechat.com/wx020209beec4251e0/69/page-frame.html",
         "Accept-Language": "zh-CN,zh;q=0.9",
     }
 
@@ -303,23 +416,21 @@ def get_free_tennis_court_infos_for_szw(
                     if response.status_code == 200:
                         try:
                             response_data = response.json()
-                        except Exception as e:
-                            last_error = f"invalid json response: {e}"
+                        except Exception:
+                            last_error = "invalid json response"
                             print(last_error)
                             retryable = True
                         else:
                             if response_data.get("code") == 200 and response_data.get("result"):
-                                print(f"api success, text: {response_data.get('text')}")
+                                print("api success")
                                 got_response = True
                                 time.sleep(1)
                                 break
-                            error_message = response_data.get("text") or response_data.get(
-                                "message"
+                            code = response_data.get("code")
+                            safe_code = (
+                                str(code) if re.fullmatch(r"[0-9]{1,9}", str(code)) else "unknown"
                             )
-                            last_error = (
-                                f"api error code={response_data.get('code')}, "
-                                f"message={error_message}"
-                            )
+                            last_error = f"api error code={safe_code}"
                             print(f"api error for {proxy}: {last_error}")
                             break
                     else:
@@ -329,7 +440,8 @@ def get_free_tennis_court_infos_for_szw(
                             response.status_code in {403, 429} or response.status_code >= 500
                         )
                 except Exception as error:
-                    last_error = str(error)
+                    # Transport/JSON errors can embed the Authorization header.
+                    last_error = f"request failed ({type(error).__name__})"
                     print(f"failed for {proxy}: {last_error}")
                     retryable = True
 
@@ -376,7 +488,13 @@ def get_free_tennis_court_infos_for_szw(
         raise Exception(f"all attempts failed: {last_error}")
 
 
-def check_and_notify_for_day(day_offset: int, venue_key: str = "szw"):
+def check_and_notify_for_day(
+    day_offset: int,
+    venue_key: str = "szw",
+    *,
+    data_interval_end: datetime.datetime | str | None = None,
+    logical_date: datetime.datetime | str | None = None,
+):
     """检查指定天数后的网球场可用情况并发送通知
 
     Args:
@@ -404,6 +522,12 @@ def check_and_notify_for_day(day_offset: int, venue_key: str = "szw"):
     webapp_error = None
     booking_error = None
     try:
+        authorization = select_crland_authorization(
+            data_interval_end=data_interval_end,
+            logical_date=logical_date,
+            now=run_start_time,
+            log_selection=True,
+        )
         court_data = {}
         for booking_area in venue.booking_areas:
             area_data = get_free_tennis_court_infos_for_szw(
@@ -416,6 +540,7 @@ def check_and_notify_for_day(day_offset: int, venue_key: str = "szw"):
                 project_uuid=booking_area.project_uuid,
                 field_area_uuid=booking_area.field_area_uuid,
                 court_name_prefix=booking_area.court_name_prefix,
+                authorization=authorization,
             )
             duplicate_courts = court_data.keys() & area_data.keys()
             if duplicate_courts:

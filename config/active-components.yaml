@@ -103,6 +103,7 @@ active_dags:
       - check_and_notify_day_2
       - check_and_notify_day_3
     variables:
+      - SZW_API_AUTHORIZATIONS
       - SZW_API_AUTHORIZATION
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
@@ -136,6 +137,7 @@ active_dags:
       - check_and_notify_day_1
       - check_and_notify_day_2
     variables:
+      - SZW_API_AUTHORIZATIONS
       - SZW_API_AUTHORIZATION
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN

@@ -11,6 +11,7 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
 
     assert f"DEFAULT_INSPECTION_CADENCE_SECONDS = {policy['default_interval_seconds']}" in source
     assert "szw:" not in source
+    assert "gba:" not in source
 
     exception_ids = {
         "大沙河免费场巡检": "dsh_free",
