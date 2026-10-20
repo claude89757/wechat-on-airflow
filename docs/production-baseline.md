@@ -15,6 +15,25 @@ A repeat protected check at `2026-10-20T04:41:56Z`,
 confirmed the same deployed commit and the same three-success / three-failure
 split. Shenzhen Bay remained the only recent-run health failure.
 
+The protected read-only CRLand diagnosis at `2026-10-20T04:57:39Z`,
+[job 118462584534](https://github.com/claude89757/wechat-on-airflow/actions/runs/39372270717/job/118462584534),
+and its single retry at `2026-10-20T04:59:28Z`,
+[job 118463062486](https://github.com/claude89757/wechat-on-airflow/actions/runs/39372270717/job/118463062486),
+localized the Shenzhen Bay failures to `check_and_notify_day_3`. Across the
+three account slots, `day_0` through `day_2` each recorded two successful area
+queries; `day_3` recorded HTTP `200`, API business code `2000`, and no API
+success. These records do not include the upstream business message, so they
+do not establish the meaning of that code or the permitted booking horizon
+for Shenzhen Bay. Its date coverage remains unchanged.
+
+Both diagnostic attempts identified the old host and runtime commit above.
+Their expected new release SHA intentionally differed from production; these
+were baseline reads, not successful release acceptance. Greater Bay Area's
+metadata collection failed in both attempts and returned no run evidence,
+although the independent health checks reported successful Greater Bay Area
+runs. No metadata exception category was available in those initial reports;
+query timeout or another cause must not be inferred from the generic failure.
+
 The authorized policy change restricts both venues' upstream polling to
 `08:00 <= Asia/Shanghai local time < 21:00`, with Shenzhen Bay every two
 minutes and Greater Bay Area every three minutes. The existing three-account

@@ -77,6 +77,60 @@ ERROR_TYPES = frozenset(
         "OtherError",
     }
 )
+METADATA_STAGES = frozenset({"query_runs", "query_tasks"})
+METADATA_ERROR_TYPES = frozenset(
+    {
+        "OperationalError",
+        "InterfaceError",
+        "DatabaseError",
+        "ProgrammingError",
+        "InternalError",
+        "DataError",
+        "IntegrityError",
+        "StatementError",
+        "SQLAlchemyError",
+        "InvalidRequestError",
+        "PendingRollbackError",
+        "DetachedInstanceError",
+        "ResourceClosedError",
+        "DisconnectionError",
+        "TimeoutError",
+        "ValueError",
+        "TypeError",
+        "AttributeError",
+        "RuntimeError",
+        "OtherError",
+    }
+)
+METADATA_SQLSTATES = frozenset(
+    {
+        "08000",
+        "08001",
+        "08003",
+        "08004",
+        "08006",
+        "08007",
+        "08P01",
+        "22000",
+        "22P02",
+        "25006",
+        "25P02",
+        "40001",
+        "40P01",
+        "42501",
+        "42601",
+        "42703",
+        "42P01",
+        "53300",
+        "55P03",
+        "57014",
+        "57P01",
+        "57P02",
+        "57P03",
+        "58000",
+        "XX000",
+    }
+)
 MISSING_REASONS = frozenset(
     {
         "invalid_arguments",
@@ -147,6 +201,63 @@ def safe_state(value: object) -> str | None:
 def safe_error_type(error: object) -> str:
     name = type(error).__name__
     return name if name in ERROR_TYPES else "OtherError"
+
+
+def safe_metadata_error(value: object) -> dict[str, Any] | None:
+    """Keep fixed failure classifications, never SQL, parameters or error messages."""
+    if not isinstance(value, dict):
+        return None
+    stage = value.get("stage")
+    if not isinstance(stage, str) or stage not in METADATA_STAGES:
+        return None
+    exception_type = value.get("exception_type")
+    if not isinstance(exception_type, str) or exception_type not in METADATA_ERROR_TYPES:
+        exception_type = "OtherError"
+    sqlstate = value.get("sqlstate")
+    if not isinstance(sqlstate, str) or sqlstate not in METADATA_SQLSTATES:
+        sqlstate = None
+    kind = "unknown"
+    if sqlstate == "57014":
+        kind = (
+            "statement_timeout"
+            if value.get("metadata_error_kind") == "statement_timeout"
+            else "query_canceled"
+        )
+    return {
+        "stage": stage,
+        "exception_type": exception_type,
+        "sqlstate": sqlstate,
+        "metadata_error_kind": kind,
+    }
+
+
+def classify_metadata_error(error: Exception, stage: str) -> dict[str, Any] | None:
+    driver_error = getattr(error, "orig", error)
+    sqlstate = next(
+        (
+            code
+            for code in (
+                getattr(driver_error, "sqlstate", None),
+                getattr(driver_error, "pgcode", None),
+            )
+            if isinstance(code, str) and code in METADATA_SQLSTATES
+        ),
+        None,
+    )
+    primary_message = getattr(getattr(driver_error, "diag", None), "message_primary", None)
+    return safe_metadata_error(
+        {
+            "stage": stage,
+            "exception_type": type(error).__name__,
+            "sqlstate": sqlstate,
+            "metadata_error_kind": (
+                "statement_timeout"
+                if sqlstate == "57014"
+                and primary_message == "canceling statement due to statement timeout"
+                else "unknown"
+            ),
+        }
+    )
 
 
 def missing_reasons(value: object) -> list[str]:
@@ -319,14 +430,17 @@ def collect_attempt(reader: Any, task: Any, try_number: int) -> dict[str, Any]:
 
 
 def scheduled_runs(session: Any, dag_run_model: Any, dag_id: str) -> list[Any]:
+    # Exclude undated runs and retain the ordering supported by Airflow's
+    # existing (dag_id, logical_date) index; no schema or timeout change.
     return (
         session.query(dag_run_model)
         .filter(
             dag_run_model.dag_id == dag_id,
             dag_run_model.run_type == "scheduled",
             dag_run_model.state.in_(("success", "failed")),
+            dag_run_model.logical_date.is_not(None),
         )
-        .order_by(dag_run_model.logical_date.desc().nullslast(), dag_run_model.id.desc())
+        .order_by(dag_run_model.logical_date.desc(), dag_run_model.id.desc())
         .limit(RUN_COUNT)
         .all()
     )
@@ -338,14 +452,22 @@ def collect_dags(
     deadline = time.monotonic() + COLLECTION_SECONDS
     dags = []
     for venue_id, (dag_id, task_count) in DAGS.items():
-        dag = {"venue_id": venue_id, "dag_id": dag_id, "runs": [], "missing_evidence": []}
+        dag = {
+            "venue_id": venue_id,
+            "dag_id": dag_id,
+            "runs": [],
+            "metadata_error": None,
+            "missing_evidence": [],
+        }
         dags.append(dag)
         task_ids = [f"check_and_notify_day_{offset}" for offset in range(task_count)]
+        stage = "query_runs"
         try:
             recent = scheduled_runs(session, dag_run_model, dag_id)
             if len(recent) < RUN_COUNT:
                 dag["missing_evidence"].append("not_enough_scheduled_runs")
             for dag_run in recent:
+                stage = "query_runs"
                 row = {
                     "run_type": "scheduled",
                     "state": safe_state(dag_run.state),
@@ -369,6 +491,7 @@ def collect_dags(
                     )
                 ):
                     row["missing_evidence"].append("run_timestamp_missing")
+                stage = "query_tasks"
                 tasks = (
                     session.query(task_model)
                     .filter(
@@ -419,8 +542,9 @@ def collect_dags(
                         item["attempts"].append(collect_attempt(reader, task, attempt))
                     if item["state"] == "failed" and not has_failure_signature(item["attempts"]):
                         item["missing_evidence"].append("failure_signature_missing")
-        except Exception:
+        except Exception as error:
             dag["missing_evidence"].append("metadata_read_failed")
+            dag["metadata_error"] = classify_metadata_error(error, stage)
     return dags
 
 
@@ -488,8 +612,11 @@ def sanitize_report(value: object, expected_commit: object) -> dict[str, Any]:
             "venue_id": venue_id,
             "dag_id": dag_id,
             "runs": [],
+            "metadata_error": safe_metadata_error(source.get("metadata_error")),
             "missing_evidence": missing_reasons(source.get("missing_evidence")),
         }
+        if source.get("metadata_error") is not None:
+            dag["missing_evidence"].append("metadata_read_failed")
         result["dags"].append(dag)
         sources = source.get("runs") if isinstance(source.get("runs"), list) else []
         for source_run in sources[:RUN_COUNT]:
@@ -649,6 +776,9 @@ from typing import Any
         "RESULT_MARKER",
         "STATES",
         "ERROR_TYPES",
+        "METADATA_STAGES",
+        "METADATA_ERROR_TYPES",
+        "METADATA_SQLSTATES",
         "MISSING_REASONS",
         "COUNTERS",
     )
@@ -660,6 +790,8 @@ from typing import Any
         safe_integer,
         safe_state,
         safe_error_type,
+        safe_metadata_error,
+        classify_metadata_error,
         missing_reasons,
         quiet_runtime,
         LogReadDeadline,
