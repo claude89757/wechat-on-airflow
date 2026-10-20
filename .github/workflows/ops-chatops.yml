@@ -105,6 +105,16 @@ jobs:
                   outputs["target_commit"] = tokens[3].lower()
               else:
                   fail(f"unknown release command: {command}")
+          elif tokens[:2] == ["/ops", "airflow-health"]:
+              if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
+                  fail("Airflow health requires a full 40-character SHA")
+              outputs["action"] = "airflow_health"
+              outputs["target_commit"] = tokens[2].lower()
+          elif tokens[:2] == ["/ops", "crland-inspection-diagnose"]:
+              if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
+                  fail("CRLand inspection diagnosis requires a full 40-character SHA")
+              outputs["action"] = "crland_inspection_diagnose"
+              outputs["target_commit"] = tokens[2].lower()
           elif tokens[:2] == ["/ops", "pi-tunnel-diagnose"]:
               if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
                   fail("Pi tunnel diagnosis requires a full 40-character SHA")
@@ -156,6 +166,8 @@ jobs:
           - \`/release preflight <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release apply <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release tag <version> <40-char-sha>\`
+          - \`/ops airflow-health <40-char-sha>\`
+          - \`/ops crland-inspection-diagnose <40-char-sha>\`
           - \`/ops pi-tunnel-diagnose <40-char-sha>\`
           - \`/ops device-network-preflight <40-char-sha>\`
           - \`/ops webapp-observation-diagnose <40-char-sha>\`
@@ -194,6 +206,30 @@ jobs:
     with:
       version: ${{ needs.route.outputs.version }}
       target_commit: ${{ needs.route.outputs.target_commit }}
+    secrets: inherit
+
+  airflow_health:
+    if: needs.route.outputs.action == 'airflow_health'
+    needs: route
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: health
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      request_id: ops-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  crland_inspection_diagnose:
+    if: needs.route.outputs.action == 'crland_inspection_diagnose'
+    needs: route
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: crland_inspection_diagnose
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      request_id: ops-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
     secrets: inherit
 
   pi_tunnel_diagnose:
@@ -285,6 +321,8 @@ jobs:
       - release
       - ship
       - tag
+      - airflow_health
+      - crland_inspection_diagnose
       - webapp_observation_diagnose
       - device_network_preflight
       - pi_tunnel_diagnose
@@ -312,6 +350,8 @@ jobs:
           SHIP_AIRFLOW: ${{ needs.ship.outputs.deploy_airflow }}
           SHIP_SENDER: ${{ needs.ship.outputs.deploy_sender }}
           TAG_RESULT: ${{ needs.tag.result }}
+          AIRFLOW_HEALTH_RESULT: ${{ needs.airflow_health.result }}
+          CRLAND_DIAG_RESULT: ${{ needs.crland_inspection_diagnose.result }}
           PI_TUNNEL_RESULT: ${{ needs.pi_tunnel_diagnose.result }}
           DEVICE_NETWORK_RESULT: ${{ needs.device_network_preflight.result }}
           WEB_DIAG_RESULT: ${{ needs.webapp_observation_diagnose.result }}
@@ -340,6 +380,22 @@ jobs:
             tag)
               result="$TAG_RESULT"
               label="tag $VERSION"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            airflow_health)
+              result="$AIRFLOW_HEALTH_RESULT"
+              label="read-only Airflow health"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            crland_inspection_diagnose)
+              result="$CRLAND_DIAG_RESULT"
+              label="read-only CRLand inspection diagnosis"
               resolved="n/a"
               webapp=""
               airflow=""

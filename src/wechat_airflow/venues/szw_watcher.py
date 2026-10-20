@@ -15,6 +15,7 @@ import re
 import ssl
 import time
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 import requests
 from airflow.sdk import Variable
@@ -39,6 +40,9 @@ GBA_FIELD_AREA_UUID = "cec42d973dee11f1b51c2273436a3e4e"
 CRLAND_REQUEST_ATTEMPTS = 3
 CRLAND_RETRY_DELAY_SECONDS = 2
 CRLAND_AUTHORIZATION_POOL_SIZE = 3
+CRLAND_TIMEZONE = ZoneInfo("Asia/Shanghai")
+CRLAND_INSPECTION_START = datetime.time(8, 0)
+CRLAND_INSPECTION_END = datetime.time(21, 0)
 SSL_OP_LEGACY_SERVER_CONNECT = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
 
 
@@ -58,6 +62,7 @@ class CrlandVenue:
     booking_areas: tuple[CrlandBookingArea, ...]
     cache_key: str
     dag_id: str
+    inspection_interval_minutes: int
     weekday_wechat_hours: tuple[int, int] = (18, 22)
     weekend_wechat_hours: tuple[int, int] = (16, 22)
 
@@ -83,6 +88,7 @@ CRLAND_VENUES = {
         ),
         cache_key="深圳湾网球场",
         dag_id="深圳湾网球场巡检",
+        inspection_interval_minutes=2,
     ),
     "gba": CrlandVenue(
         venue_id="gba",
@@ -97,10 +103,32 @@ CRLAND_VENUES = {
         ),
         cache_key="大湾区网球场",
         dag_id="大湾区网球场巡检",
+        inspection_interval_minutes=3,
         weekday_wechat_hours=(18, 21),
         weekend_wechat_hours=(12, 21),
     ),
 }
+
+
+class CrlandInspectionWindowClosed(Exception):
+    """The current Shanghai time does not permit a venue inspection request."""
+
+
+def crland_inspection_is_open(now: datetime.datetime | None = None) -> bool:
+    local_now = now if now is not None else datetime.datetime.now(CRLAND_TIMEZONE)
+    local_time = local_now.astimezone(CRLAND_TIMEZONE).time()
+    return CRLAND_INSPECTION_START <= local_time < CRLAND_INSPECTION_END
+
+
+def require_crland_inspection_window() -> None:
+    if not crland_inspection_is_open():
+        raise CrlandInspectionWindowClosed("仅在北京时间08:00–21:00巡检")
+
+
+def publish_crland_idle_status(venue: CrlandVenue, day_offset: int) -> None:
+    print(f"Day {day_offset}: 仅在北京时间08:00–21:00巡检，本轮不查询场地")
+    # Preserve the established off-hours heartbeat and clear stale availability.
+    publish_venue_observation(venue.venue_id, venue.venue_name, [], healthy=True)
 
 
 class CrlandLegacyTlsAdapter(HTTPAdapter):
@@ -291,17 +319,24 @@ def validate_szw_authorization_pool(
 
 def select_crland_authorization(
     *,
+    inspection_interval_minutes: int = 1,
     data_interval_end: datetime.datetime | str | None = None,
     logical_date: datetime.datetime | str | None = None,
     now: float | None = None,
     log_selection: bool = False,
 ) -> str:
-    """Use one account for the same scheduled minute across venues and day tasks.
+    """Rotate once per venue interval, sharing its account across all day tasks.
 
     Airflow injects scheduling context into the Python callable. A delayed task
     or task retry therefore keeps its scheduled round, regardless of wall time.
     Direct calls without Airflow context use one captured wall-clock timestamp.
     """
+    if (
+        isinstance(inspection_interval_minutes, bool)
+        or not isinstance(inspection_interval_minutes, int)
+        or inspection_interval_minutes <= 0
+    ):
+        raise ValueError("华润巡检周期必须是正整数分钟")
     current_time = time.time() if now is None else now
     pool_value = Variable.get("SZW_API_AUTHORIZATIONS", default=None)
     if pool_value is None:
@@ -329,14 +364,14 @@ def select_crland_authorization(
             raise ValueError("华润巡检调度时间格式非法") from None
 
     minute = int(round_timestamp // 60)
-    slot = minute % len(authorizations)
+    slot = (minute // inspection_interval_minutes) % len(authorizations)
     if log_selection:
         minute_utc = datetime.datetime.fromtimestamp(minute * 60, datetime.UTC).isoformat(
             timespec="minutes"
         )
         print(
             f"CRLand authorization: mode=rotation slot={slot + 1}/{len(authorizations)} "
-            f"round_minute_utc={minute_utc}"
+            f"round_minute_utc={minute_utc} interval_minutes={inspection_interval_minutes}"
         )
     return authorizations[slot]
 
@@ -360,6 +395,7 @@ def get_free_tennis_court_infos_for_szw(
     Returns:
         dict: 场地信息，格式为{场地名: [[开始时间, 结束时间], ...]}
     """
+    require_crland_inspection_window()
     szw_authorization = (
         select_crland_authorization()
         if authorization is None
@@ -407,6 +443,8 @@ def get_free_tennis_court_infos_for_szw(
                 request_kwargs["proxies"] = {"https": proxy}
 
             for attempt in range(1, CRLAND_REQUEST_ATTEMPTS + 1):
+                # A retry or the next booking area must not start after 21:00.
+                require_crland_inspection_window()
                 print(f"trying for {proxy}, attempt {attempt}/{CRLAND_REQUEST_ATTEMPTS}")
                 retryable = False
                 try:
@@ -504,16 +542,15 @@ def check_and_notify_for_day(
     if venue is None:
         raise ValueError(f"未知华润场地配置: {venue_key}")
 
-    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(8, 0):
-        print(f"Day {day_offset}: 每天0点-8点不巡检")
-        publish_venue_observation(venue.venue_id, venue.venue_name, [], healthy=True)
+    local_now = datetime.datetime.now(CRLAND_TIMEZONE)
+    if not crland_inspection_is_open(local_now):
+        publish_crland_idle_status(venue, day_offset)
         return
 
     run_start_time = time.time()
-    input_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime(
-        "%Y-%m-%d"
-    )
-    inform_date = (datetime.datetime.now() + datetime.timedelta(days=day_offset)).strftime("%m-%d")
+    booking_date = local_now + datetime.timedelta(days=day_offset)
+    input_date = booking_date.strftime("%Y-%m-%d")
+    inform_date = booking_date.strftime("%m-%d")
     print_with_timestamp(f"Checking tennis courts for {input_date}...")
 
     # 使用可用代理查询空闲的球场信息
@@ -523,6 +560,7 @@ def check_and_notify_for_day(
     booking_error = None
     try:
         authorization = select_crland_authorization(
+            inspection_interval_minutes=venue.inspection_interval_minutes,
             data_interval_end=data_interval_end,
             logical_date=logical_date,
             now=run_start_time,
@@ -566,6 +604,12 @@ def check_and_notify_for_day(
                             "free_slot_list": filtered_slots,
                         }
                     )
+        # A response already in flight may finish after close. Discard that
+        # round instead of publishing partial or newly actionable availability.
+        require_crland_inspection_window()
+    except CrlandInspectionWindowClosed:
+        publish_crland_idle_status(venue, day_offset)
+        return
     except Exception as e:
         print(f"Error checking date {input_date}: {str(e)}")
         webapp_error = str(e)

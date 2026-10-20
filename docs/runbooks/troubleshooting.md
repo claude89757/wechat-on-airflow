@@ -7,6 +7,24 @@ must remain outside `dags/`; do not fix imports by mutating `sys.path`.
 
 ## CRLand Inspection Failure
 
+Start with the owner-only issue 39 commands using the exact deployed full SHA:
+
+```text
+/ops airflow-health <full-sha>
+/ops crland-inspection-diagnose <full-sha>
+```
+
+The health command retains the complete production gate. The diagnosis reads
+only the three most recent completed scheduled runs of each CRLand DAG and
+returns safe task/attempt evidence, including account slots, numeric upstream
+codes, and allowlisted error categories. It makes no venue requests and sends
+no notifications. Check `commit_matches`, `evidence_complete`, and
+`all_recent_runs_successful` separately: a successful collection can contain
+failed runs. `inspection_skipped_count` marks intentional idle observations;
+use `api_success_count` and `rotation_selections` for evidence of actual daytime
+polling and account rotation. See `production-deployment.md` for the acceptance
+procedure.
+
 If the Shenzhen Bay DAG runs quickly or appears successful while Web reports the
 venue as unhealthy, inspect all `day_0` through `day_3` task logs. An
 `UNSAFE_LEGACY_RENEGOTIATION_DISABLED` error means the upstream booking host

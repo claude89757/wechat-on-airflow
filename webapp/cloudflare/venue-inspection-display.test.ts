@@ -13,11 +13,14 @@ describe("venue inspection cadence display", () => {
     expect(formatInspectionCadence("tops")).toBe("1分钟/次");
   });
 
-  it.each(["szw", "gba"])(
-    "shows the one-minute CRLand inspection cadence for %s",
-    (venueId) => {
-      expect(inspectionCadenceSeconds(venueId)).toBe(60);
-      expect(formatInspectionCadence(venueId)).toBe("1分钟/次");
+  it.each([
+    { venueId: "szw", seconds: 120, label: "2分钟/次" },
+    { venueId: "gba", seconds: 180, label: "3分钟/次" },
+  ])(
+    "shows the approved CRLand inspection cadence for $venueId",
+    ({ venueId, seconds, label }) => {
+      expect(inspectionCadenceSeconds(venueId)).toBe(seconds);
+      expect(formatInspectionCadence(venueId)).toBe(label);
     },
   );
 

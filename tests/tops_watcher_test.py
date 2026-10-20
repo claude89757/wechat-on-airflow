@@ -100,6 +100,11 @@ def make_szw_authorization(
 class VenueDomainTest(unittest.TestCase):
     def setUp(self):
         FakeVariable.values = {"SZW_API_AUTHORIZATION": make_szw_authorization(4_102_444_800)}
+        self.inspection_window = patch.object(
+            szw_watcher, "crland_inspection_is_open", return_value=True
+        )
+        self.inspection_window.start()
+        self.addCleanup(self.inspection_window.stop)
 
     def test_proxy_sources_are_isolated(self):
         original_get = https_proxy_watcher.requests.get
@@ -570,19 +575,36 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
             "SZW_API_AUTHORIZATIONS": json.dumps(self.authorizations),
             "SZW_API_AUTHORIZATION": make_szw_authorization(4_102_444_800, account="legacy-test"),
         }
+        self.inspection_window = patch.object(
+            szw_watcher, "crland_inspection_is_open", return_value=True
+        )
+        self.inspection_window.start()
+        self.addCleanup(self.inspection_window.stop)
 
     def tearDown(self):
         FakeVariable.values = {}
 
-    def test_three_consecutive_minutes_rotate_then_repeat(self):
-        selected = [
-            szw_watcher.select_crland_authorization(
-                data_interval_end=self.minute + datetime.timedelta(minutes=offset),
-                now=self.now,
+    def test_each_venue_rotates_all_accounts_at_its_interval_and_nonzero_phase(self):
+        for venue_key, interval in (("szw", 2), ("gba", 3)):
+            self.assertEqual(
+                szw_watcher.CRLAND_VENUES[venue_key].inspection_interval_minutes, interval
             )
-            for offset in range(7)
-        ]
-        self.assertEqual(selected, self.authorizations * 2 + self.authorizations[:1])
+            for phase in (0, 7, 53):
+                with self.subTest(venue=venue_key, phase=phase):
+                    selected = [
+                        szw_watcher.select_crland_authorization(
+                            inspection_interval_minutes=interval,
+                            data_interval_end=self.minute
+                            + datetime.timedelta(minutes=interval * offset, seconds=phase),
+                            now=self.now,
+                        )
+                        for offset in range(7)
+                    ]
+                    first_slot = self.authorizations.index(selected[0])
+                    self.assertEqual(
+                        selected,
+                        [self.authorizations[(first_slot + offset) % 3] for offset in range(7)],
+                    )
 
     def test_pool_normalizes_raw_tokens(self):
         pool = [authorization.removeprefix("Wechat ") for authorization in self.authorizations]
@@ -591,17 +613,22 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
             tuple(self.authorizations),
         )
 
-    def test_airflow_minute_is_stable_for_delayed_execution_and_retries(self):
-        for delay_seconds in (0, 70, 125, 420):
-            with self.subTest(delay_seconds=delay_seconds):
-                self.assertEqual(
-                    szw_watcher.select_crland_authorization(
-                        data_interval_end=self.minute,
-                        logical_date=self.minute - datetime.timedelta(minutes=1),
-                        now=self.now + delay_seconds,
-                    ),
-                    self.authorizations[0],
-                )
+    def test_airflow_round_is_stable_for_delayed_execution_and_retries(self):
+        for interval in (2, 3):
+            expected = szw_watcher.select_crland_authorization(
+                inspection_interval_minutes=interval, data_interval_end=self.minute, now=self.now
+            )
+            for delay_seconds in (0, 70, 125, 420, 1080):
+                with self.subTest(interval=interval, delay_seconds=delay_seconds):
+                    self.assertEqual(
+                        szw_watcher.select_crland_authorization(
+                            inspection_interval_minutes=interval,
+                            data_interval_end=self.minute,
+                            logical_date=self.minute - datetime.timedelta(minutes=interval),
+                            now=self.now + delay_seconds,
+                        ),
+                        expected,
+                    )
 
     def test_logical_date_fallback_and_timezone_equivalence(self):
         for boundary in (
@@ -619,7 +646,7 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
             self.authorizations[1],
         )
 
-    def test_same_scheduled_minute_is_shared_across_venues_dates_and_areas(self):
+    def test_each_venue_shares_its_scheduled_account_across_dates_and_areas(self):
         class NoonDateTime(datetime.datetime):
             @classmethod
             def now(cls, tz=None):
@@ -647,15 +674,23 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
                     szw_watcher.check_and_notify_for_day(
                         day_offset,
                         venue_key=venue_key,
-                        data_interval_end=self.minute,
+                        data_interval_end=self.minute + datetime.timedelta(minutes=4),
                         logical_date=self.minute - datetime.timedelta(minutes=1),
                     )
 
         self.assertEqual(get_courts.call_count, 11)
-        self.assertEqual(
-            {call.kwargs["authorization"] for call in get_courts.call_args_list},
-            {self.authorizations[0]},
-        )
+        for venue_key, calls in (
+            ("szw", get_courts.call_args_list[:8]),
+            ("gba", get_courts.call_args_list[8:]),
+        ):
+            expected = szw_watcher.select_crland_authorization(
+                inspection_interval_minutes=szw_watcher.CRLAND_VENUES[
+                    venue_key
+                ].inspection_interval_minutes,
+                data_interval_end=self.minute + datetime.timedelta(minutes=4),
+                now=self.now,
+            )
+            self.assertEqual({call.kwargs["authorization"] for call in calls}, {expected})
         self.assertEqual(
             {call.args[0] for call in get_courts.call_args_list},
             {"2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"},
@@ -671,11 +706,10 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
         self.assertEqual(publish.call_count, 7)
         send.assert_not_called()
         self.assertEqual(
-            logs.getvalue().count(
-                "CRLand authorization: mode=rotation slot=1/3 "
-                "round_minute_utc=2026-10-19T04:00+00:00"
-            ),
-            7,
+            logs.getvalue().count("round_minute_utc=2026-10-19T04:04+00:00 interval_minutes=2"), 4
+        )
+        self.assertEqual(
+            logs.getvalue().count("round_minute_utc=2026-10-19T04:04+00:00 interval_minutes=3"), 3
         )
         for authorization in self.authorizations:
             self.assertNotIn(authorization, logs.getvalue())
@@ -773,6 +807,13 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "调度时间格式非法"):
             szw_watcher.select_crland_authorization(data_interval_end="invalid", now=self.now)
 
+    def test_invalid_inspection_interval_is_rejected(self):
+        for interval in (0, -1, True, 2.5, "3"):
+            with self.subTest(interval=interval), self.assertRaisesRegex(ValueError, "正整数分钟"):
+                szw_watcher.select_crland_authorization(
+                    inspection_interval_minutes=interval, now=self.now
+                )
+
     def test_retries_keep_one_account_when_request_crosses_minute(self):
         captured_authorizations = []
         clock = [self.now + 59]
@@ -852,6 +893,142 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
             )
         self.assertNotIn(self.authorizations[0], logs.getvalue() + str(raised.exception))
         self.assertNotIn("rotation-test", logs.getvalue() + str(raised.exception))
+
+
+class CrlandInspectionWindowTest(unittest.TestCase):
+    def setUp(self):
+        FakeVariable.values = {"SZW_API_AUTHORIZATION": make_szw_authorization(4_102_444_800)}
+
+    def tearDown(self):
+        FakeVariable.values = {}
+
+    def test_shanghai_window_boundaries_are_independent_of_host_timezone(self):
+        for instant, expected in (
+            ("2026-10-19T23:59:59.999999+00:00", False),
+            ("2026-10-20T00:00:00+00:00", True),
+            ("2026-10-20T12:59:59.999999+00:00", True),
+            ("2026-10-20T13:00:00+00:00", False),
+            ("2026-10-20T20:00:00+00:00", False),
+        ):
+            with self.subTest(instant=instant):
+                self.assertEqual(
+                    szw_watcher.crland_inspection_is_open(datetime.datetime.fromisoformat(instant)),
+                    expected,
+                )
+
+    def test_off_hours_skip_auth_and_queries_and_keep_idle_status(self):
+        for venue_key in ("szw", "gba"):
+            for instant in ("2026-10-19T23:59:59+00:00", "2026-10-20T13:00:00+00:00"):
+                clock = datetime.datetime.fromisoformat(instant)
+
+                class FixedDateTime(datetime.datetime):
+                    @classmethod
+                    def now(cls, tz=None, clock=clock):
+                        return clock.astimezone(tz) if tz else clock.replace(tzinfo=None)
+
+                with (
+                    self.subTest(venue=venue_key, instant=instant),
+                    patch.object(szw_watcher.datetime, "datetime", FixedDateTime),
+                    patch.object(szw_watcher.Variable, "get") as get_variable,
+                    patch.object(szw_watcher.Variable, "set") as set_variable,
+                    patch.object(szw_watcher, "get_free_tennis_court_infos_for_szw") as get_courts,
+                    patch.object(szw_watcher, "publish_venue_observation") as publish,
+                    patch.object(szw_watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+                ):
+                    # Even an in-window scheduled run must not query if delayed past close.
+                    szw_watcher.check_and_notify_for_day(
+                        0, venue_key=venue_key, data_interval_end="2026-10-20T12:58:00+00:00"
+                    )
+                    get_variable.assert_not_called()
+                    set_variable.assert_not_called()
+                    get_courts.assert_not_called()
+                    send.assert_not_called()
+                    venue = szw_watcher.CRLAND_VENUES[venue_key]
+                    publish.assert_called_once_with(
+                        venue.venue_id, venue.venue_name, [], healthy=True
+                    )
+
+    def test_opening_queries_use_the_shanghai_booking_date(self):
+        instant = datetime.datetime(2026, 10, 20, 0, 0, tzinfo=datetime.UTC)
+
+        class OpeningDateTime(datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+        for venue_key, count in (("szw", 2), ("gba", 1)):
+            with (
+                self.subTest(venue=venue_key),
+                patch.object(szw_watcher.datetime, "datetime", OpeningDateTime),
+                patch.object(
+                    szw_watcher, "get_free_tennis_court_infos_for_szw", return_value={}
+                ) as get_courts,
+                patch.object(szw_watcher, "publish_venue_observation") as publish,
+                patch.object(szw_watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+            ):
+                szw_watcher.check_and_notify_for_day(1, venue_key=venue_key)
+                self.assertEqual(get_courts.call_count, count)
+                self.assertEqual(
+                    {call.args[0] for call in get_courts.call_args_list}, {"2026-10-21"}
+                )
+                self.assertTrue(publish.call_args.kwargs["healthy"])
+                send.assert_not_called()
+
+    def test_retry_second_area_and_late_response_stop_at_close(self):
+        for scenario in ("retry", "second_area", "final_response"):
+            clock = [datetime.datetime(2026, 10, 20, 12, 59, 59, tzinfo=datetime.UTC)]
+
+            class ClosingDateTime(datetime.datetime):
+                @classmethod
+                def now(cls, tz=None, clock=clock):
+                    return clock[0].astimezone(tz) if tz else clock[0].replace(tzinfo=None)
+
+            session = unittest.mock.MagicMock()
+            session.__enter__.return_value = session
+
+            def post(*args, clock=clock, scenario=scenario, **kwargs):
+                clock[0] += datetime.timedelta(seconds=2)
+                return types.SimpleNamespace(
+                    status_code=503 if scenario == "retry" else 200,
+                    json=lambda: {
+                        "code": 200,
+                        "result": {
+                            "fieldList": [{"fieldUuid": "court-1", "fieldName": "1号场"}],
+                            "matrix": [{"fieldUuid": "court-1", "matrix": []}],
+                        },
+                    },
+                )
+
+            session.post.side_effect = post
+            venue_key = "gba" if scenario == "final_response" else "szw"
+            with (
+                self.subTest(scenario=scenario),
+                patch.object(szw_watcher.datetime, "datetime", ClosingDateTime),
+                patch.object(szw_watcher, "create_crland_http_session", return_value=session),
+                patch.object(szw_watcher.time, "sleep"),
+                patch.object(szw_watcher.Variable, "set") as set_variable,
+                patch.object(szw_watcher, "publish_venue_observation") as publish,
+                patch.object(szw_watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+            ):
+                szw_watcher.check_and_notify_for_day(0, venue_key=venue_key)
+                session.post.assert_called_once()
+                venue = szw_watcher.CRLAND_VENUES[venue_key]
+                publish.assert_called_once_with(venue.venue_id, venue.venue_name, [], healthy=True)
+                set_variable.assert_not_called()
+                send.assert_not_called()
+
+    def test_direct_api_call_outside_window_reads_no_credentials(self):
+        with (
+            patch.object(szw_watcher, "crland_inspection_is_open", return_value=False),
+            patch.object(szw_watcher.Variable, "get") as get_variable,
+            patch.object(szw_watcher, "create_crland_http_session") as session,
+            self.assertRaises(szw_watcher.CrlandInspectionWindowClosed),
+        ):
+            szw_watcher.get_free_tennis_court_infos_for_szw(
+                "2026-10-20", ["不使用代理"], {"start_time": "09:00", "end_time": "21:00"}
+            )
+        get_variable.assert_not_called()
+        session.assert_not_called()
 
 
 class TopsWatcherTest(unittest.TestCase):

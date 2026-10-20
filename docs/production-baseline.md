@@ -1,5 +1,32 @@
 # Production Baseline
 
+## CRLand Daytime Cadence Baseline On 2026-10-20
+
+The protected Airflow health check at `2026-10-20T04:20:23Z`,
+[run 39287843611, attempt 2, job 118452073965](https://github.com/claude89757/wechat-on-airflow/actions/runs/39287843611/job/118452073965),
+confirmed deployed commit `fc180e806fcb9438fc614a38b1c9d01543303372`
+(release `0.8.4`). Airflow 3.3.0, application services, configuration and DAG
+imports were healthy. Greater Bay Area had three successful natural runs;
+Shenzhen Bay had three failed natural runs. The failure was present before
+this schedule change; this report does not establish an upstream cause.
+
+A repeat protected check at `2026-10-20T04:41:56Z`,
+[attempt 3, job 118457964761](https://github.com/claude89757/wechat-on-airflow/actions/runs/39287843611/job/118457964761),
+confirmed the same deployed commit and the same three-success / three-failure
+split. Shenzhen Bay remained the only recent-run health failure.
+
+The authorized policy change restricts both venues' upstream polling to
+`08:00 <= Asia/Shanghai local time < 21:00`, with Shenzhen Bay every two
+minutes and Greater Bay Area every three minutes. The existing three-account
+pool rotates by each venue's scheduled interval so the three-minute schedule
+cannot repeatedly select one account. No credentials are changed.
+
+Acceptance requires exact-commit CI and protected deployment health, matching
+Web cadence labels, and three natural successful in-window runs for each
+affected venue. Off-hours idle status updates do not prove upstream polling.
+Completion evidence belongs to the new release and post-deployment checks;
+the baseline above records the pre-change Shenzhen Bay failures.
+
 ## CRLand Account Rotation Baseline On 2026-10-19
 
 The pre-change protected Airflow health run

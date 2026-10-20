@@ -10,10 +10,9 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
     source = (ROOT / "webapp/src/venue-inspection-display.ts").read_text()
 
     assert f"DEFAULT_INSPECTION_CADENCE_SECONDS = {policy['default_interval_seconds']}" in source
-    assert "szw:" not in source
-    assert "gba:" not in source
-
     exception_ids = {
+        "深圳湾网球场巡检": "szw",
+        "大湾区网球场巡检": "gba",
         "大沙河免费场巡检": "dsh_free",
         "大沙河国际网球中心巡检": "dsh",
     }
