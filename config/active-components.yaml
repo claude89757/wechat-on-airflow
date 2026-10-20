@@ -96,7 +96,7 @@ active_dags:
 
   - dag_id: 深圳湾网球场巡检
     file: dags/tennis_dags/sz_tennis/szw_watcher.py
-    schedule: every_1_minutes
+    schedule: every_2_minutes
     tasks:
       - check_and_notify_day_0
       - check_and_notify_day_1
@@ -122,7 +122,10 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect and notify combined Shenzhen Bay outdoor and covered-court availability.
+    purpose: >-
+      Detect and notify combined Shenzhen Bay outdoor and covered-court availability.
+      Poll the upstream API every two minutes from 08:00 (inclusive) to
+      21:00 (exclusive), Asia/Shanghai.
     verification:
       - dag_imports
       - recent_runs_succeed
@@ -131,7 +134,7 @@ active_dags:
 
   - dag_id: 大湾区网球场巡检
     file: dags/tennis_dags/sz_tennis/gba_watcher.py
-    schedule: every_1_minutes
+    schedule: every_3_minutes
     tasks:
       - check_and_notify_day_0
       - check_and_notify_day_1
@@ -156,7 +159,11 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect and notify Greater Bay Area tennis availability to the shared Zacks WeChat chatrooms, using weekday 18:00-21:00 and weekend 12:00-21:00 windows.
+    purpose: >-
+      Detect and notify Greater Bay Area tennis availability to the shared Zacks
+      WeChat chatrooms, using weekday 18:00-21:00 and weekend 12:00-21:00 slot windows.
+      Poll the upstream API every three minutes from 08:00 (inclusive) to
+      21:00 (exclusive), Asia/Shanghai.
     verification:
       - dag_imports
       - recent_runs_succeed

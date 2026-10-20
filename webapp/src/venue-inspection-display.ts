@@ -1,6 +1,8 @@
 export const DEFAULT_INSPECTION_CADENCE_SECONDS = 60;
 
 const INSPECTION_CADENCE_SECONDS: Readonly<Record<string, number>> = {
+  szw: 120,
+  gba: 180,
   dsh_free: 15,
   dsh: 120,
 };

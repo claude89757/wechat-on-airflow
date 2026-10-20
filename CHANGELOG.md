@@ -3,6 +3,30 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [0.8.5] - 2026-10-20
+
+### Changed
+
+- Poll Shenzhen Bay every two minutes and Greater Bay Area every three
+  minutes, only from 08:00 inclusive to 21:00 exclusive in Asia/Shanghai.
+  Keep the interval schedules and internal healthy empty observations outside
+  that window to refresh status and clear stale availability.
+- Rotate the three shared CRLand accounts independently by each venue's
+  scheduled round. Each account recurs every six minutes for Shenzhen Bay
+  and every nine minutes for Greater Bay Area during uninterrupted polling.
+  Preserve the selected account across date tasks, booking areas and retries.
+- Check the active window before each upstream attempt and final publication;
+  discard partial results and publish one idle empty observation when the
+  window closes, without attempting reminders from that round.
+- Align the Web cadence labels and documented policy while preserving DAG/task
+  identities, date coverage, booking areas and notification eligibility rules.
+
+### Operations
+
+- Verify three successful natural polling rounds inside the active window for
+  each venue, including account rotation, after exact-commit Airflow and Web
+  deployment. Off-hours no-query successes do not replace polling evidence.
+
 ## [0.8.4] - 2026-10-19
 
 ### Changed

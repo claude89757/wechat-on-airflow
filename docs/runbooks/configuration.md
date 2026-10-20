@@ -51,20 +51,37 @@ during the pool deployment. Logs contain only fixed error categories, account
 indices, and confirmation counts, never token claims, response bodies, or
 credential values. A transport timeout has an uncertain completion state and
 requires checking the protected result before claiming success. Verify three
-subsequent natural cycles for both venue DAGs; do not trigger synthetic email
-or WeChat notifications.
+subsequent natural polling cycles within the active window for both venue
+DAGs; do not trigger synthetic email or WeChat notifications.
 
-Both venue DAGs run every minute, rotating through the three accounts so each
-account is selected approximately every three minutes. Selection uses the UTC
-minute of the Airflow data interval end (logical date when unavailable), so
-both venues and every day task share the same account for a scheduled minute.
-The selected account stays fixed across all areas and request retries within
-the task; expiry is checked against actual execution time. The legacy single
-Variable is a compatibility fallback only when the pool is absent. An invalid,
-incomplete, duplicate-account, or expired configured pool fails closed instead
-of silently concentrating requests on one account. Credential renewal uses
-the protected sync operation and does not require a runtime code deployment
-after the pool-capable release is installed.
+### Polling window and account rotation
+
+Shenzhen Bay uses a two-minute interval and Greater Bay Area a three-minute
+interval. Routine CRLand queries run only from 08:00 inclusive to 21:00
+exclusive in Asia/Shanghai. Booking dates and window checks use that timezone
+independently of the host timezone. Airflow retains the interval schedules
+outside this window: an intentional-idle round publishes an internal healthy
+empty observation to clear stale availability and refresh status, without
+querying CRLand or attempting reminders. Check actual local time at task entry,
+before each upstream attempt, and before final publication. If the window
+closes during collection, discard partial results and publish the idle empty
+observation once.
+
+Each venue rotates through the same three-account pool by its own scheduled
+round. Selection is `floor(scheduled_timestamp / (interval_minutes * 60)) % 3`,
+using the Airflow data interval end, then logical date when unavailable, then
+captured actual time for a direct call. It uses no mutable counter or daily
+reset. During uninterrupted polling, each account is selected every six
+minutes for Shenzhen Bay and every nine minutes for Greater Bay Area. Every
+date task in the same venue round selects the same account; it stays fixed
+across booking areas and request retries. Expiry is checked against actual
+execution time.
+
+The legacy single Variable is a compatibility fallback only when the pool is
+absent. An invalid, incomplete, duplicate-account, or expired configured pool
+fails closed instead of silently concentrating requests on one account.
+Credential renewal uses the protected sync operation and does not require a
+runtime code deployment after the pool-capable release is installed.
 
 The Greater Bay Area API permits today plus the next two calendar days. Its DAG
 therefore runs `day_0` through `day_2`; longer-lived Web subscriptions continue

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -16,6 +17,8 @@ import check_active_components  # noqa: E402
 MANIFEST_PATH = ROOT / "config" / "active-components.yaml"
 POLICY_PATH = ROOT / "config" / "venue-schedule-policy.yaml"
 EXPECTED_EXCEPTIONS = {
+    "深圳湾网球场巡检": "every_2_minutes",
+    "大湾区网球场巡检": "every_3_minutes",
     "大沙河免费场巡检": "every_15_seconds",
     "大沙河国际网球中心巡检": "every_2_minutes",
 }
@@ -29,19 +32,24 @@ def load_mapping(path: Path) -> dict[str, Any]:
 
 
 class VenueSchedulePolicyTest(TestCase):
-    def test_crland_venues_use_one_minute_and_preserve_task_identity(self) -> None:
+    def test_crland_venues_use_approved_intervals_and_preserve_task_identity(self) -> None:
         manifest = load_mapping(MANIFEST_PATH)
         policy = load_mapping(POLICY_PATH)
-        for dag_id, filename, day_count in (
-            ("深圳湾网球场巡检", "szw_watcher.py", 4),
-            ("大湾区网球场巡检", "gba_watcher.py", 3),
+        for dag_id, filename, day_count, interval_minutes in (
+            ("深圳湾网球场巡检", "szw_watcher.py", 4, 2),
+            ("大湾区网球场巡检", "gba_watcher.py", 3, 3),
         ):
             with self.subTest(dag_id=dag_id):
                 component = next(
                     item for item in manifest["active_dags"] if item["dag_id"] == dag_id
                 )
-                self.assertNotIn(dag_id, policy["exceptions"])
-                self.assertEqual(component["schedule"], "every_1_minutes")
+                expected_schedule = f"every_{interval_minutes}_minutes"
+                self.assertIn(dag_id, policy["exceptions"])
+                self.assertEqual(policy["exceptions"][dag_id]["schedule"], expected_schedule)
+                self.assertEqual(
+                    policy["exceptions"][dag_id]["interval_seconds"], interval_minutes * 60
+                )
+                self.assertEqual(component["schedule"], expected_schedule)
                 self.assertEqual(component["file"], f"dags/tennis_dags/sz_tennis/{filename}")
                 self.assertEqual(
                     component["tasks"],
@@ -49,8 +57,20 @@ class VenueSchedulePolicyTest(TestCase):
                 )
                 self.assertEqual(
                     check_active_components.dag_schedule_contract(ROOT / component["file"]),
-                    "every_1_minutes",
+                    expected_schedule,
                 )
+                tree = ast.parse((ROOT / component["file"]).read_text(encoding="utf-8"))
+                dag_call = next(
+                    node
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "DAG"
+                )
+                self.assertEqual(ast.literal_eval(dag_call.args[0]), dag_id)
+                dag_kwargs = {keyword.arg: keyword.value for keyword in dag_call.keywords}
+                self.assertEqual(ast.literal_eval(dag_kwargs["max_active_runs"]), 1)
+                self.assertIs(ast.literal_eval(dag_kwargs["catchup"]), False)
 
     def test_active_venue_dags_follow_the_one_minute_default(self) -> None:
         manifest = load_mapping(MANIFEST_PATH)

@@ -76,11 +76,18 @@ redundant matching but not freshness updates. Subscription generations cause
 newly created subscriptions to be matched on the next natural poll even when
 availability has not changed. Event/subscription/channel uniqueness prevents
 repeated queue creation. Venue IDs, DAG IDs and task IDs remain stable.
-Approved schedules are recorded in the schedule policy: Shenzhen Bay and
-Greater Bay Area poll every minute. Following the 2026-10-19 update, both
-venues select the same one of three CRLand accounts for each scheduled minute;
-every date and booking-area query in that round keeps the selected account.
-The one-minute default and other explicit exceptions remain in force.
+Approved schedules are recorded in the schedule policy. Following the
+2026-10-20 update, Shenzhen Bay polls every two minutes and Greater Bay Area
+every three minutes, only from 08:00 inclusive to 21:00 exclusive in
+Asia/Shanghai. Their interval schedules continue outside that window, but
+intentional-idle rounds publish only an internal healthy empty observation to
+refresh status and clear stale availability, without querying CRLand or
+attempting reminders. Both venues share three CRLand accounts and rotate
+independently by their own scheduled round; every date and booking-area query
+in a venue round keeps the selected account. Actual local time is checked
+before each upstream attempt and final publication, so closing the window
+discards partial results and publishes the idle observation. The one-minute
+default and other explicit exceptions remain in force.
 
 ## Email delivery
 

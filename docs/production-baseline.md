@@ -1,5 +1,27 @@
 # Production Baseline
 
+## CRLand Daytime Cadence Baseline On 2026-10-20
+
+The protected Airflow health check at `2026-10-20T04:20:23Z`,
+[run 39287843611, attempt 2, job 118452073965](https://github.com/claude89757/wechat-on-airflow/actions/runs/39287843611/job/118452073965),
+confirmed deployed commit `fc180e806fcb9438fc614a38b1c9d01543303372`
+(release `0.8.4`). Airflow 3.3.0, application services, configuration and DAG
+imports were healthy. Greater Bay Area had three successful natural runs;
+Shenzhen Bay had three failed natural runs. The failure was present before
+this schedule change; this report does not establish an upstream cause.
+
+The authorized policy change restricts both venues' upstream polling to
+`08:00 <= Asia/Shanghai local time < 21:00`, with Shenzhen Bay every two
+minutes and Greater Bay Area every three minutes. The existing three-account
+pool rotates by each venue's scheduled interval so the three-minute schedule
+cannot repeatedly select one account. No credentials are changed.
+
+Acceptance requires exact-commit CI and protected deployment health, matching
+Web cadence labels, and three natural successful in-window runs for each
+affected venue. Off-hours idle status updates do not prove upstream polling.
+Completion evidence belongs to the new release and post-deployment checks;
+the baseline above records the pre-change Shenzhen Bay failures.
+
 ## CRLand Account Rotation Baseline On 2026-10-19
 
 The pre-change protected Airflow health run
@@ -261,116 +283,7 @@ and gives Shenzhen Bay, Greater Bay Area, and Dashah free-court DAG runs a
 fallback outbox.
 
 CI run `32145838468` passed. Sender apply left systemd enabled, active, and
-ready. Airflow apply restored DAG pause state, drained active tasks, preserved
-the WeChat outbox, and left six application containers healthy on image
-`wechat-on-airflow:3.3.0-f57e5b1`.
-
-A protected probe with `--target-membership dsh_free:1` sent one acceptance
-message in 51.6 seconds via `recent_visual` at `2026-08-18T14:14:35Z` and did
-not target other chats. The longer elapsed time followed the sender restart
-and does not indicate a failed send.
-
-The outbox still held 200 historical records. The newest failure remained
-`device_busy` at `2026-08-18T12:32:12Z`. After this deploy, no new WeChat
-fallback records accumulated through the observation window, including the
-probe. Those 200 records remain incident evidence and were not replayed.
-
-Post-deploy `make production-health` passed with ten unpaused DAGs, zero import
-errors, matching local HEAD, and three consecutive successful proxy runs at
-14:15, 14:20, and 14:25 UTC. Venue DAGs including `大沙河免费场巡检`,
-`大湾区网球场巡检`, and `深圳湾网球场巡检` also completed three natural
-post-deploy successes. The 21:00-22:00 Greater Bay Area exclusion is covered
-by unit tests; this deploy landed after the weekday WeChat window, so that
-filter was not observed on a live evening slot.
-
-Rollback remains the previous exact commits without replacing the Airflow 3
-database: Airflow and sender
-`7532025478085fd2026176cdfa7a9edfbf7ef48b` with image
-`wechat-on-airflow:3.3.0-7532025`. Free disk stayed just under the 8 GB
-fresh-start floor; incremental application deploys still succeeded.
-
-## WeChat Reliability And Venue Routing On 2026-08-18
-
-Observation and health evidence below were collected on
-`a8380efdd5d82da47e2f56fb30ccac8f1d759335` for both Airflow and the
-Android-host WeChat sender. The runtime change landed in
-`548600daf7d11295bc92f3dec28e9bfe101b3d63`; the two follow-up commits only
-allowed the protected probe to select `dsh_free:N` and satisfied `ruff format`.
-A later documentation-only commit may share this runtime while keeping Git HEAD
-aligned with production.
-
-The sender now reuses a warm Appium session and honors an idempotency key so a
-late HTTP timeout cannot double-send. Greater Bay Area WeChat uses the same
-Zacks chatrooms as Shenzhen Bay, with weekday 18:00-22:00 and weekend
-12:00-22:00 windows. Dashah River free-court WeChat is limited to
-`Zacks_大沙河限定免费`. The first successful inspection created the empty
-`大沙河免费场` dedupe Variable; its value was not copied to a workstation.
-
-A protected probe with `--target-membership dsh_free:1` sent one acceptance
-message in 27.9 seconds via `recent_visual` and did not target other chats.
-CI run `32140297139` passed. Airflow apply restored DAG pause state, drained
-active tasks, preserved the WeChat outbox, and left six application containers
-healthy. Sender systemd remained enabled, active, and ready.
-
-The pre-change outbox still held 200 historical records. The newest failure was
-`device_busy` at `2026-08-18T12:32:12Z`, caused by concurrent venue DAGs waiting
-on the single device lock. After this deploy, no new WeChat fallback records
-accumulated through the observation window. Those 200 records remain incident
-evidence and were not replayed.
-
-Post-deploy `make production-health` passed with ten unpaused DAGs, zero import
-errors, matching local HEAD, and three consecutive successful proxy runs at
-13:15, 13:20, and 13:25 UTC. Venue DAGs including `大沙河免费场巡检` and
-`大湾区网球场巡检` also completed three natural post-deploy successes. One
-earlier health attempt failed only because the Cloudflare Tunnel public UI probe
-returned no status while origin and public health stayed HTTP 200; a later check
-and a workstation request both saw UI HTTP 200.
-
-Rollback remains the previous exact commits without replacing the Airflow 3
-database: Airflow `892872b5c6a18fd3556b568f67e892115061f5c4` with image
-`wechat-on-airflow:3.3.0-892872b`, and the sender `abdcaa7083d6ba742fb85c73eee483b30dbb5a19`.
-The identity-align deploy can also roll back to
-`548600daf7d11295bc92f3dec28e9bfe101b3d63` / `wechat-on-airflow:3.3.0-548600d`.
-
-## Dashah Free-Court And Email Quota Release On 2026-08-16
-
-Commit `ea97edf8589b4fae8d2e19385c943d4665fa07eb` added the NSWTT-backed
-`大沙河免费场巡检` DAG and the `dsh_free` Web venue. The watcher requires both an
-open calendar date and a non-empty free-court place list before publishing
-zero-price slots. A date with no free-court place list is a healthy empty
-observation and cannot create subscriber email.
-
-The bounded `NSWTT_API_CONFIG` value is stored in the protected GitHub
-`production` Environment and synchronized to its Airflow Variable without
-copying the value to a workstation or repository. D1 migration
-`0003_add_dashahe_free_venue.sql` was applied, and Cloudflare Worker version
-`03624477-a6ca-4065-9efb-781cf7abb27c` was published. The public health endpoint
-returned healthy and bootstrap exposed all seven configured venues.
-
-The verification-code incident was traced to one venue email per raw slot.
-That behavior exhausted the Tencent SES per-recipient and daily quotas shared
-with verification mail. The Worker now groups a recipient's pending venue rows
-into one compact email, merges adjacent intervals, counts deliveries by
-provider message ID, and caps venue-notification sends at 1,000 per day so
-verification capacity remains available.
-
-After the Shanghai midnight quota boundary, D1 recorded one frequency-limit
-failure at `00:00:22`, followed by 33 successful provider deliveries with no
-pending or retry rows. This confirms the shared delivery channel recovered
-without an outbox backlog; verification delivery itself was not invoked during
-acceptance.
-
-Airflow deployed the exact implementation commit with all application
-containers healthy and the notification outbox preserved. The new DAG was
-activated through the protected scheduling operation and completed three
-natural 30-second runs successfully; the following full production health
-check passed with ten unpaused DAGs and zero import errors. Acceptance used
-read-only provider and application checks and did not send a real email or
-WeChat message.
-
-The activation exposed a false-negative in the scheduling operation: it
-compared eight unique running Compose service names with nine container
-instances because the scheduler has two replicas. The operation now validates
+ready. Airflow ap…1666 tokens truncated…eplicas. The operation now validates
 the required service-name set from `runtime-target.yaml` and treats the
 verified final DAG state as authoritative for idempotent completion.
 

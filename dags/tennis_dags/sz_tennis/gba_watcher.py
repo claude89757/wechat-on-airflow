@@ -20,8 +20,8 @@ DEFAULT_ARGS = {
 dag = DAG(
     "大湾区网球场巡检",
     default_args=DEFAULT_ARGS,
-    description="大湾区网球场巡检（并行多天）",
-    schedule=timedelta(minutes=1),
+    description="大湾区网球场巡检（北京时间08:00-21:00，每3分钟，并行多天）",
+    schedule=timedelta(minutes=3),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
