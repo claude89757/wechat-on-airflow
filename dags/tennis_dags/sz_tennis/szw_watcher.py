@@ -20,7 +20,7 @@ DEFAULT_ARGS = {
 dag = DAG(
     "深圳湾网球场巡检",
     default_args=DEFAULT_ARGS,
-    description="深圳湾网球场巡检（北京时间08:00-21:00，每2分钟，并行多天）",
+    description="深圳湾网球场巡检（北京时间08:00-21:00，每2分钟，今天及随后两天）",
     schedule=timedelta(minutes=2),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
@@ -28,7 +28,8 @@ dag = DAG(
     tags=["深圳"],
 )
 
-for day_offset in range(4):
+# User-approved inspection coverage: today and the next two calendar days.
+for day_offset in range(3):
     PythonOperator(
         task_id=f"check_and_notify_day_{day_offset}",
         python_callable=check_and_notify_for_day,

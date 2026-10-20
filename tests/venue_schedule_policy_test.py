@@ -32,11 +32,11 @@ def load_mapping(path: Path) -> dict[str, Any]:
 
 
 class VenueSchedulePolicyTest(TestCase):
-    def test_crland_venues_use_approved_intervals_and_preserve_task_identity(self) -> None:
+    def test_crland_venues_use_approved_intervals_and_three_day_coverage(self) -> None:
         manifest = load_mapping(MANIFEST_PATH)
         policy = load_mapping(POLICY_PATH)
         for dag_id, filename, day_count, interval_minutes in (
-            ("深圳湾网球场巡检", "szw_watcher.py", 4, 2),
+            ("深圳湾网球场巡检", "szw_watcher.py", 3, 2),
             ("大湾区网球场巡检", "gba_watcher.py", 3, 3),
         ):
             with self.subTest(dag_id=dag_id):

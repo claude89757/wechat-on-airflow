@@ -1,5 +1,56 @@
 # Production Baseline
 
+## Shenzhen Bay Three-Day Coverage Authorization On 2026-10-20
+
+The daytime cadence update was applied to Web and Airflow at commit
+`1a8bd9815e3c82cca4701efd7066bd4b40577ab4` by
+[run 39374041918](https://github.com/claude89757/wechat-on-airflow/actions/runs/39374041918).
+The post-deployment
+[diagnosis at 05:31:41 UTC](https://github.com/claude89757/wechat-on-airflow/actions/runs/39375337261/job/118472119235)
+confirmed matching host/runtime identity and three natural rounds per venue.
+Shenzhen Bay intervals were 120 seconds and Greater Bay Area intervals were
+180 seconds; each rotated account slots 1, 2, and 3. Shenzhen Bay's `day_0`
+through `day_2` each made two successful area queries in every round, while
+`day_3` failed with HTTP 200 and API business code 2000 for all three accounts.
+Greater Bay Area's three date tasks succeeded in all three rounds. The
+independent Airflow health gate failed only on Shenzhen Bay's recent runs;
+the applied code was not automatically rolled back and 0.8.5 remained untagged.
+
+A fresh protected
+[health check at 11:06:15 UTC](https://github.com/claude89757/wechat-on-airflow/actions/runs/39412385790/job/118593106721)
+reconfirmed the same deployed commit before this repair. All 12 services,
+imports, DAG registration/pause states and required configuration were healthy.
+The only health issue remained Shenzhen Bay's three failed recent runs;
+Greater Bay Area's three recent runs were successful. This snapshot confirms
+the failure state, without adding task-level evidence or an upstream cause.
+
+At 18:49 Asia/Shanghai, the user explicitly requested removal of Shenzhen
+Bay's fourth-day inspection and production deployment. The new approved
+coverage is today and the next two calendar days. Retain the existing DAG
+and `day_0` through `day_2` task IDs, the 08:00–21:00 window, two-minute
+interval, three-account rotation and both booking areas. Retire `day_3` from
+the DAG, active manifest and bounded diagnostic task set. This policy change
+does not establish the upstream meaning of business code 2000.
+
+Do not delete or rewrite historical task/run records. An immediate deployment
+health check can still see failed old runs. Acceptance requires the new exact
+commit, three new successful natural daytime rounds per venue after the
+deployment cutoff, actual API successes and all three account slots, plus an
+independent passing Airflow health check. Only then complete the pending
+0.8.5 release tag. New production completion evidence belongs to the follow-up
+pull request and protected runs, not to the older failing baseline above.
+
+The retired task's Host Core observation key is
+`szw:check_and_notify_day_3` if it has previously been published. There is no
+automatic scope-retirement path in the current Host Core. Its full business
+acceptance checks every stored scope, so this historical scope can remain
+unhealthy/stale even after the active Airflow tasks recover. This component
+release does not delete business records, fabricate scope heartbeats, or
+claim full Host Core business acceptance. A future Host Core release must
+handle retired scopes explicitly while retaining history. Failed observations
+clear their availability, and both delivery paths independently reject stale
+observations.
+
 ## CRLand Daytime Cadence Baseline On 2026-10-20
 
 The protected Airflow health check at `2026-10-20T04:20:23Z`,

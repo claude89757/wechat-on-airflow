@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-30
-- Updated: 2026-10-20 (CRLand daytime polling with two- and three-minute intervals)
+- Updated: 2026-10-20 (CRLand daytime polling and Shenzhen Bay three-day coverage)
 
 ## Context
 
@@ -21,6 +21,9 @@ CRLand pool was introduced on 2026-10-19, the user approved lower polling
 frequency and a daily active window on 2026-10-20: Shenzhen Bay every two
 minutes and Greater Bay Area every three minutes, from 08:00 inclusive to
 21:00 exclusive in Asia/Shanghai.
+Later the same day, the user explicitly requested removal of Shenzhen Bay's
+fourth-day inspection. Its approved coverage is now today and the next two
+calendar days; this is a product policy, not an inferred upstream API limit.
 
 ## Decision
 
@@ -50,10 +53,11 @@ minutes and Greater Bay Area every three minutes, from 08:00 inclusive to
 
 Deploy the DAG schedules, watcher window guard, and Web cadence labels through
 the protected exact-commit Airflow and Web release workflows. Preserve
-`深圳湾网球场巡检` with its four `check_and_notify_day_*` task IDs,
-`大湾区网球场巡检` with its three date tasks, `max_active_runs=1`, and
-`catchup=False`. Keep existing history, date coverage, booking areas, and
-notification rules.
+`深圳湾网球场巡检` and `大湾区网球场巡检`, each with the existing
+`check_and_notify_day_0` through `check_and_notify_day_2` task IDs,
+`max_active_runs=1`, and `catchup=False`. Retire Shenzhen Bay's
+`check_and_notify_day_3` from the DAG, active manifest and bounded diagnosis.
+Keep historical runs and failures, booking areas, and notification rules.
 
 Rotate the three shared accounts independently by each venue's scheduled
 round: `floor(scheduled_timestamp / (interval_minutes * 60)) % 3`. This
@@ -75,8 +79,8 @@ manifest, policy, rotation interval, and Web labels together.
 - New venue integrations fail CI when they copy a sub-minute or otherwise
   non-default cadence without an explicit reviewed exception.
 - Shenzhen Bay and Greater Bay Area make venue queries less frequently and
-  only during the active window. Their four-day and three-day query coverage
-  and notification eligibility rules are unchanged.
+  only during the active window. Both inspect today and the next two calendar
+  days; notification eligibility rules are unchanged.
 - Dashah River free-court polling remains at four checks per minute to reduce
   latency for rapidly released inventory; Dashah International remains at one
   check every two minutes while staying serialized.

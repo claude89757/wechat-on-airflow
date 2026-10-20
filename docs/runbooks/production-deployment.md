@@ -98,9 +98,10 @@ the required natural cycles have completed.
 
 `crland-inspection-diagnose` reads the three most recent completed scheduled
 runs of the fixed Shenzhen Bay and Greater Bay Area DAGs, including their
-four and three date tasks. It checks both the host Git commit and the Airflow
-container's runtime commit. Output contains run/task states, bounded attempt
-evidence, safe account slots and scheduled rounds, numeric upstream status
+three date tasks each (`day_0` through `day_2`). It checks both the host Git
+commit and the Airflow container's runtime commit. Output contains run/task
+states, bounded attempt evidence, safe account slots and scheduled rounds,
+numeric upstream status
 codes, and allowlisted error categories. It does not return raw logs, tokens,
 account identities, or arbitrary caller-selected paths.
 
@@ -113,6 +114,12 @@ and `inspection_skipped_count` to distinguish actual queries during the
 08:00–21:00 Asia/Shanghai polling window from intentional off-hours heartbeats.
 Require the declared natural cycles and a passing independent health check
 before recording production acceptance.
+
+Retiring a date task does not rewrite failed historical DAG runs. After the
+Shenzhen Bay fourth-day task removal, exclude deployment-transition runs and
+require three new natural successful rounds after the deployment cutoff.
+An immediate health check can still report old failures while these rounds
+are accumulating; preserve that evidence instead of changing task/run states.
 
 ## Component Deployment Order
 
@@ -134,11 +141,14 @@ only application services, and retains PostgreSQL, Redis, log, and other
 stateful volumes. It batches pause-state changes through the supported
 Airflow CLI.
 
-Deployment and full production health are one transaction. If new containers
-start but any complete health check fails, the workflow restores the prior
-commit, image configuration, and DAG pause state, verifies the restored version,
-and fails the attempted release. Deployment failure and restore failure are
-reported separately.
+Deployment and full production health are reported together. A failing health
+check fails the attempted release even when `deployment.remote.applied=true`.
+The current transaction does not automatically restore the previous image;
+inspect the explicit `automatic_restore` result and deployed identity before
+selecting recovery. For a successful application switch with only old failed
+run history, wait for the required new natural cycles and recheck health
+without applying the same release again. A full Host Core ship additionally
+uses its documented delivery-pause and roll-forward lifecycle.
 
 The health gate checks, among other contracts:
 
