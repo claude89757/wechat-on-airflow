@@ -27,6 +27,10 @@ and operational changes.
   and bounded CRLand inspection evidence. Report scheduled runs, task states,
   account rotation slots and allowlisted error codes without exporting raw
   logs, credentials or recipient data.
+- Read dated scheduled-run metadata in the existing index order and retain
+  strict read-only transaction and timeout limits. Classify collection errors
+  using fixed stages, exception types and SQLSTATE values without exposing
+  database queries, parameters or exception text.
 - Verify three successful natural polling rounds inside the active window for
   each venue, including account rotation, after exact-commit Airflow and Web
   deployment. Off-hours no-query successes do not replace polling evidence.

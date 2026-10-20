@@ -15,6 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import Column, DateTime, Integer, String, create_engine, event, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, declarative_base, scoped_session, sessionmaker
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -178,6 +179,119 @@ def test_only_last_three_completed_scheduled_runs_and_fixed_tasks_are_read(metad
         assert all(len(row["tasks"]) == probe.DAGS[dag["venue_id"]][1] for row in dag["runs"])
     assert not any(private in json.dumps(report) for private in PRIVATE_VALUES)
     assert "run_id" not in json.dumps(report)
+
+
+def test_scheduled_runs_excludes_null_dates_even_with_fewer_than_three_runs(metadata):
+    dag_id = probe.DAGS["szw"][0]
+    metadata.query(DagRun).filter(DagRun.dag_id == dag_id).delete()
+    for run_type, state, logical_date in (
+        ("scheduled", "success", None),
+        ("scheduled", "failed", None),
+        ("manual", "success", NOW + timedelta(days=1)),
+        ("scheduled", "running", NOW + timedelta(minutes=1)),
+        ("scheduled", "failed", NOW - timedelta(minutes=2)),
+        ("scheduled", "success", NOW),
+    ):
+        metadata.add(
+            DagRun(dag_id=dag_id, run_type=run_type, state=state, logical_date=logical_date)
+        )
+    metadata.commit()
+    statements = []
+    event.listen(
+        metadata.bind, "before_cursor_execute", lambda _c, _s, sql, *_args: statements.append(sql)
+    )
+    rows = probe.scheduled_runs(metadata, DagRun, dag_id)
+    assert [probe.safe_timestamp(row.logical_date) for row in rows] == [
+        NOW.isoformat(),
+        (NOW - timedelta(minutes=2)).isoformat(),
+    ]
+    assert [row.state for row in rows] == ["success", "failed"]
+    assert len(statements) == 1
+    assert "dag_run.logical_date IS NOT NULL" in statements[0]
+    assert "NULLS LAST" not in statements[0]
+
+
+@pytest.mark.parametrize("stage", ["query_runs", "query_tasks"])
+def test_metadata_failures_report_only_safe_stage_type_and_driver_classification(metadata, stage):
+    driver = SimpleNamespace(
+        pgcode="57014",
+        diag=SimpleNamespace(message_primary="canceling statement due to statement timeout"),
+    )
+    failure = OperationalError(f"SELECT {CANARY}", {"authorization": CANARY}, driver)
+
+    class FailingSession:
+        failed = False
+
+        def query(self, model):
+            if not self.failed and model is (DagRun if stage == "query_runs" else TaskInstance):
+                self.failed = True
+                raise failure
+            return metadata.query(model)
+
+    dags = probe.collect_dags(FailingSession(), DagRun, TaskInstance, SyntheticReader())
+    report = probe.sanitize_report(report_for(dags), COMMIT)
+    assert report["ok"] is False
+    assert report["dags"][0]["metadata_error"] == {
+        "stage": stage,
+        "exception_type": "OperationalError",
+        "sqlstate": "57014",
+        "metadata_error_kind": "statement_timeout",
+    }
+    assert report["dags"][1]["metadata_error"] is None
+    assert len(report["dags"][1]["runs"]) == 3
+    assert "metadata_read_failed" in report["missing_evidence"]
+    assert not any(private in json.dumps(report) for private in PRIVATE_VALUES)
+
+
+@pytest.mark.parametrize(
+    "sqlstate,message,expected",
+    [
+        ("57014", "canceling statement due to statement timeout", "statement_timeout"),
+        ("57014", "canceling statement due to user request", "query_canceled"),
+        ("57014", "canceling statement due to statement timeout " + CANARY, "query_canceled"),
+        ("57014", CANARY, "query_canceled"),
+        ("25006", "canceling statement due to statement timeout", "unknown"),
+        (CANARY, CANARY, "unknown"),
+    ],
+)
+def test_metadata_timeout_needs_exact_driver_code_and_message_template(sqlstate, message, expected):
+    error = OperationalError(
+        CANARY,
+        {"token": CANARY},
+        SimpleNamespace(sqlstate=sqlstate, diag=SimpleNamespace(message_primary=message)),
+    )
+    result = probe.classify_metadata_error(error, "query_runs")
+    assert result["metadata_error_kind"] == expected
+    assert result["sqlstate"] == (sqlstate if sqlstate in probe.METADATA_SQLSTATES else None)
+    assert CANARY not in json.dumps(result)
+
+
+@pytest.mark.parametrize("stage", ["query_runs", CANARY, [CANARY]])
+def test_metadata_error_remote_fields_use_closed_allowlists_and_cannot_mark_complete(
+    complete_report, stage
+):
+    complete_report["dags"][0]["metadata_error"] = {
+        "stage": stage,
+        "exception_type": CANARY,
+        "sqlstate": "ABCDE",  # Shape alone does not authorize an arbitrary five-character value.
+        "metadata_error_kind": CANARY,
+        "message": CANARY,
+        "params": PRIVATE_VALUES,
+    }
+    result = probe.sanitize_report(complete_report, COMMIT)
+    assert result["ok"] is False
+    assert "metadata_read_failed" in result["missing_evidence"]
+    error = result["dags"][0]["metadata_error"]
+    if stage == "query_runs":
+        assert error == {
+            "stage": "query_runs",
+            "exception_type": "OtherError",
+            "sqlstate": None,
+            "metadata_error_kind": "unknown",
+        }
+    else:
+        assert error is None
+    assert not any(private in json.dumps(result) for private in PRIVATE_VALUES)
 
 
 @pytest.mark.parametrize("interval", [None, 1, 2, 3])
