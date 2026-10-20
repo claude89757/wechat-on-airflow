@@ -101,7 +101,9 @@ test.describe("mobile v2 presentation", () => {
     expect(await venueButtons.count()).toBeGreaterThan(1);
     for (let index = 0; index < Math.min(await venueButtons.count(), 4); index += 1) {
       const buttonBox = await venueButtons.nth(index).boundingBox();
-      expect(buttonBox?.height ?? 0).toBeGreaterThanOrEqual(46);
+      // Chromium fractional geometry can land just below the CSS pixel boundary.
+      const height = Number((buttonBox?.height ?? 0).toFixed(3));
+      expect(height).toBeGreaterThanOrEqual(46);
     }
 
     const dayButtons = page.locator(".day-choices button");

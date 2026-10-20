@@ -118,6 +118,7 @@ def main() -> None:
     allowed = {
         "airflow": {
             "health",
+            "crland_inspection_diagnose",
             "deploy_preflight",
             "deploy_apply",
             "deploy_recovery",

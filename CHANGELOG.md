@@ -23,6 +23,10 @@ and operational changes.
 
 ### Operations
 
+- Add owner-only protected read-only commands for exact-commit Airflow health
+  and bounded CRLand inspection evidence. Report scheduled runs, task states,
+  account rotation slots and allowlisted error codes without exporting raw
+  logs, credentials or recipient data.
 - Verify three successful natural polling rounds inside the active window for
   each venue, including account rotation, after exact-commit Airflow and Web
   deployment. Off-hours no-query successes do not replace polling evidence.

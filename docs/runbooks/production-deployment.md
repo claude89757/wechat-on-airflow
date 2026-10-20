@@ -75,6 +75,45 @@ The production release gate is the only CI waiter. It fails immediately for an
 older target with no CI record, polls only an existing queued or in-progress
 check, and rejects unsuccessful checks. ChatOps must not duplicate that wait.
 
+## Read-only Airflow Acceptance
+
+The repository owner can request independent checks on issue 39 after a
+deployment or during incident diagnosis:
+
+```text
+/ops airflow-health <full-sha>
+/ops crland-inspection-diagnose <full-sha>
+```
+
+Both commands require a full 40-character commit SHA on `main`, reuse the
+protected `production` Environment, and keep real notification sending
+disabled. They do not deploy code, change DAG state, or trigger venue requests.
+The result comment links to the workflow containing the structured JSON.
+
+`airflow-health` runs the existing complete production-health snapshot against
+the requested deployed commit. The same identity, service, configuration,
+import, and recent-run checks apply independently of the deployment job. It
+does not wait for new schedule cycles or erase failed history; rerun it after
+the required natural cycles have completed.
+
+`crland-inspection-diagnose` reads the three most recent completed scheduled
+runs of the fixed Shenzhen Bay and Greater Bay Area DAGs, including their
+four and three date tasks. It checks both the host Git commit and the Airflow
+container's runtime commit. Output contains run/task states, bounded attempt
+evidence, safe account slots and scheduled rounds, numeric upstream status
+codes, and allowlisted error categories. It does not return raw logs, tokens,
+account identities, or arbitrary caller-selected paths.
+
+A successful diagnosis means that commit identities match and the requested
+evidence is complete. Failed historical runs remain visible through
+`all_recent_runs_successful=false`; diagnosis success is not a health pass.
+Missing identity or evidence fails the diagnostic operation. For cadence or
+authorization acceptance, inspect `rotation_selections`, `api_success_count`,
+and `inspection_skipped_count` to distinguish actual queries during the
+08:00–21:00 Asia/Shanghai polling window from intentional off-hours heartbeats.
+Require the declared natural cycles and a passing independent health check
+before recording production acceptance.
+
 ## Component Deployment Order
 
 When multiple components are in scope, deployment remains ordered:

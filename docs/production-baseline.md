@@ -10,6 +10,11 @@ imports were healthy. Greater Bay Area had three successful natural runs;
 Shenzhen Bay had three failed natural runs. The failure was present before
 this schedule change; this report does not establish an upstream cause.
 
+A repeat protected check at `2026-10-20T04:41:56Z`,
+[attempt 3, job 118457964761](https://github.com/claude89757/wechat-on-airflow/actions/runs/39287843611/job/118457964761),
+confirmed the same deployed commit and the same three-success / three-failure
+split. Shenzhen Bay remained the only recent-run health failure.
+
 The authorized policy change restricts both venues' upstream polling to
 `08:00 <= Asia/Shanghai local time < 21:00`, with Shenzhen Bay every two
 minutes and Greater Bay Area every three minutes. The existing three-account
