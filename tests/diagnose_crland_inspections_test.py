@@ -166,7 +166,7 @@ def test_only_last_three_completed_scheduled_runs_and_fixed_tasks_are_read(metad
     assert report["evidence_complete"] is True
     assert report["all_recent_runs_successful"] is False
     assert all(sql.lstrip().upper().startswith("SELECT") for sql in statements)
-    assert len(reader.calls) == 22  # 21 fixed day tasks, plus one preceding failed attempt.
+    assert len(reader.calls) == 19  # 18 fixed day tasks, plus one preceding failed attempt.
     assert [call[2] for call in reader.calls[:2]] == [4, 5]
     assert all(call[2] == 1 for call in reader.calls[2:])
     assert all(call[3] == {"end_of_log": False} for call in reader.calls)
@@ -176,9 +176,53 @@ def test_only_last_three_completed_scheduled_runs_and_fixed_tasks_are_read(metad
             (NOW - timedelta(minutes=interval * index)).isoformat() for index in range(3)
         ]
         assert all(row["run_type"] == "scheduled" for row in dag["runs"])
-        assert all(len(row["tasks"]) == probe.DAGS[dag["venue_id"]][1] for row in dag["runs"])
+        assert all(
+            [task["task_id"] for task in row["tasks"]]
+            == ["check_and_notify_day_0", "check_and_notify_day_1", "check_and_notify_day_2"]
+            for row in dag["runs"]
+        )
     assert not any(private in json.dumps(report) for private in PRIVATE_VALUES)
     assert "run_id" not in json.dumps(report)
+
+
+def test_historical_szw_day_3_is_not_read_but_failed_run_state_is_preserved(metadata):
+    dag_id = probe.DAGS["szw"][0]
+    legacy_run = (
+        metadata.query(DagRun).filter(DagRun.dag_id == dag_id, DagRun.logical_date == NOW).one()
+    )
+    metadata.query(TaskInstance).filter(
+        TaskInstance.dag_id == dag_id, TaskInstance.run_id == legacy_run.run_id
+    ).update({TaskInstance.state: "success", TaskInstance.try_number: 1})
+    metadata.add(
+        TaskInstance(
+            dag_id=dag_id,
+            run_id=legacy_run.run_id,
+            task_id="check_and_notify_day_3",
+            map_index=-1,
+            state="failed",
+            try_number=7,
+            start_date=NOW + timedelta(seconds=2),
+            end_date=NOW + timedelta(seconds=23),
+        )
+    )
+    metadata.commit()
+    reader = SyntheticReader()
+    report = probe.sanitize_report(
+        report_for(probe.collect_dags(metadata, DagRun, TaskInstance, reader)), COMMIT
+    )
+    assert report["ok"] is True
+    assert report["missing_evidence"] == []
+    assert report["all_recent_runs_successful"] is False
+    szw = next(dag for dag in report["dags"] if dag["venue_id"] == "szw")
+    assert szw["runs"][0]["state"] == "failed"
+    assert all(task["state"] == "success" for task in szw["runs"][0]["tasks"])
+    assert [task["task_id"] for task in szw["runs"][0]["tasks"]] == [
+        "check_and_notify_day_0",
+        "check_and_notify_day_1",
+        "check_and_notify_day_2",
+    ]
+    assert len(reader.calls) == 18
+    assert all(call[1] != "check_and_notify_day_3" for call in reader.calls)
 
 
 def test_scheduled_runs_excludes_null_dates_even_with_fewer_than_three_runs(metadata):
@@ -461,7 +505,39 @@ def test_remote_json_is_rebuilt_from_closed_allowlists(complete_report):
     assert result["expected_commit"] == COMMIT
     assert result["ok"] is False
     assert result["dags"][0]["runs"][0]["logical_date"] is None
-    assert len(result["dags"][0]["runs"][0]["tasks"]) == 4
+    assert len(result["dags"][0]["runs"][0]["tasks"]) == 3
+
+
+@pytest.mark.parametrize("missing_current_task", [False, True])
+def test_remote_historical_day_3_is_ignored_and_cannot_replace_day_2(
+    complete_report, missing_current_task
+):
+    run = complete_report["dags"][0]["runs"][0]
+    historical_task = copy.deepcopy(run["tasks"][0])
+    historical_task.update(task_id="check_and_notify_day_3", raw_logs=list(PRIVATE_VALUES))
+    historical_task["attempts"][0]["raw_message"] = CANARY
+    run["tasks"].append(historical_task)
+    if missing_current_task:
+        run["tasks"] = [
+            task for task in run["tasks"] if task["task_id"] != "check_and_notify_day_2"
+        ]
+    report = probe.sanitize_report(complete_report, COMMIT)
+    tasks = report["dags"][0]["runs"][0]["tasks"]
+    assert [task["task_id"] for task in tasks] == [
+        "check_and_notify_day_0",
+        "check_and_notify_day_1",
+        "check_and_notify_day_2",
+    ]
+    assert report["dags"][0]["runs"][0]["state"] == "failed"
+    assert report["all_recent_runs_successful"] is False
+    assert report["ok"] is (not missing_current_task)
+    assert ("task_instance_missing" in report["missing_evidence"]) is missing_current_task
+    if missing_current_task:
+        assert tasks[2]["state"] is None
+        assert tasks[2]["attempts"] == []
+    rendered = json.dumps(report)
+    assert "check_and_notify_day_3" not in rendered
+    assert not any(private in rendered for private in PRIVATE_VALUES)
 
 
 def test_missing_reader_and_total_time_budget_return_explicit_missing_evidence(
@@ -585,8 +661,8 @@ def test_embedded_airflow_33_reader_execution_is_quiet_and_transaction_read_only
     assert report["ok"] is True
     assert report["all_recent_runs_successful"] is False
     assert len(outer_sessions) == 1
-    assert commands == ["SET TRANSACTION READ ONLY", "SET LOCAL statement_timeout = 5000"] * 23
-    assert len(reader.calls) == 22
+    assert commands == ["SET TRANSACTION READ ONLY", "SET LOCAL statement_timeout = 5000"] * 20
+    assert len(reader.calls) == 19
 
 
 def test_remote_shell_compiles_and_does_not_offer_arbitrary_selectors():

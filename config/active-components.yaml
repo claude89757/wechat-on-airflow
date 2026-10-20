@@ -101,7 +101,6 @@ active_dags:
       - check_and_notify_day_0
       - check_and_notify_day_1
       - check_and_notify_day_2
-      - check_and_notify_day_3
     variables:
       - SZW_API_AUTHORIZATIONS
       - SZW_API_AUTHORIZATION
@@ -123,7 +122,8 @@ active_dags:
       - webapp_observation
       - wechat
     purpose: >-
-      Detect and notify combined Shenzhen Bay outdoor and covered-court availability.
+      Detect and notify combined Shenzhen Bay outdoor and covered-court availability
+      for today and the next two calendar days, as approved by the user.
       Poll the upstream API every two minutes from 08:00 (inclusive) to
       21:00 (exclusive), Asia/Shanghai.
     verification:

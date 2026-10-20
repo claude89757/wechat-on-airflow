@@ -105,9 +105,10 @@ component commit:
 
 Use the full production release path only for a reviewed repository-wide
 rollback whose scope intentionally includes every detected component. The
-Airflow transaction preserves stateful volumes, restores the pre-deploy
-image/configuration on full-health failure, and reports deployment failure
-separately from recovery failure.
+Airflow transaction preserves stateful volumes and reports deployment and
+health results separately. It does not automatically restore the pre-deploy
+image on a health failure; inspect the deployed identity and the explicit
+`automatic_restore` result before choosing a recovery path.
 
 Database restore, Airflow major-version migration, and metadata deletion remain
 separate high-risk operations requiring explicit approval.

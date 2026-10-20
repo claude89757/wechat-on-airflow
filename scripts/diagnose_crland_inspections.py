@@ -20,7 +20,7 @@ from typing import Any
 from _ops import airflow_remote, emit, run, ssh_command
 
 DAGS = {
-    "szw": ("深圳湾网球场巡检", 4),
+    "szw": ("深圳湾网球场巡检", 3),
     "gba": ("大湾区网球场巡检", 3),
 }
 RUN_COUNT = 3

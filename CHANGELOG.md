@@ -18,8 +18,11 @@ and operational changes.
 - Check the active window before each upstream attempt and final publication;
   discard partial results and publish one idle empty observation when the
   window closes, without attempting reminders from that round.
-- Align the Web cadence labels and documented policy while preserving DAG/task
-  identities, date coverage, booking areas and notification eligibility rules.
+- Limit Shenzhen Bay inspection to today and the next two calendar days, as
+  explicitly requested. Retire `check_and_notify_day_3` and align the active
+  task manifest, bounded diagnosis and three-day account-rotation coverage.
+- Align the Web cadence labels and documented policy while preserving DAG IDs,
+  retained task IDs, booking areas and notification eligibility rules.
 
 ### Operations
 

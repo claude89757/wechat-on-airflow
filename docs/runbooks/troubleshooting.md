@@ -26,7 +26,9 @@ polling and account rotation. See `production-deployment.md` for the acceptance
 procedure.
 
 If the Shenzhen Bay DAG runs quickly or appears successful while Web reports the
-venue as unhealthy, inspect all `day_0` through `day_3` task logs. An
+venue as unhealthy, inspect all `day_0` through `day_2` task logs. The fourth-day
+task was retired by explicit user request on 2026-10-20; its historical failed
+runs remain visible and must not be relabeled as successful. An
 `UNSAFE_LEGACY_RENEGOTIATION_DISABLED` error means the upstream booking host
 still requires legacy TLS server renegotiation. The CRLand client mounts
 a compatibility SSL context only for `wlhmobile.crland.com.cn`; certificate

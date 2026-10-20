@@ -56,6 +56,12 @@ DAGs; do not trigger synthetic email or WeChat notifications.
 
 ### Polling window and account rotation
 
+Both venue DAGs inspect today and the next two calendar days using
+`check_and_notify_day_0` through `check_and_notify_day_2`. Shenzhen Bay's
+fourth-day task was retired by explicit user request on 2026-10-20. Its
+historical task/run records remain; the current task manifest and bounded
+diagnosis require only the three retained dates.
+
 Shenzhen Bay uses a two-minute interval and Greater Bay Area a three-minute
 interval. Routine CRLand queries run only from 08:00 inclusive to 21:00
 exclusive in Asia/Shanghai. Booking dates and window checks use that timezone

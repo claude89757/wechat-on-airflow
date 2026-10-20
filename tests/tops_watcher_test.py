@@ -669,7 +669,7 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
             patch.object(szw_watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
             redirect_stdout(logs),
         ):
-            for venue_key, day_count in (("szw", 4), ("gba", 3)):
+            for venue_key, day_count in (("szw", 3), ("gba", 3)):
                 for day_offset in range(day_count):
                     szw_watcher.check_and_notify_for_day(
                         day_offset,
@@ -678,10 +678,10 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
                         logical_date=self.minute - datetime.timedelta(minutes=1),
                     )
 
-        self.assertEqual(get_courts.call_count, 11)
+        self.assertEqual(get_courts.call_count, 9)
         for venue_key, calls in (
-            ("szw", get_courts.call_args_list[:8]),
-            ("gba", get_courts.call_args_list[8:]),
+            ("szw", get_courts.call_args_list[:6]),
+            ("gba", get_courts.call_args_list[6:]),
         ):
             expected = szw_watcher.select_crland_authorization(
                 inspection_interval_minutes=szw_watcher.CRLAND_VENUES[
@@ -693,7 +693,7 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
             self.assertEqual({call.kwargs["authorization"] for call in calls}, {expected})
         self.assertEqual(
             {call.args[0] for call in get_courts.call_args_list},
-            {"2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"},
+            {"2026-10-19", "2026-10-20", "2026-10-21"},
         )
         self.assertEqual(
             {call.kwargs["field_area_uuid"] for call in get_courts.call_args_list},
@@ -703,10 +703,10 @@ class CrlandAuthorizationRotationTest(unittest.TestCase):
                 szw_watcher.GBA_FIELD_AREA_UUID,
             },
         )
-        self.assertEqual(publish.call_count, 7)
+        self.assertEqual(publish.call_count, 6)
         send.assert_not_called()
         self.assertEqual(
-            logs.getvalue().count("round_minute_utc=2026-10-19T04:04+00:00 interval_minutes=2"), 4
+            logs.getvalue().count("round_minute_utc=2026-10-19T04:04+00:00 interval_minutes=2"), 3
         )
         self.assertEqual(
             logs.getvalue().count("round_minute_utc=2026-10-19T04:04+00:00 interval_minutes=3"), 3
