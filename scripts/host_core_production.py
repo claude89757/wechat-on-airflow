@@ -734,6 +734,64 @@ def health(target_commit, include_public=False, require_delivery=False):
     return report
 
 
+NATURAL_DELIVERY_CHECKS = {"naturalEmailProviderDelivered", "naturalWeChatDelivered"}
+# Missing evidence is not evidence of technical health. Keep this floor aligned
+# with the complete v1 business-health report; additional checks still apply.
+REQUIRED_ACCEPTANCE_CHECKS = (
+    {
+        "exactHostCommit",
+        "exactControlCommit",
+        "acceptanceWindowStarted",
+        "singleHostDeliveryOwner",
+        "wechatDeliveryEnabled",
+        "subscriptionApiTransaction",
+        "emailConfiguration",
+        "migrationReconciled",
+        "zacks-notification-worker",
+        "zacks-wechat-worker",
+        "all26VenueObservations",
+        "allObservationScopesHealthy",
+        "allNaturalDagCycles",
+        "allRequiredDagsUnpaused",
+        "wechatEnqueueIncidentsResolved",
+        "senderReady",
+        "exactSenderCommit",
+        "senderDurableIdempotency",
+        "senderTransportNotCloudflareProxied",
+        "pureEdgeExactCommit",
+    }
+    | NATURAL_DELIVERY_CHECKS
+    | {
+        table + ":" + check
+        for table in ("notification_outbox", "system_email_outbox", "wechat_outbox")
+        for check in ("noNewUnknownSubmission", "noNewTerminalFailure", "noStalledBacklog")
+    }
+)
+
+
+def acceptance_status(report):
+    # complete describes report completeness, NOT successful business acceptance.
+    checks = report.get("checks")
+    if (
+        report.get("complete") is not True
+        or report.get("schemaVersion") != 1
+        or report.get("errors")
+        or report.get("error")
+        or not isinstance(checks, dict)
+        or not REQUIRED_ACCEPTANCE_CHECKS.issubset(checks)
+        or any(type(value) is not bool for value in checks.values())
+    ):
+        return "failed"
+    failed = {name for name, passed in checks.items() if not passed}
+    if report.get("failedChecks") != [name for name, passed in checks.items() if not passed]:
+        return "failed"
+    if not failed and report.get("ok") is True:
+        return "accepted"
+    if failed and failed.issubset(NATURAL_DELIVERY_CHECKS) and report.get("ok") is False:
+        return "pending"
+    return "failed"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Operate Host Core; legacy runtime is not supported"
@@ -813,14 +871,17 @@ def main():
             result = operations[args.operation](args.target_commit, routine_only=args.routine_only)
         else:
             result = operations[args.operation](args.target_commit)
-    success = result.get("ok", True)
+    status = acceptance_status(result) if args.operation == "acceptance" else None
+    if status is not None:
+        result["acceptanceStatus"] = status
+    success = status == "accepted" if status is not None else result.get("ok", True)
     print(
         json.dumps(
             dict(result, operation=args.operation, success=success), default=str, ensure_ascii=False
         ),
         flush=True,
     )
-    return 0 if success else 1
+    return 75 if status == "pending" else (0 if success else 1)
 
 
 if __name__ == "__main__":

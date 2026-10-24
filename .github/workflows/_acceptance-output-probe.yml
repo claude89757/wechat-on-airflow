@@ -1,0 +1,35 @@
+name: Temporary isolated acceptance output producer
+on:
+  workflow_call:
+    outputs:
+      acceptance_status:
+        value: ${{ jobs.operate.outputs.acceptance_status }}
+permissions:
+  contents: read
+jobs:
+  operate:
+    runs-on: ubuntu-latest
+    outputs:
+      acceptance_status: ${{ steps.acceptance_status.outputs.status }}
+    steps:
+      - name: Simulate pending without production identity or external sends
+        run: |
+          printf '{"acceptanceStatus":"pending","success":false}\n' >/tmp/acceptance-probe.json
+          exit 75
+      - name: Preserve synthetic evidence
+        id: evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synthetic-pending-output-probe
+          path: /tmp/acceptance-probe.json
+          if-no-files-found: error
+      - name: Export validated state after failure
+        id: acceptance_status
+        if: always()
+        env:
+          EVIDENCE_RESULT: ${{ steps.evidence.outcome }}
+        run: |
+          status=failed
+          if [ "$EVIDENCE_RESULT" = success ]; then status=pending; fi
+          echo "status=$status" >>"$GITHUB_OUTPUT"

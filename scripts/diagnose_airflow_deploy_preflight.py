@@ -11,6 +11,74 @@ from _ops import REPO_ROOT, OpsError, airflow_remote, emit, run, ssh_command
 
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
+BUSINESS_BASELINE_PROBE = r"""
+import json
+import os
+import re
+
+report = {"ok": False, "read_only": True, "purpose": "baseline_only_not_release_acceptance"}
+try:
+    from sqlalchemy import text
+    from wechat_airflow.host_core.database import get_engine
+
+    with get_engine().connect() as connection:
+        with connection.begin():
+            connection.execute(text("SET TRANSACTION READ ONLY"))
+            connection.execute(text("SET LOCAL statement_timeout = '5s'"))
+            connection.execute(text("SET LOCAL lock_timeout = '1s'"))
+            retired = connection.execute(text(
+                "SELECT healthy, last_seen_at, last_seen_at > now() - interval '10 minutes' AS fresh "
+                "FROM zacks.observation_state WHERE observation_key = 'szw:check_and_notify_day_3'"
+            )).mappings().first()
+            scopes = dict(connection.execute(text(
+                "SELECT count(*) AS total_count, "
+                "count(*) FILTER (WHERE healthy) AS healthy_count, "
+                "count(*) FILTER (WHERE last_seen_at > now() - interval '10 minutes') AS fresh_count, "
+                "count(*) FILTER (WHERE healthy AND last_seen_at > now() - interval '10 minutes') AS healthy_and_fresh_count "
+                "FROM zacks.observation_state WHERE observation_key <> 'szw:check_and_notify_day_3'"
+            )).mappings().one())
+            delivery = dict(connection.execute(text(
+                "SELECT (SELECT count(DISTINCT message_id) FROM zacks.notification_outbox "
+                "WHERE status = 'delivered' AND submitted_at >= now() - interval '24 hours') AS email_delivered, "
+                "(SELECT count(*) FROM zacks.wechat_outbox "
+                "WHERE sent_at >= now() - interval '24 hours') AS wechat_sent"
+            )).mappings().one())
+            control = connection.execute(text(
+                "SELECT deployment_commit, delivery_enabled, wechat_enabled, "
+                "activated_at IS NOT NULL AS activated, now() AS observed_at FROM zacks.runtime_control WHERE singleton = true"
+            )).mappings().one()
+    commit = control["deployment_commit"]
+    runtime_commit = os.environ.get("DEPLOYMENT_COMMIT", "")
+    report.update({
+        "ok": True,
+        "observed_at": control["observed_at"].isoformat(),
+        "freshness_minutes": 10,
+        "window_hours": 24,
+        "email_window_basis": "submitted_at",
+        "wechat_window_basis": "sent_at",
+        "retired_scope": {
+            "observation_key": "szw:check_and_notify_day_3",
+            "present": retired is not None,
+            "healthy": retired["healthy"] is True if retired is not None else None,
+            "fresh": retired["fresh"] is True if retired is not None else None,
+            "last_seen_at": retired["last_seen_at"].isoformat() if retired is not None else None,
+        },
+        "non_retired_stored_scopes": scopes,
+        "scope_filter": "excludes_only_known_retired_szw_day_3",
+        "natural_delivery_last24h": delivery,
+        "runtime": {
+            "container_commit": runtime_commit if re.fullmatch(r"[0-9a-f]{40}", str(runtime_commit)) else None,
+            "control_commit": commit if re.fullmatch(r"[0-9a-f]{40}", str(commit)) else None,
+            "delivery_enabled": control["delivery_enabled"] is True,
+            "wechat_enabled": control["wechat_enabled"] is True,
+            "activated": control["activated"] is True,
+        },
+    })
+except Exception:
+    report = {"ok": False, "read_only": True, "failure_category": "business_baseline_query_failed"}
+print(json.dumps(report, sort_keys=True))
+"""
+
 
 def resolve_target_commit(revision: str) -> str:
     result = run(["git", "rev-parse", "--verify", f"{revision}^{{commit}}"])
@@ -35,7 +103,7 @@ def parse_remote_result(output: str) -> dict[str, Any]:
 
 
 def remote_script() -> str:
-    return r"""\
+    script = r"""\
 set -u
 repo_path="$1"
 target_commit="$2"
@@ -58,6 +126,7 @@ api_service=""
 api_service_running=false
 active_task_count_ok=false
 active_task_instances=-1
+business_baseline_output='{"ok":false,"read_only":true,"failure_category":"business_baseline_probe_unavailable"}'
 
 if cd "$repo_path" 2>/dev/null; then
     repo_accessible=true
@@ -184,6 +253,18 @@ PY
     fi
 fi
 
+if [ "$repo_accessible" = true ] && [ "$compose_config_ok" = true ]; then
+    business_baseline_output="$(
+        compose exec -T zacks-api python - 2>/dev/null <<'BUSINESS_BASELINE_PY'
+__BUSINESS_BASELINE_PROBE__
+BUSINESS_BASELINE_PY
+    )"
+    if [ "$?" -ne 0 ]; then
+        business_baseline_output='{"ok":false,"read_only":true,"failure_category":"business_baseline_probe_failed"}'
+    fi
+fi
+export DIAG_BUSINESS_BASELINE="$business_baseline_output"
+
 export DIAG_REPO_ACCESSIBLE="$repo_accessible"
 export DIAG_GIT_STATUS_OK="$git_status_ok"
 export DIAG_TRACKED_DIRTY_COUNT="$tracked_dirty_count"
@@ -202,6 +283,67 @@ export DIAG_ACTIVE_TASK_INSTANCES="$active_task_instances"
 python3 - <<'PY'
 import json
 import os
+import re
+from datetime import datetime
+
+def business_baseline(raw: str) -> dict:
+    failure = {"ok": False, "read_only": True, "failure_category": "business_baseline_probe_failed"}
+    try:
+        value = json.loads(raw.strip().splitlines()[-1])
+        if not isinstance(value, dict) or value.get("read_only") is not True or value.get("ok") is not True:
+            return failure
+        counts = {}
+        for section, keys in (
+            ("non_retired_stored_scopes", ("total_count", "healthy_count", "fresh_count", "healthy_and_fresh_count")),
+            ("natural_delivery_last24h", ("email_delivered", "wechat_sent")),
+        ):
+            counts[section] = {}
+            for key in keys:
+                item = value[section][key]
+                if not isinstance(item, int) or isinstance(item, bool) or not 0 <= item <= 10**18:
+                    return failure
+                counts[section][key] = item
+        retired = value["retired_scope"]
+        if retired.get("observation_key") != "szw:check_and_notify_day_3" or not isinstance(retired.get("present"), bool):
+            return failure
+        runtime = value["runtime"]
+        timestamps = {"observed_at": value.get("observed_at"), "last_seen_at": retired.get("last_seen_at")}
+        for key, item in timestamps.items():
+            if key == "last_seen_at" and not retired["present"] and item is None:
+                continue
+            if not isinstance(item, str) or len(item) > 40 or datetime.fromisoformat(item).tzinfo is None:
+                return failure
+        result = {
+            "ok": True,
+            "read_only": True,
+            "purpose": "baseline_only_not_release_acceptance",
+            "observed_at": timestamps["observed_at"],
+            "window_hours": 24,
+            "email_window_basis": "submitted_at",
+            "wechat_window_basis": "sent_at",
+            "freshness_minutes": 10,
+            "scope_filter": "excludes_only_known_retired_szw_day_3",
+            "retired_scope": {
+                "observation_key": "szw:check_and_notify_day_3",
+                "present": retired["present"],
+                "healthy": retired.get("healthy") is True if retired["present"] else None,
+                "fresh": retired.get("fresh") is True if retired["present"] else None,
+                "last_seen_at": timestamps["last_seen_at"],
+            },
+            "runtime": {
+                "delivery_enabled": runtime.get("delivery_enabled") is True,
+                "wechat_enabled": runtime.get("wechat_enabled") is True,
+                "activated": runtime.get("activated") is True,
+            },
+        }
+        for key in ("container_commit", "control_commit"):
+            item = runtime.get(key)
+            result["runtime"][key] = item if isinstance(item, str) and re.fullmatch(r"[0-9a-f]{40}", item) else None
+        result.update(counts)
+        return result
+    except (ValueError, KeyError, TypeError, IndexError, AttributeError):
+        return failure
+
 
 
 def flag(name: str) -> bool:
@@ -219,6 +361,7 @@ compose_config_ok = flag("DIAG_COMPOSE_CONFIG_OK")
 api_service_running = flag("DIAG_API_SERVICE_RUNNING")
 active_task_count_ok = flag("DIAG_ACTIVE_TASK_COUNT_OK")
 active_task_instances = int(os.environ["DIAG_ACTIVE_TASK_INSTANCES"])
+baseline = business_baseline(os.environ["DIAG_BUSINESS_BASELINE"])
 
 failed_stage = None
 if not repo_accessible:
@@ -241,12 +384,15 @@ elif not api_service_running:
     failed_stage = "api_service_not_running"
 elif not active_task_count_ok:
     failed_stage = "active_task_count"
+elif baseline["ok"] is not True:
+    failed_stage = "business_baseline_probe"
 
 print(json.dumps({
     "ok": failed_stage is None,
     "failed_stage": failed_stage,
     "current_commit": os.environ["DIAG_CURRENT_COMMIT"] or None,
     "target_commit": os.environ["DIAG_TARGET_COMMIT"],
+    "business_baseline": baseline,
     "checks": {
         "repository_accessible": repo_accessible,
         "git_status_ok": git_status_ok,
@@ -265,6 +411,7 @@ print(json.dumps({
 }, sort_keys=True))
 PY
 """
+    return script.replace("__BUSINESS_BASELINE_PROBE__", BUSINESS_BASELINE_PROBE)
 
 
 def main() -> None:

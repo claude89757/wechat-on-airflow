@@ -148,7 +148,8 @@ jobs:
     if: >-
       always() && (inputs.version == '0.7.0' || inputs.scope == 'all') &&
       needs.host_core_cutover.result == 'success' &&
-      (needs.deploy.result != 'success' || needs.natural_cycles.result != 'success' || needs.acceptance.result != 'success')
+      (needs.deploy.result != 'success' || needs.natural_cycles.result != 'success' || ((needs.acceptance.result != 'success' || needs.acceptance.outputs.acceptance_status != 'accepted') &&
+       (needs.acceptance.result != 'failure' || needs.acceptance.outputs.acceptance_status != 'pending')))
     needs: [host_core_cutover, deploy, natural_cycles, acceptance]
     uses: ./.github/workflows/production-host-core.yml
     with:
@@ -161,7 +162,7 @@ jobs:
     if: >-
       always() &&
       needs.deploy.result == 'success' &&
-      ((inputs.version != '0.7.0' && inputs.scope != 'all') || needs.acceptance.result == 'success')
+      ((inputs.version != '0.7.0' && inputs.scope != 'all') || (needs.acceptance.result == 'success' && needs.acceptance.outputs.acceptance_status == 'accepted'))
     uses: ./.github/workflows/release-tag-chatops.yml
     with:
       version: ${{ inputs.version }}
@@ -188,6 +189,7 @@ jobs:
           DEPLOY_RESULT: ${{ needs.deploy.result }}
           NATURAL_CYCLES_RESULT: ${{ needs.natural_cycles.result }}
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+          ACCEPTANCE_STATUS: ${{ needs.acceptance.outputs.acceptance_status }}
           TAG_RESULT: ${{ needs.tag.result }}
         run: |
           {
@@ -204,8 +206,13 @@ jobs:
             echo "- Deployment: \`$DEPLOY_RESULT\`"
             echo "- Three natural cycles: \`$NATURAL_CYCLES_RESULT\`"
             echo "- Final production acceptance: \`$ACCEPTANCE_RESULT\`"
+            echo "- Business acceptance state: \`$ACCEPTANCE_STATUS\` (pending is not a completed release)"
             echo "- Immutable tag and GitHub Release: \`$TAG_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ACCEPTANCE_STATUS" = pending ]; then
+            echo '::error::Natural delivery acceptance pending. Keep healthy service active; re-run failed jobs on this same run, not a new ship, to preserve the acceptance window. No tag/release was created.'
+            exit 75
+          fi
           test "$CONTRACT_RESULT" = success
           test "$PREFLIGHT_RESULT" = success
           test "$DEPLOY_RESULT" = success
@@ -213,5 +220,6 @@ jobs:
             test "$HOST_CORE_CUTOVER_RESULT" = success
             test "$NATURAL_CYCLES_RESULT" = success
             test "$ACCEPTANCE_RESULT" = success
+            test "$ACCEPTANCE_STATUS" = accepted
           fi
           test "$TAG_RESULT" = success

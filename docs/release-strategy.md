@@ -112,3 +112,22 @@ image on a health failure; inspect the deployed identity and the explicit
 
 Database restore, Airflow major-version migration, and metadata deletion remain
 separate high-risk operations requiring explicit approval.
+
+### Routine release acceptance waiting
+
+A completed business report is not necessarily a successful release. When all
+technical checks pass and only natural email/WeChat delivery evidence is absent,
+acceptance reports `pending`, exits 75, creates no tag/release, and keeps the healthy
+single delivery owner active. A missing/malformed report, any other failed check,
+or missing evidence upload remains a failure and uses the safety-stop path.
+Resume by re-running **failed jobs on the same ship run**, not by starting a new
+ship: successful deployment/activation ancestors must not rerun or reset the
+acceptance window. Completion still requires all original natural-delivery checks.
+No synthetic notifications may be sent to satisfy acceptance.
+
+Release preflight now diagnoses a dirty Airflow worktree instead of automatically
+repairing it. Its fixed read-only business inventory reports the explicitly retired
+Shenzhen Bay fourth-day key separately, aggregate other stored scopes, current
+runtime/control identities and delivery flags, and past-24-hour natural delivery
+counts. These baseline counts are not evidence for the new release. Unknown or
+failed inventory is a preflight blocker; no database/schema maintenance is allowed.

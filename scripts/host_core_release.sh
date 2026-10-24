@@ -118,9 +118,31 @@ case "$OPERATION" in
   activate-workers) changed=true; remote activate-workers ;;
   health) remote health --include-public | tee /tmp/host-core-business-health.log ;;
   acceptance)
-    remote acceptance --include-public --wait-seconds 1800 | tee /tmp/host-core-business-health.log
+    rm -f /tmp/host-core-acceptance-status
+    # A pending business sample is non-success, but not a reason to disable a
+    # technically healthy service. Preserve the final report even on exit 75.
+    acceptance_exit=0
+    remote acceptance --include-public --wait-seconds 1800 | tee /tmp/host-core-business-health.log || acceptance_exit=$?
     tail -n 1 /tmp/host-core-business-health.log > /tmp/host-core-acceptance.json
-    jq -e '.complete == true and .ok == true and .success == true' /tmp/host-core-acceptance.json >/dev/null
+    acceptance_status=failed
+    if [[ "$acceptance_exit" == 0 ]] && jq -e '
+      .acceptanceStatus == "accepted" and .complete == true and .ok == true and .success == true
+    ' /tmp/host-core-acceptance.json >/dev/null; then
+      acceptance_status=accepted
+    elif [[ "$acceptance_exit" == 75 ]] && jq -e '
+      .acceptanceStatus == "pending" and .complete == true and .ok == false and .success == false
+      and (.checks | type == "object")
+      and (.checks | to_entries | all(.value | type == "boolean"))
+      and (.failedChecks | length > 0)
+      and (.failedChecks == [.checks | to_entries[] | select(.value == false) | .key])
+      and (.failedChecks | all(. == "naturalEmailProviderDelivered" or . == "naturalWeChatDelivered"))
+    ' /tmp/host-core-acceptance.json >/dev/null; then
+      acceptance_status=pending
+    fi
+    # Separate always-running workflow step exports this only after validation.
+    printf '%s\n' "$acceptance_status" > /tmp/host-core-acceptance-status
+    if [[ "$acceptance_status" == pending ]]; then exit 75; fi
+    [[ "$acceptance_status" == accepted ]]
     ;;
   pause) remote pause-host-delivery ;;
   *) echo "Unsupported Host Core operation" >&2; exit 2 ;;
