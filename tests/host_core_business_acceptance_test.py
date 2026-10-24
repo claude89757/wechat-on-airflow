@@ -10,7 +10,7 @@ def read(path):
 def test_one_control_plane_and_no_one_time_production_scheduler():
     assert not (ROOT / ".github/workflows/production-host-core-v070.yml").exists()
     ship = read(".github/workflows/production-ship.yml")
-    assert "operation: full-cutover" in ship
+    assert "inputs.version == '0.7.0' && 'full-cutover' || 'routine-upgrade'" in ship
     assert "operation: activate-workers" in ship
     assert "operation: acceptance" in ship
     assert "operation: pause" in ship

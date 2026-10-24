@@ -44,6 +44,77 @@ def parse_remote_result(output: str) -> dict[str, Any]:
     raise OpsError("sender operation returned no structured result")
 
 
+def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep failure inventory without publishing arbitrary remote text or stderr."""
+    if value.get("stage") != "sender_dependency_preflight":
+        return None
+    clean: dict[str, Any] = {"stage": "sender_dependency_preflight"}
+    for key in (
+        "ok",
+        "applied",
+        "python312_available",
+        "rollback_environment_available",
+        "active_environment_changed",
+        "service_enabled",
+        "service_active",
+        "service_interpreter_matches",
+        "service_ready",
+        "active_pillow_inside_prefix",
+        "disk_sufficient",
+        "candidate_locked_dependencies_verified",
+        "temporary_environment_removed",
+    ):
+        if key in value:
+            clean[key] = value[key] is True
+    for key in ("free_bytes", "minimum_free_bytes", "external_test_sends"):
+        raw = value.get(key)
+        if isinstance(raw, int) and not isinstance(raw, bool) and 0 <= raw <= 10**18:
+            clean[key] = raw
+    for key in ("current_commit", "target_commit", "runtime_commit"):
+        raw = value.get(key)
+        clean[key] = raw if isinstance(raw, str) and COMMIT_PATTERN.fullmatch(raw) else None
+    for key in ("architecture", "active_python", "active_pillow", "candidate_pillow"):
+        raw = value.get(key)
+        if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9_.+-]{1,40}", raw):
+            clean[key] = raw
+    for section, keys in (("distribution", ("ID", "VERSION_ID")), ("libc", ("name", "version"))):
+        raw = value.get(section)
+        if isinstance(raw, dict):
+            clean[section] = {
+                key: raw[key]
+                for key in keys
+                if isinstance(raw.get(key), str) and re.fullmatch(r"[A-Za-z0-9_.-]{0,40}", raw[key])
+            }
+    category = value.get("failure_category")
+    categories = {
+        "service_not_enabled",
+        "service_not_active",
+        "service_interpreter_unknown",
+        "active_service_or_rollback_unavailable",
+        "sender_not_ready",
+        "runtime_identity_mismatch",
+        "active_dependency_inventory_failed",
+        "python312_unavailable",
+        "python312_venv_unavailable",
+        "insufficient_staging_disk",
+        "candidate_lock_unavailable",
+        "candidate_checker_unavailable",
+        "candidate_pillow_pin_invalid",
+        "candidate_venv_failed",
+        "candidate_locked_install_failed",
+        "candidate_dependency_conflict",
+        "candidate_image_smoke_failed",
+        "dependency_preflight_internal_error",
+    }
+    if category is not None:
+        clean["failure_category"] = (
+            category
+            if isinstance(category, str) and category in categories
+            else "unclassified_preflight_failure"
+        )
+    return clean
+
+
 def create_deployment_bundle(path: Path) -> None:
     run(
         [
@@ -454,6 +525,115 @@ fetch_target() {
     git -C "$install_dir" cat-file -e "$target_commit^{commit}"
 }
 
+dependency_preflight() {
+    python3 - "$current_commit" "$target_commit" "$install_dir" "$venv_dir" <<'DEPENDENCY_PREFLIGHT_PY'
+import json
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+current_commit, target_commit, install_dir, venv_dir = sys.argv[1:]
+minimum_free_bytes = 1024 * 1024 * 1024
+report = {
+    "stage": "sender_dependency_preflight",
+    "ok": False,
+    "applied": False,
+    "current_commit": current_commit or None,
+    "target_commit": target_commit,
+    "architecture": platform.machine() if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", platform.machine()) else "unknown",
+    "python312_available": False,
+    "rollback_environment_available": Path(venv_dir, "bin/python").is_file(),
+    "active_environment_changed": False,
+    "external_test_sends": 0,
+}
+
+class PreflightFailure(Exception):
+    pass
+
+def command(argv, category, timeout=30):
+    try:
+        result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise PreflightFailure(category) from None
+    if result.returncode != 0:
+        raise PreflightFailure(category)
+    return result.stdout.strip()
+
+try:
+    report["service_enabled"] = command(["systemctl", "is-enabled", "wechat-sender.service"], "service_not_enabled") == "enabled"
+    report["service_active"] = command(["systemctl", "is-active", "wechat-sender.service"], "service_not_active") == "active"
+    exec_start = command(["systemctl", "show", "wechat-sender.service", "--property=ExecStart", "--value"], "service_interpreter_unknown")
+    report["service_interpreter_matches"] = re.search(r"(?:^|[ =])" + re.escape(str(Path(venv_dir, "bin/python"))) + r"(?=[ ;]|$)", exec_start) is not None
+    if not all(report[key] for key in ("service_enabled", "service_active", "service_interpreter_matches", "rollback_environment_available")):
+        raise PreflightFailure("active_service_or_rollback_unavailable")
+    ready = json.loads(command(["curl", "--fail", "--silent", "--show-error", "--max-time", "5", "http://127.0.0.1:7001/readyz"], "sender_not_ready"))
+    report["service_ready"] = isinstance(ready, dict) and ready.get("ok") is True
+    runtime_commit = ready.get("deploymentCommit") if isinstance(ready, dict) else None
+    report["runtime_commit"] = runtime_commit if re.fullmatch(r"[0-9a-f]{40}", str(runtime_commit)) else None
+    if not report["service_ready"]:
+        raise PreflightFailure("sender_not_ready")
+    if report["runtime_commit"] != current_commit:
+        raise PreflightFailure("runtime_identity_mismatch")
+    active_probe = command([str(Path(venv_dir, "bin/python")), "-c", "import json,os,sys; import PIL; prefix=os.path.realpath(sys.prefix); print(json.dumps({'python': '.'.join(map(str,sys.version_info[:3])), 'pillow': PIL.__version__, 'inside_prefix': os.path.commonpath([os.path.realpath(PIL.__file__),prefix]) == prefix}))"], "active_dependency_inventory_failed")
+    active = json.loads(active_probe)
+    report["active_python"] = active.get("python") if re.fullmatch(r"[0-9.]{1,32}", str(active.get("python", ""))) else None
+    report["active_pillow"] = active.get("pillow") if re.fullmatch(r"[A-Za-z0-9.+-]{1,40}", str(active.get("pillow", ""))) else None
+    report["active_pillow_inside_prefix"] = active.get("inside_prefix") is True
+    try:
+        distro = getattr(platform, "freedesktop_os_release", lambda: {})()
+        report["distribution"] = {}
+        for key in ("ID", "VERSION_ID"):
+            value = distro.get(key)
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", value):
+                report["distribution"][key] = value
+    except OSError:
+        report["distribution"] = {}
+    libc_name, libc_version = platform.libc_ver()
+    report["libc"] = {"name": libc_name if re.fullmatch(r"[A-Za-z0-9_-]{0,32}", libc_name) else "unknown", "version": libc_version if re.fullmatch(r"[A-Za-z0-9_.-]{0,40}", libc_version) else "unknown"}
+    python312 = shutil.which("python3.12")
+    report["python312_available"] = python312 is not None
+    if python312 is None:
+        raise PreflightFailure("python312_unavailable")
+    command([python312, "-c", "import sys,venv; assert sys.version_info[:2] == (3,12)"], "python312_venv_unavailable")
+    report["free_bytes"] = shutil.disk_usage(Path(venv_dir).parent).free
+    report["minimum_free_bytes"] = minimum_free_bytes
+    report["disk_sufficient"] = report["free_bytes"] >= minimum_free_bytes
+    if not report["disk_sufficient"]:
+        raise PreflightFailure("insufficient_staging_disk")
+    # Stage on the active environment's filesystem, never in the live checkout.
+    # TemporaryDirectory cleans up failures; raw pip/host output is never published.
+    with tempfile.TemporaryDirectory(prefix=".sender-preflight-", dir=Path(venv_dir).parent) as directory:
+        staging = Path(directory)
+        lock = staging / "requirements.lock"
+        checker = staging / "verify_dependencies.py"
+        lock.write_text(command(["git", "-C", install_dir, "show", target_commit + ":docker/sender/requirements.lock"], "candidate_lock_unavailable") + "\n")
+        checker.write_text(command(["git", "-C", install_dir, "show", target_commit + ":sender_agent/verify_dependencies.py"], "candidate_checker_unavailable") + "\n")
+        pins = re.findall(r"^Pillow==([0-9]+(?:\.[0-9]+){2})$", lock.read_text(), re.MULTILINE)
+        if len(pins) != 1:
+            raise PreflightFailure("candidate_pillow_pin_invalid")
+        report["candidate_pillow"] = pins[0]
+        environment = staging / "venv"
+        command([python312, "-m", "venv", str(environment)], "candidate_venv_failed", 120)
+        candidate_python = str(environment / "bin/python")
+        command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)], "candidate_locked_install_failed", 300)
+        command([candidate_python, "-m", "pip", "check"], "candidate_dependency_conflict", 30)
+        command([candidate_python, str(checker), str(lock)], "candidate_image_smoke_failed", 30)
+        report["candidate_locked_dependencies_verified"] = True
+    report["temporary_environment_removed"] = True
+    report["ok"] = True
+except PreflightFailure as exc:
+    report["failure_category"] = str(exc)
+except Exception:
+    report["failure_category"] = "dependency_preflight_internal_error"
+print(json.dumps(report, sort_keys=True))
+raise SystemExit(0 if report["ok"] else 1)
+DEPENDENCY_PREFLIGHT_PY
+}
+
 legacy_backup=""
 preserve_reviewed_drift() {
     python3 - "$install_dir" "$mode" <<'LEGACY_PY'
@@ -470,7 +650,12 @@ if [ "$mode" = "dry-run" ]; then
     test "$credentials_ready" = true
     preserve_reviewed_drift >/dev/null
     fetch_target
-    python3 - "$current_commit" "$target_commit" <<'PY'
+    dependency_report="$(dependency_preflight)" || {
+        rc="$?"
+        printf '%s\n' "$dependency_report"
+        exit "$rc"
+    }
+    python3 - "$current_commit" "$target_commit" "$dependency_report" <<'PY'
 import json
 import sys
 
@@ -480,6 +665,7 @@ print(json.dumps({
     "current_commit": sys.argv[1] or None,
     "target_commit": sys.argv[2],
     "credentials_ready": True,
+    "dependency_preflight": json.loads(sys.argv[3]),
 }, sort_keys=True))
 PY
     exit 0
@@ -488,6 +674,8 @@ fi
 test "$mode" = "apply"
 test "$(id -u)" = 0
 test "$credentials_ready" = true
+fetch_target
+dependency_preflight
 
 # A retained .previous may belong to an earlier successful release. Restore it
 # only after this attempt has actually moved/replaced the active environment.
@@ -534,7 +722,6 @@ trap 'rollback 129' HUP
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
-fetch_target
 legacy_backup="$(preserve_reviewed_drift)"
 git -C "$install_dir" checkout --quiet --detach "$target_commit"
 "$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit" </dev/null
@@ -590,8 +777,15 @@ def main() -> None:
         ]
         result = run(command, check=False, input_text=remote_script())
     if result.returncode:
-        detail = result.stderr.strip().splitlines()
-        raise OpsError(detail[-1] if detail else "sender operation failed")
+        try:
+            failure = parse_remote_result(result.stdout)
+        except OpsError:
+            failure = {}
+        evidence = safe_dependency_preflight(failure)
+        if evidence is not None:
+            emit(evidence, args.format)
+        # Remote stderr can include private hosts, package index URLs, or secrets.
+        raise OpsError("sender operation failed; inspect sanitized preflight evidence when present")
     payload = parse_remote_result(result.stdout)
     emit(payload, args.format)
     if payload.get("ok") is not True:

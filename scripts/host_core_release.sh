@@ -59,6 +59,10 @@ recover() {
   local status=$?
   trap - EXIT INT TERM HUP
   set +e
+  if [[ "$status" != 0 && "$OPERATION" == routine-upgrade && "$changed" == false ]] &&
+     grep -Fq '"event": "host_runtime_mutation_started"' /tmp/host-core-prepare.log 2>/dev/null; then
+    changed=true
+  fi
   if [[ "$status" != 0 && "$changed" == true ]]; then
     remote pause-host-delivery
     echo '{"event":"release_failed","recovery":"host_paused_no_legacy_fallback","legacyRuntime":false}' >&2
@@ -71,11 +75,23 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 case "$OPERATION" in
   preflight) remote preflight ;;
-  full-cutover)
+  full-cutover|routine-upgrade)
+    routine_args=()
+    if [[ "$OPERATION" == routine-upgrade ]]; then
+      : >/tmp/host-core-prepare.log
+      remote routine-preflight
+      routine_args+=(--routine-only)
+    else
+      changed=true
+    fi
+    remote prepare-runtime "${routine_args[@]}" | tee /tmp/host-core-prepare.log
     changed=true
-    remote prepare-runtime | tee /tmp/host-core-prepare.log
     checkpoint | tee /tmp/host-core-checkpoint.json
     migration_complete="$(jq -er 'if (.migrationComplete | type) == "boolean" then (.migrationComplete | tostring) else error("missing migration checkpoint") end' /tmp/host-core-checkpoint.json)"
+    if [[ "$OPERATION" == routine-upgrade && "$migration_complete" != true ]]; then
+      echo 'Routine upgrade cannot enter first-migration operations' >&2
+      exit 1
+    fi
     if [[ "$migration_complete" == false ]]; then
       # Refuse to overwrite host-side writes when a previous attempt already
       # exposed the pure edge but has lost its migration evidence.
@@ -94,7 +110,7 @@ case "$OPERATION" in
     else
       echo '{"event":"resume_verified_migration","d1Reimport":false,"secretRotation":false}'
     fi
-    remote prepare-routing
+    remote prepare-routing "${routine_args[@]}"
     deploy_edge production
     remote cutover
     PYTHONPATH=../scripts python ../scripts/webapp_production_health.py --expected-commit "$TARGET_COMMIT" --format json

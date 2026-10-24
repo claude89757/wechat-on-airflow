@@ -88,6 +88,24 @@ Do not use the send endpoint for verification. Until this evidence exists, the
 installed distribution version/backport status and production remediation remain
 unverified.
 
+The protected sender `dry_run` now inventories the actual service interpreter,
+Pillow version/provenance, running commit, CPU/OS, disk headroom and rollback
+availability. It then fetches only the exact candidate Git objects and builds an
+isolated temporary environment on the host to test its complete lock and image
+operations. This is a non-activating staging preflight (temporary files/package
+downloads), not a claim of zero filesystem writes. It does not checkout code,
+replace the active venv, restart services or send notifications. Temporary data
+is removed; package logs/credentials are not published. Failure returns a bounded
+category and stops before activation. Apply repeats the same gate.
+
+The named coupled ship lifecycle requires this full preflight before its first
+runtime change. Releases after the initial 0.7.0 cutover use the protected
+`routine-upgrade` operation: require an already-activated, reconciled Host Core,
+verify existing ingress/route/identity, and reject any first-migration fallback.
+Configuration drift requires separate repair instead of implicit network changes
+or observation-cache deletion. Pre-mutation failures leave delivery running;
+failures after the delivery fence retain the existing safe-pause behavior.
+
 Deploy an exact pushed commit. The command is read-only unless `--apply` is
 present:
 

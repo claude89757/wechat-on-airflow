@@ -92,3 +92,13 @@ def test_named_release_tag_is_reusable_exact_immutable_and_resumable():
     assert 'gh release view "$VERSION"' in workflow
     assert 'gh release create "$VERSION"' in workflow
     assert "--verify-tag" in workflow
+
+
+def test_ship_requires_full_preflight_before_runtime_mutation():
+    import yaml
+
+    jobs = yaml.safe_load((WORKFLOWS / "production-ship.yml").read_text())["jobs"]
+    assert jobs["preflight"]["with"]["mode"] == "preflight"
+    assert jobs["host_core_cutover"]["needs"] == "preflight"
+    assert "preflight" in jobs["deploy"]["needs"]
+    assert "needs.preflight.result == 'success'" in jobs["deploy"]["if"]

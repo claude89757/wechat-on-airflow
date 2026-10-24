@@ -3,6 +3,25 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [0.8.6] - 2026-10-24
+
+### Fixed
+
+- Pin Pillow 13.0.0 in both sender installation paths and isolate the systemd
+  Python 3.12 environment from distribution packages. Verify the actual imported
+  version, origin and screenshot/OCR operations before activation and in health.
+- Preserve the active sender environment on dependency/preflight failure instead
+  of restoring an unrelated retained rollback environment.
+
+### Operations
+
+- Gate the coupled release on a non-activating sender dependency preflight using
+  the actual host architecture and Python 3.12. Stage the complete candidate lock
+  in a temporary isolated venv; never modify the active service during this check.
+- Preserve existing identities, network settings, PostgreSQL and sender ledger;
+  require coupled runtime identity and natural-cycle acceptance, without synthetic
+  email or WeChat sends.
+
 ## [0.8.5] - 2026-10-20
 
 ### Changed
