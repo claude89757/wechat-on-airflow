@@ -39,15 +39,17 @@ def preflight_python():
     ("failure", "expected"),
     [
         (None, None),
-        ("python", "python312_unavailable"),
+        ("python", "unsupported_service_python"),
         ("wheel", "candidate_locked_install_failed"),
         ("smoke", "candidate_image_smoke_failed"),
         ("prefix", "active_service_or_rollback_unavailable"),
         ("disk", "insufficient_staging_disk"),
         ("identity", "runtime_identity_mismatch"),
+        ("candidate_python", "candidate_interpreter_mismatch"),
     ],
 )
-def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, expected):
+@pytest.mark.parametrize("minor", [11, 12])
+def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, expected, minor):
     active = tmp_path / "active"
     (active / "bin").mkdir(parents=True)
     (active / "bin/python").write_text("existing interpreter")
@@ -72,12 +74,28 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
                 + ("c" if failure == "identity" else "a") * 40
                 + '"}'
             )
-        elif argv[0] == str(active / "bin/python"):
-            output = '{"python":"3.11.9","pillow":"12.3.0","inside_prefix":false}'
-        elif argv[:4] == ["/fake/python3.12", "-m", "venv", argv[-1]]:
+        elif argv[:3] == [str(active / "bin/python"), "-m", "venv"]:
             environment = Path(argv[-1])
             (environment / "bin").mkdir(parents=True)
             (environment / "bin/python").touch()
+        elif argv[0] == str(active / "bin/python"):
+            output = json.dumps(
+                {
+                    "python": f"3.{10 if failure == 'python' else minor}.9",
+                    "pillow": "12.3.0",
+                    "inside_prefix": False,
+                    "bits": 64,
+                    "platform": "linux-aarch64",
+                }
+            )
+        elif argv[0].endswith("venv/bin/python") and argv[1] == "-c":
+            output = json.dumps(
+                {
+                    "python": f"3.{13 if failure == 'candidate_python' else minor}.9",
+                    "bits": 64,
+                    "platform": "linux-aarch64",
+                }
+            )
         elif "show" in argv:
             output = (
                 "Pillow==13.0.0"
@@ -100,7 +118,7 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
     with (
         patch("sys.argv", ["probe", "a" * 40, "b" * 40, str(tmp_path / "checkout"), str(active)]),
         patch("subprocess.run", side_effect=run),
-        patch("shutil.which", return_value=None if failure == "python" else "/fake/python3.12"),
+        patch("shutil.which", side_effect=AssertionError("must not select interpreter from PATH")),
         patch(
             "shutil.disk_usage",
             return_value=SimpleNamespace(free=0 if failure == "disk" else 2**32),
@@ -122,6 +140,9 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
     if failure is None:
         assert report["runtime_commit"] == "a" * 40
         assert report["candidate_pillow"] == "13.0.0"
+        assert report["candidate_python"] == f"3.{minor}.9"
+        assert report["candidate_python_bits"] == 64
+        assert report["active_python_platform"] == "linux-aarch64"
         assert report["active_pillow"] == "12.3.0"
         assert report["active_pillow_inside_prefix"] is False
         assert report["candidate_locked_dependencies_verified"] is True
@@ -167,7 +188,7 @@ def test_inventory_is_compatible_with_python36_syntax_and_api():
 def test_dry_run_preserves_preflight_inventory_in_final_output(succeeded):
     report = {"stage": "sender_dependency_preflight", "ok": succeeded, "active_pillow": "12.3.0"}
     if not succeeded:
-        report["failure_category"] = "python312_unavailable"
+        report["failure_category"] = "unsupported_service_python"
     shell = remote_shell()
     block = (
         'if [ "$mode" = "dry-run" ]; then'
@@ -215,7 +236,7 @@ def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage)
         "ok": False,
         "active_python": "3.6.9",
         "active_pillow": "5.1.0",
-        "failure_category": "python312_unavailable",
+        "failure_category": "unsupported_service_python",
         "secret": "PRIVATE VALUE",
         "distribution": {"ID": "ubuntu", "VERSION_ID": "18.04", "secret": "PRIVATE VALUE"},
     }
@@ -235,7 +256,7 @@ def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage)
     assert "PRIVATE" not in str(error.value)
     assert "PRIVATE" not in json.dumps(emitted)
     if known_stage:
-        assert emitted[0]["failure_category"] == "python312_unavailable"
+        assert emitted[0]["failure_category"] == "unsupported_service_python"
         assert emitted[0]["active_python"] == "3.6.9"
         assert emitted[0]["distribution"] == {"ID": "ubuntu", "VERSION_ID": "18.04"}
     else:

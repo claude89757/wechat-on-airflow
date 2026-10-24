@@ -11,8 +11,8 @@ def verify(lock_path: Path) -> str:
     import PIL
     from PIL import Image, ImageOps
 
-    if sys.version_info[:2] != (3, 12):
-        raise RuntimeError("sender requires Python 3.12")
+    if sys.version_info[:2] not in {(3, 11), (3, 12)}:
+        raise RuntimeError("sender requires Python 3.11 or 3.12")
     pins = [
         line.removeprefix("Pillow==")
         for line in lock_path.read_text().splitlines()

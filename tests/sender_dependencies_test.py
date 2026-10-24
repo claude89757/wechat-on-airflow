@@ -58,10 +58,25 @@ def test_docker_and_systemd_execute_runtime_check_before_activation():
     assert "/tmp/sender-dependency-check/bin/python sender_agent/verify_dependencies.py" in workflow
 
 
-def test_rejects_wrong_python_version(tmp_path):
+@pytest.mark.parametrize("version", [(3, 10), (3, 13)])
+def test_rejects_wrong_python_version(tmp_path, version):
     pil = ModuleType("PIL")
     pil.Image = ModuleType("PIL.Image")
     pil.ImageOps = ModuleType("PIL.ImageOps")
-    with patch.dict(sys.modules, {"PIL": pil}), patch("sys.version_info", (3, 11)):
-        with pytest.raises(RuntimeError, match="Python 3.12"):
+    with patch.dict(sys.modules, {"PIL": pil}), patch("sys.version_info", version):
+        with pytest.raises(RuntimeError, match="Python 3.11 or 3.12"):
             verify(tmp_path / "not-read-before-version-check")
+
+
+def test_ci_checks_both_sender_pythons_without_changing_airflow_contract():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert project["project"]["requires-python"] == ">=3.12,<3.13"
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    start = workflow.index("Verify existing-host Python 3.11 sender compatibility")
+    reset = workflow.index('python-version: "3.12"', start)
+    old_check = workflow.index("Verify isolated systemd sender dependencies", start)
+    assert start < reset < old_check
+    for environment in ("sender-python311-check", "sender-dependency-check"):
+        assert f"/tmp/{environment}/bin/python -m pip check" in workflow
+        assert f"/tmp/{environment}/bin/python sender_agent/verify_dependencies.py" in workflow
+        assert f"/tmp/{environment}/bin/python -m pytest tests/sender_agent_test.py" in workflow

@@ -82,8 +82,14 @@ for command in adb appium tesseract; do
 done
 tesseract --list-langs 2>/dev/null | grep -Fxq chi_sim ||
   fail "tesseract chi_sim language data is required"
-python3.12 -c 'import sys, venv; assert sys.version_info[:2] == (3, 12)' 2>/dev/null ||
-  fail "Python 3.12 with venv support is required"
+# Preserve the established service interpreter/minor version for an upgrade.
+# A new standalone installation may use the documented Python 3.12 baseline.
+SENDER_PYTHON="$VENV_DIR/bin/python"
+if [[ ! -e "$VENV_DIR" && ! -L "$VENV_DIR" ]]; then
+  SENDER_PYTHON=python3.12
+fi
+"$SENDER_PYTHON" -c 'import sys, venv; assert sys.version_info[:2] in {(3, 11), (3, 12)}' 2>/dev/null ||
+  fail "Sender Python 3.11 or 3.12 with venv support is required"
 [[ "$(adb -s "$DEVICE_NAME" get-state 2>/dev/null)" == "device" ]] ||
   fail "configured Android device is not online in adb"
 adb -s "$DEVICE_NAME" shell pm path com.tencent.mm 2>/dev/null | grep -q '^package:' ||
@@ -129,7 +135,7 @@ next_venv="${VENV_DIR}.new"
 previous_venv="${VENV_DIR}.previous"
 rm -rf "$next_venv"
 # Do not inherit distribution Pillow: its version is outside our release lock.
-python3.12 -m venv "$next_venv"
+"$SENDER_PYTHON" -m venv "$next_venv"
 "$next_venv/bin/python" -m pip install --disable-pip-version-check \
   --only-binary=Pillow --requirement "$INSTALL_DIR/docker/sender/requirements.lock"
 "$next_venv/bin/python" "$INSTALL_DIR/sender_agent/verify_dependencies.py" \

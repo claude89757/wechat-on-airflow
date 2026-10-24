@@ -55,12 +55,16 @@ the marketing model name. The same value must be used by
 The Android host must provide Appium, ADB, and Chinese OCR data:
 
 ```bash
-sudo apt-get install python3.12-venv tesseract-ocr tesseract-ocr-chi-sim
+sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim
 adb devices -l
 appium driver doctor uiautomator2
 ```
 
-The host must provide Python 3.12 and its venv module. Both systemd and Docker
+The standalone sender supports Python 3.11 and 3.12, with the matching venv
+module already available. Routine upgrades reuse the active service's interpreter
+to create the candidate and replacement venv; they never install another Python,
+change the OS default, or silently switch minor versions. The Airflow/project
+Python 3.12 contract is unchanged. Both systemd and Docker
 install the complete `docker/sender/requirements.lock`, including Pillow 13.0.0.
 Systemd uses an isolated venv, never distribution `python3-pil` or system site
 packages. A compatible Pillow wheel is required (including on ARM); unavailable
@@ -89,7 +93,7 @@ installed distribution version/backport status and production remediation remain
 unverified.
 
 The protected sender `dry_run` now inventories the actual service interpreter,
-Pillow version/provenance, running commit, CPU/OS, disk headroom and rollback
+Python bitness/platform and Pillow version/provenance, running commit, CPU/OS, disk headroom and rollback
 availability. It then fetches only the exact candidate Git objects and builds an
 isolated temporary environment on the host to test its complete lock and image
 operations. This is a non-activating staging preflight (temporary files/package
@@ -256,3 +260,13 @@ For a dedicated, USB-powered phone, apply mode configures stay-awake on USB,
 disables window animations, and exempts WeChat from Android idle mode. Huawei
 power management still needs manual confirmation that WeChat is allowed to run
 in the background and that USB debugging authorization survives reconnects.
+
+### 2026-10-24 compatibility finding
+
+Protected preflight 40093800182 stopped without changing the active environment:
+the existing sender used Python 3.11.2 and distribution Pillow 9.4.0 on Raspbian 12,
+with an aarch64 kernel and glibc 2.36; Python 3.12 was absent. This is a deployment
+prerequisite finding, not a claim about distribution security backports. Kernel
+architecture alone does not prove Python userland bitness. Both supported Python
+versions now have full-lock/image and no-notification sender regression CI; the
+actual host's isolated installation remains the final wheel compatibility gate.
