@@ -2,6 +2,9 @@ apache-airflow-providers-celery==3.21.0
 apache-airflow-providers-fab==3.7.1
 apache-airflow-providers-redis==4.5.0
 apache-airflow-providers-standard==1.15.0
-cryptography==48.0.1
+# Security baseline and the two base-image packages whose old caps reject it.
+cryptography==50.0.1
+gcloud-aio-auth==5.5.0
+pyOpenSSL==26.4.0
 paramiko==3.5.1
 requests==2.34.2
