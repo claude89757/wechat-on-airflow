@@ -1,0 +1,242 @@
+from __future__ import annotations
+
+import ast
+import contextlib
+import io
+import json
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def remote_shell():
+    tree = ast.parse((ROOT / "scripts/deploy_wechat_sender.py").read_text())
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "remote_script"
+    )
+    return ast.literal_eval(function.body[0].value)
+
+
+def preflight_python():
+    shell = remote_shell()
+    return shell.split("<<'DEPENDENCY_PREFLIGHT_PY'\n", 1)[1].split("\nDEPENDENCY_PREFLIGHT_PY", 1)[
+        0
+    ]
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (None, None),
+        ("python", "python312_unavailable"),
+        ("wheel", "candidate_locked_install_failed"),
+        ("smoke", "candidate_image_smoke_failed"),
+        ("prefix", "active_service_or_rollback_unavailable"),
+        ("disk", "insufficient_staging_disk"),
+        ("identity", "runtime_identity_mismatch"),
+    ],
+)
+def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, expected):
+    active = tmp_path / "active"
+    (active / "bin").mkdir(parents=True)
+    (active / "bin/python").write_text("existing interpreter")
+    original = (active / "bin/python").read_bytes()
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        output = ""
+        code = 0
+        if argv[:2] == ["systemctl", "is-enabled"]:
+            output = "enabled"
+        elif argv[:2] == ["systemctl", "is-active"]:
+            output = "active"
+        elif argv[:2] == ["systemctl", "show"]:
+            output = (
+                f"{{ path={active}/bin/python{'-unexpected' if failure == 'prefix' else ''} ; }}"
+            )
+        elif argv[0] == "curl":
+            output = (
+                '{"ok":true,"deploymentCommit":"'
+                + ("c" if failure == "identity" else "a") * 40
+                + '"}'
+            )
+        elif argv[0] == str(active / "bin/python"):
+            output = '{"python":"3.11.9","pillow":"12.3.0","inside_prefix":false}'
+        elif argv[:4] == ["/fake/python3.12", "-m", "venv", argv[-1]]:
+            environment = Path(argv[-1])
+            (environment / "bin").mkdir(parents=True)
+            (environment / "bin/python").touch()
+        elif "show" in argv:
+            output = (
+                "Pillow==13.0.0"
+                if argv[-1].endswith("requirements.lock")
+                else "# candidate checker"
+            )
+        elif "install" in argv and failure == "wheel":
+            code = 1
+        elif (
+            argv[0].endswith("venv/bin/python")
+            and argv[1].endswith("verify_dependencies.py")
+            and failure == "smoke"
+        ):
+            code = 1
+        return subprocess.CompletedProcess(
+            argv, code, output, "PRIVATE PACKAGE INDEX MUST NOT APPEAR"
+        )
+
+    output = io.StringIO()
+    with (
+        patch("sys.argv", ["probe", "a" * 40, "b" * 40, str(tmp_path / "checkout"), str(active)]),
+        patch("subprocess.run", side_effect=run),
+        patch("shutil.which", return_value=None if failure == "python" else "/fake/python3.12"),
+        patch(
+            "shutil.disk_usage",
+            return_value=SimpleNamespace(free=0 if failure == "disk" else 2**32),
+        ),
+        contextlib.redirect_stdout(output),
+        pytest.raises(SystemExit) as stopped,
+    ):
+        exec(compile(preflight_python(), "sender-preflight", "exec"), {})
+    report = json.loads(output.getvalue())
+    assert stopped.value.code == (0 if failure is None else 1)
+    assert report["ok"] is (failure is None)
+    assert report.get("failure_category") == expected
+    assert report["active_environment_changed"] is False
+    assert report["external_test_sends"] == 0
+    assert "PRIVATE" not in output.getvalue()
+    assert (active / "bin/python").read_bytes() == original
+    assert not list(tmp_path.glob(".sender-preflight-*"))
+    assert not any("restart" in argv or "checkout" in argv for argv in calls)
+    if failure is None:
+        assert report["runtime_commit"] == "a" * 40
+        assert report["candidate_pillow"] == "13.0.0"
+        assert report["active_pillow"] == "12.3.0"
+        assert report["active_pillow_inside_prefix"] is False
+        assert report["candidate_locked_dependencies_verified"] is True
+        assert report["temporary_environment_removed"] is True
+        assert any("--only-binary=Pillow" in argv for argv in calls)
+        assert any(argv[-1] == "b" * 40 + ":docker/sender/requirements.lock" for argv in calls)
+        assert any(argv[-1] == "b" * 40 + ":sender_agent/verify_dependencies.py" for argv in calls)
+
+
+def test_both_official_modes_gate_before_activation_and_source_checkout():
+    shell = remote_shell()
+    dry_run = shell.split('if [ "$mode" = "dry-run" ]; then', 1)[1].split(
+        'test "$mode" = "apply"', 1
+    )[0]
+    apply = shell.split('test "$mode" = "apply"', 1)[1]
+    assert dry_run.index("fetch_target") < dry_run.index("dependency_preflight")
+    assert apply.index("fetch_target") < apply.index("dependency_preflight")
+    assert apply.index("dependency_preflight") < apply.index("unit_backup=")
+    assert apply.index("dependency_preflight") < apply.index("trap rollback EXIT")
+    assert apply.index("dependency_preflight") < apply.index(
+        'checkout --quiet --detach "$target_commit"'
+    )
+    assert "--only-binary=Pillow" in preflight_python()
+    assert "stderr=subprocess.PIPE" in preflight_python()
+    assert "universal_newlines=True" in preflight_python()
+    result = subprocess.run(
+        ["bash", "-n"], input=shell, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_inventory_is_compatible_with_python36_syntax_and_api():
+    probe = preflight_python()
+    ast.parse(probe, feature_version=(3, 6))
+    assert "capture_output=" not in probe
+    assert "text=True" not in probe
+    assert "is_relative_to" not in probe
+    assert "os.path.commonpath" in probe
+    assert 'getattr(platform, "freedesktop_os_release", lambda: {})' in probe
+
+
+@pytest.mark.parametrize("succeeded", [True, False])
+def test_dry_run_preserves_preflight_inventory_in_final_output(succeeded):
+    report = {"stage": "sender_dependency_preflight", "ok": succeeded, "active_pillow": "12.3.0"}
+    if not succeeded:
+        report["failure_category"] = "python312_unavailable"
+    shell = remote_shell()
+    block = (
+        'if [ "$mode" = "dry-run" ]; then'
+        + shell.split('if [ "$mode" = "dry-run" ]; then', 1)[1].split('test "$mode" = "apply"', 1)[
+            0
+        ]
+    )
+    script = (
+        "set -eu\nmode=dry-run\ncredentials_ready=true\ncurrent_commit=old\ntarget_commit=new\n"
+        "preserve_reviewed_drift() { :; }\nfetch_target() { :; }\n"
+        f'dependency_preflight() {{ printf "%s\\n" {shlex.quote(json.dumps(report))}; return {0 if succeeded else 1}; }}\n'
+        f'python3() {{ {shlex.quote(sys.executable)} "$@"; }}\n' + block
+    )
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=False)
+    assert result.returncode == (0 if succeeded else 1), result.stderr
+    actual = json.loads(result.stdout)
+    assert (actual["dependency_preflight"] if succeeded else actual) == report
+
+
+@pytest.mark.parametrize("known_stage", [True, False])
+def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage):
+    source = (ROOT / "scripts/deploy_wechat_sender.py").read_text()
+    tree = ast.parse(source)
+    functions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {"parse_remote_result", "safe_dependency_preflight"}
+    ]
+    emitted = []
+
+    class OpsError(Exception):
+        pass
+
+    namespace = {
+        "Any": Any,
+        "json": json,
+        "re": re,
+        "OpsError": OpsError,
+        "COMMIT_PATTERN": re.compile(r"^[0-9a-f]{40}$"),
+    }
+    exec(compile(ast.Module(body=functions, type_ignores=[]), "helpers", "exec"), namespace)
+    report = {
+        "stage": "sender_dependency_preflight" if known_stage else "other",
+        "ok": False,
+        "active_python": "3.6.9",
+        "active_pillow": "5.1.0",
+        "failure_category": "python312_unavailable",
+        "secret": "PRIVATE VALUE",
+        "distribution": {"ID": "ubuntu", "VERSION_ID": "18.04", "secret": "PRIVATE VALUE"},
+    }
+    namespace.update(
+        {
+            "result": subprocess.CompletedProcess([], 1, json.dumps(report), "PRIVATE STDERR"),
+            "args": SimpleNamespace(format="json"),
+            "emit": lambda value, format: emitted.append(value),
+        }
+    )
+    failure = source.split("    if result.returncode:\n        try:\n            failure =", 1)[
+        1
+    ].split("    payload = parse_remote_result(result.stdout)", 1)[0]
+    body = "if result.returncode:\n        try:\n            failure =" + failure
+    with pytest.raises(OpsError, match="sender operation failed") as error:
+        exec(compile(body, "failure-emission", "exec"), namespace)
+    assert "PRIVATE" not in str(error.value)
+    assert "PRIVATE" not in json.dumps(emitted)
+    if known_stage:
+        assert emitted[0]["failure_category"] == "python312_unavailable"
+        assert emitted[0]["active_python"] == "3.6.9"
+        assert emitted[0]["distribution"] == {"ID": "ubuntu", "VERSION_ID": "18.04"}
+    else:
+        assert emitted == []

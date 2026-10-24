@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wechat-on-airflow"
-version = "0.8.5"
+version = "0.8.6"
 description = "Airflow workflows for Shenzhen tennis availability notifications."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -25,7 +25,7 @@ dependencies = [
 sender = [
   "Appium-Python-Client==5.3.1",
   "fastapi==0.139.2",
-  "Pillow==12.3.0",
+  "Pillow==13.0.0",
   "pydantic==2.13.4",
   "selenium==4.46.0",
   "uvicorn==0.51.0",

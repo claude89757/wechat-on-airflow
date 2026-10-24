@@ -127,6 +127,12 @@ jobs:
       - name: Build Airflow image
         if: steps.plan.outputs.ci_airflow == 'true'
         run: make image
+      - name: Verify isolated systemd sender dependencies
+        if: steps.plan.outputs.ci_sender == 'true'
+        run: |
+          python3.12 -m venv /tmp/sender-dependency-check
+          /tmp/sender-dependency-check/bin/python -m pip install --only-binary=Pillow -r docker/sender/requirements.lock
+          /tmp/sender-dependency-check/bin/python sender_agent/verify_dependencies.py docker/sender/requirements.lock
       - name: Build WeChat sender image
         if: steps.plan.outputs.ci_sender == 'true'
         run: make sender-image

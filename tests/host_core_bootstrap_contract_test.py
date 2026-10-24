@@ -11,7 +11,9 @@ def read(path):
 
 def test_prepare_only_enables_delivery_after_migration_and_routing():
     script = read("scripts/host_core_release.sh")
-    assert script.index("remote prepare-runtime |") < script.index("remote sync-secrets")
+    assert script.index('remote prepare-runtime "${routine_args[@]}" |') < script.index(
+        "remote sync-secrets"
+    )
     assert script.index("remote sync-secrets") < script.index("    export_snapshot")
     assert script.index("    export_snapshot") < script.index("    remote prepare-routing")
     assert script.index("    deploy_edge production") < script.index("    remote cutover")

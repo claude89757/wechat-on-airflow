@@ -20,6 +20,7 @@ on:
         options:
           - preflight
           - full-cutover
+          - routine-upgrade
           - health
           - activate-workers
           - acceptance
@@ -56,7 +57,7 @@ jobs:
           set -euo pipefail
           operation="$INPUT_OPERATION"
           target_commit="${INPUT_TARGET:-$(git rev-parse origin/main)}"
-          [[ "$operation" =~ ^(preflight|full-cutover|health|activate-workers|acceptance|pause)$ ]]
+          [[ "$operation" =~ ^(preflight|full-cutover|routine-upgrade|health|activate-workers|acceptance|pause)$ ]]
           [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
           git fetch --quiet origin main
           [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
@@ -139,25 +140,77 @@ jobs:
           chmod 0600 ~/.ssh/known_hosts
 
       - name: Prepare exact remote commit
+        id: prepare_remote
         run: |
           set -euo pipefail
-          ssh \
-            -o BatchMode=yes \
-            -o ConnectTimeout=20 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=120 \
-            -o TCPKeepAlive=yes \
-            -p "$AIRFLOW_SSH_PORT" \
-            "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
-            "set -euo pipefail; cd '$AIRFLOW_REPOSITORY_PATH'; \
-             git fetch --prune origin main; \
-             test -z \"\$(git status --porcelain --untracked-files=no)\"; \
-             git checkout --detach '$TARGET_COMMIT'; \
-             test \"\$(git rev-parse HEAD)\" = '$TARGET_COMMIT'"
+          prepared="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=120 -o TCPKeepAlive=yes \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "bash -s -- '$AIRFLOW_REPOSITORY_PATH' '$TARGET_COMMIT' '$OPERATION'" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          target="$2"
+          operation="$3"
+          previous="$(git rev-parse HEAD)"
+          live=none
+          if [[ "$operation" == routine-upgrade ]]; then
+            live="$(docker compose exec -T zacks-api python -c 'import os; print(os.environ.get("DEPLOYMENT_COMMIT", "unknown"))' </dev/null)"
+            [[ "$live" =~ ^[0-9a-f]{40}$ ]]
+          fi
+          git fetch --prune origin main
+          test -z "$(git status --porcelain --untracked-files=no)"
+          git checkout --detach "$target"
+          test "$(git rev-parse HEAD)" = "$target"
+          printf '%s %s\n' "$previous" "$live"
+          REMOTE
+          )"
+          read -r previous_commit live_commit <<<"$prepared"
+          [[ "$previous_commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "previous_commit=$previous_commit" >> "$GITHUB_OUTPUT"
+          echo "live_commit=$live_commit" >> "$GITHUB_OUTPUT"
 
       - name: Operate host core
         working-directory: webapp
         run: bash ../scripts/host_core_release.sh
+
+      - name: Restore source after rejected routine preflight
+        if: failure() && inputs.operation == 'routine-upgrade' && steps.prepare_remote.outputs.previous_commit != ''
+        env:
+          PREVIOUS_COMMIT: ${{ steps.prepare_remote.outputs.previous_commit }}
+          LIVE_COMMIT: ${{ steps.prepare_remote.outputs.live_commit }}
+        run: |
+          set -euo pipefail
+          if grep -Fq '"event": "host_runtime_mutation_started"' /tmp/host-core-prepare.log 2>/dev/null; then
+            echo 'Runtime mutation started; source-only restoration is unsafe and was skipped.'
+            exit 0
+          fi
+          [[ "$PREVIOUS_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$LIVE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "bash -s -- '$AIRFLOW_REPOSITORY_PATH' '$TARGET_COMMIT' '$PREVIOUS_COMMIT' '$LIVE_COMMIT'" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          target="$2"
+          previous="$3"
+          live="$4"
+          test "$(git rev-parse HEAD)" = "$target"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          # A missing runner marker alone is not proof: SSH may have lost output.
+          # Compare actual runtime with its own baseline, not the worktree SHA.
+          docker compose exec -T zacks-api python - "$live" <<'PY'
+          import os
+          import sys
+          from wechat_airflow.host_core.control import runtime_state
+          state = runtime_state()
+          assert os.environ.get("DEPLOYMENT_COMMIT") == sys.argv[1], "live runtime changed"
+          assert state.get("delivery_enabled") is True, "delivery baseline changed"
+          assert state.get("wechat_enabled") is True, "WeChat baseline changed"
+          PY
+          git checkout --quiet --detach "$previous"
+          test "$(git rev-parse HEAD)" = "$previous"
+          echo 'Rejected preflight: previous source identity restored; live services untouched.'
+          REMOTE
 
       - name: Publish sanitized acceptance evidence
         if: always() && inputs.operation == 'acceptance'

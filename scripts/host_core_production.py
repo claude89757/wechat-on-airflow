@@ -244,7 +244,81 @@ def one_shot(script, target_commit, capture=True):
     return completed.stdout.strip() if capture and completed.stdout else ""
 
 
-def prepare_runtime(target_commit):
+def verify_existing_configuration():
+    """Routine upgrades verify existing ingress/routing; never repair it implicitly."""
+    result = _last_json(
+        run([sys.executable, str(ROOT / "scripts/configure_zacks_tunnel.py")], capture=True).stdout
+    )
+    if result.get("changed") is not False or result.get("applied") is not False:
+        raise RuntimeError("existing tunnel configuration differs; explicit repair required")
+    if variable_get("WEBAPP_OBSERVATION_API_URL") != LOCAL_OBSERVATION_URL:
+        raise RuntimeError("existing observation route differs; explicit repair required")
+    if variable_get("WEBAPP_WECHAT_SUBSCRIPTION_GATE_MODE") != "enforce":
+        raise RuntimeError("existing subscription gate differs; explicit repair required")
+
+
+def already_activated():
+    state = _last_json(
+        host_python(
+            "import json; from wechat_airflow.host_core.control import runtime_state; "
+            "print(json.dumps(runtime_state(), default=str))",
+            capture=True,
+        )
+    )
+    return state.get("activated_at") is not None
+
+
+def routine_preflight(target_commit):
+    """Validate the current live installation without building or activating a candidate."""
+    result = preflight(target_commit)
+    checkpoint = _last_json(
+        host_python(
+            "import json,os; from wechat_airflow.host_core.release_checkpoint import read_checkpoint; "
+            "print(json.dumps(read_checkpoint(os.environ['DEPLOYMENT_COMMIT'])))",
+            capture=True,
+        )
+    )
+    current_commit = checkpoint.get("deploymentCommit")
+    if (
+        not isinstance(current_commit, str)
+        or len(current_commit) != 40
+        or any(character not in "0123456789abcdef" for character in current_commit)
+    ):
+        raise RuntimeError("routine upgrade requires a valid live runtime identity")
+    if (
+        checkpoint.get("everActivated") is not True
+        or checkpoint.get("migrationComplete") is not True
+    ):
+        raise RuntimeError("routine upgrade requires an activated, verified migration checkpoint")
+    if checkpoint.get("deliveryEnabled") is not True or checkpoint.get("wechatEnabled") is not True:
+        raise RuntimeError("routine upgrade requires an operational delivery baseline")
+    token = variable_get("WEBAPP_OBSERVATION_API_TOKEN")
+    token_path = (
+        Path(os.environ.get("AIRFLOW_SECRET_DIR", "/etc/wechat-on-airflow/secrets"))
+        / "zacks_edge_token"
+    )
+    if not token_path.is_file() or token_path.read_text().strip() != token or len(token) < 16:
+        raise RuntimeError(
+            "existing edge identity missing or inconsistent; explicit repair required"
+        )
+    verify_existing_configuration()
+    local_health(checkpoint.get("deploymentCommit"))
+    local_ready()
+    result.update(
+        {
+            "routineUpgrade": True,
+            "existingConfigurationPreserved": True,
+            "currentDeploymentCommit": checkpoint.get("deploymentCommit"),
+            "migrationComplete": True,
+            "everActivated": True,
+        }
+    )
+    return result
+
+
+def prepare_runtime(target_commit, routine_only=False):
+    if routine_only:
+        routine_preflight(target_commit)
     result = preflight(target_commit)
     environment = application_environment(target_commit)
     os.environ.update(
@@ -259,10 +333,6 @@ def prepare_runtime(target_commit):
     token_path = secret_directory / "zacks_edge_token"
     if token_path.exists() and token_path.read_text().strip() != token:
         raise RuntimeError("existing edge identities disagree; refusing implicit rotation")
-    if not token_path.exists():
-        with token_path.open("w") as handle:
-            handle.write(token + "\n")
-        os.chmod(str(token_path), 0o640)
     state = _last_json(
         one_shot(
             "import json; from wechat_airflow.host_core.control import runtime_state; "
@@ -270,6 +340,17 @@ def prepare_runtime(target_commit):
             target_commit,
         )
     )
+    routine_upgrade = state.get("activated_at") is not None
+    if routine_only and not routine_upgrade:
+        raise RuntimeError("routine upgrade cannot initialize an unactivated installation")
+    if routine_upgrade:
+        if not token_path.exists():
+            raise RuntimeError("existing edge identity missing; explicit repair required")
+        verify_existing_configuration()
+    if not token_path.exists():
+        with token_path.open("w") as handle:
+            handle.write(token + "\n")
+        os.chmod(str(token_path), 0o640)
     backup_dir = ROOT / ".local" / "host-core-backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(str(backup_dir), 0o700)
@@ -297,6 +378,8 @@ def prepare_runtime(target_commit):
             raise RuntimeError("pre-cutover business schema backup failed")
         os.chmod(str(temporary), 0o600)
         temporary.replace(backup)
+    # Recovery must distinguish guard failures from a partially mutated runtime.
+    print(json.dumps({"event": "host_runtime_mutation_started"}), flush=True)
     # The exclusive PG fence drains bounded in-flight sends. No old owner is reactivated.
     one_shot(
         "from wechat_airflow.host_core.control import set_delivery_enabled; "
@@ -314,7 +397,15 @@ def prepare_runtime(target_commit):
     )
     compose("up", "-d", "--no-build", "--no-deps", "zacks-api", env=environment)
     _wait_for_local_health(target_commit)
-    run([sys.executable, str(ROOT / "scripts/configure_zacks_tunnel.py"), "--apply", "--restart"])
+    if not routine_upgrade:
+        run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/configure_zacks_tunnel.py"),
+                "--apply",
+                "--restart",
+            ]
+        )
     result.update(
         {
             "previouslyActivated": state.get("activated_at") is not None,
@@ -479,8 +570,21 @@ def migrate_sql(target_commit, pass_name, sql_export, snapshot_sha256):
     }
 
 
-def prepare_routing(target_commit):
+def prepare_routing(target_commit, routine_only=False):
     assert_target(target_commit)
+    if already_activated():
+        verify_existing_configuration()
+        _wait_for_local_health(target_commit)
+        _wait_for_local_ready()
+        return {
+            "targetCommit": target_commit,
+            "observation": "host",
+            "ready": True,
+            "existingConfigurationPreserved": True,
+            "cachesPreserved": True,
+        }
+    if routine_only:
+        raise RuntimeError("routine upgrade cannot initialize routing")
     # These variables only drain already-running old DAG tasks into the new API.
     # The new collector image has a fixed Compose-local destination.
     variable_set("WEBAPP_OBSERVATION_API_URL", LOCAL_OBSERVATION_URL)
@@ -638,6 +742,7 @@ def main():
         "operation",
         choices=(
             "preflight",
+            "routine-preflight",
             "prepare-runtime",
             "sync-secrets",
             "migrate-sql",
@@ -650,6 +755,7 @@ def main():
         ),
     )
     parser.add_argument("--target-commit", required=True)
+    parser.add_argument("--routine-only", action="store_true")
     parser.add_argument("--sql-export")
     parser.add_argument("--snapshot-sha256")
     parser.add_argument("--pass-name", default="final")
@@ -663,6 +769,8 @@ def main():
             if k in ("DEPLOYMENT_COMMIT", "AIRFLOW_IMAGE_NAME")
         }
     )
+    if args.routine_only and args.operation not in ("prepare-runtime", "prepare-routing"):
+        parser.error("routine-only is limited to runtime and routing preparation")
     if args.operation == "migrate-sql":
         if not args.sql_export or not args.snapshot_sha256:
             parser.error("SQL export and checksum are required")
@@ -693,6 +801,7 @@ def main():
     else:
         operations = {
             "preflight": preflight,
+            "routine-preflight": routine_preflight,
             "prepare-runtime": prepare_runtime,
             "sync-secrets": sync_secrets,
             "prepare-routing": prepare_routing,
@@ -700,7 +809,10 @@ def main():
             "activate-workers": activate_workers,
             "pause-host-delivery": pause_host_delivery,
         }
-        result = operations[args.operation](args.target_commit)
+        if args.operation in ("prepare-runtime", "prepare-routing"):
+            result = operations[args.operation](args.target_commit, routine_only=args.routine_only)
+        else:
+            result = operations[args.operation](args.target_commit)
     success = result.get("ok", True)
     print(
         json.dumps(
