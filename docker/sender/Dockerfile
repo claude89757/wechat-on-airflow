@@ -15,9 +15,10 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY docker/sender/requirements.lock .
-RUN python -m pip install --no-cache-dir --requirement requirements.lock
+RUN python -m pip install --no-cache-dir --only-binary=Pillow --requirement requirements.lock
 
 COPY --chown=app:app sender_agent sender_agent
+RUN python sender_agent/verify_dependencies.py requirements.lock
 COPY --chown=app:app wechat_sender wechat_sender
 
 RUN mkdir -p /var/lib/wechat-sender && chown app:app /var/lib/wechat-sender && chmod 0700 /var/lib/wechat-sender

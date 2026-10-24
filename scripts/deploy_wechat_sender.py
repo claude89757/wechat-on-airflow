@@ -121,8 +121,13 @@ health() {
     if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:7001/readyz >/dev/null; then
         ready=true
     fi
+    dependencies_ready=false
+    if "$venv_dir/bin/python" "$install_dir/sender_agent/verify_dependencies.py" \
+        "$install_dir/docker/sender/requirements.lock" >/dev/null 2>&1; then
+        dependencies_ready=true
+    fi
     python3 - "$current_commit" "$service_enabled" "$service_active" "$ready" \
-        "$credential_dir" <<'PY'
+        "$credential_dir" "$dependencies_ready" <<'PY'
 import json
 import stat
 import sys
@@ -173,11 +178,13 @@ print(json.dumps({
         and sys.argv[3] == "active"
         and sys.argv[4] == "true"
         and credentials_ready
+        and sys.argv[6] == "true"
     ),
     "commit": sys.argv[1] or None,
     "service_enabled": sys.argv[2] == "enabled",
     "service_active": sys.argv[3] == "active",
     "ready": sys.argv[4] == "true",
+    "dependencies_ready": sys.argv[6] == "true",
     "credentials": {
         "ready": credentials_ready,
         "directory_ready": directory_ready,
@@ -482,6 +489,9 @@ test "$mode" = "apply"
 test "$(id -u)" = 0
 test "$credentials_ready" = true
 
+# A retained .previous may belong to an earlier successful release. Restore it
+# only after this attempt has actually moved/replaced the active environment.
+venv_identity_before="$(stat -c '%d:%i' "$venv_dir" 2>/dev/null || true)"
 unit_backup="$(mktemp)"
 if [ -f "$service_file" ]; then
     cp -p "$service_file" "$unit_backup"
@@ -502,15 +512,18 @@ rollback() {
         if [ -s "$unit_backup" ]; then
             cp -p "$unit_backup" "$service_file" || true
         fi
-        if [ -d "${venv_dir}.previous" ]; then
-            rm -rf "${venv_dir}.failed" || true
-            if [ -d "$venv_dir" ]; then
-                mv "$venv_dir" "${venv_dir}.failed" || true
+        venv_identity_after="$(stat -c '%d:%i' "$venv_dir" 2>/dev/null || true)"
+        if [ "$venv_identity_after" != "$venv_identity_before" ]; then
+            if [ -d "${venv_dir}.previous" ]; then
+                rm -rf "${venv_dir}.failed" || true
+                if [ -d "$venv_dir" ]; then
+                    mv "$venv_dir" "${venv_dir}.failed" || true
+                fi
+                mv "${venv_dir}.previous" "$venv_dir" || true
             fi
-            mv "${venv_dir}.previous" "$venv_dir" || true
+            systemctl daemon-reload || true
+            systemctl restart wechat-sender.service || true
         fi
-        systemctl daemon-reload || true
-        systemctl restart wechat-sender.service || true
     fi
     rm -f "$unit_backup"
     cleanup_bundle
