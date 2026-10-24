@@ -25,6 +25,13 @@ and operational changes.
   without synthetic
   email or WeChat sends.
 
+- Keep technically healthy delivery active while natural-message acceptance is
+  pending; do not tag or complete a release until all original evidence arrives.
+  Same-run failed-job retries preserve the acceptance window and per-attempt
+  artifacts, and cannot move a newer runtime back to an older checkout.
+- Collect only fixed read-only preflight business aggregates; dirty production
+  worktrees now block preflight rather than being implicitly repaired.
+
 ## [0.8.5] - 2026-10-20
 
 ### Changed

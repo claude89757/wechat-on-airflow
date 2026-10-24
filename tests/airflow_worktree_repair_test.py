@@ -72,15 +72,14 @@ class AirflowWorktreeRepairTest(TestCase):
         self.assertTrue(repair_airflow_worktree.repair_succeeded(repaired, 1))
         self.assertTrue(repair_airflow_worktree.repair_succeeded(already_clean, 1))
 
-    def test_protected_preflight_repairs_then_diagnoses_then_dry_runs(self) -> None:
+    def test_protected_preflight_diagnoses_then_dry_runs_without_repair(self) -> None:
         workflow = (ROOT / ".github/workflows/production-airflow.yml").read_text(encoding="utf-8")
         operation = workflow.index("deploy_preflight)")
-        repair = workflow.index("scripts/repair_airflow_worktree.py", operation)
-        diagnose = workflow.index("scripts/diagnose_airflow_deploy_preflight.py", repair)
+        self.assertNotIn("scripts/repair_airflow_worktree.py", workflow)
+        diagnose = workflow.index("scripts/diagnose_airflow_deploy_preflight.py", operation)
         dry_run = workflow.index("scripts/deploy_airflow.py", diagnose)
 
-        self.assertLess(repair, diagnose)
         self.assertLess(diagnose, dry_run)
-        self.assertIn("--expected-dirty-count 1", workflow)
-        self.assertIn("--if-needed", workflow)
+        self.assertNotIn("--expected-dirty-count", workflow)
+        self.assertNotIn("--if-needed", workflow)
         self.assertNotIn("airflow_worktree_repair)", workflow)

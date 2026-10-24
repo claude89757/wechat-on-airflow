@@ -48,17 +48,14 @@ class AirflowPreflightDiagnosticsTest(TestCase):
         self.assertNotIn('"secret_path"', script)
         self.assertNotIn('"secret_dir"', script)
 
-    def test_protected_workflow_repairs_before_preflight_diagnosis_and_apply(self) -> None:
+    def test_protected_workflow_diagnoses_without_repair_before_preflight_and_apply(self) -> None:
         workflow = (ROOT / ".github/workflows/production-airflow.yml").read_text(encoding="utf-8")
         diagnostic = "scripts/diagnose_airflow_deploy_preflight.py"
         repair = "scripts/repair_airflow_worktree.py"
 
         self.assertEqual(workflow.count(diagnostic), 2)
         preflight_start = workflow.index("deploy_preflight)")
-        self.assertLess(
-            workflow.index(repair, preflight_start),
-            workflow.index(diagnostic, preflight_start),
-        )
+        self.assertNotIn(repair, workflow)
         self.assertLess(
             workflow.index(diagnostic, preflight_start),
             workflow.index("scripts/deploy_airflow.py", preflight_start),
