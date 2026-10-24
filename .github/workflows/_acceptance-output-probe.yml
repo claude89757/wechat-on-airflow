@@ -14,14 +14,17 @@ jobs:
     steps:
       - name: Simulate pending without production identity or external sends
         run: |
-          printf '{"acceptanceStatus":"pending","success":false}\n' >/tmp/acceptance-probe.json
-          exit 75
+          if [ "${{ github.run_attempt }}" = 1 ]; then
+            printf 'pending\n' >/tmp/acceptance-probe.json
+            exit 75
+          fi
+          printf 'accepted\n' >/tmp/acceptance-probe.json
       - name: Preserve synthetic evidence
         id: evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: synthetic-pending-output-probe
+          name: synthetic-pending-output-probe-${{ github.run_attempt }}
           path: /tmp/acceptance-probe.json
           if-no-files-found: error
       - name: Export validated state after failure
@@ -31,5 +34,5 @@ jobs:
           EVIDENCE_RESULT: ${{ steps.evidence.outcome }}
         run: |
           status=failed
-          if [ "$EVIDENCE_RESULT" = success ]; then status=pending; fi
+          if [ "$EVIDENCE_RESULT" = success ]; then read -r status </tmp/acceptance-probe.json; fi
           echo "status=$status" >>"$GITHUB_OUTPUT"

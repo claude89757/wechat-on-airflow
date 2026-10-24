@@ -22,7 +22,7 @@ jobs:
     if: always() && needs.acceptance.result == 'success' && needs.acceptance.outputs.acceptance_status == 'accepted'
     runs-on: ubuntu-latest
     steps:
-      - run: echo 'Synthetic only; this must be skipped for pending'; exit 1
+      - run: echo 'Synthetic tag eligibility only; no actual tag or release created'
   verify_pending_output:
     needs: [acceptance, would_pause, would_tag]
     if: always()
@@ -36,8 +36,14 @@ jobs:
           TAG: ${{ needs.would_tag.result }}
         run: |
           printf 'producer_result=%s acceptance_status=%s pause=%s tag=%s\n' "$RESULT" "$STATUS" "$PAUSE" "$TAG"
-          test "$RESULT" = failure
-          test "$STATUS" = pending
           test "$PAUSE" = skipped
-          test "$TAG" = skipped
+          if [ "${{ github.run_attempt }}" = 1 ]; then
+            test "$RESULT" = failure
+            test "$STATUS" = pending
+            test "$TAG" = skipped
+          else
+            test "$RESULT" = success
+            test "$STATUS" = accepted
+            test "$TAG" = success
+          fi
           echo 'Actual reusable failure output contract verified; no production access or delivery.'
