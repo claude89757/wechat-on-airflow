@@ -207,3 +207,9 @@ def test_official_preflight_collects_baseline_without_mutation_or_runtime_initia
         ["bash", "-n"], input=shell, text=True, capture_output=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_outer_timestamp_sanitizer_keeps_host_python36_compatibility():
+    script = SOURCE.read_text()
+    assert "datetime.fromisoformat(" not in script
+    assert "datetime.strptime(normalized, timestamp_format)" in script

@@ -311,8 +311,12 @@ def business_baseline(raw: str) -> dict:
         for key, item in timestamps.items():
             if key == "last_seen_at" and not retired["present"] and item is None:
                 continue
-            if not isinstance(item, str) or len(item) > 40 or datetime.fromisoformat(item).tzinfo is None:
+            if not isinstance(item, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?[+-]\d{2}:\d{2}", item):
                 return failure
+            # Host Python is 3.6: fromisoformat and colon-bearing %z arrived later.
+            normalized = item[:-3] + item[-2:]
+            timestamp_format = "%Y-%m-%dT%H:%M:%S.%f%z" if "." in item else "%Y-%m-%dT%H:%M:%S%z"
+            datetime.strptime(normalized, timestamp_format)
         result = {
             "ok": True,
             "read_only": True,
