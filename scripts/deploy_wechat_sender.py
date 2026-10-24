@@ -52,7 +52,7 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
     for key in (
         "ok",
         "applied",
-        "python312_available",
+        "supported_interpreter",
         "rollback_environment_available",
         "active_environment_changed",
         "service_enabled",
@@ -66,14 +66,28 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
     ):
         if key in value:
             clean[key] = value[key] is True
-    for key in ("free_bytes", "minimum_free_bytes", "external_test_sends"):
+    for key in (
+        "free_bytes",
+        "minimum_free_bytes",
+        "external_test_sends",
+        "active_python_bits",
+        "candidate_python_bits",
+    ):
         raw = value.get(key)
         if isinstance(raw, int) and not isinstance(raw, bool) and 0 <= raw <= 10**18:
             clean[key] = raw
     for key in ("current_commit", "target_commit", "runtime_commit"):
         raw = value.get(key)
         clean[key] = raw if isinstance(raw, str) and COMMIT_PATTERN.fullmatch(raw) else None
-    for key in ("architecture", "active_python", "active_pillow", "candidate_pillow"):
+    for key in (
+        "architecture",
+        "active_python",
+        "active_pillow",
+        "candidate_pillow",
+        "candidate_python",
+        "active_python_platform",
+        "candidate_python_platform",
+    ):
         raw = value.get(key)
         if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9_.+-]{1,40}", raw):
             clean[key] = raw
@@ -94,13 +108,14 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
         "sender_not_ready",
         "runtime_identity_mismatch",
         "active_dependency_inventory_failed",
-        "python312_unavailable",
-        "python312_venv_unavailable",
+        "unsupported_service_python",
+        "service_python_venv_unavailable",
         "insufficient_staging_disk",
         "candidate_lock_unavailable",
         "candidate_checker_unavailable",
         "candidate_pillow_pin_invalid",
         "candidate_venv_failed",
+        "candidate_interpreter_mismatch",
         "candidate_locked_install_failed",
         "candidate_dependency_conflict",
         "candidate_image_smoke_failed",
@@ -545,7 +560,7 @@ report = {
     "current_commit": current_commit or None,
     "target_commit": target_commit,
     "architecture": platform.machine() if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", platform.machine()) else "unknown",
-    "python312_available": False,
+    "supported_interpreter": False,
     "rollback_environment_available": Path(venv_dir, "bin/python").is_file(),
     "active_environment_changed": False,
     "external_test_sends": 0,
@@ -578,11 +593,13 @@ try:
         raise PreflightFailure("sender_not_ready")
     if report["runtime_commit"] != current_commit:
         raise PreflightFailure("runtime_identity_mismatch")
-    active_probe = command([str(Path(venv_dir, "bin/python")), "-c", "import json,os,sys; import PIL; prefix=os.path.realpath(sys.prefix); print(json.dumps({'python': '.'.join(map(str,sys.version_info[:3])), 'pillow': PIL.__version__, 'inside_prefix': os.path.commonpath([os.path.realpath(PIL.__file__),prefix]) == prefix}))"], "active_dependency_inventory_failed")
+    active_probe = command([str(Path(venv_dir, "bin/python")), "-c", "import json,os,struct,sys,sysconfig; import PIL; prefix=os.path.realpath(sys.prefix); print(json.dumps({'python': '.'.join(map(str,sys.version_info[:3])), 'bits': struct.calcsize('P')*8, 'platform': sysconfig.get_platform(), 'pillow': PIL.__version__, 'inside_prefix': os.path.commonpath([os.path.realpath(PIL.__file__),prefix]) == prefix}))"], "active_dependency_inventory_failed")
     active = json.loads(active_probe)
     report["active_python"] = active.get("python") if re.fullmatch(r"[0-9.]{1,32}", str(active.get("python", ""))) else None
     report["active_pillow"] = active.get("pillow") if re.fullmatch(r"[A-Za-z0-9.+-]{1,40}", str(active.get("pillow", ""))) else None
     report["active_pillow_inside_prefix"] = active.get("inside_prefix") is True
+    report["active_python_bits"] = active.get("bits") if active.get("bits") in (32, 64) else None
+    report["active_python_platform"] = active.get("platform") if re.fullmatch(r"[A-Za-z0-9_.+-]{1,40}", str(active.get("platform", ""))) else None
     try:
         distro = getattr(platform, "freedesktop_os_release", lambda: {})()
         report["distribution"] = {}
@@ -594,11 +611,12 @@ try:
         report["distribution"] = {}
     libc_name, libc_version = platform.libc_ver()
     report["libc"] = {"name": libc_name if re.fullmatch(r"[A-Za-z0-9_-]{0,32}", libc_name) else "unknown", "version": libc_version if re.fullmatch(r"[A-Za-z0-9_.-]{0,40}", libc_version) else "unknown"}
-    python312 = shutil.which("python3.12")
-    report["python312_available"] = python312 is not None
-    if python312 is None:
-        raise PreflightFailure("python312_unavailable")
-    command([python312, "-c", "import sys,venv; assert sys.version_info[:2] == (3,12)"], "python312_venv_unavailable")
+    # Never select a different minor from PATH: reuse the actual service interpreter.
+    service_python = str(Path(venv_dir, "bin/python"))
+    report["supported_interpreter"] = str(report["active_python"]).split(".")[:2] in (["3", "11"], ["3", "12"])
+    if not report["supported_interpreter"]:
+        raise PreflightFailure("unsupported_service_python")
+    command([service_python, "-c", "import sys,venv; assert sys.version_info[:2] in {(3,11),(3,12)}"], "service_python_venv_unavailable")
     report["free_bytes"] = shutil.disk_usage(Path(venv_dir).parent).free
     report["minimum_free_bytes"] = minimum_free_bytes
     report["disk_sufficient"] = report["free_bytes"] >= minimum_free_bytes
@@ -617,8 +635,15 @@ try:
             raise PreflightFailure("candidate_pillow_pin_invalid")
         report["candidate_pillow"] = pins[0]
         environment = staging / "venv"
-        command([python312, "-m", "venv", str(environment)], "candidate_venv_failed", 120)
+        command([service_python, "-m", "venv", str(environment)], "candidate_venv_failed", 120)
         candidate_python = str(environment / "bin/python")
+        candidate = json.loads(command([candidate_python, "-c", "import json,struct,sys,sysconfig; print(json.dumps({'python': '.'.join(map(str,sys.version_info[:3])), 'bits': struct.calcsize('P')*8, 'platform': sysconfig.get_platform()}))"], "candidate_interpreter_mismatch"))
+        if (str(candidate.get("python")).split(".")[:2] != str(active.get("python")).split(".")[:2]
+                or candidate.get("bits") != active.get("bits") or candidate.get("platform") != active.get("platform")):
+            raise PreflightFailure("candidate_interpreter_mismatch")
+        report["candidate_python"] = candidate["python"]
+        report["candidate_python_bits"] = candidate["bits"]
+        report["candidate_python_platform"] = candidate["platform"]
         command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)], "candidate_locked_install_failed", 300)
         command([candidate_python, "-m", "pip", "check"], "candidate_dependency_conflict", 30)
         command([candidate_python, str(checker), str(lock)], "candidate_image_smoke_failed", 30)
