@@ -39,8 +39,9 @@ def test_runner_stages_verified_wheel_and_cleans_exact_paths_on_all_outcomes(
         path.write_bytes(b"verified bundle")
         local_paths.append(path)
 
-    def download(path, lock_text):
+    def download(path, lock_text, manifest_text):
         assert lock_text == "Pillow==13.0.0\n"
+        assert manifest_text == "verified manifest"
         events.append("wheel_verified")
         path.write_bytes(b"verified inert wheel")
         local_paths.append(path)
@@ -56,8 +57,16 @@ def test_runner_stages_verified_wheel_and_cleans_exact_paths_on_all_outcomes(
 
     def run(argv, **kwargs):
         if argv[:2] == ["git", "show"]:
-            assert argv[-1] == "a" * 40 + ":docker/sender/requirements.lock"
-            return subprocess.CompletedProcess(argv, 0, "Pillow==13.0.0\n", "")
+            assert argv[-1] in {
+                "a" * 40 + ":docker/sender/requirements.lock",
+                "a" * 40 + ":config/sender-arm32-wheelhouse.json",
+            }
+            output = (
+                "Pillow==13.0.0\n"
+                if argv[-1].endswith("requirements.lock")
+                else "verified manifest"
+            )
+            return subprocess.CompletedProcess(argv, 0, output, "")
         assert argv[0] == "ssh"
         if "rm" in argv:
             paths = argv[argv.index("--") + 1 :]
@@ -69,7 +78,7 @@ def test_runner_stages_verified_wheel_and_cleans_exact_paths_on_all_outcomes(
             return subprocess.CompletedProcess(argv, 0, "", "")
         events.append(("remote_started", argv[-2:]))
         assert argv[-2].endswith(".bundle")
-        assert argv[-1] == argv[-2].removesuffix(".bundle") + ".pillow.whl"
+        assert argv[-1] == argv[-2].removesuffix(".bundle") + ".wheelhouse.zip"
         assert argv[-1] in [
             event[1] for event in events if isinstance(event, tuple) and event[0] == "wheel_upload"
         ]
@@ -96,7 +105,7 @@ def test_runner_stages_verified_wheel_and_cleans_exact_paths_on_all_outcomes(
         return subprocess.CompletedProcess(argv, 0, '{"ok":true}', "")
 
     monkeypatch.setattr(deploy, "create_deployment_bundle", bundle)
-    monkeypatch.setattr(deploy, "download_wheel", download)
+    monkeypatch.setattr(deploy, "download_wheelhouse", download)
     monkeypatch.setattr(deploy, "upload_deployment_bundle", upload)
     monkeypatch.setattr(deploy, "run", run)
     if failure not in {None, "cleanup"}:
@@ -129,7 +138,7 @@ def test_health_does_not_download_upload_or_require_an_artifact(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("health must not stage deployment files")
 
-    monkeypatch.setattr(deploy, "download_wheel", forbidden)
+    monkeypatch.setattr(deploy, "download_wheelhouse", forbidden)
     monkeypatch.setattr(deploy, "upload_deployment_bundle", forbidden)
     monkeypatch.setattr(deploy, "create_deployment_bundle", forbidden)
     calls = []
@@ -155,7 +164,7 @@ def test_runner_rejects_unverified_download_before_any_upload(monkeypatch, reaso
         files.append(path)
         path.touch()
 
-    def download(path, lock_text):
+    def download(path, lock_text, manifest_text):
         files.append(path)
         path.touch()
         raise deploy.ArtifactError(reason)
@@ -165,7 +174,7 @@ def test_runner_rejects_unverified_download_before_any_upload(monkeypatch, reaso
         return subprocess.CompletedProcess(argv, 0, "Pillow==13.0.0\n", "")
 
     monkeypatch.setattr(deploy, "create_deployment_bundle", create_bundle)
-    monkeypatch.setattr(deploy, "download_wheel", download)
+    monkeypatch.setattr(deploy, "download_wheelhouse", download)
     monkeypatch.setattr(deploy, "run", run)
     with pytest.raises(deploy.OpsError, match="sender wheel staging failed") as stopped:
         deploy.main()
@@ -179,7 +188,7 @@ def test_runner_rejects_unverified_download_before_any_upload(monkeypatch, reaso
         [],
         ["/tmp/unrelated"],
         ["/tmp/wechat-sender-" + "a" * 32 + ".bundle;touch /PRIVATE"],
-        ["/tmp/wechat-sender-" + "a" * 31 + ".pillow.whl"],
+        ["/tmp/wechat-sender-" + "a" * 31 + ".wheelhouse.zip"],
     ],
 )
 def test_runner_cleanup_rejects_any_path_outside_its_exact_uuid_names(monkeypatch, paths):
@@ -193,7 +202,7 @@ def test_runner_cleanup_rejects_any_path_outside_its_exact_uuid_names(monkeypatc
 def test_remote_exit_trap_removes_both_validated_artifacts(exit_code):
     transfer_id = uuid.uuid4().hex
     bundle = Path(f"/tmp/wechat-sender-{transfer_id}.bundle")
-    wheel = Path(f"/tmp/wechat-sender-{transfer_id}.pillow.whl")
+    wheel = Path(f"/tmp/wechat-sender-{transfer_id}.wheelhouse.zip")
     header = remote_shell().split('current_commit=""', 1)[0]
     try:
         bundle.touch()
@@ -216,7 +225,7 @@ def test_remote_exit_trap_removes_both_validated_artifacts(exit_code):
 def test_uploaded_artifact_survives_until_installer_finishes_and_health_is_independent(tmp_path):
     transfer_id = uuid.uuid4().hex
     bundle = Path(f"/tmp/wechat-sender-{transfer_id}.bundle")
-    wheel = Path(f"/tmp/wechat-sender-{transfer_id}.pillow.whl")
+    wheel = Path(f"/tmp/wechat-sender-{transfer_id}.wheelhouse.zip")
     checkout = tmp_path / "checkout"
     (checkout / "scripts").mkdir(parents=True)
     calls = tmp_path / "installer-calls"
@@ -234,7 +243,7 @@ def test_uploaded_artifact_survives_until_installer_finishes_and_health_is_indep
         + """
 preserve_reviewed_drift() { :; }
 git() { :; }
-health() { test ! -e "$pillow_wheel_path"; test ! -e "$bundle_path"; printf 'healthy\n'; }
+health() { test ! -e "$wheelhouse_path"; test ! -e "$bundle_path"; printf 'healthy\n'; }
 """
         + tail
     )
@@ -261,9 +270,7 @@ health() { test ! -e "$pillow_wheel_path"; test ! -e "$bundle_path"; printf 'hea
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == "healthy"
         assert len(calls.read_text().splitlines()) == 2
-        assert all(
-            "--pillow-wheel " + str(wheel) in line for line in calls.read_text().splitlines()
-        )
+        assert all("--wheelhouse " + str(wheel) in line for line in calls.read_text().splitlines())
     finally:
         bundle.unlink(missing_ok=True)
         wheel.unlink(missing_ok=True)

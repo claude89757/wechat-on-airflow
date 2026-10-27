@@ -14,10 +14,11 @@ and operational changes.
 
 ### Fixed
 
-- Stage the exact ARM32 Pillow wheel through the protected deployment runner,
-  verify its SHA-256, metadata and interpreter tags in private copies, and make
-  only that verified wheel available to the full-lock installer. Candidate and
-  apply paths retain the same dependency and image gates before activation.
+- Stage all exact locked ARM32 CPython 3.11 wheels through the protected runner
+  using reviewed HTTPS sources, hashes, sizes and tags. Candidate and installer
+  independently validate the complete private wheelhouse before offline,
+  binary-only installation with pip configuration sources disabled. Preserve
+  the existing timeout, isolated environments and dependency/image gates.
 - Report bounded Sender candidate-install failure categories, exact locked failed
   requirements and pip ABI evidence without exposing package-index output. The
   diagnostic does not change dependencies, install policy or active services.

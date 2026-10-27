@@ -3,7 +3,7 @@ set -euo pipefail
 
 APPLY=false
 TARGET_COMMIT=""
-PILLOW_WHEEL=""
+WHEELHOUSE=""
 REPOSITORY_URL="${WECHAT_SENDER_REPOSITORY_URL:-https://github.com/claude89757/wechat-on-airflow.git}"
 INSTALL_DIR="${WECHAT_SENDER_INSTALL_DIR:-/opt/wechat-on-airflow}"
 VENV_DIR="${WECHAT_SENDER_VENV_DIR:-/opt/wechat-sender-venv}"
@@ -15,7 +15,7 @@ APPIUM_OVERRIDE_FILE="${APPIUM_OVERRIDE_DIR}/wechat-sender.conf"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/install_wechat_sender.sh --target-commit <full-sha> [--pillow-wheel <staged-file>] [--apply]
+Usage: scripts/install_wechat_sender.sh --target-commit <full-sha> [--wheelhouse <staged-file>] [--apply]
 
 The command is read-only by default. Apply mode installs the exact Git commit,
 creates a dedicated service user and virtual environment, and enables the
@@ -55,9 +55,9 @@ while (($#)); do
       TARGET_COMMIT="$2"
       shift 2
       ;;
-    --pillow-wheel)
-      (($# >= 2)) || fail "--pillow-wheel requires a value"
-      PILLOW_WHEEL="$2"
+    --wheelhouse)
+      (($# >= 2)) || fail "--wheelhouse requires a value"
+      WHEELHOUSE="$2"
       shift 2
       ;;
     --help|-h)
@@ -142,30 +142,38 @@ previous_venv="${VENV_DIR}.previous"
 rm -rf "$next_venv"
 # Do not inherit distribution Pillow: its version is outside our release lock.
 "$SENDER_PYTHON" -m venv "$next_venv"
-pillow_stage="$(mktemp -d "${VENV_DIR}.pillow.XXXXXXXX")"
-cleanup_pillow_stage() {
-  rm -rf -- "$pillow_stage"
+wheelhouse_stage="$(mktemp -d "${VENV_DIR}.wheelhouse.XXXXXXXX")"
+cleanup_wheelhouse_stage() {
+  rm -rf -- "$wheelhouse_stage"
 }
-trap cleanup_pillow_stage EXIT
+trap cleanup_wheelhouse_stage EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-# Independently copy, hash, pin-check and tag-check the uploaded artifact using
-# the replacement interpreter. Only this private, one-wheel directory reaches pip.
-pillow_verified="$("$next_venv/bin/python" "$INSTALL_DIR/scripts/sender_pillow_artifact.py" \
-  --lock "$INSTALL_DIR/docker/sender/requirements.lock" --artifact "$PILLOW_WHEEL" \
-  --directory "$pillow_stage/wheels")" || fail "staged Pillow artifact verification failed"
-wheel_args=()
-if [[ "$pillow_verified" == true ]]; then
-  wheel_args=(--find-links "$pillow_stage/wheels")
-elif [[ "$pillow_verified" != false ]]; then
-  fail "staged Pillow artifact returned invalid evidence"
+# Independently validate the complete archive using the replacement interpreter.
+wheelhouse_verified="$("$next_venv/bin/python" "$INSTALL_DIR/scripts/sender_wheelhouse.py" \
+  --lock "$INSTALL_DIR/docker/sender/requirements.lock" \
+  --manifest "$INSTALL_DIR/config/sender-arm32-wheelhouse.json" --artifact "$WHEELHOUSE" \
+  --directory "$wheelhouse_stage/wheels")" || fail "staged wheelhouse verification failed"
+if [[ "$wheelhouse_verified" == true ]]; then
+  "$next_venv/bin/python" - "$INSTALL_DIR/docker/sender/requirements.lock" "$wheelhouse_stage/wheels" <<'OFFLINE_INSTALL_PY'
+import os
+import sys
+
+environment = {key: value for key, value in os.environ.items() if not key.startswith("PIP_")}
+environment["PIP_CONFIG_FILE"] = os.devnull
+# Replace this process so normal termination and timeout ownership stay with pip.
+os.execve(sys.executable, [sys.executable, "-m", "pip", "--isolated", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=:all:", "--no-index", "--find-links", sys.argv[2], "--requirement", sys.argv[1]], environment)
+OFFLINE_INSTALL_PY
+elif [[ "$wheelhouse_verified" == false ]]; then
+  "$next_venv/bin/python" -m pip install --disable-pip-version-check \
+    --only-binary=Pillow --requirement "$INSTALL_DIR/docker/sender/requirements.lock"
+else
+  fail "staged wheelhouse returned invalid evidence"
 fi
-"$next_venv/bin/python" -m pip install --disable-pip-version-check \
-  --only-binary=Pillow --requirement "$INSTALL_DIR/docker/sender/requirements.lock" "${wheel_args[@]}"
 "$next_venv/bin/python" "$INSTALL_DIR/sender_agent/verify_dependencies.py" \
   "$INSTALL_DIR/docker/sender/requirements.lock"
-cleanup_pillow_stage
+cleanup_wheelhouse_stage
 trap - EXIT HUP INT TERM
 # Validate before replacing the active environment or restarting any service.
 rm -rf "$previous_venv"

@@ -71,18 +71,25 @@ packages. A compatible Pillow wheel is required (including on ARM); unavailable
 wheels fail installation rather than silently falling back to the system package.
 Python provisioning or an unsupported host architecture must be resolved separately.
 
-For the production ARM32 interpreter, protected operations stage the exact
-Pillow wheel on the GitHub runner and transfer it alongside the verified Git
-bundle. The fixed HTTPS source and SHA-256 identify the reviewed Pillow 13.0.0
-CPython 3.11 ARMv7 wheel. Candidate and installer each create a private copy and
-validate its checksum, lock pin, package metadata and supported wheel tags before
-adding the directory to the full-lock install. That directory contains only the
-verified Pillow wheel; other packages retain their original indexes. The
-transferred artifact lasts through installation and is cleaned up on success or
-failure. Non-ARM32 environments do not add a supplemental package source.
-The protected wrapper supplies the installer option `--pillow-wheel`; a direct
-ARM32 installer invocation must provide the same reviewed artifact through this
-option. An expired preflight temporary directory is not an installation source.
+For the production ARM32 CPython 3.11 interpreter, protected operations stage the
+complete exact lock on the GitHub runner using `config/sender-arm32-wheelhouse.json`.
+The manifest fixes each wheel's HTTPS source, SHA-256, size, package and tags.
+All wheels except the approved piwheels Pillow artifact come from official PyPI
+release files. The runner transfers a stored ZIP alongside the verified Git bundle.
+Candidate and installer independently validate private copies, exact lock coverage,
+flat regular archive members, per-file hashes/metadata, native compatibility and
+absence of direct URL dependencies before using the private directory.
+
+The ARM32 install uses `--no-index`, `--only-binary=:all:` and only that directory.
+It also uses `--isolated` with `PIP_CONFIG_FILE=/dev/null` and removes inherited
+`PIP_*` options, so configured find-links cannot reintroduce downloads. Full
+dependency resolution remains enabled. Non-ARM32 environments retain their
+existing install command and environment; unknown 32-bit tags or incompatible
+ARM32 interpreters fail before installation. The protected wrapper supplies
+`--wheelhouse`; a direct ARM32 installer invocation must provide the same reviewed
+archive through this option. The upload remains available until the installer
+finishes; private directories and uploads are cleaned on success or failure.
+An expired preflight temporary directory is not an installation source.
 
 Before activating the new venv, the installer verifies the imported Pillow version
 against the lock, checks that PIL is loaded from that interpreter's prefix, and
