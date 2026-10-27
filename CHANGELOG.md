@@ -14,6 +14,9 @@ and operational changes.
 
 ### Fixed
 
+- Report bounded Sender candidate-install failure categories, exact locked failed
+  requirements and pip ABI evidence without exposing package-index output. The
+  diagnostic does not change dependencies, install policy or active services.
 - Preserve the explicitly retired Shenzhen Bay fourth-day observation as visible
   historical evidence without requiring it to keep polling. The exact retirement
   is validated against the active task manifest; all other stored observation

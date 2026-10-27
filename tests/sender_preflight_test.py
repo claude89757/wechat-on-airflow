@@ -41,6 +41,8 @@ def preflight_python():
         (None, None),
         ("python", "unsupported_service_python"),
         ("wheel", "candidate_locked_install_failed"),
+        ("timeout", "candidate_locked_install_failed"),
+        ("process", "candidate_locked_install_failed"),
         ("smoke", "candidate_image_smoke_failed"),
         ("prefix", "active_service_or_rollback_unavailable"),
         ("disk", "insufficient_staging_disk"),
@@ -94,6 +96,11 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
                     "python": f"3.{13 if failure == 'candidate_python' else minor}.9",
                     "bits": 64,
                     "platform": "linux-aarch64",
+                    "pip_version": "22.3.1",
+                    "pip_tag_inventory_available": True,
+                    "pip_arm32_tags": False,
+                    "pip_arm64_tags": True,
+                    "pip_native_cpython_abi": True,
                 }
             )
         elif "show" in argv:
@@ -104,6 +111,10 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
             )
         elif "install" in argv and failure == "wheel":
             code = 1
+        elif "install" in argv and failure == "timeout":
+            raise subprocess.TimeoutExpired(argv, 300, output="PRIVATE TIMEOUT")
+        elif "install" in argv and failure == "process":
+            raise OSError("PRIVATE PROCESS FAILURE")
         elif (
             argv[0].endswith("venv/bin/python")
             and argv[1].endswith("verify_dependencies.py")
@@ -137,6 +148,16 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
     assert (active / "bin/python").read_bytes() == original
     assert not list(tmp_path.glob(".sender-preflight-*"))
     assert not any("restart" in argv or "checkout" in argv for argv in calls)
+    if failure in {"wheel", "timeout", "process"}:
+        assert (
+            report["candidate_install_failure_kind"]
+            == {
+                "wheel": "unclassified",
+                "timeout": "timeout",
+                "process": "process_start_failed",
+            }[failure]
+        )
+        assert report.get("candidate_install_exit_code") == (1 if failure == "wheel" else None)
     if failure is None:
         assert report["runtime_commit"] == "a" * 40
         assert report["candidate_pillow"] == "13.0.0"
@@ -147,6 +168,12 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
         assert report["active_pillow_inside_prefix"] is False
         assert report["candidate_locked_dependencies_verified"] is True
         assert report["temporary_environment_removed"] is True
+        assert report["candidate_pip_version"] == "22.3.1"
+        assert report["candidate_pip_tag_inventory_available"] is True
+        assert report["candidate_pip_arm32_tags"] is False
+        assert report["candidate_pip_arm64_tags"] is True
+        assert report["candidate_pip_native_cpython_abi"] is True
+        assert "candidate_install_failure_kind" not in report
         assert any("--only-binary=Pillow" in argv for argv in calls)
         assert any(argv[-1] == "b" * 40 + ":docker/sender/requirements.lock" for argv in calls)
         assert any(argv[-1] == "b" * 40 + ":sender_agent/verify_dependencies.py" for argv in calls)
@@ -166,6 +193,8 @@ def test_both_official_modes_gate_before_activation_and_source_checkout():
         'checkout --quiet --detach "$target_commit"'
     )
     assert "--only-binary=Pillow" in preflight_python()
+    assert "--platform" not in preflight_python()
+    assert '"--upgrade"' not in preflight_python()
     assert "stderr=subprocess.PIPE" in preflight_python()
     assert "universal_newlines=True" in preflight_python()
     result = subprocess.run(
@@ -261,3 +290,185 @@ def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage)
         assert emitted[0]["distribution"] == {"ID": "ubuntu", "VERSION_ID": "18.04"}
     else:
         assert emitted == []
+
+
+def diagnostic_helpers():
+    names = {"PreflightFailure", "install_failure_diagnostics", "record_install_failure", "command"}
+    nodes = [
+        node
+        for node in ast.parse(preflight_python()).body
+        if isinstance(node, ast.ClassDef | ast.FunctionDef) and node.name in names
+    ]
+    namespace = {"re": re, "subprocess": subprocess, "report": {}}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "diagnostics", "exec"), namespace)
+    return namespace
+
+
+@pytest.mark.parametrize(
+    "detail,kind,pin",
+    [
+        (
+            "ERROR: No matching distribution found for pillow==13.0.0",
+            "no_matching_distribution",
+            "Pillow==13.0.0",
+        ),
+        (
+            "ERROR: Could not find a version that satisfies the requirement pydantic-core==2.46.4 (from versions: none)",
+            "no_matching_distribution",
+            "pydantic_core==2.46.4",
+        ),
+        (
+            "SSLError CERTIFICATE_VERIFY_FAILED; No matching distribution found for Pillow==13.0.0",
+            "network_tls",
+            "Pillow==13.0.0",
+        ),
+        ("Temporary failure in name resolution; Max retries exceeded", "network_connection", None),
+        ("401 Client Error: authentication required", "index_authentication", None),
+        ("ResolutionImpossible: conflicting dependencies", "dependency_resolution", None),
+        ("Failed building wheel for something", "build_failed", None),
+        ("unrecognized error", "unclassified", None),
+        ("No matching distribution found for Pillow==99.0.0", "no_matching_distribution", None),
+        ("No matching distribution found for PRIVATE==13.0.0", "no_matching_distribution", None),
+    ],
+)
+def test_install_failure_reports_only_fixed_kind_and_exact_locked_requirement(detail, kind, pin):
+    classify = diagnostic_helpers()["install_failure_diagnostics"]
+    report = classify(
+        "PRIVATE_STDOUT https://secret-user:secret-token@private-index.invalid/simple",
+        detail + "\nPRIVATE_STDERR /private/home/private-token",
+        "Pillow==13.0.0\npydantic_core==2.46.4\n",
+        1,
+    )
+    assert report["candidate_install_failure_kind"] == kind
+    assert report["candidate_install_exit_code"] == 1
+    assert report.get("candidate_failed_requirement") == pin
+    rendered = json.dumps(report)
+    for private in (
+        "PRIVATE",
+        "https://",
+        "secret-user",
+        "secret-token",
+        "private-index",
+        "/private",
+    ):
+        assert private not in rendered
+
+
+def test_optional_diagnostics_error_preserves_original_install_failure():
+    namespace = diagnostic_helpers()
+    broken_lock = SimpleNamespace(read_text=lambda: (_ for _ in ()).throw(OSError("PRIVATE")))
+    with patch(
+        "subprocess.run", return_value=subprocess.CompletedProcess([], 1, "PRIVATE", "PRIVATE")
+    ):
+        with pytest.raises(
+            namespace["PreflightFailure"], match="^candidate_locked_install_failed$"
+        ):
+            namespace["command"](
+                ["synthetic-pip"], "candidate_locked_install_failed", install_lock=broken_lock
+            )
+    assert namespace["report"] == {
+        "candidate_install_failure_kind": "unclassified",
+        "candidate_install_exit_code": 1,
+    }
+
+
+def safe_inventory(value):
+    nodes = [
+        node
+        for node in ast.parse((ROOT / "scripts/deploy_wechat_sender.py").read_text()).body
+        if isinstance(node, ast.FunctionDef) and node.name == "safe_dependency_preflight"
+    ]
+    namespace = {
+        "Any": Any,
+        "re": re,
+        "REPO_ROOT": ROOT,
+        "COMMIT_PATTERN": re.compile(r"^[0-9a-f]{40}$"),
+    }
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "safe-inventory", "exec"), namespace)
+    return namespace["safe_dependency_preflight"]({"stage": "sender_dependency_preflight", **value})
+
+
+def test_failure_inventory_independently_validates_new_fields_against_repository_lock():
+    fields = {
+        "candidate_pip_version": "22.3.1",
+        "candidate_pip_tag_inventory_available": True,
+        "candidate_pip_arm32_tags": True,
+        "candidate_pip_arm64_tags": False,
+        "candidate_pip_native_cpython_abi": True,
+        "candidate_install_failure_kind": "no_matching_distribution",
+        "candidate_install_exit_code": 1,
+        "candidate_failed_requirement": "Pillow==13.0.0",
+    }
+    cleaned = safe_inventory(fields)
+    assert {key: cleaned[key] for key in fields} == fields
+    for bad in (
+        "Pillow==99.0.0",
+        "PRIVATE==13.0.0",
+        "https://private:secret@index.invalid",
+        "Pillow==13.0.0\nPRIVATE",
+    ):
+        assert "candidate_failed_requirement" not in safe_inventory(
+            {"candidate_failed_requirement": bad}
+        )
+    for bad in ("PRIVATE", "9" * 41 + ".1", "22.3.1 https://private.invalid"):
+        assert "candidate_pip_version" not in safe_inventory({"candidate_pip_version": bad})
+    for bad in (True, 256, -256, "PRIVATE"):
+        assert "candidate_install_exit_code" not in safe_inventory(
+            {"candidate_install_exit_code": bad}
+        )
+    assert (
+        safe_inventory({"candidate_install_failure_kind": "PRIVATE"})[
+            "candidate_install_failure_kind"
+        ]
+        == "unclassified"
+    )
+
+
+@pytest.mark.parametrize("inventory_error", [False, True])
+def test_candidate_tag_inventory_reports_booleans_without_private_output(inventory_error):
+    from types import ModuleType
+
+    probe = next(
+        ast.literal_eval(node.value)
+        for node in ast.walk(ast.parse(preflight_python()))
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "candidate_probe"
+            for target in node.targets
+        )
+    )
+    pip = ModuleType("pip")
+    pip.__version__ = "22.3.1"
+    tags_module = ModuleType("pip._internal.utils.compatibility_tags")
+
+    def supported():
+        print("PRIVATE INDEX https://secret@private.invalid")
+        print("PRIVATE STDERR", file=sys.stderr)
+        if inventory_error:
+            raise SystemExit("PRIVATE CONFIG ERROR")
+        return [
+            SimpleNamespace(
+                platform="linux_armv7l", abi=f"cp{sys.version_info.major}{sys.version_info.minor}"
+            )
+        ]
+
+    tags_module.get_supported = supported
+    output = io.StringIO()
+    errors = io.StringIO()
+    with (
+        patch.dict(
+            sys.modules, {"pip": pip, "pip._internal.utils.compatibility_tags": tags_module}
+        ),
+        contextlib.redirect_stdout(output),
+        contextlib.redirect_stderr(errors),
+    ):
+        exec(compile(probe, "candidate-probe", "exec"), {})
+    report = json.loads(output.getvalue())
+    assert report["pip_version"] == "22.3.1"
+    assert report["pip_tag_inventory_available"] is (not inventory_error)
+    if not inventory_error:
+        assert report["pip_arm32_tags"] is True
+        assert report["pip_arm64_tags"] is False
+        assert report["pip_native_cpython_abi"] is True
+    assert "PRIVATE" not in output.getvalue()
+    assert not errors.getvalue()
