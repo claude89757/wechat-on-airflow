@@ -430,7 +430,7 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         self.assertNotIn("wechat-sender.env", script)
         self.assertNotIn("legacy_migration", script)
         self.assertIn(
-            'install_wechat_sender.sh" --pillow-wheel "$pillow_wheel_path" --apply --target-commit "$target_commit" </dev/null',
+            'install_wechat_sender.sh" --wheelhouse "$wheelhouse_path" --apply --target-commit "$target_commit" </dev/null',
             script,
         )
 

@@ -1,5 +1,30 @@
 # Production Baseline
 
+## Offline ARM32 Dependency Staging On 2026-10-27
+
+The [protected preflight at 13:28:32 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40454944844/job/122025979634)
+for `43e540706bccd23bd8221385333dce6dc320c716` verified the Pillow artifact,
+then reached the 300-second full-lock installation limit. The bounded report
+observed network retries and retrieval progress. Its last observed locked
+requirement was `wsproto==1.3.2`; that is not evidence that this package or a
+particular remote host caused the timeout. The active Sender stayed healthy
+and unchanged, with zero external test sends. Exact-main
+[CI passed](https://github.com/claude89757/wechat-on-airflow/actions/runs/40454919774/job/122025894675).
+
+A public download-only probe resolved all 27 locked wheels for ARM32 CPython
+3.11 without installing or executing them. The reviewed manifest at
+`config/sender-arm32-wheelhouse.json` records 15,352,728 bytes: 26 wheels matched
+to pinned-version official PyPI release metadata, plus the verified piwheels
+Pillow artifact. The protected runner stages this complete set in a stored ZIP.
+Both host paths independently validate private copies, exact lock closure,
+archive structure, sizes, hashes, wheel metadata, native tags and absence of
+direct URL dependencies. Only then may the ARM32 install use `--no-index`,
+the private wheel directory and binary-only selection, with pip config/environment
+sources disabled. Other platforms keep their existing source policy; unsupported
+ARM32 interpreters fail before installation. The 300-second candidate limit,
+version pins, isolation, image checks and activation gates remain required.
+This records the repair and its evidence, not actual-host release acceptance.
+
 ## Sender Full-Lock Timeout On 2026-10-27
 
 The [protected candidate preflight](https://github.com/claude89757/wechat-on-airflow/actions/runs/40453041373/job/122019940953)

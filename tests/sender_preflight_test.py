@@ -4,6 +4,7 @@ import ast
 import contextlib
 import io
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -15,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from scripts.sender_pillow_artifact import FAILURE_KINDS
+from scripts.sender_wheelhouse import FAILURE_KINDS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,6 +52,7 @@ def preflight_python():
         ("identity", "runtime_identity_mismatch"),
         ("candidate_python", "candidate_interpreter_mismatch"),
         ("artifact", "candidate_staged_artifact_invalid"),
+        ("tag_inventory", "candidate_staged_artifact_invalid"),
     ],
 )
 @pytest.mark.parametrize("minor", [11, 12])
@@ -58,18 +60,27 @@ def preflight_python():
 def test_candidate_preflight_never_mutates_active_runtime(
     tmp_path, failure, expected, minor, arm32
 ):
-    if failure == "artifact" and not arm32:
+    if failure in {"artifact", "tag_inventory"} and not arm32:
         # Other interpreters never inspect or require this ARM-only artifact.
         expected = None
+    if (
+        arm32
+        and minor == 12
+        and failure in {None, "wheel", "timeout", "process", "smoke", "artifact"}
+    ):
+        expected = "candidate_staged_artifact_invalid"
     succeeds = expected is None
     active = tmp_path / "active"
     (active / "bin").mkdir(parents=True)
     (active / "bin/python").write_text("existing interpreter")
     original = (active / "bin/python").read_bytes()
     calls = []
+    install_environments = []
 
     def run(argv, **kwargs):
         calls.append(argv)
+        if "install" in argv:
+            install_environments.append(kwargs.get("env"))
         output = ""
         code = 0
         error = "PRIVATE PACKAGE INDEX MUST NOT APPEAR"
@@ -108,23 +119,27 @@ def test_candidate_preflight_never_mutates_active_runtime(
                     "bits": 32 if arm32 else 64,
                     "platform": "linux-aarch64",
                     "pip_version": "22.3.1",
-                    "pip_tag_inventory_available": True,
+                    "pip_tag_inventory_available": failure != "tag_inventory",
                     "pip_arm32_tags": arm32,
                     "pip_arm64_tags": not arm32,
                     "pip_native_cpython_abi": True,
                 }
             )
-        elif argv[1].endswith("sender_pillow_artifact.py"):
+        elif argv[1].endswith("sender_wheelhouse.py"):
             output = "true"
             if failure == "artifact":
                 code = 1
                 error = "sha256_mismatch"
+            if arm32 and minor == 12:
+                code = 1
+                error = "tag_mismatch"
         elif "show" in argv:
-            output = (
-                "Pillow==13.0.0"
-                if argv[-1].endswith("requirements.lock")
-                else "# candidate checker"
-            )
+            if argv[-1].endswith("requirements.lock"):
+                output = (ROOT / "docker/sender/requirements.lock").read_text()
+            elif argv[-1].endswith("sender-arm32-wheelhouse.json"):
+                output = (ROOT / "config/sender-arm32-wheelhouse.json").read_text()
+            else:
+                output = "# candidate checker"
         elif "install" in argv and failure == "wheel":
             code = 1
         elif "install" in argv and failure == "timeout":
@@ -153,6 +168,15 @@ def test_candidate_preflight_never_mutates_active_runtime(
             ],
         ),
         patch("subprocess.run", side_effect=run),
+        patch.dict(
+            os.environ,
+            {
+                "PIP_FIND_LINKS": "https://PRIVATE.invalid",
+                "PIP_CONFIG_FILE": "/PRIVATE/pip.conf",
+                "PIP_INDEX_URL": "https://secret@PRIVATE.invalid",
+                "KEEP_TEST_VALUE": "retained",
+            },
+        ),
         patch("shutil.which", side_effect=AssertionError("must not select interpreter from PATH")),
         patch(
             "shutil.disk_usage",
@@ -172,7 +196,7 @@ def test_candidate_preflight_never_mutates_active_runtime(
     assert (active / "bin/python").read_bytes() == original
     assert not list(tmp_path.glob(".sender-preflight-*"))
     assert not any("restart" in argv or "checkout" in argv for argv in calls)
-    if failure in {"wheel", "timeout", "process"}:
+    if failure in {"wheel", "timeout", "process"} and expected == "candidate_locked_install_failed":
         assert (
             report["candidate_install_failure_kind"]
             == {
@@ -183,9 +207,15 @@ def test_candidate_preflight_never_mutates_active_runtime(
         )
         assert report.get("candidate_install_exit_code") == (1 if failure == "wheel" else None)
         assert report["candidate_failure_phase"] == "locked_install"
-    if failure == "artifact" and arm32:
+    if expected == "candidate_staged_artifact_invalid":
         assert report["candidate_failure_phase"] == "staged_artifact_validation"
-        assert report["candidate_artifact_failure_kind"] == "sha256_mismatch"
+        assert report["candidate_artifact_failure_kind"] == (
+            "tag_inventory_failed"
+            if failure == "tag_inventory"
+            else "tag_mismatch"
+            if minor == 12
+            else "sha256_mismatch"
+        )
         assert report["candidate_staged_artifact_verified"] is False
         assert not any("install" in argv for argv in calls)
     if succeeds:
@@ -199,25 +229,34 @@ def test_candidate_preflight_never_mutates_active_runtime(
         assert report["candidate_locked_dependencies_verified"] is True
         assert report["temporary_environment_removed"] is True
         assert report["candidate_pip_version"] == "22.3.1"
-        assert report["candidate_pip_tag_inventory_available"] is True
+        assert report["candidate_pip_tag_inventory_available"] is (failure != "tag_inventory")
         assert report["candidate_pip_arm32_tags"] is arm32
         assert report["candidate_pip_arm64_tags"] is (not arm32)
-        assert report["candidate_pillow_arm32_source"] is arm32
+        assert report["candidate_arm32_wheelhouse_source"] is arm32
         assert report["candidate_staged_artifact_verified"] is arm32
         assert report["candidate_pip_native_cpython_abi"] is True
         assert "candidate_install_failure_kind" not in report
-        assert any("--only-binary=Pillow" in argv for argv in calls)
+        assert any(
+            ("--only-binary=:all:" if arm32 else "--only-binary=Pillow") in argv for argv in calls
+        )
         assert any(argv[-1] == "b" * 40 + ":docker/sender/requirements.lock" for argv in calls)
         assert any(argv[-1] == "b" * 40 + ":sender_agent/verify_dependencies.py" for argv in calls)
         installs = [argv for argv in calls if "install" in argv]
         assert len(installs) == 1
         assert ("--find-links" in installs[0]) is arm32
         if arm32:
-            assert any(
-                argv[-1] == "b" * 40 + ":scripts/sender_pillow_artifact.py" for argv in calls
-            )
-            assert Path(installs[0][-1]).name == "pillow-wheel"
-            assert installs[0][-1] != "/tmp/upload.whl"
+            assert any(argv[-1] == "b" * 40 + ":scripts/sender_wheelhouse.py" for argv in calls)
+            assert Path(installs[0][installs[0].index("--find-links") + 1]).name == "wheelhouse"
+            assert "--no-index" in installs[0] and "--isolated" in installs[0]
+            assert report["candidate_staged_wheel_count"] == 27
+            assert install_environments[0]["PIP_CONFIG_FILE"] == os.devnull
+            assert install_environments[0]["KEEP_TEST_VALUE"] == "retained"
+            assert {key for key in install_environments[0] if key.startswith("PIP_")} == {
+                "PIP_CONFIG_FILE"
+            }
+        else:
+            assert "--no-index" not in installs[0] and "--isolated" not in installs[0]
+            assert install_environments == [None]
         assert "candidate_failure_phase" not in report
 
 
@@ -342,7 +381,7 @@ def diagnostic_helpers():
         for node in ast.parse(preflight_python()).body
         if isinstance(node, ast.ClassDef | ast.FunctionDef) and node.name in names
     ]
-    namespace = {"re": re, "subprocess": subprocess, "report": {}}
+    namespace = {"re": re, "os": os, "subprocess": subprocess, "report": {}}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "diagnostics", "exec"), namespace)
     return namespace
 
