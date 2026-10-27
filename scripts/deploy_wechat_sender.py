@@ -67,6 +67,7 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
         "candidate_pip_arm32_tags",
         "candidate_pip_arm64_tags",
         "candidate_pip_native_cpython_abi",
+        "candidate_pillow_arm32_source",
     ):
         if key in value:
             clean[key] = value[key] is True
@@ -766,6 +767,15 @@ print(json.dumps(inventory))'''
             report["candidate_pip_version"] = candidate_pip
         for key in ("pip_tag_inventory_available", "pip_arm32_tags", "pip_arm64_tags", "pip_native_cpython_abi"):
             report["candidate_" + key] = candidate.get(key) is True
+        report["candidate_pillow_arm32_source"] = (
+            candidate.get("bits") == 32
+            and candidate.get("pip_tag_inventory_available") is True
+            and candidate.get("pip_arm32_tags") is True
+        )
+        if report["candidate_pillow_arm32_source"]:
+            # Scope the supplemental source to the already-validated Pillow pin.
+            # All other packages keep the original full-lock discovery policy.
+            command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--no-deps", "--find-links", "https://www.piwheels.org/simple/pillow/", "Pillow==" + pins[0]], "candidate_locked_install_failed", 300, install_lock=lock)
         command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)], "candidate_locked_install_failed", 300, install_lock=lock)
         command([candidate_python, "-m", "pip", "check"], "candidate_dependency_conflict", 30)
         command([candidate_python, str(checker), str(lock)], "candidate_image_smoke_failed", 30)

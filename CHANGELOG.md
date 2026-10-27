@@ -14,6 +14,10 @@ and operational changes.
 
 ### Fixed
 
+- Make the pinned Pillow 13.0.0 binary available to the existing 32-bit ARM
+  Sender through a Pillow-only piwheels listing. Bootstrap only that locked
+  package without dependencies, then use the unchanged full-lock install and
+  dependency/image gates before activating the isolated environment.
 - Report bounded Sender candidate-install failure categories, exact locked failed
   requirements and pip ABI evidence without exposing package-index output. The
   diagnostic does not change dependencies, install policy or active services.
