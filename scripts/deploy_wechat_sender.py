@@ -11,9 +11,11 @@ from typing import Any
 
 import yaml
 from _ops import REPO_ROOT, OpsError, emit, run, sender_remote, ssh_command
+from sender_pillow_artifact import FAILURE_KINDS, WHEEL_NAME, ArtifactError, download_wheel
 
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 REMOTE_BUNDLE_PREFIX = "/tmp/wechat-sender-"
+REMOTE_ARTIFACT_PATTERN = re.compile(r"/tmp/wechat-sender-[0-9a-f]{32}\.(?:bundle|pillow\.whl)")
 
 
 def resolve_target_commit(revision: str) -> str:
@@ -68,6 +70,7 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
         "candidate_pip_arm64_tags",
         "candidate_pip_native_cpython_abi",
         "candidate_pillow_arm32_source",
+        "candidate_staged_artifact_verified",
     ):
         if key in value:
             clean[key] = value[key] is True
@@ -133,6 +136,22 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
     install_exit = value.get("candidate_install_exit_code")
     if type(install_exit) is int and -255 <= install_exit <= 255:
         clean["candidate_install_exit_code"] = install_exit
+    artifact_failure = value.get("candidate_artifact_failure_kind")
+    if artifact_failure is not None:
+        clean["candidate_artifact_failure_kind"] = (
+            artifact_failure
+            if isinstance(artifact_failure, str) and artifact_failure in FAILURE_KINDS
+            else "unclassified"
+        )
+    phase = value.get("candidate_failure_phase")
+    if isinstance(phase, str) and phase in {
+        "inventory",
+        "staged_artifact_validation",
+        "locked_install",
+        "dependency_check",
+        "image_smoke",
+    }:
+        clean["candidate_failure_phase"] = phase
     failed_requirement = value.get("candidate_failed_requirement")
     if isinstance(failed_requirement, str):
         try:
@@ -161,6 +180,8 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
         "insufficient_staging_disk",
         "candidate_lock_unavailable",
         "candidate_checker_unavailable",
+        "candidate_artifact_helper_unavailable",
+        "candidate_staged_artifact_invalid",
         "candidate_pillow_pin_invalid",
         "candidate_venv_failed",
         "candidate_interpreter_mismatch",
@@ -218,6 +239,16 @@ def upload_deployment_bundle(
     )
 
 
+def cleanup_deployment_artifacts(remote: dict[str, str], paths: list[str]) -> None:
+    """Best effort after a partial upload/SSH failure; never mask the original result."""
+    if not paths or not all(REMOTE_ARTIFACT_PATTERN.fullmatch(path) for path in paths):
+        return
+    try:
+        run([*ssh_command(remote), "sudo", "-n", "rm", "-f", "--", *paths], check=False)
+    except (OpsError, OSError):
+        pass
+
+
 def remote_script() -> str:
     script = r"""
 set -eu
@@ -226,6 +257,7 @@ mode="$2"
 install_dir="$3"
 credential_dir="$4"
 bundle_path="${5:-}"
+pillow_wheel_path="${6:-}"
 service_file="/etc/systemd/system/wechat-sender.service"
 venv_dir="/opt/wechat-sender-venv"
 
@@ -233,13 +265,16 @@ cleanup_bundle() {
     if [ -n "$bundle_path" ]; then
         rm -f -- "$bundle_path"
     fi
+    if [ -n "$pillow_wheel_path" ]; then
+        rm -f -- "$pillow_wheel_path"
+    fi
 }
 
 if [ -n "$bundle_path" ]; then
-    case "$bundle_path" in
-        /tmp/wechat-sender-*.bundle) ;;
-        *) exit 2 ;;
-    esac
+    [[ "$bundle_path" =~ ^/tmp/wechat-sender-[0-9a-f]{32}\.bundle$ ]] || exit 2
+fi
+if [ -n "$pillow_wheel_path" ]; then
+    [[ "$pillow_wheel_path" =~ ^/tmp/wechat-sender-[0-9a-f]{32}\.pillow\.whl$ ]] || exit 2
 fi
 trap cleanup_bundle EXIT HUP INT TERM
 
@@ -589,7 +624,7 @@ fetch_target() {
 }
 
 dependency_preflight() {
-    python3 - "$current_commit" "$target_commit" "$install_dir" "$venv_dir" <<'DEPENDENCY_PREFLIGHT_PY'
+    python3 - "$current_commit" "$target_commit" "$install_dir" "$venv_dir" "$pillow_wheel_path" <<'DEPENDENCY_PREFLIGHT_PY'
 import json
 import platform
 import re
@@ -599,7 +634,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-current_commit, target_commit, install_dir, venv_dir = sys.argv[1:]
+current_commit, target_commit, install_dir, venv_dir, pillow_wheel_path = sys.argv[1:]
 minimum_free_bytes = 1024 * 1024 * 1024
 report = {
     "stage": "sender_dependency_preflight",
@@ -612,7 +647,9 @@ report = {
     "rollback_environment_available": Path(venv_dir, "bin/python").is_file(),
     "active_environment_changed": False,
     "external_test_sends": 0,
+    "candidate_staged_artifact_verified": False,
 }
+phase = "inventory"
 
 class PreflightFailure(Exception):
     pass
@@ -675,6 +712,13 @@ def command(argv, category, timeout=30, install_lock=None):
         raise PreflightFailure(category) from None
     if result.returncode != 0:
         record_install_failure(install_lock, result.stdout, result.stderr, result.returncode)
+        if category == "candidate_staged_artifact_invalid":
+            kind = result.stderr.strip()
+            report["candidate_artifact_failure_kind"] = kind if kind in {
+                "lock_mismatch", "missing", "not_regular", "size_mismatch", "copy_failed",
+                "sha256_mismatch", "metadata_mismatch", "tag_mismatch", "tag_inventory_failed",
+                "download_failed", "unclassified",
+            } else "unclassified"
         raise PreflightFailure(category)
     return result.stdout.strip()
 
@@ -772,20 +816,32 @@ print(json.dumps(inventory))'''
             and candidate.get("pip_tag_inventory_available") is True
             and candidate.get("pip_arm32_tags") is True
         )
+        wheel_args = []
         if report["candidate_pillow_arm32_source"]:
-            # Scope the supplemental source to the already-validated Pillow pin.
-            # All other packages keep the original full-lock discovery policy.
-            command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--no-deps", "--find-links", "https://www.piwheels.org/simple/pillow/", "Pillow==" + pins[0]], "candidate_locked_install_failed", 300, install_lock=lock)
-        command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)], "candidate_locked_install_failed", 300, install_lock=lock)
+            phase = "staged_artifact_validation"
+            artifact_helper = staging / "sender_pillow_artifact.py"
+            artifact_helper.write_text(command(["git", "-C", install_dir, "show", target_commit + ":scripts/sender_pillow_artifact.py"], "candidate_artifact_helper_unavailable") + "\n")
+            wheelhouse = staging / "pillow-wheel"
+            verified = command([candidate_python, str(artifact_helper), "--lock", str(lock), "--artifact", pillow_wheel_path, "--directory", str(wheelhouse)], "candidate_staged_artifact_invalid")
+            if verified != "true":
+                raise PreflightFailure("candidate_staged_artifact_invalid")
+            report["candidate_staged_artifact_verified"] = True
+            wheel_args = ["--find-links", str(wheelhouse)]
+        phase = "locked_install"
+        command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)] + wheel_args, "candidate_locked_install_failed", 300, install_lock=lock)
+        phase = "dependency_check"
         command([candidate_python, "-m", "pip", "check"], "candidate_dependency_conflict", 30)
+        phase = "image_smoke"
         command([candidate_python, str(checker), str(lock)], "candidate_image_smoke_failed", 30)
         report["candidate_locked_dependencies_verified"] = True
     report["temporary_environment_removed"] = True
     report["ok"] = True
 except PreflightFailure as exc:
     report["failure_category"] = str(exc)
+    report["candidate_failure_phase"] = phase
 except Exception:
     report["failure_category"] = "dependency_preflight_internal_error"
+    report["candidate_failure_phase"] = phase
 print(json.dumps(report, sort_keys=True))
 raise SystemExit(0 if report["ok"] else 1)
 DEPENDENCY_PREFLIGHT_PY
@@ -881,8 +937,8 @@ trap 'rollback 143' TERM
 
 legacy_backup="$(preserve_reviewed_drift)"
 git -C "$install_dir" checkout --quiet --detach "$target_commit"
-"$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit" </dev/null
-"$install_dir/scripts/install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null
+"$install_dir/scripts/install_wechat_sender.sh" --pillow-wheel "$pillow_wheel_path" --target-commit "$target_commit" </dev/null
+"$install_dir/scripts/install_wechat_sender.sh" --pillow-wheel "$pillow_wheel_path" --apply --target-commit "$target_commit" </dev/null
 
 current_commit="$target_commit"
 rm -f "$unit_backup"
@@ -912,27 +968,48 @@ def main() -> None:
     sender = runtime["managed_services"]["wechat_sender"]
     remote = sender_remote()
     remote_bundle_path = ""
+    remote_wheel_path = ""
+    staged_paths: list[str] = []
     with tempfile.TemporaryDirectory(prefix="wechat-sender-deploy-") as directory:
-        if args.operation in {"dry-run", "apply"}:
-            bundle_path = Path(directory) / "repository.bundle"
-            create_deployment_bundle(bundle_path)
-            remote_bundle_path = f"{REMOTE_BUNDLE_PREFIX}{uuid.uuid4().hex}.bundle"
-            upload_deployment_bundle(bundle_path, remote, remote_bundle_path)
+        try:
+            if args.operation in {"dry-run", "apply"}:
+                bundle_path = Path(directory) / "repository.bundle"
+                create_deployment_bundle(bundle_path)
+                wheel_path = Path(directory) / WHEEL_NAME
+                lock_text = run(
+                    ["git", "show", target_commit + ":docker/sender/requirements.lock"]
+                ).stdout
+                download_wheel(wheel_path, lock_text)
+                transfer_id = uuid.uuid4().hex
+                remote_bundle_path = f"{REMOTE_BUNDLE_PREFIX}{transfer_id}.bundle"
+                remote_wheel_path = f"{REMOTE_BUNDLE_PREFIX}{transfer_id}.pillow.whl"
+                staged_paths = [remote_bundle_path, remote_wheel_path]
+                upload_deployment_bundle(bundle_path, remote, remote_bundle_path)
+                upload_deployment_bundle(wheel_path, remote, remote_wheel_path)
 
-        command = [
-            *ssh_command(remote),
-            "sudo",
-            "-n",
-            "bash",
-            "-s",
-            "--",
-            target_commit,
-            args.operation,
-            "/opt/wechat-on-airflow",
-            str(sender["credential_directory"]),
-            remote_bundle_path,
-        ]
-        result = run(command, check=False, input_text=remote_script())
+            command = [
+                *ssh_command(remote),
+                "sudo",
+                "-n",
+                "bash",
+                "-s",
+                "--",
+                target_commit,
+                args.operation,
+                "/opt/wechat-on-airflow",
+                str(sender["credential_directory"]),
+                remote_bundle_path,
+                remote_wheel_path,
+            ]
+            result = run(command, check=False, input_text=remote_script())
+        except ArtifactError as exc:
+            kind = str(exc) if str(exc) in FAILURE_KINDS else "unclassified"
+            raise OpsError("sender wheel staging failed: " + kind) from None
+        except (OpsError, OSError):
+            # Transport errors may contain private hostnames or credential-bearing URLs.
+            raise OpsError("sender deployment transport or staging failed") from None
+        finally:
+            cleanup_deployment_artifacts(remote, staged_paths)
     if result.returncode:
         try:
             failure = parse_remote_result(result.stdout)

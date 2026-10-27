@@ -71,6 +71,19 @@ packages. A compatible Pillow wheel is required (including on ARM); unavailable
 wheels fail installation rather than silently falling back to the system package.
 Python provisioning or an unsupported host architecture must be resolved separately.
 
+For the production ARM32 interpreter, protected operations stage the exact
+Pillow wheel on the GitHub runner and transfer it alongside the verified Git
+bundle. The fixed HTTPS source and SHA-256 identify the reviewed Pillow 13.0.0
+CPython 3.11 ARMv7 wheel. Candidate and installer each create a private copy and
+validate its checksum, lock pin, package metadata and supported wheel tags before
+adding the directory to the full-lock install. That directory contains only the
+verified Pillow wheel; other packages retain their original indexes. The
+transferred artifact lasts through installation and is cleaned up on success or
+failure. Non-ARM32 environments do not add a supplemental package source.
+The protected wrapper supplies the installer option `--pillow-wheel`; a direct
+ARM32 installer invocation must provide the same reviewed artifact through this
+option. An expired preflight temporary directory is not an installation source.
+
 Before activating the new venv, the installer verifies the imported Pillow version
 against the lock, checks that PIL is loaded from that interpreter's prefix, and
 exercises local PNG decode, crop, resize and encode without a device or network.
@@ -94,8 +107,9 @@ unverified.
 
 The protected sender `dry_run` now inventories the actual service interpreter,
 Python bitness/platform and Pillow version/provenance, running commit, CPU/OS, disk headroom and rollback
-availability. It then fetches only the exact candidate Git objects and builds an
-isolated temporary environment on the host to test its complete lock and image
+availability. It then fetches the exact candidate Git objects and uses the
+verified wheel artifact where required to build an isolated temporary environment
+on the host and test its complete lock and image
 operations. This is a non-activating staging preflight (temporary files/package
 downloads), not a claim of zero filesystem writes. It does not checkout code,
 replace the active venv, restart services or send notifications. Temporary data

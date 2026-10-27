@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 import pytest
 
+from scripts.sender_pillow_artifact import FAILURE_KINDS
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -48,6 +50,7 @@ def preflight_python():
         ("disk", "insufficient_staging_disk"),
         ("identity", "runtime_identity_mismatch"),
         ("candidate_python", "candidate_interpreter_mismatch"),
+        ("artifact", "candidate_staged_artifact_invalid"),
     ],
 )
 @pytest.mark.parametrize("minor", [11, 12])
@@ -55,6 +58,10 @@ def preflight_python():
 def test_candidate_preflight_never_mutates_active_runtime(
     tmp_path, failure, expected, minor, arm32
 ):
+    if failure == "artifact" and not arm32:
+        # Other interpreters never inspect or require this ARM-only artifact.
+        expected = None
+    succeeds = expected is None
     active = tmp_path / "active"
     (active / "bin").mkdir(parents=True)
     (active / "bin/python").write_text("existing interpreter")
@@ -65,6 +72,7 @@ def test_candidate_preflight_never_mutates_active_runtime(
         calls.append(argv)
         output = ""
         code = 0
+        error = "PRIVATE PACKAGE INDEX MUST NOT APPEAR"
         if argv[:2] == ["systemctl", "is-enabled"]:
             output = "enabled"
         elif argv[:2] == ["systemctl", "is-active"]:
@@ -106,6 +114,11 @@ def test_candidate_preflight_never_mutates_active_runtime(
                     "pip_native_cpython_abi": True,
                 }
             )
+        elif argv[1].endswith("sender_pillow_artifact.py"):
+            output = "true"
+            if failure == "artifact":
+                code = 1
+                error = "sha256_mismatch"
         elif "show" in argv:
             output = (
                 "Pillow==13.0.0"
@@ -124,13 +137,21 @@ def test_candidate_preflight_never_mutates_active_runtime(
             and failure == "smoke"
         ):
             code = 1
-        return subprocess.CompletedProcess(
-            argv, code, output, "PRIVATE PACKAGE INDEX MUST NOT APPEAR"
-        )
+        return subprocess.CompletedProcess(argv, code, output, error)
 
     output = io.StringIO()
     with (
-        patch("sys.argv", ["probe", "a" * 40, "b" * 40, str(tmp_path / "checkout"), str(active)]),
+        patch(
+            "sys.argv",
+            [
+                "probe",
+                "a" * 40,
+                "b" * 40,
+                str(tmp_path / "checkout"),
+                str(active),
+                "/tmp/upload.whl",
+            ],
+        ),
         patch("subprocess.run", side_effect=run),
         patch("shutil.which", side_effect=AssertionError("must not select interpreter from PATH")),
         patch(
@@ -142,8 +163,8 @@ def test_candidate_preflight_never_mutates_active_runtime(
     ):
         exec(compile(preflight_python(), "sender-preflight", "exec"), {})
     report = json.loads(output.getvalue())
-    assert stopped.value.code == (0 if failure is None else 1)
-    assert report["ok"] is (failure is None)
+    assert stopped.value.code == (0 if succeeds else 1)
+    assert report["ok"] is succeeds
     assert report.get("failure_category") == expected
     assert report["active_environment_changed"] is False
     assert report["external_test_sends"] == 0
@@ -161,7 +182,13 @@ def test_candidate_preflight_never_mutates_active_runtime(
             }[failure]
         )
         assert report.get("candidate_install_exit_code") == (1 if failure == "wheel" else None)
-    if failure is None:
+        assert report["candidate_failure_phase"] == "locked_install"
+    if failure == "artifact" and arm32:
+        assert report["candidate_failure_phase"] == "staged_artifact_validation"
+        assert report["candidate_artifact_failure_kind"] == "sha256_mismatch"
+        assert report["candidate_staged_artifact_verified"] is False
+        assert not any("install" in argv for argv in calls)
+    if succeeds:
         assert report["runtime_commit"] == "a" * 40
         assert report["candidate_pillow"] == "13.0.0"
         assert report["candidate_python"] == f"3.{minor}.9"
@@ -176,11 +203,22 @@ def test_candidate_preflight_never_mutates_active_runtime(
         assert report["candidate_pip_arm32_tags"] is arm32
         assert report["candidate_pip_arm64_tags"] is (not arm32)
         assert report["candidate_pillow_arm32_source"] is arm32
+        assert report["candidate_staged_artifact_verified"] is arm32
         assert report["candidate_pip_native_cpython_abi"] is True
         assert "candidate_install_failure_kind" not in report
         assert any("--only-binary=Pillow" in argv for argv in calls)
         assert any(argv[-1] == "b" * 40 + ":docker/sender/requirements.lock" for argv in calls)
         assert any(argv[-1] == "b" * 40 + ":sender_agent/verify_dependencies.py" for argv in calls)
+        installs = [argv for argv in calls if "install" in argv]
+        assert len(installs) == 1
+        assert ("--find-links" in installs[0]) is arm32
+        if arm32:
+            assert any(
+                argv[-1] == "b" * 40 + ":scripts/sender_pillow_artifact.py" for argv in calls
+            )
+            assert Path(installs[0][-1]).name == "pillow-wheel"
+            assert installs[0][-1] != "/tmp/upload.whl"
+        assert "candidate_failure_phase" not in report
 
 
 def test_both_official_modes_gate_before_activation_and_source_checkout():
@@ -262,6 +300,7 @@ def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage)
         "re": re,
         "OpsError": OpsError,
         "COMMIT_PATTERN": re.compile(r"^[0-9a-f]{40}$"),
+        "FAILURE_KINDS": FAILURE_KINDS,
     }
     exec(compile(ast.Module(body=functions, type_ignores=[]), "helpers", "exec"), namespace)
     report = {
@@ -387,6 +426,7 @@ def safe_inventory(value):
         "re": re,
         "REPO_ROOT": ROOT,
         "COMMIT_PATTERN": re.compile(r"^[0-9a-f]{40}$"),
+        "FAILURE_KINDS": FAILURE_KINDS,
     }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "safe-inventory", "exec"), namespace)
     return namespace["safe_dependency_preflight"]({"stage": "sender_dependency_preflight", **value})
