@@ -1,5 +1,31 @@
 # Production Baseline
 
+## Verified ARM32 Wheel Staging On 2026-10-27
+
+The [actual-host preflight at 2026-10-27 12:32:53 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40450223975/job/122010955609)
+enabled the Pillow-specific ARM32 source but still reported
+`Pillow==13.0.0` with `no_matching_distribution`. That report does not distinguish
+bootstrap from full-lock rediscovery and does not establish the host's exact
+index response. The active Sender remained healthy and unchanged. The same
+`b11d4a9f42528a337adb06c5f976fac90b265ce3` source passed
+[all exact-main CI gates](https://github.com/claude89757/wechat-on-airflow/actions/runs/40450203429).
+
+The follow-up makes the known public wheel available as a verified local
+artifact: the protected runner downloads the exact HTTPS wheel, checks its
+SHA-256 and transfers it through the existing scoped SSH channel alongside the
+Git bundle. Both candidate and apply paths create private copies, then verify
+the hash, exact lock pin, package metadata and interpreter tag compatibility
+before supplying a directory containing only that wheel to the full-lock pip
+command. Other dependencies keep their original indexes. The temporary upload
+remains available through installation and is removed by the operation's
+normal or rollback cleanup; no active dependency directory is copied or reused.
+
+The public wheel metadata confirms Pillow 13.0.0, Python >=3.11 and
+`cp311-cp311-linux_armv7l`. Hash and availability were independently checked;
+the protected actual-host install, dependency/image checks and full release
+acceptance remain required. This section records the staging repair and its
+evidence, not a production deployment acceptance.
+
 ## ARM32 Pillow Source Repair On 2026-10-27
 
 The [follow-up protected Sender diagnosis](https://github.com/claude89757/wechat-on-airflow/actions/runs/40448846588/job/122006510383)
