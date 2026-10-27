@@ -1,5 +1,27 @@
 # Production Baseline
 
+## Sender Candidate Install Blocker On 2026-10-27
+
+The protected [Sender dry-run at 2026-10-27 11:59:56 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40447148459/job/122001028089)
+targeted `e02b037612bbdf00a297c791c22ec3440a5fd306` and stopped at
+`candidate_locked_install_failed`. The actual service uses Python 3.11.2 with
+32-bit pointers on Raspbian 12, while its platform reports `linux-aarch64`.
+The live Sender remained enabled, active and ready at
+`1de8a876c5a5bd00b285262eb59c258f910be298`; `applied` and
+`active_environment_changed` were false, and `external_test_sends` was zero.
+The temporary candidate did not reach dependency or image-operation validation.
+
+The initial report deliberately withheld raw package-index output and cannot
+establish whether the cause is package availability, network access or dependency
+resolution. A diagnostic-only follow-up preserves the exact install command,
+version locks and activation gates while adding bounded failure categories,
+an exact lock-validated failed requirement and pip ABI-tag booleans. It neither
+changes platform selection nor upgrades pip. Raw output, URLs and credentials
+remain private. The routing and retired-scope fixes are merged, and exact-main
+CI for `e8a23a0258d79a5141ca9df5e0c4470462f7fb23`
+[passed](https://github.com/claude89757/wechat-on-airflow/actions/runs/40447375080),
+but production apply remains blocked pending a successful actual-host preflight.
+
 ## Retired Shenzhen Bay Observation Scope On 2026-10-27
 
 The protected

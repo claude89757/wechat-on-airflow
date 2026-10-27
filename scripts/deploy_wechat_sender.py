@@ -63,6 +63,10 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
         "disk_sufficient",
         "candidate_locked_dependencies_verified",
         "temporary_environment_removed",
+        "candidate_pip_tag_inventory_available",
+        "candidate_pip_arm32_tags",
+        "candidate_pip_arm64_tags",
+        "candidate_pip_native_cpython_abi",
     ):
         if key in value:
             clean[key] = value[key] is True
@@ -99,6 +103,49 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
                 for key in keys
                 if isinstance(raw.get(key), str) and re.fullmatch(r"[A-Za-z0-9_.-]{0,40}", raw[key])
             }
+    pip_version = value.get("candidate_pip_version")
+    if (
+        isinstance(pip_version, str)
+        and len(pip_version) <= 40
+        and re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", pip_version)
+    ):
+        clean["candidate_pip_version"] = pip_version
+    install_kind = value.get("candidate_install_failure_kind")
+    if install_kind is not None:
+        clean["candidate_install_failure_kind"] = (
+            install_kind
+            if isinstance(install_kind, str)
+            and install_kind
+            in {
+                "no_matching_distribution",
+                "network_tls",
+                "network_connection",
+                "index_authentication",
+                "dependency_resolution",
+                "build_failed",
+                "timeout",
+                "process_start_failed",
+                "unclassified",
+            }
+            else "unclassified"
+        )
+    install_exit = value.get("candidate_install_exit_code")
+    if type(install_exit) is int and -255 <= install_exit <= 255:
+        clean["candidate_install_exit_code"] = install_exit
+    failed_requirement = value.get("candidate_failed_requirement")
+    if isinstance(failed_requirement, str):
+        try:
+            locked = {
+                line.strip()
+                for line in (REPO_ROOT / "docker/sender/requirements.lock").read_text().splitlines()
+            }
+        except OSError:
+            locked = set()
+        if failed_requirement in locked and re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}==[A-Za-z0-9][A-Za-z0-9_.+!-]{0,39}",
+            failed_requirement,
+        ):
+            clean["candidate_failed_requirement"] = failed_requirement
     category = value.get("failure_category")
     categories = {
         "service_not_enabled",
@@ -569,12 +616,64 @@ report = {
 class PreflightFailure(Exception):
     pass
 
-def command(argv, category, timeout=30):
+def install_failure_diagnostics(stdout, stderr, lock_text, returncode=None, exception_kind=None):
+    # Inspect only bounded captured text; emit fixed categories and known lock pins.
+    output = (str(stdout or "") + "\n" + str(stderr or ""))[-65536:]
+    lowered = output.lower()
+    kind = exception_kind or "unclassified"
+    signatures = (
+        ("network_tls", ("certificate_verify_failed", "sslerror", "tlsv1", "certificate verify failed")),
+        ("index_authentication", ("401 client error", "403 client error", "401 error", "403 error", "authentication required")),
+        ("network_connection", ("connectionerror", "newconnectionerror", "connection refused", "temporary failure in name resolution", "network is unreachable", "readtimeout", "connecttimeout", "connection timed out", "max retries exceeded")),
+        ("no_matching_distribution", ("no matching distribution found", "could not find a version that satisfies the requirement", "is not a supported wheel on this platform")),
+        ("dependency_resolution", ("resolutionimpossible", "conflicting dependencies", "dependency conflict")),
+        ("build_failed", ("failed building wheel", "could not build wheels", "metadata-generation-failed", "getting requirements to build wheel did not run successfully")),
+    )
+    if exception_kind is None:
+        for category, markers in signatures:
+            if any(marker in lowered for marker in markers):
+                kind = category
+                break
+    result = {"candidate_install_failure_kind": kind}
+    if type(returncode) is int and -255 <= returncode <= 255:
+        result["candidate_install_exit_code"] = returncode
+    locked = {}
+    for line in lock_text.splitlines():
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_.-]{0,79})==([A-Za-z0-9][A-Za-z0-9_.+!-]{0,39})", line.strip())
+        if match:
+            name, version = match.groups()
+            locked[(re.sub(r"[-_.]+", "-", name).lower(), version)] = line.strip()
+    failed = set()
+    for name, version in re.findall(r"(?:No matching distribution found for|Could not find a version that satisfies the requirement)\s+([A-Za-z0-9][A-Za-z0-9_.-]{0,79})==([A-Za-z0-9][A-Za-z0-9_.+!-]{0,39})(?=\s|\(|$)", output, re.IGNORECASE):
+        pin = locked.get((re.sub(r"[-_.]+", "-", name).lower(), version))
+        if pin:
+            failed.add(pin)
+    if len(failed) == 1:
+        result["candidate_failed_requirement"] = next(iter(failed))
+    return result
+
+def record_install_failure(install_lock, stdout="", stderr="", returncode=None, exception_kind=None):
+    if install_lock is None:
+        return
+    try:
+        report.update(install_failure_diagnostics(stdout, stderr, install_lock.read_text(), returncode, exception_kind))
+    except Exception:
+        # Failure to collect optional diagnostics must not replace the install failure.
+        report["candidate_install_failure_kind"] = exception_kind or "unclassified"
+        if type(returncode) is int and -255 <= returncode <= 255:
+            report["candidate_install_exit_code"] = returncode
+
+def command(argv, category, timeout=30, install_lock=None):
     try:
         result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout, check=False)
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        record_install_failure(install_lock, exception_kind="timeout")
+        raise PreflightFailure(category) from None
+    except OSError:
+        record_install_failure(install_lock, exception_kind="process_start_failed")
         raise PreflightFailure(category) from None
     if result.returncode != 0:
+        record_install_failure(install_lock, result.stdout, result.stderr, result.returncode)
         raise PreflightFailure(category)
     return result.stdout.strip()
 
@@ -637,14 +736,37 @@ try:
         environment = staging / "venv"
         command([service_python, "-m", "venv", str(environment)], "candidate_venv_failed", 120)
         candidate_python = str(environment / "bin/python")
-        candidate = json.loads(command([candidate_python, "-c", "import json,struct,sys,sysconfig; print(json.dumps({'python': '.'.join(map(str,sys.version_info[:3])), 'bits': struct.calcsize('P')*8, 'platform': sysconfig.get_platform()}))"], "candidate_interpreter_mismatch"))
+        candidate_probe = '''import contextlib,io,json,re,struct,sys,sysconfig
+inventory = {'python': '.'.join(map(str,sys.version_info[:3])), 'bits': struct.calcsize('P')*8, 'platform': sysconfig.get_platform(), 'pip_tag_inventory_available': False}
+# Optional evidence only: an inventory error never changes the installation policy.
+try:
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        import pip
+        version = str(pip.__version__)
+        if len(version) <= 40 and re.fullmatch(r'[0-9]+(?:\\.[0-9]+){1,3}', version):
+            inventory['pip_version'] = version
+        from pip._internal.utils.compatibility_tags import get_supported
+        tags = get_supported()
+    inventory['pip_tag_inventory_available'] = True
+    inventory['pip_arm32_tags'] = any(tag.platform.endswith(('_armv6l', '_armv7l')) for tag in tags)
+    inventory['pip_arm64_tags'] = any(tag.platform.endswith('_aarch64') for tag in tags)
+    inventory['pip_native_cpython_abi'] = any(tag.abi == 'cp%d%d' % sys.version_info[:2] for tag in tags)
+except (Exception, SystemExit):
+    pass
+print(json.dumps(inventory))'''
+        candidate = json.loads(command([candidate_python, "-c", candidate_probe], "candidate_interpreter_mismatch"))
         if (str(candidate.get("python")).split(".")[:2] != str(active.get("python")).split(".")[:2]
                 or candidate.get("bits") != active.get("bits") or candidate.get("platform") != active.get("platform")):
             raise PreflightFailure("candidate_interpreter_mismatch")
         report["candidate_python"] = candidate["python"]
         report["candidate_python_bits"] = candidate["bits"]
         report["candidate_python_platform"] = candidate["platform"]
-        command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)], "candidate_locked_install_failed", 300)
+        candidate_pip = candidate.get("pip_version")
+        if isinstance(candidate_pip, str) and len(candidate_pip) <= 40 and re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", candidate_pip):
+            report["candidate_pip_version"] = candidate_pip
+        for key in ("pip_tag_inventory_available", "pip_arm32_tags", "pip_arm64_tags", "pip_native_cpython_abi"):
+            report["candidate_" + key] = candidate.get(key) is True
+        command([candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)], "candidate_locked_install_failed", 300, install_lock=lock)
         command([candidate_python, "-m", "pip", "check"], "candidate_dependency_conflict", 30)
         command([candidate_python, str(checker), str(lock)], "candidate_image_smoke_failed", 30)
         report["candidate_locked_dependencies_verified"] = True
