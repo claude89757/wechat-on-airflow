@@ -597,6 +597,32 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
     )
     report = health.business_report("a" * 40, require_delivery=False)
     assert report["complete"] and report["ok"], report["failedChecks"]
+    retired_key = "szw:check_and_notify_day_3"
+    sql(
+        "INSERT INTO zacks.observation_state(observation_key,venue_id,fingerprint,healthy,last_seen_at,updated_at) VALUES (:key,'szw','historical',false,now()-interval '7 days',now()-interval '7 days')",
+        {"key": retired_key},
+    )
+    report = health.business_report("a" * 40)
+    assert report["ok"], report["failedChecks"]
+    assert report["observationScopeHealth"]["retiredScopeCount"] == 1
+    assert any(row["observation_key"] == retired_key for row in report["observationScopes"])
+    preserved = sql(
+        "SELECT healthy,last_seen_at,updated_at FROM zacks.observation_state WHERE observation_key=:key",
+        {"key": retired_key},
+    )[0]
+    assert preserved["healthy"] is False
+    assert preserved["last_seen_at"] < utc_now() - timedelta(days=6)
+    assert preserved["updated_at"] == preserved["last_seen_at"]
+    sql("UPDATE zacks.observation_state SET healthy=false WHERE observation_key='tops:day'")
+    assert not health.business_report("a" * 40)["checks"]["allObservationScopesHealthy"]
+    sql("UPDATE zacks.observation_state SET healthy=true WHERE observation_key='tops:day'")
+    sql(
+        "INSERT INTO zacks.observation_state(observation_key,venue_id,fingerprint,healthy,last_seen_at,updated_at) VALUES ('tops:unlisted','tops','unknown',true,now()-interval '11 minutes',now())"
+    )
+    assert not health.business_report("a" * 40)["checks"]["allObservationScopesHealthy"]
+    sql(
+        "UPDATE zacks.observation_state SET last_seen_at=now() WHERE observation_key='tops:unlisted'"
+    )
     report = health.business_report("a" * 40, require_delivery=True)
     assert not report["ok"]
     assert set(report["failedChecks"]) == {

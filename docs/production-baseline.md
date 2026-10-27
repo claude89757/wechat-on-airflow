@@ -1,5 +1,26 @@
 # Production Baseline
 
+## Retired Shenzhen Bay Observation Scope On 2026-10-27
+
+The protected
+[preflight diagnosis at 2026-10-27 11:49:42 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40446284109/job/121998250113)
+found the already-retired `szw:check_and_notify_day_3` observation unhealthy and
+stale, with its last observation on 2026-10-20. The other 30 stored observation
+scopes were healthy and fresh. The existing business health check still included
+that historical row, despite the explicitly approved removal of the fourth-day
+task from the active schedule on 2026-10-20.
+
+The follow-up health policy records only that exact retirement in
+`config/host-core-contract.yaml` and validates that the task remains absent from
+the active manifest. It keeps all stored rows in the acceptance report, adds
+checked/retired counts and retirement metadata, and checks every other stored
+scope without an allowlist filter. Unknown or active unhealthy/stale observations
+still fail, as does an empty active set. Reactivating the task without revising
+the retirement policy fails closed. No database record or heartbeat is changed.
+All 26 venue checks, three natural cycles, worker and actual delivery evidence
+remain mandatory. This records a verified preflight blocker and its repair
+contract; it is not production deployment acceptance.
+
 ## Dashah Free-Court Routing Change Requested On 2026-10-27
 
 The user requested that `Zacks_大沙河限定免费` stop receiving alerts and that
@@ -68,9 +89,9 @@ independent passing Airflow health check. Only then complete the pending
 pull request and protected runs, not to the older failing baseline above.
 
 The retired task's Host Core observation key is
-`szw:check_and_notify_day_3` if it has previously been published. There is no
-automatic scope-retirement path in the current Host Core. Its full business
-acceptance checks every stored scope, so this historical scope can remain
+`szw:check_and_notify_day_3` if it has previously been published. At this rollout,
+Host Core had no explicit scope-retirement policy. Its full business
+acceptance checked every stored scope, so this historical scope could remain
 unhealthy/stale even after the active Airflow tasks recover. This component
 release does not delete business records, fabricate scope heartbeats, or
 claim full Host Core business acceptance. A future Host Core release must

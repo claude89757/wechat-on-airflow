@@ -92,6 +92,15 @@ before each upstream attempt and final publication, so closing the window
 discards partial results and publishes the idle observation. The one-minute
 default and other explicit exceptions remain in force.
 
+Business acceptance keeps the retired `szw:check_and_notify_day_3` observation
+visible as historical evidence, using its explicit 2026-10-20 retirement in
+`host-core-contract.yaml`. Only that exact scope is exempt from ongoing health
+and freshness checks, and only while the active manifest excludes its task.
+Unknown scopes and every other stored scope remain subject to the same checks;
+an empty active set fails. Reports retain the original rows plus checked/retired
+counts. Retirement does not delete records, rewrite timestamps or create an
+observation, and does not alter venue, natural-cycle or delivery acceptance.
+
 ## Email delivery
 
 Subscriber and system-email outboxes are separate. Workers lease with

@@ -30,6 +30,12 @@ cutover:
   migration_source: d1_control_plane_sql_export
   failure_policy: pause_host_then_roll_forward
   legacy_runtime: false
+retired_observation_scopes:
+  szw:check_and_notify_day_3:
+    dag_id: 深圳湾网球场巡检
+    task_id: check_and_notify_day_3
+    approved_on: "2026-10-20"
+    reason: User explicitly retired fourth-day inspection while preserving its history.
 invariants:
 - exactly_one_subscriber_email_owner
 - no_real_notifications_in_tests
@@ -42,3 +48,4 @@ invariants:
 - no_legacy_runtime_fallback
 - acceptance_requires_all_26_venues_three_natural_cycles
 - acceptance_requires_real_natural_delivery_receipts
+- retired_scope_history_is_preserved_and_only_explicit_approved_retirement_is_excluded
