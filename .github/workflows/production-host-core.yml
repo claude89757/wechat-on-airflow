@@ -11,6 +11,10 @@ on:
         description: Exact full commit SHA
         required: true
         type: string
+    outputs:
+      acceptance_status:
+        description: accepted, pending natural delivery, or failed; complete is report completeness only
+        value: ${{ jobs.operate.outputs.acceptance_status }}
   workflow_dispatch:
     inputs:
       operation:
@@ -66,6 +70,8 @@ jobs:
           echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
 
   operate:
+    outputs:
+      acceptance_status: ${{ steps.acceptance_status.outputs.status }}
     needs: resolve
     if: needs.resolve.outputs.should_run == 'true'
     runs-on: ubuntu-latest
@@ -157,10 +163,17 @@ jobs:
             live="$(docker compose exec -T zacks-api python -c 'import os; print(os.environ.get("DEPLOYMENT_COMMIT", "unknown"))' </dev/null)"
             [[ "$live" =~ ^[0-9a-f]{40}$ ]]
           fi
-          git fetch --prune origin main
           test -z "$(git status --porcelain --untracked-files=no)"
-          git checkout --detach "$target"
-          test "$(git rev-parse HEAD)" = "$target"
+          if [[ "$operation" == acceptance || "$operation" == health || "$operation" == pause ]]; then
+            # An old observation/recovery run must never move newer production backward.
+            test "$previous" = "$target"
+            live="$(docker compose exec -T zacks-api python -c 'import os; print(os.environ.get("DEPLOYMENT_COMMIT", "unknown"))' </dev/null)"
+            test "$live" = "$target"
+          else
+            git fetch --prune origin main
+            git checkout --detach "$target"
+            test "$(git rev-parse HEAD)" = "$target"
+          fi
           printf '%s %s\n' "$previous" "$live"
           REMOTE
           )"
@@ -170,6 +183,7 @@ jobs:
           echo "live_commit=$live_commit" >> "$GITHUB_OUTPUT"
 
       - name: Operate host core
+        id: operation
         working-directory: webapp
         run: bash ../scripts/host_core_release.sh
 
@@ -213,13 +227,31 @@ jobs:
           REMOTE
 
       - name: Publish sanitized acceptance evidence
+        id: acceptance_evidence
         if: always() && inputs.operation == 'acceptance'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: host-core-acceptance-${{ inputs.target_commit }}
+          name: host-core-acceptance-${{ inputs.target_commit }}-attempt-${{ github.run_attempt }}
           path: /tmp/host-core-business-health.log
           retention-days: 30
           if-no-files-found: error
+
+      - name: Export acceptance state even after pending exit
+        id: acceptance_status
+        if: always() && inputs.operation == 'acceptance'
+        env:
+          EVIDENCE_RESULT: ${{ steps.acceptance_evidence.outcome }}
+        run: |
+          status=failed
+          if [ -f /tmp/host-core-acceptance-status ]; then
+            read -r status </tmp/host-core-acceptance-status
+          fi
+          case "$status" in accepted|pending|failed) ;; *) status=failed ;; esac
+          if [ "$EVIDENCE_RESULT" != success ]; then status=failed; fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" = pending ]; then
+            echo 'Natural delivery acceptance pending; service remains active. No release/tag created. Re-run failed jobs on this same ship run to recheck without redeploying or resetting the acceptance window.' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Publish summary
         if: always()
