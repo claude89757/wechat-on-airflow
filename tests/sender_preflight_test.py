@@ -415,6 +415,134 @@ def test_optional_diagnostics_error_preserves_original_install_failure():
     }
 
 
+@pytest.mark.parametrize("output_type", ["bytes", "text", "none"])
+def test_timeout_preserves_bounded_partial_evidence_without_changing_failure(tmp_path, output_type):
+    namespace = diagnostic_helpers()
+    lock = tmp_path / "requirements.lock"
+    lock.write_text("Pillow==13.0.0\npydantic_core==2.46.4\n")
+    output = "Collecting pydantic-core==2.46.4 (from -r /PRIVATE/lock)\n  Building wheel for pydantic-core (pyproject.toml): started\n"
+    error = "WARNING: Retrying (Retry(total=4)) after connection broken by ConnectTimeoutError at https://secret@PRIVATE.invalid\n"
+    if output_type == "bytes":
+        output, error = output.encode() + b"\xff", error.encode()
+    elif output_type == "none":
+        output, error = None, None
+    argv = ["synthetic-pip", "install", "--only-binary=Pillow"]
+    with patch(
+        "subprocess.run",
+        side_effect=subprocess.TimeoutExpired(argv, 300, output=output, stderr=error),
+    ) as invoked:
+        with pytest.raises(
+            namespace["PreflightFailure"], match="^candidate_locked_install_failed$"
+        ):
+            namespace["command"](argv, "candidate_locked_install_failed", 300, install_lock=lock)
+    invoked.assert_called_once_with(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+        timeout=300,
+        check=False,
+    )
+    report = namespace["report"]
+    assert report["candidate_install_failure_kind"] == "timeout"
+    assert report["candidate_install_observed_progress"] == (
+        "not_observed" if output_type == "none" else "wheel_build"
+    )
+    assert report["candidate_install_network_evidence"] == (
+        "not_observed" if output_type == "none" else "network_connection"
+    )
+    assert report.get("candidate_install_last_observed_requirement") == (
+        None if output_type == "none" else "pydantic_core==2.46.4"
+    )
+    assert "candidate_failed_requirement" not in report
+    assert "candidate_install_exit_code" not in report
+    for private in ("PRIVATE", "https://", "secret", "/lock"):
+        assert private not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    "line,progress",
+    [
+        ("Collecting Pillow==13.0.0", "collecting"),
+        ("Processing /PRIVATE/wheel.whl", "collecting"),
+        ("Downloading https://secret@PRIVATE.invalid/file", "retrieval"),
+        ("Using cached /PRIVATE/file", "retrieval"),
+        ("Installing build dependencies ...", "build_dependencies"),
+        ("Getting requirements to build wheel ...", "build_requirements"),
+        ("Preparing metadata (pyproject.toml) ...", "metadata"),
+        ("Building wheel for PRIVATE (pyproject.toml): started", "wheel_build"),
+        ("Installing collected packages: PRIVATE", "installing_packages"),
+        (
+            "INFO: pip is looking at multiple versions of PRIVATE to determine which version is compatible",
+            "resolver_backtracking",
+        ),
+        (
+            "INFO: This is taking longer than usual. You might need to provide the dependency resolver with stricter constraints",
+            "resolver_backtracking",
+        ),
+    ],
+)
+def test_timeout_progress_is_fixed_stdout_evidence_not_cross_stream_order(line, progress):
+    classify = diagnostic_helpers()["install_failure_diagnostics"]
+    report = classify(
+        "Collecting pydantic_core==2.46.4\n" + line + "\n",
+        "Collecting Pillow==13.0.0\nDownloading PRIVATE\nSSLError CERTIFICATE_VERIFY_FAILED\n",
+        "Pillow==13.0.0\npydantic_core==2.46.4\n",
+        exception_kind="timeout",
+    )
+    assert report["candidate_install_observed_progress"] == progress
+    assert report["candidate_install_network_evidence"] == "network_tls"
+    assert report["candidate_install_failure_kind"] == "timeout"
+    assert "candidate_failed_requirement" not in report
+    assert "PRIVATE" not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    "stderr,network",
+    [
+        ("401 Client Error: authentication required PRIVATE", "index_authentication"),
+        ("WARNING: Retrying (Retry(total=3)) PRIVATE", "retry_observed"),
+        ("ReadTimeoutError PRIVATE", "network_connection"),
+        ("unrecognized PRIVATE output", "not_observed"),
+    ],
+)
+def test_timeout_network_evidence_is_separate_from_timeout_kind(stderr, network):
+    report = diagnostic_helpers()["install_failure_diagnostics"](
+        "", stderr, "", exception_kind="timeout"
+    )
+    assert report["candidate_install_failure_kind"] == "timeout"
+    assert report["candidate_install_network_evidence"] == network
+    assert report["candidate_install_observed_progress"] == "not_observed"
+
+
+def test_timeout_tail_is_bounded_and_last_observed_requirement_must_match_lock():
+    classify = diagnostic_helpers()["install_failure_diagnostics"]
+    report = classify(
+        b"Collecting Pillow==13.0.0\n"
+        + b"x" * 32768
+        + b"\nCollecting pydantic-core==2.46.4\nCollecting PRIVATE==1.0\nCollecting Pillow==99.0.0\nCollecting Pillow @ https://secret@PRIVATE.invalid\n",
+        b"SSLError CERTIFICATE_VERIFY_FAILED\n" + b"x" * 32768,
+        "Pillow==13.0.0\npydantic_core==2.46.4\n",
+        exception_kind="timeout",
+    )
+    assert report["candidate_install_network_evidence"] == "not_observed"
+    assert report["candidate_install_last_observed_requirement"] == "pydantic_core==2.46.4"
+    assert "candidate_failed_requirement" not in report
+    assert "PRIVATE" not in json.dumps(report)
+
+
+def test_partial_bytes_still_identify_explicit_failure_as_distinct_from_observed_requirement():
+    report = diagnostic_helpers()["install_failure_diagnostics"](
+        b"Collecting pydantic-core==2.46.4\n",
+        b"ERROR: No matching distribution found for Pillow==13.0.0\n",
+        "Pillow==13.0.0\npydantic_core==2.46.4\n",
+        exception_kind="timeout",
+    )
+    assert report["candidate_install_failure_kind"] == "timeout"
+    assert report["candidate_install_last_observed_requirement"] == "pydantic_core==2.46.4"
+    assert report["candidate_failed_requirement"] == "Pillow==13.0.0"
+
+
 def safe_inventory(value):
     nodes = [
         node
@@ -430,6 +558,28 @@ def safe_inventory(value):
     }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "safe-inventory", "exec"), namespace)
     return namespace["safe_dependency_preflight"]({"stage": "sender_dependency_preflight", **value})
+
+
+def test_timeout_inventory_independently_validates_enum_types_and_exact_lock_pin():
+    fields = {
+        "candidate_install_network_evidence": "retry_observed",
+        "candidate_install_observed_progress": "build_dependencies",
+        "candidate_install_last_observed_requirement": "pydantic_core==2.46.4",
+    }
+    clean = safe_inventory(fields)
+    assert {key: clean[key] for key in fields} == fields
+    for key in fields:
+        for bad in (
+            True,
+            None,
+            [],
+            {},
+            1,
+            "PRIVATE",
+            "Pillow==99.0.0",
+            "pydantic_core==2.46.4\nPRIVATE",
+        ):
+            assert key not in safe_inventory({key: bad})
 
 
 def test_failure_inventory_independently_validates_new_fields_against_repository_lock():

@@ -21,6 +21,9 @@ and operational changes.
 - Report bounded Sender candidate-install failure categories, exact locked failed
   requirements and pip ABI evidence without exposing package-index output. The
   diagnostic does not change dependencies, install policy or active services.
+- Preserve bounded partial pip output on candidate timeout as fixed network and
+  progress evidence plus the last observed locked requirement. Keep timeout as
+  the primary failure and retain the existing 300-second installation limit.
 - Preserve the explicitly retired Shenzhen Bay fourth-day observation as visible
   historical evidence without requiring it to keep polling. The exact retirement
   is validated against the active task manifest; all other stored observation
