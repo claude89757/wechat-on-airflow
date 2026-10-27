@@ -1,5 +1,22 @@
 # Production Baseline
 
+## Sender Full-Lock Timeout On 2026-10-27
+
+The [protected candidate preflight](https://github.com/claude89757/wechat-on-airflow/actions/runs/40453041373/job/122019940953)
+for `7b90b48cd2468acbda32b89bcd3254e6f3654af2` verified the staged ARM32 Pillow
+artifact, then reached the existing 300-second limit during the full-lock pip
+installation. The active Sender stayed healthy and unchanged. This establishes
+neither a missing package nor a network, build or resolver root cause.
+
+The timeout handler previously discarded the partial stdout/stderr retained by
+Python. The diagnostic now decodes only bounded tails and emits fixed network
+and progress categories, preserving `timeout` as the primary failure. Progress
+and the last observed locked requirement use stdout alone; separate stream
+buffers have no shared chronology. An observed requirement is not a proven
+failing package. Both producer and CLI validate the fields; raw output, paths,
+URLs and credentials remain private. Installation commands, indexes, pins,
+timeouts, isolation and activation gates are unchanged.
+
 ## Verified ARM32 Wheel Staging On 2026-10-27
 
 The [actual-host preflight at 2026-10-27 12:32:53 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40450223975/job/122010955609)

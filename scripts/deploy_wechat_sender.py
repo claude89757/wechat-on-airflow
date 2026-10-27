@@ -136,6 +136,35 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
     install_exit = value.get("candidate_install_exit_code")
     if type(install_exit) is int and -255 <= install_exit <= 255:
         clean["candidate_install_exit_code"] = install_exit
+    for key, allowed in (
+        (
+            "candidate_install_network_evidence",
+            {
+                "network_tls",
+                "index_authentication",
+                "network_connection",
+                "retry_observed",
+                "not_observed",
+            },
+        ),
+        (
+            "candidate_install_observed_progress",
+            {
+                "collecting",
+                "retrieval",
+                "build_dependencies",
+                "build_requirements",
+                "metadata",
+                "wheel_build",
+                "installing_packages",
+                "resolver_backtracking",
+                "not_observed",
+            },
+        ),
+    ):
+        raw = value.get(key)
+        if isinstance(raw, str) and raw in allowed:
+            clean[key] = raw
     artifact_failure = value.get("candidate_artifact_failure_kind")
     if artifact_failure is not None:
         clean["candidate_artifact_failure_kind"] = (
@@ -152,8 +181,10 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
         "image_smoke",
     }:
         clean["candidate_failure_phase"] = phase
-    failed_requirement = value.get("candidate_failed_requirement")
-    if isinstance(failed_requirement, str):
+    for key in ("candidate_failed_requirement", "candidate_install_last_observed_requirement"):
+        requirement = value.get(key)
+        if not isinstance(requirement, str):
+            continue
         try:
             locked = {
                 line.strip()
@@ -161,11 +192,11 @@ def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
             }
         except OSError:
             locked = set()
-        if failed_requirement in locked and re.fullmatch(
+        if requirement in locked and re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}==[A-Za-z0-9][A-Za-z0-9_.+!-]{0,39}",
-            failed_requirement,
+            requirement,
         ):
-            clean["candidate_failed_requirement"] = failed_requirement
+            clean[key] = requirement
     category = value.get("failure_category")
     categories = {
         "service_not_enabled",
@@ -656,9 +687,14 @@ class PreflightFailure(Exception):
 
 def install_failure_diagnostics(stdout, stderr, lock_text, returncode=None, exception_kind=None):
     # Inspect only bounded captured text; emit fixed categories and known lock pins.
-    output = (str(stdout or "") + "\n" + str(stderr or ""))[-65536:]
+    def tail(value):
+        if isinstance(value, bytes):
+            return value[-32768:].decode("utf-8", errors="replace")
+        return value[-32768:] if isinstance(value, str) else ""
+    stdout_tail, stderr_tail = tail(stdout), tail(stderr)
+    output = (stdout_tail + "\n" + stderr_tail)[-65536:]
     lowered = output.lower()
-    kind = exception_kind or "unclassified"
+    observed_kind = "unclassified"
     signatures = (
         ("network_tls", ("certificate_verify_failed", "sslerror", "tlsv1", "certificate verify failed")),
         ("index_authentication", ("401 client error", "403 client error", "401 error", "403 error", "authentication required")),
@@ -667,12 +703,36 @@ def install_failure_diagnostics(stdout, stderr, lock_text, returncode=None, exce
         ("dependency_resolution", ("resolutionimpossible", "conflicting dependencies", "dependency conflict")),
         ("build_failed", ("failed building wheel", "could not build wheels", "metadata-generation-failed", "getting requirements to build wheel did not run successfully")),
     )
-    if exception_kind is None:
-        for category, markers in signatures:
-            if any(marker in lowered for marker in markers):
-                kind = category
-                break
-    result = {"candidate_install_failure_kind": kind}
+    for category, markers in signatures:
+        if any(marker in lowered for marker in markers):
+            observed_kind = category
+            break
+    result = {"candidate_install_failure_kind": exception_kind or observed_kind}
+    result["candidate_install_network_evidence"] = (
+        observed_kind if observed_kind in {"network_tls", "index_authentication", "network_connection"}
+        else "retry_observed" if "retrying (retry(" in lowered else "not_observed"
+    )
+    # Stream buffers have no shared chronology. Progress and the last observed
+    # locked requirement come only from stdout; neither proves the timeout cause.
+    progress = "not_observed"
+    for line in stdout_tail.splitlines():
+        line = line.strip().lower()
+        if "pip is looking at multiple versions of " in line or "the dependency resolver with stricter constraints" in line:
+            progress = "resolver_backtracking"
+        else:
+            for category, markers in (
+                ("collecting", ("collecting ", "processing ")),
+                ("retrieval", ("downloading ", "using cached ")),
+                ("build_dependencies", ("installing build dependencies",)),
+                ("build_requirements", ("getting requirements to build wheel",)),
+                ("metadata", ("preparing metadata",)),
+                ("wheel_build", ("building wheel for ", "building wheels for collected packages",)),
+                ("installing_packages", ("installing collected packages:",)),
+            ):
+                if line.startswith(markers):
+                    progress = category
+                    break
+    result["candidate_install_observed_progress"] = progress
     if type(returncode) is int and -255 <= returncode <= 255:
         result["candidate_install_exit_code"] = returncode
     locked = {}
@@ -688,6 +748,11 @@ def install_failure_diagnostics(stdout, stderr, lock_text, returncode=None, exce
             failed.add(pin)
     if len(failed) == 1:
         result["candidate_failed_requirement"] = next(iter(failed))
+    for match in re.finditer(r"(?mi)^\s*Collecting\s+([A-Za-z0-9][A-Za-z0-9_.-]{0,79})==([A-Za-z0-9][A-Za-z0-9_.+!-]{0,39})(?=\s|\(|$)", stdout_tail):
+        name, version = match.groups()
+        pin = locked.get((re.sub(r"[-_.]+", "-", name).lower(), version))
+        if pin:
+            result["candidate_install_last_observed_requirement"] = pin
     return result
 
 def record_install_failure(install_lock, stdout="", stderr="", returncode=None, exception_kind=None):
@@ -704,8 +769,8 @@ def record_install_failure(install_lock, stdout="", stderr="", returncode=None, 
 def command(argv, category, timeout=30, install_lock=None):
     try:
         result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        record_install_failure(install_lock, exception_kind="timeout")
+    except subprocess.TimeoutExpired as exc:
+        record_install_failure(install_lock, exc.output, exc.stderr, exception_kind="timeout")
         raise PreflightFailure(category) from None
     except OSError:
         record_install_failure(install_lock, exception_kind="process_start_failed")
