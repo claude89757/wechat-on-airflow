@@ -3,7 +3,14 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
-## [0.8.6] - 2026-10-24
+## [0.8.6] - 2026-10-27
+
+### Changed
+
+- Route Dashah River free-court alerts to the existing shared Zacks chatrooms
+  in `SZ_TENNIS_CHATROOMS`, retiring the dedicated free-court group route.
+  Align diagnostic and explicitly approved probe targets with the shared list,
+  preserving per-recipient deduplication and existing venue notification history.
 
 ### Fixed
 

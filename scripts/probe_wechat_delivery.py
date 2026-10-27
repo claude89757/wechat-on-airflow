@@ -99,7 +99,7 @@ else:
     configured = {
         "general": chatrooms("SZ_TENNIS_CHATROOMS"),
         "tyzx": chatrooms("SZ_TYZX_TENNIS_CHATROOMS"),
-        "dsh_free": ["Zacks_大沙河限定免费"],
+        "dsh_free": chatrooms("SZ_TENNIS_CHATROOMS"),
     }
     by_receiver = {}
     for target_set, receivers in configured.items():

@@ -177,6 +177,7 @@ active_dags:
       - check_free_courts
     variables:
       - NSWTT_API_CONFIG
+      - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
       - WEBAPP_OBSERVATION_API_URL
       - WEBAPP_OBSERVATION_TIMEOUT_SECONDS
@@ -194,7 +195,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect released Dashah River free-court dates, publish free availability for subscriber email, and notify the dedicated WeChat group.
+    purpose: Detect released Dashah River free-court dates, publish free availability for subscriber email, and notify the shared Zacks WeChat chatrooms.
     verification:
       - dag_imports
       - recent_runs_succeed

@@ -1,5 +1,32 @@
 # Production Baseline
 
+## Dashah Free-Court Routing Change Requested On 2026-10-27
+
+The user requested that `Zacks_大沙河限定免费` stop receiving alerts and that
+the same future availability content go to the two existing shared Zacks groups.
+The target configuration is `SZ_TENNIS_CHATROOMS`, already used by the other
+general tennis watchers, rather than the separate sports-center recipient list.
+
+The protected delivery diagnosis in
+[run 32148663652, job 99194737546](https://github.com/claude89757/wechat-on-airflow/actions/runs/32148663652/job/99194737546)
+recorded two general targets, three sports-center targets and one dedicated
+free-court target on 2026-08-30. This is historical recipient-count evidence;
+it does not establish the current deployed routing or expose protected values.
+
+The pre-change protected
+[health check at 2026-10-27 11:38:58 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40445217745/job/121994792357)
+confirmed Airflow commit `f6843b04a611442739123ed985b298cc866c3d8d`, all 12
+services healthy, no missing configuration or import errors, and three successful
+natural free-court inspections. It did not report current recipient counts.
+
+The revised watcher and operations scripts resolve free-court recipients from
+the existing shared configuration. No dedicated-group fallback remains. Preserve
+the observation-before-delivery ordering, booking-link policy and dedupe history;
+do not replay historical alerts. Production completion requires exact-commit CI,
+protected deployment, current target-count verification and three successful
+natural free-court inspection cycles. This section records the requested change,
+not a claim that it has already been deployed.
+
 ## Shenzhen Bay Three-Day Coverage Authorization On 2026-10-20
 
 The daytime cadence update was applied to Web and Airflow at commit
