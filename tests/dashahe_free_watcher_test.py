@@ -165,7 +165,8 @@ def test_format_wechat_messages_uses_venue_and_weekday() -> None:
     assert messages == ["【大沙河免费场1号场】星期日(08-16)空场: 18:00-19:00"]
 
 
-def test_wechat_notifies_only_the_dashah_free_group_after_cache_write() -> None:
+@pytest.mark.parametrize("chatrooms", [["shared-zacks-one", "shared-zacks-two"], []])
+def test_wechat_uses_shared_groups_only_after_observation_and_cache_write(chatrooms) -> None:
     client = Mock()
     today = (date.today() + timedelta(days=1)).isoformat()
     client.calendar_list.return_value = {
@@ -195,6 +196,7 @@ def test_wechat_notifies_only_the_dashah_free_group_after_cache_write() -> None:
         }
     }
     stored: list[list[str]] = []
+    calls = Mock()
 
     with (
         patch.object(
@@ -204,21 +206,61 @@ def test_wechat_notifies_only_the_dashah_free_group_after_cache_write() -> None:
         patch.object(
             watcher, "publish_venue_observation", return_value={"success": True}
         ) as publish,
+        patch.object(watcher, "_load_chatrooms", return_value=chatrooms),
         patch.object(watcher, "_load_cache", return_value=[]),
-        patch.object(watcher, "_store_cache", side_effect=lambda cache: stored.append(list(cache))),
-        patch.object(watcher, "send_wechat_text_to_chatrooms_best_effort") as send,
+        patch.object(
+            watcher, "_store_cache", side_effect=lambda cache: stored.append(list(cache))
+        ) as store,
+        patch.object(
+            watcher,
+            "send_wechat_text_to_chatrooms_best_effort",
+            return_value=[{"success": True, "queued": True}],
+        ) as send,
     ):
-        watcher.run_check_dashahe_free_courts()
+        calls.attach_mock(publish, "publish")
+        calls.attach_mock(store, "store")
+        calls.attach_mock(send, "send")
+        result = watcher.run_check_dashahe_free_courts()
 
     assert publish.called
-    assert send.called
-    assert send.call_args.args[0] == ["Zacks_大沙河限定免费"]
+    assert publish.call_args.args[0] == "dsh_free"
+    if not chatrooms:
+        send.assert_not_called()
+        store.assert_not_called()
+        assert result["wechat_queued"] is False
+        return
+    assert send.call_args.args[0] == chatrooms
     assert "18:00-19:00" in send.call_args.args[1]
     assert send.call_args.kwargs["source"] == "大沙河免费场巡检"
     assert send.call_args.kwargs["booking_venue_id"] == "dsh_free"
     assert stored
-    assert publish.call_args.args[0] == "dsh_free"
     assert send.call_count == 1
+    assert [call[0] for call in calls.mock_calls] == ["publish", "store", "send"]
+    assert result["wechat_queued"] is True
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (
+            " shared-zacks-one \n\n shared-zacks-two\nshared-zacks-one\n",
+            ["shared-zacks-one", "shared-zacks-two"],
+        ),
+        ("", []),
+    ],
+)
+def test_load_chatrooms_uses_shared_variable_without_legacy_fallback(configured, expected) -> None:
+    airflow = ModuleType("airflow")
+    sdk = ModuleType("airflow.sdk")
+    variable = Mock()
+    variable.get.return_value = configured
+    sdk.Variable = variable
+    airflow.sdk = sdk
+
+    with patch.dict(sys.modules, {"airflow": airflow, "airflow.sdk": sdk}):
+        assert watcher._load_chatrooms() == expected
+
+    variable.get.assert_called_once_with("SZ_TENNIS_CHATROOMS", default="")
 
 
 def test_load_cache_creates_empty_variable_when_missing() -> None:
