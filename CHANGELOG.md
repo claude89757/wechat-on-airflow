@@ -14,6 +14,10 @@ and operational changes.
 
 ### Fixed
 
+- Preserve the explicitly retired Shenzhen Bay fourth-day observation as visible
+  historical evidence without requiring it to keep polling. The exact retirement
+  is validated against the active task manifest; all other stored observation
+  scopes and every venue, cycle and delivery gate remain required.
 - Pin Pillow 13.0.0 in both sender installation paths and isolate the systemd
   Python 3.11/3.12 environment from distribution packages. Verify the actual imported
   version, origin and screenshot/OCR operations before activation and in health.

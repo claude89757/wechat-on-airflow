@@ -29,6 +29,46 @@ ROOT = Path(
     )
 )
 COMPONENT_MAX_AGE = {"zacks-notification-worker": 120, "zacks-wechat-worker": 300}
+RETIRED_OBSERVATION_SCOPE = "szw:check_and_notify_day_3"
+
+
+def observation_scope_health(
+    scopes: list[dict[str, Any]],
+    *,
+    manifest: dict[str, Any],
+    contract: dict[str, Any],
+    now: datetime,
+) -> dict[str, Any]:
+    """Keep retired history visible without treating it as an active producer."""
+    retirements = contract.get("retired_observation_scopes", {})
+    retirement = retirements.get(RETIRED_OBSERVATION_SCOPE, {})
+    component = next(
+        (entry for entry in manifest["active_dags"] if entry["dag_id"] == "深圳湾网球场巡检"),
+        None,
+    )
+    # This is one approved lifecycle transition, not a configurable ignore list.
+    # Reactivating the task requires removing/revising its retirement policy.
+    if (
+        set(retirements) != {RETIRED_OBSERVATION_SCOPE}
+        or retirement.get("dag_id") != "深圳湾网球场巡检"
+        or retirement.get("task_id") != "check_and_notify_day_3"
+        or retirement.get("approved_on") != "2026-10-20"
+        or component is None
+        or "check_and_notify_day_3" in component["tasks"]
+    ):
+        raise ValueError("Observation scope retirement does not match the approved task policy")
+    retired = [row for row in scopes if row["observation_key"] == RETIRED_OBSERVATION_SCOPE]
+    active = [row for row in scopes if row["observation_key"] != RETIRED_OBSERVATION_SCOPE]
+    return {
+        "ok": bool(active)
+        and all(
+            row["healthy"] and row["last_seen_at"] > now - timedelta(minutes=10) for row in active
+        ),
+        "storedScopeCount": len(scopes),
+        "checkedScopeCount": len(active),
+        "retiredScopeCount": len(retired),
+        "retiredScopes": [{**row, "retirement": retirement} for row in retired],
+    }
 
 
 def worker_health(component: str) -> bool:
@@ -56,6 +96,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
     since = state["acceptance_started_at"] or state["deployment_started_at"]
     now = utc_now()
     manifest = yaml.safe_load((ROOT / "config/active-components.yaml").read_text())
+    contract = yaml.safe_load((ROOT / "config/host-core-contract.yaml").read_text())
     venue_components = [
         entry
         for entry in manifest["active_dags"]
@@ -139,9 +180,10 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
                 )
             ).mappings()
         ]
-        checks["allObservationScopesHealthy"] = bool(scopes) and all(
-            row["healthy"] and row["last_seen_at"] > now - timedelta(minutes=10) for row in scopes
+        scope_health = observation_scope_health(
+            scopes, manifest=manifest, contract=contract, now=now
         )
+        checks["allObservationScopesHealthy"] = scope_health["ok"]
         dag_results = []
         for entry in venue_components + auxiliary:
             rows = [
@@ -264,6 +306,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
         "workerHeartbeats": heartbeats,
         "venues": venues,
         "observationScopes": scopes,
+        "observationScopeHealth": scope_health,
         "dags": dag_results,
         "queues": queues,
         "unresolvedEnqueueIncidents": enqueue_incidents,
