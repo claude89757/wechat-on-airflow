@@ -136,6 +136,34 @@ previous_venv="${VENV_DIR}.previous"
 rm -rf "$next_venv"
 # Do not inherit distribution Pillow: its version is outside our release lock.
 "$SENDER_PYTHON" -m venv "$next_venv"
+pillow_arm32_requirement="$("$next_venv/bin/python" - "$INSTALL_DIR/docker/sender/requirements.lock" <<'PILLOW_ARM32_PY'
+import contextlib
+import io
+import re
+import struct
+import sys
+from pathlib import Path
+
+if struct.calcsize("P") * 8 == 32:
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            from pip._internal.utils.compatibility_tags import get_supported
+            arm32 = any(tag.platform.endswith(("_armv6l", "_armv7l")) for tag in get_supported())
+    except (Exception, SystemExit):
+        arm32 = False
+    if arm32:
+        pins = re.findall(r"^Pillow==[0-9]+(?:\.[0-9]+){2}$", Path(sys.argv[1]).read_text(), re.MULTILINE)
+        if len(pins) != 1:
+            raise SystemExit("Pillow must have one exact locked version")
+        print(pins[0])
+PILLOW_ARM32_PY
+)"
+if [[ -n "$pillow_arm32_requirement" ]]; then
+  # Supplement only this exact package; preserve normal indexes for the full lock.
+  "$next_venv/bin/python" -m pip install --disable-pip-version-check \
+    --only-binary=Pillow --no-deps --find-links https://www.piwheels.org/simple/pillow/ \
+    "$pillow_arm32_requirement"
+fi
 "$next_venv/bin/python" -m pip install --disable-pip-version-check \
   --only-binary=Pillow --requirement "$INSTALL_DIR/docker/sender/requirements.lock"
 "$next_venv/bin/python" "$INSTALL_DIR/sender_agent/verify_dependencies.py" \

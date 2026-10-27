@@ -51,7 +51,10 @@ def preflight_python():
     ],
 )
 @pytest.mark.parametrize("minor", [11, 12])
-def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, expected, minor):
+@pytest.mark.parametrize("arm32", [False, True])
+def test_candidate_preflight_never_mutates_active_runtime(
+    tmp_path, failure, expected, minor, arm32
+):
     active = tmp_path / "active"
     (active / "bin").mkdir(parents=True)
     (active / "bin/python").write_text("existing interpreter")
@@ -86,7 +89,7 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
                     "python": f"3.{10 if failure == 'python' else minor}.9",
                     "pillow": "12.3.0",
                     "inside_prefix": False,
-                    "bits": 64,
+                    "bits": 32 if arm32 else 64,
                     "platform": "linux-aarch64",
                 }
             )
@@ -94,12 +97,12 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
             output = json.dumps(
                 {
                     "python": f"3.{13 if failure == 'candidate_python' else minor}.9",
-                    "bits": 64,
+                    "bits": 32 if arm32 else 64,
                     "platform": "linux-aarch64",
                     "pip_version": "22.3.1",
                     "pip_tag_inventory_available": True,
-                    "pip_arm32_tags": False,
-                    "pip_arm64_tags": True,
+                    "pip_arm32_tags": arm32,
+                    "pip_arm64_tags": not arm32,
                     "pip_native_cpython_abi": True,
                 }
             )
@@ -162,7 +165,7 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
         assert report["runtime_commit"] == "a" * 40
         assert report["candidate_pillow"] == "13.0.0"
         assert report["candidate_python"] == f"3.{minor}.9"
-        assert report["candidate_python_bits"] == 64
+        assert report["candidate_python_bits"] == (32 if arm32 else 64)
         assert report["active_python_platform"] == "linux-aarch64"
         assert report["active_pillow"] == "12.3.0"
         assert report["active_pillow_inside_prefix"] is False
@@ -170,8 +173,9 @@ def test_candidate_preflight_never_mutates_active_runtime(tmp_path, failure, exp
         assert report["temporary_environment_removed"] is True
         assert report["candidate_pip_version"] == "22.3.1"
         assert report["candidate_pip_tag_inventory_available"] is True
-        assert report["candidate_pip_arm32_tags"] is False
-        assert report["candidate_pip_arm64_tags"] is True
+        assert report["candidate_pip_arm32_tags"] is arm32
+        assert report["candidate_pip_arm64_tags"] is (not arm32)
+        assert report["candidate_pillow_arm32_source"] is arm32
         assert report["candidate_pip_native_cpython_abi"] is True
         assert "candidate_install_failure_kind" not in report
         assert any("--only-binary=Pillow" in argv for argv in calls)

@@ -1,5 +1,31 @@
 # Production Baseline
 
+## ARM32 Pillow Source Repair On 2026-10-27
+
+The [follow-up protected Sender diagnosis](https://github.com/claude89757/wechat-on-airflow/actions/runs/40448846588/job/122006510383)
+at 2026-10-27 12:17:36 Asia/Shanghai identified the exact failure as
+`Pillow==13.0.0` with `no_matching_distribution` and exit code 1. Candidate
+pip 23.0.1 reported ARM32 tags true, ARM64 tags false and a native CPython ABI.
+The live service stayed enabled, active and ready; no active environment was
+changed and no external test message was sent.
+
+The bounded source repair uses the fixed HTTPS Pillow-only listing at
+`https://www.piwheels.org/simple/pillow/` only for a 32-bit interpreter with
+compatible ARM32 pip tags. It bootstraps the exact locked Pillow requirement
+with `--no-deps` and binary-only selection, then runs the existing full-lock
+installation without adding that source to other dependencies. The interpreter,
+pin, TLS checks, environment isolation and activation/health gates stay in force.
+
+A separate public download probe selected
+`pillow-13.0.0-cp311-cp311-linux_armv7l.whl` (1,317,640 bytes), SHA-256
+`49eb06898ec42888e47c1cf1a97cb64b29af2b5d2773be60db1b1ecbbf92c3a6`.
+This confirms wheel availability, not actual-host runtime compatibility. The
+candidate must still pass the protected full dependency and image-operation
+preflight before any production apply. The
+[PyPI release files](https://pypi.org/project/pydantic_core/2.46.4/#files)
+already supply the locked `pydantic_core` CPython 3.11 ARM32 wheel, so its
+package source is unchanged.
+
 ## Sender Candidate Install Blocker On 2026-10-27
 
 The protected [Sender dry-run at 2026-10-27 11:59:56 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40447148459/job/122001028089)
