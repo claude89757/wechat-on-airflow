@@ -43,6 +43,26 @@ for (const width of [320, 390, 768, 900, 1440]) {
     const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
     await fixture(page);
     await page.goto("/");
+    await expect(page).toHaveTitle("Zacks 场地 · 网球空场提醒");
+    await expect(page.locator(".brand-lockup h1")).toHaveText("Zacks 场地");
+    await expect(page.locator(".brand-lockup h1 span")).toBeVisible();
+    await expect(page.locator(".brand-lockup p")).toHaveText("网球空场提醒");
+    await expect(page.locator(".brand-lockup p")).toBeVisible();
+    expect(await page.locator(".brand-lockup h1").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    if (width >= 900) {
+      const vision = page.getByRole("navigation", { name: "主要功能" }).getByRole("link", { name: "视频分析 · Zacks Vision" });
+      await expect(vision).toBeInViewport({ ratio: 1 });
+      await expect(vision).toHaveAttribute("href", "https://zacks.vision");
+      await expect(vision).toHaveAttribute("rel", "noopener noreferrer");
+      await vision.click({ trial: true });
+    }
+    await page.getByRole("button", { name: "更多功能" }).click();
+    const visionMenu = page.getByRole("menuitem", { name: "视频分析 · Zacks Vision" });
+    await expect(visionMenu).toBeInViewport({ ratio: 1 });
+    await expect(visionMenu).toHaveAttribute("href", "https://zacks.vision");
+    await expect(visionMenu).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(visionMenu).toHaveAttribute("target", "_blank");
+    await page.keyboard.press("Escape");
     await expect(page.locator("main")).toHaveAttribute("data-ui-version", "0.8.0");
     await expect(page.getByRole("heading", { name: /^把时间，\s*留给打球。$/ })).toBeVisible();
     await expect(page.locator(".venue-card")).toHaveCount(26);
@@ -187,5 +207,33 @@ for (const width of [390, 1440]) {
     await expect(dialog).toBeHidden();
     expect(requests.filter(request => request.method !== "GET")).toHaveLength(0);
     await expect(page.getByRole("button", { name: "创建订阅", exact: true })).toBeEnabled();
+  });
+}
+
+
+for (const width of [390, 1440]) {
+  test(`verified visitor opens Vision without receipt or referrer at ${width}px`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page, true);
+    let externalHeaders: Record<string, string> = {};
+    await context.route("https://zacks.vision/**", async route => {
+      externalHeaders = await route.request().allHeaders();
+      await route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Offline Vision</title>" });
+    });
+    await page.goto("/");
+    const popupPromise = page.waitForEvent("popup");
+    if (width < 900) {
+      await page.getByRole("button", { name: "更多功能" }).click();
+      await page.getByRole("menuitem", { name: "视频分析 · Zacks Vision" }).click();
+    } else {
+      await page.getByRole("navigation", { name: "主要功能" }).getByRole("link", { name: "视频分析 · Zacks Vision" }).click();
+    }
+    const popup = await popupPromise;
+    await popup.waitForLoadState();
+    expect(popup.url()).toBe("https://zacks.vision/");
+    expect(externalHeaders.referer).toBeUndefined();
+    expect(externalHeaders.authorization).toBeUndefined();
+    expect(JSON.stringify(externalHeaders)).not.toContain(receipt.token);
+    expect(await popup.evaluate(() => window.opener === null)).toBe(true);
   });
 }
