@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
+import { acceptanceRequestPolicy } from './public-request-policy.mjs';
 
 const expected = process.argv[2];
 assert.match(expected ?? '', /^[0-9a-f]{40}$/, 'exact Web deployment SHA is required');
@@ -11,7 +12,7 @@ assert.deepEqual(origins, ['https://courts.zacks.vision', 'https://zacks.claude8
 const output = 'qa-output';
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch();
-const report = { expectedCommit: expected, uiVersion: '0.8.0', publicWriteRequests: 0, syntheticNotifications: 0, views: [], passed: false };
+const report = { expectedCommit: expected, uiVersion: '0.8.0', publicWriteRequests: 0, blockedTelemetryRequests: 0, blockedWriteTargets: [], syntheticNotifications: 0, views: [], passed: false };
 try {
   for (const origin of origins) {
   for (const [view, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844], ['small', 320, 740]]) {
@@ -22,8 +23,13 @@ try {
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await context.route('**/*', route => {
-      if (!['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) {
-        report.publicWriteRequests += 1;
+      const request = route.request();
+      const policy = acceptanceRequestPolicy(request.method(), request.url(), origin);
+      if (policy !== 'read') {
+        if (policy === 'blocked-cloudflare-telemetry') report.blockedTelemetryRequests += 1;
+        else report.publicWriteRequests += 1;
+        const blocked = new URL(request.url());
+        report.blockedWriteTargets.push({ origin: blocked.origin, path: blocked.pathname, method: request.method(), policy });
         return route.abort('blockedbyclient');
       }
       return route.continue();

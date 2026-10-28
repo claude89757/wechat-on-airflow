@@ -42,7 +42,9 @@ before recovery. Never activate the legacy D1 backend.
 `webapp_production_health.py` checks both primary and additional public URLs.
 `webapp/qa/public-acceptance.mjs` checks both domains at desktop, mobile and small
 screen sizes, their exact edge SHA, host health, no redirect, links, assets and
-subscription verification controls. It blocks all public writes. Mocked browser
+subscription verification controls. It blocks all public writes, including injected Cloudflare `/cdn-cgi/rum` POST
+beacons. Only exact same-origin RUM beacons are counted separately as blocked
+telemetry; every other write attempt still fails acceptance. Mocked browser
 tests cover verification/create/cancel. Production checks never submit a code,
 create a synthetic subscription or send a real test notification. Natural
 DAG and sender health is observed through `production-airflow.yml` using the
@@ -60,3 +62,18 @@ acceptance after DNS/TLS is ready; do not repeat deployment to wait for certific
 The older Web deployment runbook describes pre-cutover D1 behavior. Current
 runtime ownership is defined by `ARCHITECTURE.md`, `config/host-core-contract.yaml`
 and the stateless edge workflow; no D1 migration or business Cron belongs here.
+
+
+## First domain rollout evidence
+
+PR #250 deployed Web SHA `e520007bf7ca8149f7ca71b15023bbd0d10d8591` through
+protected run [40630159807](https://github.com/claude89757/wechat-on-airflow/actions/runs/40630159807)
+at 2026-10-28 04:04:55 UTC. Both domains passed health and all six public browser
+views, but the final no-write assertion failed on three blocked Cloudflare RUM
+beacons injected on the new zone. Diagnostic replay confirmed each target was
+`POST https://courts.zacks.vision/cdn-cgi/rum`; no subscription or email write
+was attempted, and every POST was aborted. That original run remains failed.
+The acceptance-only correction preserves the write block, reports telemetry
+separately and is verified against the already deployed edge SHA. Do not repeat
+apply for this diagnostic-only change. The host and Sender retain
+`9cca72d73eb05c502446bd1d947c4307d7f73f35`.
