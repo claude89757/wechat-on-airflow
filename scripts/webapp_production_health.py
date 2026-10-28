@@ -150,12 +150,20 @@ def wait_for_production(
 ) -> dict[str, Any]:
     deadline = time.monotonic() + propagation_timeout_seconds
     while True:
-        payload = inspect_production(
-            base_url=base_url,
-            expected_commit=expected_commit,
-            expected_venue_count=expected_venue_count,
-            stateless_edge=stateless_edge,
-        )
+        try:
+            payload = inspect_production(
+                base_url=base_url,
+                expected_commit=expected_commit,
+                expected_venue_count=expected_venue_count,
+                stateless_edge=stateless_edge,
+            )
+        except OpsError:
+            # A newly bound hostname may still be propagating DNS or TLS.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(retry_interval_seconds, remaining))
+            continue
         if payload["ok"] or not deployment_is_propagating(payload):
             return payload
         remaining = deadline - time.monotonic()
@@ -189,14 +197,21 @@ def main() -> None:
     expected_venue_count = int(target["expected_venue_count"])
     stateless_edge = target.get("runtime") == "cloudflare_worker_stateless_edge"
 
-    payload = wait_for_production(
-        base_url=base_url,
-        expected_commit=args.expected_commit,
-        expected_venue_count=expected_venue_count,
-        propagation_timeout_seconds=args.propagation_timeout_seconds,
-        retry_interval_seconds=args.retry_interval_seconds,
-        stateless_edge=stateless_edge,
-    )
+    reports = []
+    for origin in [base_url, *target.get("additional_public_base_urls", [])]:
+        try:
+            report = wait_for_production(
+                base_url=str(origin).rstrip("/"),
+                expected_commit=args.expected_commit,
+                expected_venue_count=expected_venue_count,
+                propagation_timeout_seconds=args.propagation_timeout_seconds,
+                retry_interval_seconds=args.retry_interval_seconds,
+                stateless_edge=stateless_edge,
+            )
+        except OpsError as exc:
+            report = {"ok": False, "error": str(exc)}
+        reports.append({"base_url": origin, **report})
+    payload = {**reports[0], "domains": reports, "ok": all(report["ok"] for report in reports)}
 
     emit(payload, args.format)
     if not payload["ok"]:

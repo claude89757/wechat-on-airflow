@@ -72,8 +72,10 @@ images:
 managed_services:
   webapp:
     runtime: cloudflare_worker_stateless_edge
-    public_hostname: zacks.claude89757.cc
-    public_base_url: https://zacks.claude89757.cc
+    public_hostname: courts.zacks.vision
+    public_base_url: https://courts.zacks.vision
+    additional_public_base_urls:
+    - https://zacks.claude89757.cc
     health_path: /api/healthz
     expected_venue_count: 26
     deployment_owner: github_actions

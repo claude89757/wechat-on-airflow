@@ -25,14 +25,14 @@ html body .court-studio .studio-header {
   margin: 0; padding: 14px 0; border: 0; border-bottom: 1px solid var(--studio-line);
   background: var(--studio-paper); box-shadow: none; backdrop-filter: none;
 }
-html body .court-studio .brand-lockup { color: var(--studio-ink); text-decoration: none; gap: 11px; }
+html body .court-studio .brand-lockup { flex-shrink: 0; color: var(--studio-ink); text-decoration: none; gap: 11px; }
 html body .court-studio .brand-mark { flex-basis: 39px; width: 39px; height: 39px; border-radius: 11px; box-shadow: none; }
 html body .court-studio .brand-lockup h1 { font-size: 21px; font-weight: 750; letter-spacing: -.6px; }
 html body .court-studio .brand-lockup h1 > span { font-size: 14px; font-weight: 500; letter-spacing: 0; margin-left: 5px; }
-html body .court-studio .brand-lockup p { font-size: 9px; color: var(--studio-muted); letter-spacing: 2px; margin: 4px 0 0; }
+html body .court-studio .brand-lockup p { display: block; font-size: 9px; color: var(--studio-muted); letter-spacing: 2px; margin: 4px 0 0; }
 html body .court-studio .studio-desktop-nav { display: flex; gap: 6px; margin: 0 auto; }
-html body .court-studio .studio-desktop-nav button { padding: 10px 14px; min-height: 44px; border: 0; background: transparent; color: #485b54; font-size: 13px; border-radius: 8px; }
-html body .court-studio .studio-desktop-nav button:hover { background: #e9efe5; }
+html body .court-studio .studio-desktop-nav :is(button, a) { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; white-space: nowrap; padding: 10px 10px; min-height: 44px; border: 0; background: transparent; color: #485b54; font-size: 13px; border-radius: 8px; }
+html body .court-studio .studio-desktop-nav :is(button, a):hover { background: #e9efe5; }
 html body .court-studio .header-actions { gap: 8px; }
 html body .court-studio .coffee-button, html body .court-studio .more-button { min-height: 40px; border: 1px solid var(--studio-line); background: transparent; color: #43564d; box-shadow: none; border-radius: 10px; padding: 0 12px; font-weight: 550; transform: none; }
 html body .court-studio .studio-hero { display: grid; grid-template-columns: 1fr 390px; gap: 48px; align-items: center; padding: 46px 0 40px; grid-column: 1 / -1; }
@@ -234,7 +234,6 @@ html body .bottom-sheet .field input { font-size: 16px; }
 }
 @media (max-width: 359px) {
   html body main.court-studio { padding-inline: 12px; }
-  html body .court-studio .brand-lockup h1 > span { display: none; }
   html body .court-studio .studio-hero h2 { font-size: 32px; }
   html body .court-studio .studio-metrics .metric { padding-inline: 8px; }
 }
@@ -287,4 +286,9 @@ html body .court-studio .studio-venue .venue-card-status small { font-size:10px;
   html body .court-studio .primary-button { min-height:52px; }
   html body .court-studio .more-button { width:44px; min-height:44px; }
   html body .court-studio .coffee-button { min-height:44px; }
+}
+
+@media (min-width: 900px) and (max-width: 1099px) {
+  html body .court-studio .studio-header { gap: 12px; }
+  html body .court-studio .coffee-button span { display: none; }
 }

@@ -90,16 +90,17 @@ export function CourtStudio(props: Props) {
   const scrollToDirectory = () => directoryRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
 
   return (
-    <main className="dashboard-screen court-studio" aria-label="Zacks 网球提醒" data-ui-version="0.8.0">
+    <main className="dashboard-screen court-studio" aria-label="Zacks 场地" data-ui-version="0.8.0">
       <header className="product-header studio-header">
-        <a className="brand-lockup" href="#studio-top" aria-label="Zacks 网球提醒首页">
+        <a className="brand-lockup" href="#studio-top" aria-label="Zacks 场地首页">
           <span className="brand-mark" aria-hidden="true"><TennisBallIcon size={24} /></span>
-          <div><h1>Zacks <span>网球提醒</span></h1><p>COURT STUDIO</p></div>
+          <div><h1>Zacks <span>场地</span></h1><p>网球空场提醒</p></div>
         </a>
         <nav className="studio-desktop-nav" aria-label="主要功能">
           <button type="button" onClick={scrollToDirectory}>探索场地</button>
           <button type="button" onClick={() => onPanel("subscriptions")}>我的订阅</button>
           <button type="button" onClick={() => onPanel("help")}>使用指南</button>
+          <a href="https://zacks.vision" target="_blank" rel="noopener noreferrer">视频分析 · Zacks Vision <ArrowUpRightIcon size={15} aria-hidden="true" /></a>
         </nav>
         <div className="header-actions">
           <button className="coffee-button" type="button" aria-label="支持 Zacks，请作者喝咖啡" title="支持 Zacks" onClick={() => onPanel("coffee")}>
@@ -119,6 +120,7 @@ export function CourtStudio(props: Props) {
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("priority")}><StarIcon size={20} /><span>提醒档位</span></DropdownMenu.Item>
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("help")}><QuestionIcon size={20} /><span>查看帮助</span></DropdownMenu.Item>
                 <DropdownMenu.Separator className="more-menu-separator" />
+                <DropdownMenu.Item className="more-menu-item" asChild><a href="https://zacks.vision" target="_blank" rel="noopener noreferrer"><ArrowUpRightIcon size={20} aria-hidden="true" /><span>视频分析 · Zacks Vision</span></a></DropdownMenu.Item>
                 <DropdownMenu.Item className="more-menu-item" asChild><a href="https://github.com/claude89757/wechat-on-airflow" target="_blank" rel="noopener noreferrer"><GithubLogoIcon size={20} /><span>项目开源地址</span></a></DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
