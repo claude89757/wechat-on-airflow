@@ -134,6 +134,16 @@ must transfer them through an approved secret store, not chat or Git. Give each
 additional agent its own token and app-scoped policy. Tokens expire after 90
 days; renewing or rotating them is a separate owner-approved operation.
 
+Apply refreshes only the dedicated connector unit while retaining its existing
+credentials. It waits for cloudflared's loopback-only `127.0.0.1:49393/ready`
+before checking Cloudflare status and publishing DNS. Preflight checks the
+required flags and the service identity's ability to execute cloudflared.
+Warning logs use cloudflared's rotating `--log-directory` (1 MB plus five
+backups), in a service-private `0700` systemd LogsDirectory. Debug logging is
+never enabled. Only readiness, process counts/status and fixed error categories
+can cross the operations boundary; raw logs and credential values cannot.
+A previously withdrawn candidate is not an active rollback target.
+
 `withdraw` disables only the two new MCP units. The protected `rollback`
 operation restores the recorded previous candidate, or withdraws the two new
 units when no previous release exists. Failed Appium session cleanup requires operator diagnosis; never

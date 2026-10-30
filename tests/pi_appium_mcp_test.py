@@ -220,7 +220,8 @@ def test_mcp_workflow_preserves_exact_commit_environment_and_ssh_pinning():
     assert '"service_auth_401_redirect": True' in runner
     assert "hmac.compare_digest" in runner
     installer = (ROOT / "pi_host/appium_mcp/install.py").read_text()
-    assert "tunnel --config %d/tunnel_config --no-autoupdate run --token-file" in installer
+    assert "--metrics 127.0.0.1:49393" in installer
+    assert "--log-directory /var/log/pi-appium-mcp --loglevel warn run --token-file" in installer
     assert "AutoAddPolicy" not in runner
     assert "send/v1" not in runner
 
@@ -352,3 +353,128 @@ def test_public_probe_never_inherits_production_management_credentials(monkeypat
     assert DEPLOY.public_health(
         {"access_client_id": "fake-client", "access_client_secret": "fake-client-secret"}
     )["authenticatedMcpVerified"]
+
+
+def test_connector_refresh_preserves_credentials_and_adds_private_bounded_logs(
+    tmp_path, monkeypatch
+):
+    config = tmp_path / "config"
+    config.mkdir()
+    credentials = {"tunnel_token": "fake-token", "access_client_secret": "fake-secret"}
+    INSTALL.private_json(config / "cloudflare.json", credentials)
+    (config / "tunnel_token").write_text("fake-token")
+    unit = tmp_path / "connector.service"
+    monkeypatch.setattr(INSTALL, "CONFIG", config)
+    monkeypatch.setattr(INSTALL, "CONNECTOR_UNIT", unit)
+    monkeypatch.setattr(INSTALL.shutil, "which", lambda _: "/usr/bin/cloudflared")
+    monkeypatch.setattr(INSTALL, "drain_control", lambda: None)
+    calls = []
+    monkeypatch.setattr(INSTALL, "run", lambda argv, **kwargs: calls.append(argv))
+    report = {"ready": True, "active": True, "exitCode": 0, "restarts": 0, "events": []}
+    monkeypatch.setattr(INSTALL, "connector_report", lambda: report)
+    assert INSTALL.configure_connector() == {"ok": True, "connector": report}
+    assert json.loads((config / "cloudflare.json").read_text()) == credentials
+    assert (config / "tunnel_token").read_text() == "fake-token"
+    text = unit.read_text()
+    assert "LogsDirectoryMode=0700" in text
+    assert "--log-directory /var/log/pi-appium-mcp --loglevel warn" in text
+    assert "--metrics 127.0.0.1:49393" in text
+    assert "fake-" not in text
+    assert calls[-1] == ["systemctl", "enable", "--now", "cloudflared-appium-mcp.service"]
+    (config / "tunnel_token").write_text("mismatch")
+    with pytest.raises(ValueError, match="stored_tunnel_token_mismatch"):
+        INSTALL.configure_connector()
+    (config / "tunnel_token").write_text("fake-token")
+    monkeypatch.setattr(INSTALL.time, "sleep", lambda _: None)
+    monkeypatch.setattr(INSTALL, "connector_report", lambda: {**report, "ready": False})
+    with pytest.raises(INSTALL.ConnectorFailure) as caught:
+        INSTALL.configure_connector()
+    assert caught.value.report["ready"] is False
+
+
+def test_connector_readiness_failure_retains_only_fixed_categories(tmp_path, monkeypatch):
+    (tmp_path / "cloudflared.log").write_text("fake-secret lookup private.example i/o timeout\n")
+    monkeypatch.setattr(INSTALL, "LOGS", tmp_path)
+    monkeypatch.setattr(INSTALL, "run", lambda *a, **k: "ExecMainStatus=0\nNRestarts=2\n")
+    monkeypatch.setattr(INSTALL, "is_active", lambda _: True)
+    monkeypatch.setattr(
+        INSTALL.urllib.request,
+        "urlopen",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("fake-secret")),
+    )
+    report = INSTALL.connector_report()
+    assert report == {
+        "ready": False,
+        "active": True,
+        "exitCode": 0,
+        "restarts": 2,
+        "events": ["dns", "timeout"],
+    }
+    assert DEPLOY.safe_connector_report(report) == report
+    assert "fake-" not in json.dumps(report)
+    assert DEPLOY.safe_connector_report({**report, "events": ["fake-secret"]}) is None
+    assert DEPLOY.safe_connector_report({**report, "stdout": "fake-secret"}) is None
+    assert DEPLOY.safe_connector_report({**report, "exitCode": True}) is None
+
+
+def test_existing_cloudflare_credentials_refresh_connector_without_rotating_token(monkeypatch):
+    credentials = {"tunnel_token": "fake-token", "tunnel_id": "existing-test"}
+    monkeypatch.setattr(DEPLOY, "read_credentials", lambda _: credentials)
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test-account")
+    calls = []
+
+    def api(method, path, body=None):
+        calls.append((method, path))
+        if "dns_records?" in path:
+            return [{"content": "existing-test.cfargotunnel.com", "proxied": True}]
+        assert method == "GET"
+        return {"status": "healthy"}
+
+    commands = []
+    monkeypatch.setattr(DEPLOY, "cf", api)
+    monkeypatch.setattr(
+        DEPLOY, "remote", lambda client, command, **kwargs: commands.append(command)
+    )
+    assert DEPLOY.provision(object(), "/fake/install.py", "a" * 40) == credentials
+    assert len(commands) == 1 and " connector --commit " in commands[0]
+    assert all(method == "GET" for method, _ in calls)
+
+
+def test_connector_runtime_gate_checks_features_and_effective_service_identity(monkeypatch):
+    monkeypatch.setattr(INSTALL.shutil, "which", lambda _: "/usr/bin/cloudflared")
+    calls = []
+
+    def command(argv, **kwargs):
+        calls.append(argv)
+        return "--metrics --log-directory --token-file"
+
+    monkeypatch.setattr(INSTALL, "run", command)
+    INSTALL.verify_connector_runtime()
+    assert calls[-1] == [
+        "runuser",
+        "-u",
+        "pi-appium-mcp",
+        "--",
+        "/usr/bin/cloudflared",
+        "--version",
+    ]
+    monkeypatch.setattr(INSTALL, "run", lambda *a, **k: "--metrics --token-file")
+    with pytest.raises(RuntimeError, match="cloudflared_flags_unsupported"):
+        INSTALL.verify_connector_runtime()
+
+
+def test_withdrawn_candidate_is_not_a_previous_active_release(tmp_path, monkeypatch):
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (tmp_path / "current").symlink_to(candidate)
+    monkeypatch.setattr(INSTALL, "BASE", tmp_path)
+    monkeypatch.setattr(INSTALL, "is_active", lambda _: True)
+    assert INSTALL.remember_active_release() == candidate
+    assert (tmp_path / "previous").resolve() == candidate
+    monkeypatch.setattr(INSTALL, "is_active", lambda _: False)
+    assert INSTALL.remember_active_release() is None
+    assert not (tmp_path / "previous").exists()
+    assert candidate.exists()
+    (tmp_path / "previous").mkdir()
+    with pytest.raises(RuntimeError, match="ambiguous_previous_release"):
+        INSTALL.remember_active_release()

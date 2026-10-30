@@ -18,6 +18,21 @@ inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
 ## Pi MCP Candidate Inspection On 2026-10-31
 
+Release `779e398f694bc4217401dd1d3a4a479604f328e0` passed exact-main CI and
+[actual-host preflight 41129486055](https://github.com/claude89757/wechat-on-airflow/actions/runs/41129486055),
+including all 11 fake-device tests. [Apply 41130363057](https://github.com/claude89757/wechat-on-airflow/actions/runs/41130363057)
+activated the local MCP, then failed waiting for its new Cloudflare connector.
+Automatic withdrawal was verified. The dedicated Access app, service token and
+remotely managed tunnel were created; no public DNS record was published.
+Read-only checks verified the stored token's account/tunnel association, matching
+token file, executable permissions and supported flags. The connector ran until
+withdrawal but never registered an edge connection; its output had been discarded,
+so the exact connection failure remains unproven. The next candidate adds private
+rotating warning logs, fixed-category diagnostics and native local readiness,
+without rotating credentials or reconfiguring the old tunnel. Existing Sender,
+agent and tunnel start timestamps remained unchanged. Zero real phone sessions
+or test notifications were created.
+
 Release `419269c00361deae177a225874b5de064406ef3d` passed
 [actual-host preflight](https://github.com/claude89757/wechat-on-airflow/actions/runs/41122132103),
 then [activation 41123431445](https://github.com/claude89757/wechat-on-airflow/actions/runs/41123431445)
