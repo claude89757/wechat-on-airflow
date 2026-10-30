@@ -1,5 +1,22 @@
 # Production Baseline
 
+## 2026-10-31: Dedicated Free-Court Group Restored, Shared Groups Paused
+
+Per the user's latest request, new Dashah free-court messages now target
+`Zacks_大沙河限定免费` alone. The two existing shared Zacks groups remain
+stored in the `SZ_TENNIS_CHATROOMS` Airflow Variable for possible future
+resumption but are filtered before new durable WeChat enqueue operations from
+every automated venue watcher. Other independent group recipients remain
+untouched. Do not replace the shared variable with the dedicated group name,
+as that would redirect unrelated venue alerts into the free-court-only group.
+
+The read-only delivery diagnosis and explicitly approved probe aliases reflect
+active recipients and count paused recipients without disclosing their names.
+Verify deployment, three natural free-court cycles and expiry of the old
+five-minute queued-intent window before declaring the old recipient path
+inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
+
+
 ## Offline ARM32 Dependency Staging On 2026-10-27
 
 The [protected preflight at 13:28:32 Asia/Shanghai](https://github.com/claude89757/wechat-on-airflow/actions/runs/40454944844/job/122025979634)
