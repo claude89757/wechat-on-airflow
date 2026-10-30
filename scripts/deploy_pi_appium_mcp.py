@@ -27,10 +27,47 @@ SOURCE = Path(__file__).resolve().parents[1] / "pi_host/appium_mcp"
 
 
 class RemoteOperationError(RuntimeError):
-    def __init__(self, error_class, test_report=None):
+    def __init__(self, error_class, test_report=None, connector=None):
         super().__init__("pi_operation_failed")
         self.error_class = error_class
         self.test_report = test_report
+        self.connector = connector
+
+
+def safe_connector_report(value):
+    if not isinstance(value, dict) or set(value) != {
+        "ready",
+        "active",
+        "exitCode",
+        "restarts",
+        "events",
+    }:
+        return None
+    if any(type(value[key]) is not bool for key in ("ready", "active")):
+        return None
+    if any(
+        type(value[key]) is not int or not 0 <= value[key] <= 1000000
+        for key in ("exitCode", "restarts")
+    ):
+        return None
+    allowed = {
+        "authentication",
+        "configuration",
+        "permission",
+        "dns",
+        "timeout",
+        "network",
+        "quic",
+        "port_busy",
+        "certificate",
+    }
+    if (
+        not isinstance(value["events"], list)
+        or len(value["events"]) > len(allowed)
+        or any(type(event) is not str or event not in allowed for event in value["events"])
+    ):
+        return None
+    return value
 
 
 def safe_test_report(value):
@@ -98,6 +135,7 @@ def remote(client, command, payload="", timeout=900):
     if stdout.channel.recv_exit_status() != 0:
         error_class = None
         test_report = None
+        connector = None
         try:
             report = json.loads(value)
             candidate = report.get("errorClass")
@@ -111,13 +149,16 @@ def remote(client, command, payload="", timeout=900):
                 "OSError",
                 "JSONDecodeError",
                 "CandidateTestFailure",
+                "ConnectorFailure",
             }:
                 error_class = candidate
                 if candidate == "CandidateTestFailure":
                     test_report = safe_test_report(report.get("candidateTests"))
+                if candidate == "ConnectorFailure":
+                    connector = safe_connector_report(report.get("connector"))
         except (ValueError, AttributeError, TypeError):
             pass
-        raise RemoteOperationError(error_class, test_report)
+        raise RemoteOperationError(error_class, test_report, connector)
     return value.decode()
 
 
@@ -213,7 +254,7 @@ def provision(client, installer, commit):
             f"sudo -n python3 {shlex.quote(installer)} credentials --commit {commit}",
             json.dumps(credentials),
         )
-    remote(client, "sudo -n systemctl enable --now cloudflared-appium-mcp.service")
+    remote(client, f"sudo -n python3 {shlex.quote(installer)} connector --commit {commit}")
     for _ in range(30):
         tunnel = cf("GET", prefix + f"/cfd_tunnel/{credentials['tunnel_id']}")
         if tunnel.get("status") == "healthy":
@@ -388,6 +429,7 @@ def main():
                     else None,
                     "httpStatus": exc.code if isinstance(exc, urllib.error.HTTPError) else None,
                     "rollbackVerified": rollback_verified,
+                    "connector": exc.connector if isinstance(exc, RemoteOperationError) else None,
                     "externalTestSends": 0,
                 }
             )

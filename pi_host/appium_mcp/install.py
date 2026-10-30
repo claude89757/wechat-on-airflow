@@ -20,6 +20,9 @@ from pathlib import Path
 
 BASE = Path("/opt/pi-appium-mcp")
 CONFIG = Path("/etc/pi-appium-mcp")
+LOGS = Path("/var/log/pi-appium-mcp")
+CONNECTOR_UNIT = Path("/etc/systemd/system/cloudflared-appium-mcp.service")
+CONNECTOR_READY = "http://127.0.0.1:49393/ready"
 NODE_SHA = "c9057c6a3b8fbb9651ed115c1e96d4a7281b7b9c9ca89fa05865c98ed7ffd437"
 NODE_DIR = "node-v22.23.4-linux-armv7l"
 EXISTING = ("wechat-sender.service", "zacks-agent.service", "cloudflared-dsh.service")
@@ -52,6 +55,113 @@ class CandidateTestFailure(RuntimeError):
     def __init__(self, report):
         super().__init__("candidate_tests_failed")
         self.report = report
+
+
+class ConnectorFailure(RuntimeError):
+    def __init__(self, report):
+        super().__init__("connector_not_ready")
+        self.report = report
+
+
+def connector_report():
+    properties = run(
+        [
+            "systemctl",
+            "show",
+            "cloudflared-appium-mcp.service",
+            "--property=ExecMainStatus",
+            "--property=NRestarts",
+        ]
+    )
+    values = dict(line.split("=", 1) for line in properties.splitlines() if "=" in line)
+    ready = False
+    try:
+        with urllib.request.urlopen(CONNECTOR_READY, timeout=2) as response:
+            ready = response.status == 200
+    except OSError:
+        pass
+    events = []
+    path = LOGS / "cloudflared.log"
+    if path.is_file():
+        with path.open("rb") as stream:
+            stream.seek(max(0, path.stat().st_size - 65536))
+            content = stream.read(65536).decode(errors="replace").lower()
+        for category, patterns in {
+            "authentication": ("unauthorized", "invalid tunnel secret", "invalid token"),
+            "configuration": ("error parsing", "unmarshal", "invalid ingress", "failed to read"),
+            "permission": ("permission denied",),
+            "dns": ("failed to resolve", "lookup ", "edge discovery"),
+            "timeout": ("timeout", "deadline exceeded"),
+            "network": ("network is unreachable", "connection refused", "no route to host"),
+            "quic": ("failed to dial a quic", "failed to serve quic"),
+            "port_busy": ("address already in use",),
+            "certificate": ("x509:", "certificate signed by unknown authority"),
+        }.items():
+            if any(pattern in content for pattern in patterns):
+                events.append(category)
+    return {
+        "ready": ready,
+        "active": is_active("cloudflared-appium-mcp.service"),
+        "exitCode": int(values.get("ExecMainStatus", "0")),
+        "restarts": int(values.get("NRestarts", "0")),
+        "events": events,
+    }
+
+
+def configure_connector():
+    value = json.loads((CONFIG / "cloudflare.json").read_text())
+    if (CONFIG / "tunnel_token").read_text() != value["tunnel_token"]:
+        raise ValueError("stored_tunnel_token_mismatch")
+    connector = shutil.which("cloudflared")
+    if not connector or not re.fullmatch(r"/[A-Za-z0-9_./-]+", connector):
+        raise RuntimeError("cloudflared_missing")
+    drain_control()
+    unit = f"""[Unit]
+Description=Dedicated protected Pi Appium MCP tunnel
+After=network-online.target pi-appium-mcp.service
+Wants=network-online.target
+[Service]
+User=pi-appium-mcp
+Group=pi-appium-mcp
+LoadCredential=tunnel_token:/etc/pi-appium-mcp/tunnel_token
+LoadCredential=tunnel_config:/etc/pi-appium-mcp/tunnel.yml
+LogsDirectory=pi-appium-mcp
+LogsDirectoryMode=0700
+ExecStart={connector} tunnel --config %d/tunnel_config --no-autoupdate --metrics 127.0.0.1:49393 --log-directory /var/log/pi-appium-mcp --loglevel warn run --token-file %d/tunnel_token
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+StandardOutput=null
+StandardError=null
+[Install]
+WantedBy=multi-user.target
+"""
+    CONNECTOR_UNIT.write_text(unit)
+    run(["systemctl", "daemon-reload"])
+    run(["systemctl", "enable", "--now", "cloudflared-appium-mcp.service"])
+    for _ in range(60):
+        report = connector_report()
+        if report["ready"] and report["active"]:
+            return {"ok": True, "connector": report}
+        time.sleep(2)
+    raise ConnectorFailure(connector_report())
+
+
+def verify_connector_runtime():
+    connector = shutil.which("cloudflared")
+    if not connector:
+        raise RuntimeError("cloudflared_missing")
+    help_text = run([connector, "tunnel", "--help"])
+    run_help = run([connector, "tunnel", "run", "--help"])
+    if (
+        not all(flag in help_text for flag in ("--metrics", "--log-directory"))
+        or "--token-file" not in run_help
+    ):
+        raise RuntimeError("cloudflared_flags_unsupported")
+    run(["runuser", "-u", "pi-appium-mcp", "--", connector, "--version"])
 
 
 def summarize_tests(payload, exit_code, *, timed_out=False):
@@ -267,6 +377,19 @@ def atomic_link(target, path):
     temporary.replace(path)
 
 
+def remember_active_release():
+    current = BASE / "current"
+    previous = BASE / "previous"
+    if current.exists() and is_active("pi-appium-mcp.service"):
+        atomic_link(current.resolve(), previous)
+        return current.resolve()
+    if previous.is_symlink():
+        previous.unlink()
+    elif previous.exists():
+        raise RuntimeError("ambiguous_previous_release")
+    return None
+
+
 def is_active(unit):
     return (
         subprocess.run(
@@ -307,7 +430,16 @@ def drain_control():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "operation", choices=("preflight", "apply", "health", "credentials", "withdraw", "rollback")
+        "operation",
+        choices=(
+            "preflight",
+            "apply",
+            "health",
+            "credentials",
+            "connector",
+            "withdraw",
+            "rollback",
+        ),
     )
     parser.add_argument("--commit", required=True)
     parser.add_argument("--staging", type=Path)
@@ -315,6 +447,8 @@ def main():
     if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("root_and_exact_commit_required")
     health()
+    if args.operation == "connector":
+        return configure_connector()
     if args.operation == "rollback":
         tunnel_was_active = drain_control()
         run(["systemctl", "stop", "pi-appium-mcp.service"])
@@ -371,39 +505,18 @@ def main():
         tunnel_config = CONFIG / "tunnel.yml"
         tunnel_config.write_text("{}\n")
         tunnel_config.chmod(0o600)
-        connector = shutil.which("cloudflared")
-        if not connector:
-            raise RuntimeError("cloudflared_missing")
-        unit = f"""[Unit]
-Description=Dedicated protected Pi Appium MCP tunnel
-After=network-online.target pi-appium-mcp.service
-Wants=network-online.target
-[Service]
-User=pi-appium-mcp
-Group=pi-appium-mcp
-LoadCredential=tunnel_token:/etc/pi-appium-mcp/tunnel_token
-LoadCredential=tunnel_config:/etc/pi-appium-mcp/tunnel.yml
-ExecStart={connector} tunnel --config %d/tunnel_config --no-autoupdate run --token-file %d/tunnel_token
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectHome=true
-ProtectSystem=strict
-StandardOutput=null
-StandardError=null
-[Install]
-WantedBy=multi-user.target
-"""
-        Path("/etc/systemd/system/cloudflared-appium-mcp.service").write_text(unit)
-        run(["systemctl", "daemon-reload"])
-        run(["systemctl", "enable", "--now", "cloudflared-appium-mcp.service"])
         return {"ok": True, "credentialsStored": True}
     if args.operation == "health":
         if (BASE / "current" / "release.txt").read_text().strip() != args.commit:
             raise ValueError("release_mismatch")
         run(["systemctl", "is-active", "--quiet", "pi-appium-mcp.service"])
-        return json.loads(run([str(BASE / "node/bin/node"), str(BASE / "current/smoke.mjs")]))
+        connector = connector_report()
+        if not connector["ready"] or not connector["active"]:
+            raise ConnectorFailure(connector)
+        return {
+            **json.loads(run([str(BASE / "node/bin/node"), str(BASE / "current/smoke.mjs")])),
+            "connector": connector,
+        }
 
     if not args.staging or not args.staging.is_dir():
         raise ValueError("staging_required")
@@ -429,6 +542,7 @@ WantedBy=multi-user.target
             ]
         )
     run(["usermod", "--append", "--groups", "wechat-sender", "pi-appium-mcp"])
+    verify_connector_runtime()
     node = BASE / NODE_DIR
     if not node.exists():
         unpack(archive, BASE, trusted_links=True)
@@ -478,11 +592,9 @@ WantedBy=multi-user.target
     state = Path("/var/lib/pi-appium-mcp")
     state.mkdir(mode=0o700, exist_ok=True)
     shutil.chown(state, "pi-appium-mcp", "pi-appium-mcp")
-    previous = (BASE / "current").resolve() if (BASE / "current").exists() else None
+    previous = remember_active_release()
     unit_path = Path("/etc/systemd/system/pi-appium-mcp.service")
     previous_unit = unit_path.read_bytes() if unit_path.exists() else None
-    if previous:
-        atomic_link(previous, BASE / "previous")
     tunnel_was_active = drain_control()
     try:
         atomic_link(node, BASE / "node")
@@ -533,6 +645,7 @@ if __name__ == "__main__":
                     "errorClass": type(exc).__name__,
                     "externalTestSends": 0,
                     "candidateTests": exc.report if isinstance(exc, CandidateTestFailure) else None,
+                    "connector": exc.report if isinstance(exc, ConnectorFailure) else None,
                 }
             )
         )
