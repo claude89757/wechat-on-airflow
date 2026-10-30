@@ -45,6 +45,13 @@ Idle sessions close after 30 seconds, and leases stop accepting actions after
 Busy devices return `device_busy`; do not restart Appium or delete foreign
 sessions to bypass this result.
 
+The existing Airflow maintenance DAG may reboot the phone at 05:00 Asia/Shanghai
+on its configured days. That authorized ADB maintenance is outside the MCP
+session lock. Clients must handle the offline interval and create a new session
+only after the phone is ready again. Do not override a busy or foreign session.
+Release acceptance waits for Sender readiness after scheduled maintenance;
+it does not change the maintenance schedule or promise uninterrupted sessions.
+
 Any unconfirmed session creation retains its phone lock, even if Appium's
 session list is still empty: the remote request may still be running. Recovery
 requires operator diagnosis. Apply, rollback and withdrawal stop only the new
