@@ -63,11 +63,22 @@ def unpack(archive, destination, *, trusted_links=False):
 
 def private_json(path, value):
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = path.with_suffix(".pending")
-    with temporary.open("w", opener=lambda p, f: os.open(p, f, 0o600)) as stream:
-        json.dump(value, stream)
-    os.chmod(temporary, 0o600)
-    temporary.replace(path)
+    descriptor, name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(value, stream)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def verify_private_write(candidate):
+    probe = candidate / ".private-write-probe.json"
+    private_json(probe, {"probe": True})
+    if probe.stat().st_mode & 0o777 != 0o600 or json.loads(probe.read_text()) != {"probe": True}:
+        raise RuntimeError("private_configuration_probe_failed")
+    probe.unlink()
 
 
 def verify_source(candidate):
@@ -291,6 +302,7 @@ WantedBy=multi-user.target
     candidate = Path(tempfile.mkdtemp(prefix=f"candidate-{args.commit[:12]}-", dir=BASE))
     unpack(args.staging / "source.tar.gz", candidate)
     verify_source(candidate)
+    verify_private_write(candidate)
     unpack(args.staging / "cache.tar.gz", candidate / "cache")
     environment = {
         "PATH": f"{node}/bin:/usr/local/bin:/usr/bin:/bin",

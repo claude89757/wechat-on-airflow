@@ -72,6 +72,41 @@ def test_empty_source_is_rejected_before_dependency_install(tmp_path):
     INSTALL.verify_source(ROOT / "pi_host/appium_mcp")
 
 
+def test_private_configuration_is_atomic_and_owner_only(tmp_path):
+    target = tmp_path / "private/config.json"
+    INSTALL.private_json(target, {"probe": True})
+    assert json.loads(target.read_text()) == {"probe": True}
+    assert target.stat().st_mode & 0o777 == 0o600
+    INSTALL.private_json(target, {"probe": False})
+    assert json.loads(target.read_text()) == {"probe": False}
+    assert sorted(p.name for p in target.parent.iterdir()) == ["config.json"]
+    with pytest.raises(TypeError):
+        INSTALL.private_json(target, {"unserializable": object()})
+    assert json.loads(target.read_text()) == {"probe": False}
+    assert sorted(p.name for p in target.parent.iterdir()) == ["config.json"]
+    INSTALL.verify_private_write(tmp_path)
+    assert not (tmp_path / ".private-write-probe.json").exists()
+
+
+@pytest.mark.parametrize(
+    "error_class,expected", [("TypeError", "TypeError"), ("fake-secret", None)]
+)
+def test_remote_error_retains_only_allowlisted_exception_class(error_class, expected):
+    channel = SimpleNamespace(shutdown_write=lambda: None, recv_exit_status=lambda: 1)
+    stdin = SimpleNamespace(write=lambda _: None, flush=lambda: None, channel=channel)
+    stdout = io.BytesIO(
+        json.dumps({"ok": False, "errorClass": error_class, "secret": "fake-secret"}).encode()
+    )
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (stdin, stdout, io.BytesIO(b"fake-secret"))
+    )
+    with pytest.raises(DEPLOY.RemoteOperationError) as caught:
+        DEPLOY.remote(client, "fake-command")
+    assert caught.value.error_class == expected
+    assert str(caught.value) == "pi_operation_failed"
+
+
 def test_mcp_workflow_preserves_exact_commit_environment_and_ssh_pinning():
     workflow = yaml.safe_load((ROOT / ".github/workflows/production-appium-mcp.yml").read_text())
     assert (

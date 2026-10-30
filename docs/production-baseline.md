@@ -18,6 +18,18 @@ inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
 ## Pi MCP Candidate Inspection On 2026-10-31
 
+The repaired source passed actual ARM32
+[preflight 41117458521](https://github.com/claude89757/wechat-on-airflow/actions/runs/41117458521).
+The [first activation](https://github.com/claude89757/wechat-on-airflow/actions/runs/41118215287)
+then stopped before service creation or Cloudflare provisioning. Read-only
+inspection found a verified candidate and valid device mapping but no active
+release, device configuration or new systemd unit. A regression reproduced
+`Path.open()` rejecting the unsupported `opener` argument in the private JSON
+writer. The repair uses an owner-only temporary file and atomic replacement,
+cleans failed writes, exercises that path during preflight, and preserves only
+allowlisted remote exception classes. Existing services remained active; zero
+phone sessions or external test notifications were created.
+
 The first protected MCP preflight for `577dfae1036f64a05b7bbb20b390108f9a896db6`
 passed Cloudflare permissions and pinned SSH, then failed before activation
 ([run 41113735347](https://github.com/claude89757/wechat-on-airflow/actions/runs/41113735347)).

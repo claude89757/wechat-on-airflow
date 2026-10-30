@@ -26,6 +26,12 @@ ZONE_ID = "741a41032993004661579d76e63668bf"
 SOURCE = Path(__file__).resolve().parents[1] / "pi_host/appium_mcp"
 
 
+class RemoteOperationError(RuntimeError):
+    def __init__(self, error_class):
+        super().__init__("pi_operation_failed")
+        self.error_class = error_class
+
+
 def cf(method, path, body=None):
     request = urllib.request.Request(
         "https://api.cloudflare.com/client/v4" + path,
@@ -63,8 +69,27 @@ def remote(client, command, payload="", timeout=900):
     value = stdout.read(65537)
     # Never forward raw remote stderr or exception messages.
     stderr.read(65537)
-    if len(value) > 65536 or stdout.channel.recv_exit_status() != 0:
+    if len(value) > 65536:
         raise RuntimeError("pi_operation_failed")
+    if stdout.channel.recv_exit_status() != 0:
+        error_class = None
+        try:
+            report = json.loads(value)
+            candidate = report.get("errorClass")
+            if report.get("ok") is False and candidate in {
+                "ValueError",
+                "TypeError",
+                "RuntimeError",
+                "FileNotFoundError",
+                "PermissionError",
+                "TimeoutExpired",
+                "OSError",
+                "JSONDecodeError",
+            }:
+                error_class = candidate
+        except (ValueError, AttributeError, TypeError):
+            pass
+        raise RemoteOperationError(error_class)
     return value.decode()
 
 
@@ -327,6 +352,9 @@ def main():
                     "ok": False,
                     "phase": phase,
                     "errorClass": type(exc).__name__,
+                    "remoteErrorClass": exc.error_class
+                    if isinstance(exc, RemoteOperationError)
+                    else None,
                     "httpStatus": exc.code if isinstance(exc, urllib.error.HTTPError) else None,
                     "rollbackVerified": rollback_verified,
                     "externalTestSends": 0,
