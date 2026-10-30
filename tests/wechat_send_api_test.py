@@ -222,9 +222,12 @@ class WeChatSendApiTest(unittest.TestCase):
             ) as post,
             patch.object(wechat_send_api, "_release_subscription_gate_dedupe"),
         ):
-            assert wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
-                ["shared-zacks-a", "shared-zacks-b"], "message", booking_venue_id="tops"
-            ) == []
+            assert (
+                wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                    ["shared-zacks-a", "shared-zacks-b"], "message", booking_venue_id="tops"
+                )
+                == []
+            )
             post.assert_not_called()
             result = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
                 ["shared-zacks-a", "Zacks_大沙河限定免费"],
