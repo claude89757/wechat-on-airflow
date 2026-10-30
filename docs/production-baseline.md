@@ -16,6 +16,47 @@ Verify deployment, three natural free-court cycles and expiry of the old
 five-minute queued-intent window before declaring the old recipient path
 inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
+## Pi MCP Production Acceptance On 2026-10-31
+
+The independent MCP service runs
+`837f7efe35ae5a7042584509c0859879407e5903`, not the Airflow component's release.
+Its [exact-main CI](https://github.com/claude89757/wechat-on-airflow/actions/runs/41133807591),
+[ARM32 preflight](https://github.com/claude89757/wechat-on-airflow/actions/runs/41134545238)
+and [protected apply](https://github.com/claude89757/wechat-on-airflow/actions/runs/41135173127)
+passed. Public acceptance at `https://appium-mcp.claude89757.cc/mcp` rejected
+absent and invalid credentials, and verified authenticated MCP handshake,
+18 tools, one configured/online phone and zero active phone sessions. No real
+phone session or test notification was created. The dedicated tunnel reported
+four healthy edge connections; DNS was published only after connector readiness.
+Existing credentials were reused, not rotated. Sender, device agent and old Pi
+tunnel start timestamps remained unchanged. Only one physical phone was observed;
+a second phone still requires attachment, ADB authorization and explicit mapping.
+
+Three subsequent protected health checks passed:
+[41136107257](https://github.com/claude89757/wechat-on-airflow/actions/runs/41136107257),
+[41136216778](https://github.com/claude89757/wechat-on-airflow/actions/runs/41136216778)
+and [41136473252](https://github.com/claude89757/wechat-on-airflow/actions/runs/41136473252).
+Each verified local connector readiness, zero connector restarts, correct public
+authorization and one online phone, without creating a phone session. Independent
+workstation checks returned HTTP 401 for both absent and invalid credentials.
+The [post-apply Airflow health check](https://github.com/claude89757/wechat-on-airflow/actions/runs/41136588394)
+passed against its unchanged `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5` release,
+with no recent DAG failures. The Pi-dependent Dashah International venue DAG's
+three most recent natural runs all succeeded after MCP activation. Original
+Sender and Airflow Tunnel health remained normal.
+
+The original connector failure was not reproduced in this successful attempt;
+its exact cause remains unproven. Native readiness and private bounded diagnostics
+improve the evidence, not proof that a specific network or authentication fault
+was repaired.
+
+The legacy public raw Appium route remains a separate unprotected surface.
+New MCP Access authorization does not secure that route, and shared locks only
+coordinate participating controllers. Inventory existing callers before an
+approved restriction. The Pi had approximately 2.16 GB free after apply;
+candidate preflight retains its 2 GB free-space gate and must not delete verified
+or ambiguous candidates merely to bypass it.
+
 ## Pi MCP Candidate Inspection On 2026-10-31
 
 Release `779e398f694bc4217401dd1d3a4a479604f328e0` passed exact-main CI and
