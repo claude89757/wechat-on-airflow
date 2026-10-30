@@ -14,7 +14,7 @@ CACHE_KEY = "大沙河免费场"
 VENUE_ID = "dsh_free"
 VENUE_NAME = "大沙河免费场"
 DAG_ID = "大沙河免费场巡检"
-CHATROOMS_VARIABLE = "SZ_TENNIS_CHATROOMS"
+DEDICATED_CHATROOM = "Zacks_大沙河限定免费"
 MAX_SUBSCRIPTION_DAYS = 14
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -59,10 +59,8 @@ def _load_config_value() -> object:
 
 
 def _load_chatrooms() -> list[str]:
-    from airflow.sdk import Variable
-
-    value = str(Variable.get(CHATROOMS_VARIABLE, default=""))
-    return list(dict.fromkeys(name.strip() for name in value.splitlines() if name.strip()))
+    # The dedicated free-court group must not inherit shared Zacks recipients.
+    return [DEDICATED_CHATROOM]
 
 
 def _load_cache() -> list[str]:
