@@ -25,3 +25,5 @@ raw.txt
 /database/postgresql/
 /database/redis/
 /logs/
+.agents/skills/*openspec*
+openspec/*
