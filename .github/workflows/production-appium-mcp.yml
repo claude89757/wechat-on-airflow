@@ -1,5 +1,5 @@
 name: Production Pi Appium MCP
-run-name: production/pi-mcp/${{ inputs.operation }}/${{ inputs.request_id }}
+run-name: production/pi_mcp/${{ inputs.operation }}/${{ inputs.request_id }}
 on:
   workflow_dispatch:
     inputs:
@@ -59,7 +59,9 @@ jobs:
           npm run audit:runtime
           npm test
           tar -czf /tmp/pi-mcp-release/cache.tar.gz -C /tmp/pi-mcp-cache .
-          git archive HEAD:pi_host/appium_mcp | gzip > /tmp/pi-mcp-release/source.tar.gz
+          git -C "$GITHUB_WORKSPACE" archive HEAD:pi_host/appium_mcp | gzip > /tmp/pi-mcp-release/source.tar.gz
+          tar -tzf /tmp/pi-mcp-release/source.tar.gz | grep -Fx server.mjs
+          tar -tzf /tmp/pi-mcp-release/source.tar.gz | grep -Fx package-lock.json
           curl --fail --retry 3 --max-time 180 -o /tmp/pi-mcp-release/node.tar.xz https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-armv7l.tar.xz
           printf '%s  %s\n' c9057c6a3b8fbb9651ed115c1e96d4a7281b7b9c9ca89fa05865c98ed7ffd437 /tmp/pi-mcp-release/node.tar.xz | sha256sum --check --status
       - name: Install SSH dependency

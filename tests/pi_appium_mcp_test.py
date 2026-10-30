@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import io
 import json
+import os
+import subprocess
 import tarfile
 from contextlib import nullcontext
 from pathlib import Path
@@ -43,8 +46,37 @@ def test_installer_rejects_escaping_archives(tmp_path, name, link):
     assert not (tmp_path / "outside").exists()
 
 
+def test_release_archive_contains_source_from_workflow_subdirectory(tmp_path):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/production-appium-mcp.yml").read_text())
+    stage = next(
+        step
+        for step in workflow["jobs"]["operate"]["steps"]
+        if step.get("name", "").startswith("Stage locked")
+    )
+    line = next(line.strip() for line in stage["run"].splitlines() if " archive HEAD:" in line)
+    archive = subprocess.run(
+        ["bash", "-c", line.split(" > ", 1)[0]],
+        cwd=ROOT / stage["working-directory"],
+        env={**os.environ, "GITHUB_WORKSPACE": str(ROOT)},
+        capture_output=True,
+        check=True,
+    )
+    with tarfile.open(fileobj=io.BytesIO(gzip.decompress(archive.stdout))) as source:
+        assert "server.mjs" in source.getnames()
+        assert "package-lock.json" in source.getnames()
+
+
+def test_empty_source_is_rejected_before_dependency_install(tmp_path):
+    with pytest.raises(ValueError, match="incomplete_source_bundle"):
+        INSTALL.verify_source(tmp_path)
+    INSTALL.verify_source(ROOT / "pi_host/appium_mcp")
+
+
 def test_mcp_workflow_preserves_exact_commit_environment_and_ssh_pinning():
     workflow = yaml.safe_load((ROOT / ".github/workflows/production-appium-mcp.yml").read_text())
+    assert (
+        workflow["run-name"] == "production/pi_mcp/${{ inputs.operation }}/${{ inputs.request_id }}"
+    )
     job = workflow["jobs"]["operate"]
     assert job["environment"] == "production"
     assert job["if"] == "github.ref == 'refs/heads/main'"
