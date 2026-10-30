@@ -177,7 +177,6 @@ active_dags:
       - check_free_courts
     variables:
       - NSWTT_API_CONFIG
-      - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
       - WEBAPP_OBSERVATION_API_URL
       - WEBAPP_OBSERVATION_TIMEOUT_SECONDS

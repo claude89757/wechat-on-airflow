@@ -121,24 +121,23 @@ class AirflowSchedulingResumeTest(unittest.TestCase):
 
 
 class WeChatDeliveryDiagnosisTest(unittest.TestCase):
-    def test_dashah_diagnosis_uses_the_existing_general_targets(self):
+    def test_dashah_diagnosis_routes_only_to_dedicated_group(self):
         script = diagnose_wechat_delivery.remote_script()
         mapping = script[script.index("targets = {") : script.index("try:\n    outbox")]
         configured = {
-            "SZ_TENNIS_CHATROOMS": ["synthetic_zacks_1", "synthetic_zacks_2"],
+            "SZ_TENNIS_CHATROOMS": ["shared-zacks-a", "shared-zacks-b"],
             "SZ_TYZX_TENNIS_CHATROOMS": [],
         }
-        namespace = {"chatrooms": configured.__getitem__}
-
+        namespace = {
+            "chatrooms": configured.__getitem__,
+            "paused_general": set(configured["SZ_TENNIS_CHATROOMS"]),
+        }
         exec(mapping, namespace)
-
-        self.assertEqual(namespace["targets"]["dsh_free"], configured["SZ_TENNIS_CHATROOMS"])
+        self.assertEqual(namespace["targets"]["general"], [])
+        self.assertEqual(namespace["targets"]["dsh_free"], ["Zacks_大沙河限定免费"])
         self.assertEqual(
             namespace["positions"],
-            {
-                "synthetic_zacks_1": [("general", 1), ("dsh_free", 1)],
-                "synthetic_zacks_2": [("general", 2), ("dsh_free", 2)],
-            },
+            {"Zacks_大沙河限定免费": [("dsh_free", 1)]},
         )
 
     def test_diagnosis_is_read_only_and_redacts_receiver_and_message(self):
@@ -176,35 +175,22 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
         self.assertNotIn("Variable.set", script)
         self.assertNotIn("WECHAT_SEND_FALLBACK_OUTBOX", script)
 
-    def test_dashah_probe_aliases_general_groups_without_duplicate_targets(self):
+    def test_dashah_probe_excludes_paused_general_groups(self):
         script = probe_wechat_delivery.remote_script()
         mapping = script[script.index("configured = {}") : script.index("if not targets:")]
         configured = {
-            "SZ_TENNIS_CHATROOMS": ["synthetic_zacks_1", "synthetic_zacks_2"],
-            "SZ_TYZX_TENNIS_CHATROOMS": ["synthetic_zacks_2"],
+            "SZ_TENNIS_CHATROOMS": ["shared-zacks-a", "shared-zacks-b"],
+            "SZ_TYZX_TENNIS_CHATROOMS": ["shared-zacks-b"],
         }
-
-        for selector, expected_receivers in (
-            ("", ["synthetic_zacks_1", "synthetic_zacks_2"]),
-            ("dsh_free:1", ["synthetic_zacks_1"]),
-            ("dsh_free:2", ["synthetic_zacks_2"]),
+        for selector, expected in (
+            ("", ["Zacks_大沙河限定免费"]),
+            ("dsh_free:1", ["Zacks_大沙河限定免费"]),
+            ("general:1", []),
         ):
             with self.subTest(selector=selector):
                 namespace = {"selector": selector, "chatrooms": configured.__getitem__}
                 exec(mapping, namespace)
-
-                targets = namespace["targets"]
-                self.assertEqual([target["receiver"] for target in targets], expected_receivers)
-                for target in targets:
-                    index = configured["SZ_TENNIS_CHATROOMS"].index(target["receiver"]) + 1
-                    self.assertIn(
-                        {"target_set": "general", "target_index": index},
-                        target["memberships"],
-                    )
-                    self.assertIn(
-                        {"target_set": "dsh_free", "target_index": index},
-                        target["memberships"],
-                    )
+                self.assertEqual([target["receiver"] for target in namespace["targets"]], expected)
 
 
 class WeChatSenderServiceContractTest(unittest.TestCase):
