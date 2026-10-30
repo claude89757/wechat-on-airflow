@@ -70,6 +70,23 @@ def private_json(path, value):
     temporary.replace(path)
 
 
+def verify_source(candidate):
+    required = (
+        "server.mjs",
+        "guard.mjs",
+        "lock-holder.py",
+        "smoke.mjs",
+        "package.json",
+        "package-lock.json",
+        ".npmrc",
+        "pi-appium-mcp.service",
+        "test/guard.test.mjs",
+        "test/transport.test.mjs",
+    )
+    if not all((candidate / name).is_file() for name in required):
+        raise ValueError("incomplete_source_bundle")
+
+
 def device_config():
     path = CONFIG / "devices.json"
     if path.exists():
@@ -273,6 +290,7 @@ WantedBy=multi-user.target
         raise ValueError("wrong_node_architecture")
     candidate = Path(tempfile.mkdtemp(prefix=f"candidate-{args.commit[:12]}-", dir=BASE))
     unpack(args.staging / "source.tar.gz", candidate)
+    verify_source(candidate)
     unpack(args.staging / "cache.tar.gz", candidate / "cache")
     environment = {
         "PATH": f"{node}/bin:/usr/local/bin:/usr/bin:/bin",

@@ -18,6 +18,16 @@ inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
 ## Pi MCP Candidate Inspection On 2026-10-31
 
+The first protected MCP preflight for `577dfae1036f64a05b7bbb20b390108f9a896db6`
+passed Cloudflare permissions and pinned SSH, then failed before activation
+([run 41113735347](https://github.com/claude89757/wechat-on-airflow/actions/runs/41113735347)).
+Read-only inspection confirmed the isolated ARM32 Node worked and existing
+Sender, agent and Pi Tunnel remained active. The candidate had no source files.
+Running the workflow's archive command from its declared subdirectory reproduced
+an empty archive. The repair archives from the repository root and validates
+required files both before transfer and before dependency installation. No MCP
+public route or phone session was created by this failed preflight.
+
 Read-only inspection found a Raspberry Pi 5 with an aarch64 kernel, 32-bit
 Raspbian 12 userland, Python 3.11.2 and Node 16.20.2. Both existing Appium 2.18.0
 listeners were ready. The Sender, device agent and existing Pi Tunnel were
