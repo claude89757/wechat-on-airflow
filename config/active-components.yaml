@@ -1000,6 +1000,30 @@ excluded_stale_components:
     action: removed
 
 active_services:
+  - service_id: pi_appium_mcp
+    files:
+      - pi_host/appium_mcp/server.mjs
+      - pi_host/appium_mcp/guard.mjs
+      - pi_host/appium_mcp/lock-holder.py
+      - pi_host/appium_mcp/pi-appium-mcp.service
+      - pi_host/appium_mcp/install.py
+      - scripts/deploy_pi_appium_mcp.py
+      - .github/workflows/production-appium-mcp.yml
+    runtime_owner: pi_device_host
+    external_services: [cloudflare_access, cloudflare_tunnel, appium, adb]
+    invariants:
+      - loopback_origin_and_machine_authenticated_public_mcp
+      - whole_session_shared_device_flock
+      - explicit_owned_session_ids_only
+      - no_foreign_session_override
+      - no_real_notifications_in_tests
+      - independent_service_and_tunnel_preserve_existing_runtimes
+    verification:
+      - isolated_unit_and_upstream_transport_tests
+      - actual_arm32_candidate_preflight
+      - anonymous_and_invalid_credentials_denied
+      - authenticated_public_readonly_mcp_probe
+      - existing_sender_appium_agent_tunnel_health_unchanged
   - service_id: wechat_sender
     files:
       - sender_agent/app.py

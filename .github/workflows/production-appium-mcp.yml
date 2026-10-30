@@ -1,0 +1,82 @@
+name: Production Pi Appium MCP
+run-name: production/pi-mcp/${{ inputs.operation }}/${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Exact reviewed main commit with successful CI
+        required: true
+        type: string
+      operation:
+        type: choice
+        options: [preflight, apply, health, withdraw, rollback]
+        default: preflight
+      request_id:
+        type: string
+        required: true
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: production-pi-appium-mcp
+  cancel-in-progress: false
+jobs:
+  operate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Require exact main commit and CI
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit "$TARGET_COMMIT" --wait-seconds 0 --format json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: inputs.operation == 'preflight' || inputs.operation == 'apply' || inputs.operation == 'health'
+        with:
+          node-version: '22.23.4'
+      - name: Stage locked offline dependencies and verified ARM32 Node
+        if: inputs.operation == 'preflight' || inputs.operation == 'apply'
+        working-directory: pi_host/appium_mcp
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pi-mcp-release
+          npm ci --ignore-scripts --omit=optional --no-audit --no-fund --cache /tmp/pi-mcp-cache
+          npm run audit:runtime
+          npm test
+          tar -czf /tmp/pi-mcp-release/cache.tar.gz -C /tmp/pi-mcp-cache .
+          git archive HEAD:pi_host/appium_mcp | gzip > /tmp/pi-mcp-release/source.tar.gz
+          curl --fail --retry 3 --max-time 180 -o /tmp/pi-mcp-release/node.tar.xz https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-armv7l.tar.xz
+          printf '%s  %s\n' c9057c6a3b8fbb9651ed115c1e96d4a7281b7b9c9ca89fa05865c98ed7ffd437 /tmp/pi-mcp-release/node.tar.xz | sha256sum --check --status
+      - name: Install SSH dependency
+        run: python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
+      - name: Install public health probe dependencies
+        if: inputs.operation == 'health'
+        working-directory: pi_host/appium_mcp
+        run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+      - name: Run protected Pi operation
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          OPERATION: ${{ inputs.operation }}
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python scripts/deploy_pi_appium_mcp.py

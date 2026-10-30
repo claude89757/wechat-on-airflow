@@ -16,6 +16,24 @@ Verify deployment, three natural free-court cycles and expiry of the old
 five-minute queued-intent window before declaring the old recipient path
 inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
+## Pi MCP Candidate Inspection On 2026-10-31
+
+Read-only inspection found a Raspberry Pi 5 with an aarch64 kernel, 32-bit
+Raspbian 12 userland, Python 3.11.2 and Node 16.20.2. Both existing Appium 2.18.0
+listeners were ready. The Sender, device agent and existing Pi Tunnel were
+active; Sender health/readiness returned HTTP 200. The shared device-lock
+directory was configured. ADB and USB enumeration found one authorized phone,
+not two. No phone sessions or external notifications were created by inspection.
+
+The legacy public Appium hostname returned Appium readiness and an empty
+session list without credentials. This is a pre-existing access-control risk,
+not evidence that new MCP access is protected. Inventory existing callers before
+restricting that route. New MCP Access credentials must not be reused to provide
+unrestricted raw Appium access.
+
+The guarded MCP implementation and dedicated Cloudflare route are a candidate
+until exact-main CI, actual ARM32 preflight and positive/negative public-auth
+checks pass. This entry does not claim it has been deployed.
 
 ## Offline ARM32 Dependency Staging On 2026-10-27
 
