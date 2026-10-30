@@ -27,9 +27,33 @@ SOURCE = Path(__file__).resolve().parents[1] / "pi_host/appium_mcp"
 
 
 class RemoteOperationError(RuntimeError):
-    def __init__(self, error_class):
+    def __init__(self, error_class, test_report=None):
         super().__init__("pi_operation_failed")
         self.error_class = error_class
+        self.test_report = test_report
+
+
+def safe_test_report(value):
+    flags = {
+        "parseError",
+        "timedOut",
+        "startupNotReady",
+        "processExitedBeforeHandshake",
+        "portBusy",
+    }
+    if not isinstance(value, dict) or set(value) != flags | {"total", "failed", "exitCode"}:
+        return None
+    if any(type(value[key]) is not bool for key in flags):
+        return None
+    if type(value["total"]) is not int or not 0 <= value["total"] <= 1000:
+        return None
+    if type(value["exitCode"]) is not int or not -128 <= value["exitCode"] <= 255:
+        return None
+    if not isinstance(value["failed"], list) or len(value["failed"]) > value["total"]:
+        return None
+    if any(type(index) is not int or not 1 <= index <= value["total"] for index in value["failed"]):
+        return None
+    return value
 
 
 def cf(method, path, body=None):
@@ -73,6 +97,7 @@ def remote(client, command, payload="", timeout=900):
         raise RuntimeError("pi_operation_failed")
     if stdout.channel.recv_exit_status() != 0:
         error_class = None
+        test_report = None
         try:
             report = json.loads(value)
             candidate = report.get("errorClass")
@@ -85,11 +110,14 @@ def remote(client, command, payload="", timeout=900):
                 "TimeoutExpired",
                 "OSError",
                 "JSONDecodeError",
+                "CandidateTestFailure",
             }:
                 error_class = candidate
+                if candidate == "CandidateTestFailure":
+                    test_report = safe_test_report(report.get("candidateTests"))
         except (ValueError, AttributeError, TypeError):
             pass
-        raise RemoteOperationError(error_class)
+        raise RemoteOperationError(error_class, test_report)
     return value.decode()
 
 
@@ -353,6 +381,9 @@ def main():
                     "phase": phase,
                     "errorClass": type(exc).__name__,
                     "remoteErrorClass": exc.error_class
+                    if isinstance(exc, RemoteOperationError)
+                    else None,
+                    "candidateTests": exc.test_report
                     if isinstance(exc, RemoteOperationError)
                     else None,
                     "httpStatus": exc.code if isinstance(exc, urllib.error.HTTPError) else None,

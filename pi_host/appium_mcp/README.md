@@ -84,6 +84,14 @@ phone_devices, absent/invalid Access credentials, and authenticated access.
 It must not create a phone session or send a real notification as a smoke test.
 Verify the old Sender and both Appium health endpoints before and after apply.
 
+Candidate tests keep all assertions and fail closed. The installer parses JUnit
+and retains only case numbers, exit status and fixed failure booleans in a
+root-only report, never raw test output. An incomplete test report is a failure.
+Before installing another candidate it may reclaim owner-matched, complete-source
+directories that have no verified release marker, after saving sanitized metadata.
+Current/previous targets, verified releases, symlinks and ambiguous directories
+are never reclaimed. Runtime state and credentials are outside this namespace.
+
 Device configuration lives in `/etc/pi-appium-mcp/devices.json`, outside Git.
 Keep stable aliases across reinstallations. Only phones actually found by ADB
 are added; two Appium listeners do not prove two phones are connected.
