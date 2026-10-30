@@ -3,6 +3,22 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [0.8.7] - 2026-10-31
+
+### Changed
+
+- Restore Dashah free-court availability alerts exclusively to
+  `Zacks_大沙河限定免费`. Pause new automatic alerts to the two
+  existing shared Zacks groups in `SZ_TENNIS_CHATROOMS` without removing
+  their configuration or redirecting unrelated venues to the dedicated group.
+- Apply the shared-group block before the durable WeChat enqueue operation,
+  including overlaps in other chatroom lists. Fail closed when the paused
+  recipient set cannot be read.
+- Align redacted diagnosis and explicitly approved probe targets with the new
+  active route. Keep existing polling, Web observations, subscriptions and
+  historical dedupe data unchanged; do not replay queued historical messages.
+
+
 ## [0.8.6] - 2026-10-27
 
 ### Changed
