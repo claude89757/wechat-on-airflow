@@ -19,7 +19,7 @@ def test_stateless_edge_health_uses_edge_commit_and_accepts_older_host_commit() 
             "name": f"Venue {index}",
             "healthy": True,
         }
-        for index in range(26)
+        for index in range(27)
     ]
     responses = iter(
         [
@@ -57,7 +57,7 @@ def test_stateless_edge_health_uses_edge_commit_and_accepts_older_host_commit() 
         result = webapp_production_health.inspect_production(
             base_url="https://example.test",
             expected_commit=expected_commit,
-            expected_venue_count=26,
+            expected_venue_count=27,
             stateless_edge=True,
         )
 

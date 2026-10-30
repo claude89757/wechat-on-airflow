@@ -40,5 +40,5 @@ invariants:
 - venue_polling_cadence_is_unchanged
 - external_submission_unknown_is_never_blindly_retried
 - no_legacy_runtime_fallback
-- acceptance_requires_all_26_venues_three_natural_cycles
+- acceptance_requires_all_27_venues_three_natural_cycles
 - acceptance_requires_real_natural_delivery_receipts

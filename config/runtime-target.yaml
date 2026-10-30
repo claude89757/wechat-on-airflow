@@ -75,7 +75,7 @@ managed_services:
     public_hostname: zacks.claude89757.cc
     public_base_url: https://zacks.claude89757.cc
     health_path: /api/healthz
-    expected_venue_count: 26
+    expected_venue_count: 27
     deployment_owner: github_actions
     static_assets: webapp/dist/client
     api_proxy:
@@ -271,7 +271,7 @@ verification:
   - postgresql_schema_ready
   - one_delivery_owner
   - all_15_source_tables_reconciled
-  - all_26_venues_three_natural_cycles
+  - all_27_venues_three_natural_cycles
   - sender_exact_commit_and_durable_idempotency
   - natural_email_provider_delivery
   - natural_wechat_send

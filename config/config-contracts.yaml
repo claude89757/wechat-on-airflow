@@ -31,7 +31,7 @@ variables:
       - cookie
   PI_DEVICE_SSH:
     type: json_object
-    required_by: [大沙河国际网球中心巡检]
+    required_by: [大沙河国际网球中心巡检, 宝安网球中心巡检]
     sensitive: true
     required_fields:
       - host
@@ -134,6 +134,7 @@ variables:
       - FFTENNIS前海国际网球中心巡检
       - PICKLEPOP宝安网球场巡检
       - 大沙河国际网球中心巡检
+      - 宝安网球中心巡检
     sensitive: true
   SZ_TYZX_TENNIS_CHATROOMS:
     type: newline_separated_string
@@ -360,6 +361,13 @@ variables:
   大沙河国际网球中心:
     type: json_list
     required_by: [大沙河国际网球中心巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  宝安网球中心:
+    type: json_list
+    required_by: [宝安网球中心巡检]
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve

@@ -20,6 +20,7 @@ from wechat_airflow.venues.dsh_ydmap_client import (
     fetch_inspect_payload,
     parse_inspect_payload,
 )
+from wechat_airflow.venues.ydmap_ranges import merge_time_ranges
 
 VENUE_ID = "dsh"
 VENUE_NAME = "大沙河国际网球中心"
@@ -65,29 +66,6 @@ def inspection_days_for(now: datetime.datetime) -> int:
     if LOOKAHEAD_DAYS <= 1 or now.time() >= FARTHEST_BOOKING_DATE_OPEN_TIME:
         return LOOKAHEAD_DAYS
     return LOOKAHEAD_DAYS - 1
-
-
-def merge_time_ranges(data: list[list[str]]) -> list[list[str]]:
-    if not data:
-        return data
-
-    def time_to_minutes(time_str: str) -> int:
-        return int(time_str[:2]) * 60 + int(time_str[3:])
-
-    data_in_minutes = sorted((time_to_minutes(start), time_to_minutes(end)) for start, end in data)
-    merged: list[tuple[int, int]] = []
-    start, end = data_in_minutes[0]
-    for next_start, next_end in data_in_minutes[1:]:
-        if next_start <= end:
-            end = max(end, next_end)
-        else:
-            merged.append((start, end))
-            start, end = next_start, next_end
-    merged.append((start, end))
-    return [
-        [f"{item[0] // 60:02d}:{item[0] % 60:02d}", f"{item[1] // 60:02d}:{item[1] % 60:02d}"]
-        for item in merged
-    ]
 
 
 def canonicalize_court_availability(court_data: CourtAvailability) -> CourtAvailability:

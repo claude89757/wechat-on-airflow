@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local Chromium scrape service for Dashah International Tennis Center."""
+"""Local Chromium scrape service for the YDMap tennis venues."""
 
 from __future__ import annotations
 
@@ -21,7 +21,13 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
-BOOKING_URL = "https://wxsports.ydmap.cn/booking/schedule/100220?salesItemId=100000"
+DSH_BOOKING_URL = "https://wxsports.ydmap.cn/booking/schedule/100220?salesItemId=100000"
+BAOTI_SALES_ID = "104036"
+BAOTI_GROUP_ITEMS = (
+    ("outdoor", "室外", "111317"),
+    ("indoor", "室内", "103224"),
+    ("windrain", "风雨", "111319"),
+)
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8788
 PROFILE = Path("/tmp/dsh_ydmap_profile")
@@ -33,7 +39,23 @@ UA = (
 CHROMIUM_BIN = "/usr/lib/chromium/chromium"
 CHROMEDRIVER = "/usr/local/bin/chromedriver"
 DEFAULT_DAYS = 5
+DEFAULT_VENUE = "dsh"
 SCRAPE_LOCK = threading.Lock()
+
+
+def _baoti_group_url(sales_item_id: str) -> str:
+    return f"https://bawtt.ydmap.cn/booking/schedule/{BAOTI_SALES_ID}?salesItemId={sales_item_id}"
+
+
+VENUE_GROUPS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "dsh": (("", "", DSH_BOOKING_URL),),
+    "baoti": tuple((key, label, _baoti_group_url(item)) for key, label, item in BAOTI_GROUP_ITEMS),
+}
+
+VENUE_NAMES: dict[str, str] = {
+    "dsh": "大沙河国际网球交流中心",
+    "baoti": "宝安网球中心",
+}
 
 CLICK_DATE_JS = """
 const target = arguments[0];
@@ -117,7 +139,7 @@ def _cleanup_stale_browser() -> None:
     PROFILE.mkdir(parents=True, exist_ok=True)
 
 
-def _start_chromium() -> subprocess.Popen[Any]:
+def _start_chromium(url: str) -> subprocess.Popen[Any]:
     env = os.environ.copy()
     env["DISPLAY"] = env.get("DISPLAY") or ":0"
     env.setdefault("XAUTHORITY", "/home/claude/.Xauthority")
@@ -139,7 +161,7 @@ def _start_chromium() -> subprocess.Popen[Any]:
         f"--user-agent={UA}",
         "--window-size=1280,800",
         "--window-position=80,40",
-        BOOKING_URL,
+        url,
     ]
     return subprocess.Popen(
         cmd,
@@ -210,63 +232,113 @@ def _wait_for_schedule(
     return last
 
 
-def scrape_available_slots(days: int = DEFAULT_DAYS) -> dict[str, Any]:
+def _prefixed_court_name(label: str, court: str) -> str:
+    """Disambiguate courts whose raw name omits its venue group."""
+    name = str(court).strip()
+    if not label or not name or label in name:
+        return name
+    return f"{label}{name}"
+
+
+def _stop_with_error(
+    *,
+    error: str,
+    days: dict[str, dict[str, list[list[str]]]],
+    names: dict[str, list[str]],
+    captcha: bool = False,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "captcha": captcha,
+        "error": error,
+        "days": _days_payload(days, names),
+    }
+
+
+def _days_payload(
+    days: dict[str, dict[str, list[list[str]]]],
+    names: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "date": booking_date,
+            "courts": days[booking_date],
+            "court_names": names.get(booking_date) or [],
+        }
+        for booking_date in sorted(days)
+    ]
+
+
+def scrape_available_slots(venue: str = DEFAULT_VENUE, days: int = DEFAULT_DAYS) -> dict[str, Any]:
+    groups = VENUE_GROUPS.get(venue)
+    if not groups:
+        return {"ok": False, "captcha": False, "error": f"unknown_venue:{venue}", "days": []}
     days = min(max(days, 1), 7)
     _cleanup_stale_browser()
-    proc = _start_chromium()
+    proc = _start_chromium(groups[0][2])
     driver = None
+    collected: dict[str, dict[str, list[list[str]]]] = {}
+    court_names: dict[str, list[str]] = {}
     try:
         _wait_devtools()
         time.sleep(4)
         driver = _attach()
-        payload = _wait_for_schedule(driver)
-        if payload.get("captcha"):
-            return {"ok": False, "captcha": True, "error": "captcha", "days": []}
-        if not payload.get("ready"):
-            return {"ok": False, "captcha": False, "error": "schedule_not_ready", "days": []}
-        today = date.today()
-        collected: list[dict[str, Any]] = []
-        previous_signature = str(payload.get("signature") or "")
-        for offset in range(days):
-            booking_date = today + timedelta(days=offset)
-            label = booking_date.strftime("%m-%d")
-            if offset > 0:
-                clicked = driver.execute_script(CLICK_DATE_JS, label)
-                if not clicked:
-                    return {
-                        "ok": False,
-                        "captcha": False,
-                        "error": f"date_tab_not_found:{label}",
-                        "days": collected,
-                    }
-                payload = _wait_for_schedule(
-                    driver,
-                    timeout=25,
-                    previous_signature=previous_signature,
+        for index, (_key, label, url) in enumerate(groups):
+            if index > 0:
+                driver.get(url)
+                time.sleep(3)
+            payload = _wait_for_schedule(driver)
+            if payload.get("captcha"):
+                return _stop_with_error(
+                    error="captcha", days=collected, names=court_names, captcha=True
                 )
-                if payload.get("captcha"):
-                    return {"ok": False, "captcha": True, "error": "captcha", "days": collected}
-                if not payload.get("ready"):
-                    return {
-                        "ok": False,
-                        "captcha": False,
-                        "error": "schedule_not_ready",
-                        "days": collected,
-                    }
-            courts = payload.get("courts") or {}
-            previous_signature = str(payload.get("signature") or previous_signature)
-            collected.append(
-                {
-                    "date": booking_date.isoformat(),
-                    "courts": courts,
-                    "court_names": payload.get("courtNames") or [],
-                }
-            )
+            if not payload.get("ready"):
+                return _stop_with_error(
+                    error="schedule_not_ready", days=collected, names=court_names
+                )
+            previous_signature = str(payload.get("signature") or "")
+            for offset in range(days):
+                booking_date = date.today() + timedelta(days=offset)
+                label_md = booking_date.strftime("%m-%d")
+                if offset > 0:
+                    clicked = driver.execute_script(CLICK_DATE_JS, label_md)
+                    if not clicked:
+                        return _stop_with_error(
+                            error=f"date_tab_not_found:{label_md}",
+                            days=collected,
+                            names=court_names,
+                        )
+                    payload = _wait_for_schedule(
+                        driver, timeout=25, previous_signature=previous_signature
+                    )
+                    if payload.get("captcha"):
+                        return _stop_with_error(
+                            error="captcha",
+                            days=collected,
+                            names=court_names,
+                            captcha=True,
+                        )
+                    if not payload.get("ready"):
+                        return _stop_with_error(
+                            error="schedule_not_ready", days=collected, names=court_names
+                        )
+                booking_iso = booking_date.isoformat()
+                bucket = collected.setdefault(booking_iso, {})
+                known = court_names.setdefault(booking_iso, [])
+                for court, ranges in (payload.get("courts") or {}).items():
+                    name = _prefixed_court_name(label, str(court))
+                    if not name:
+                        continue
+                    bucket.setdefault(name, []).extend(ranges)
+                    if name not in known:
+                        known.append(name)
+                previous_signature = str(payload.get("signature") or previous_signature)
         return {
             "ok": True,
             "captcha": False,
-            "venue_name": "大沙河国际网球交流中心",
-            "days": collected,
+            "venue": venue,
+            "venue_name": VENUE_NAMES.get(venue, venue),
+            "days": _days_payload(collected, court_names),
         }
     finally:
         _stop(proc, driver)
@@ -287,12 +359,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/healthz":
-            self._send_json(200, {"ok": True, "service": "dsh_ydmap"})
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "service": "dsh_ydmap",
+                    "venues": sorted(VENUE_GROUPS),
+                },
+            )
             return
         if parsed.path != "/inspect":
             self._send_json(404, {"ok": False, "error": "not_found"})
             return
         query = parse_qs(parsed.query)
+        venue = str((query.get("venue") or [DEFAULT_VENUE])[0]).strip() or DEFAULT_VENUE
         try:
             days = int((query.get("days") or [str(DEFAULT_DAYS)])[0])
         except ValueError:
@@ -301,7 +381,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(429, {"ok": False, "error": "busy"})
             return
         try:
-            payload = scrape_available_slots(days)
+            payload = scrape_available_slots(venue, days)
             self._send_json(200 if payload.get("ok") else 503, payload)
         except Exception as exc:
             self._send_json(500, {"ok": False, "error": type(exc).__name__})

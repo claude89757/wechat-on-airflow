@@ -124,7 +124,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
                 )
             ).mappings()
         ]
-        checks["all26VenueObservations"] = len(venues) == 26 and all(
+        checks["all27VenueObservations"] = len(venues) == 27 and all(
             row["healthy"]
             and row["last_inspection_at"]
             and row["last_inspection_at"] >= since
@@ -177,7 +177,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
                     "recentRuns": relevant,
                 }
             )
-        checks["allNaturalDagCycles"] = len(venue_components) == 26 and all(
+        checks["allNaturalDagCycles"] = len(venue_components) == 27 and all(
             r["passed"] for r in dag_results
         )
         paused = connection.execute(

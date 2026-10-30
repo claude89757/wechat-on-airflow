@@ -32,7 +32,7 @@ def test_business_acceptance_precedes_immutable_version_release():
 def test_acceptance_checks_records_not_sleep_or_successful_restart():
     health = read("src/wechat_airflow/host_core/health.py")
     assert "required = 3 if is_venue else 1" in health
-    assert "len(venue_components) == 26" in health
+    assert "len(venue_components) == 27" in health
     assert "naturalEmailProviderDelivered" in health
     assert "naturalWeChatDelivered" in health
     assert "migrationReconciled" in health

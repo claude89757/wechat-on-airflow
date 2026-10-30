@@ -39,7 +39,7 @@ database, SES, verification or invitation secrets to developer machines.
    then rolls back every test record. No email/device service is called. Store
    only the privacy-safe result. This is NOT a browser or real-email probe.
 8. Enable the dedicated WeChat worker and start an acceptance window. Require
-   all 26 venue DAGs to complete three natural cycles with fresh observations;
+   all 27 venue DAGs to complete three natural cycles with fresh observations;
    auxiliary services must have recent successful runs. Require exact component
    identities, fresh worker heartbeats, no stalled queues, reconciled migration,
    public health/bootstrap/security checks, and actual natural SES-delivered and
