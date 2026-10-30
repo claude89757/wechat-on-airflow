@@ -213,7 +213,11 @@ def public_health(credentials):
         if status not in (401, 403):
             raise RuntimeError("anonymous_access_not_denied")
     environment = {
-        **os.environ,
+        **{
+            key: os.environ[key]
+            for key in ("PATH", "HOME", "LANG", "LC_ALL", "NODE_EXTRA_CA_CERTS")
+            if key in os.environ
+        },
         "MCP_URL": f"https://{HOSTNAME}/mcp",
         "CF_ACCESS_CLIENT_ID": credentials["access_client_id"],
         "CF_ACCESS_CLIENT_SECRET": credentials["access_client_secret"],

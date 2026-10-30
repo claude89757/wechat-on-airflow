@@ -68,9 +68,10 @@ export class DeviceGuard {
 
   async manage(args, context) {
     if (this.closing) return error("service_stopping");
-    if (args.action === "list") return result([...this.owned].map(([sessionId, entry]) => ({
-      sessionId, device: entry.device.alias, busy: entry.busy,
-    })));
+    if (args.action === "list") return result([
+      ...[...this.owned].map(([sessionId, entry]) => ({ sessionId, device: entry.device.alias, busy: entry.busy })),
+      ...[...this.creating].map(device => ({ device, busy: true, creating: true })),
+    ]);
     if (args.action === "delete") return await this.close(args.sessionId, context);
     if (args.action !== "create") return error("unsupported_session_action");
     const device = this.devices.find((item) => item.alias === args.device);
@@ -87,7 +88,7 @@ export class DeviceGuard {
       if ((await this.inspectRemote(device)).length) return error("foreign_session_busy");
       const previous = new Set(this.sessions().map((item) => item.sessionId));
       createStarted = true;
-      const response = await this.invokeSession({ action: "create", platform: "android",
+      await this.invokeSession({ action: "create", platform: "android",
         remoteServerUrl: device.appiumUrl,
         capabilities: JSON.stringify({ platformName: "Android", "appium:automationName": "UiAutomator2",
           "appium:udid": device.serial, "appium:deviceName": device.alias,
@@ -99,8 +100,8 @@ export class DeviceGuard {
       const created = this.sessions().find((item) => !previous.has(item.sessionId)
         && item.capabilities?.["appium:udid"] === device.serial);
       if (!created) {
-        if ((await this.inspectRemote(device)).length) throw new Error("session_creation_unknown");
-        return error(response?.isError ? "session_creation_failed" : "session_creation_unconfirmed");
+        // An empty list cannot rule out a create still running in Appium.
+        throw new Error("session_creation_unknown");
       }
       const now = this.clock();
       this.owned.set(created.sessionId, { device, lease, busy: false, created: now, last: now });

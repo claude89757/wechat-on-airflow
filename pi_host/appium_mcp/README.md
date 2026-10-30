@@ -45,6 +45,14 @@ Idle sessions close after 30 seconds, and leases stop accepting actions after
 Busy devices return `device_busy`; do not restart Appium or delete foreign
 sessions to bypass this result.
 
+Any unconfirmed session creation retains its phone lock, even if Appium's
+session list is still empty: the remote request may still be running. Recovery
+requires operator diagnosis. Apply, rollback and withdrawal stop only the new
+MCP Tunnel first, then wait for all known MCP sessions to close. Unknown or
+undrained session state aborts the change and restores the old Tunnel; it never
+forces a running phone controller to exit. Public health probes receive only
+client credentials, not the SSH or Cloudflare management-token environment.
+
 The custom registry delegates to upstream tool implementations. Its integration
 uses the fixed 1.99.1 registry module layout, so version changes must pass the
 registry/import and ownership tests. Raw shell, host file transfer, application
