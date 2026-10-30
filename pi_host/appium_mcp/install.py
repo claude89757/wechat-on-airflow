@@ -105,6 +105,43 @@ def atomic_link(target, path):
     temporary.replace(path)
 
 
+def is_active(unit):
+    return (
+        subprocess.run(
+            ["systemctl", "is-active", "--quiet", unit],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def drain_control():
+    if not is_active("pi-appium-mcp.service"):
+        return False
+    tunnel_was_active = is_active("cloudflared-appium-mcp.service")
+    if tunnel_was_active:
+        run(["systemctl", "stop", "cloudflared-appium-mcp.service"])
+    try:
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            report = json.loads(
+                run([str(BASE / "node/bin/node"), str(BASE / "current/smoke.mjs")], timeout=15)
+            )
+            count = report.get("activePhoneSessions")
+            if report.get("ok") is not True or type(count) is not int or count < 0:
+                raise RuntimeError("mcp_session_state_unknown")
+            if count == 0:
+                return tunnel_was_active
+            time.sleep(2)
+        raise RuntimeError("mcp_control_not_idle")
+    except Exception:
+        if tunnel_was_active:
+            run(["systemctl", "start", "cloudflared-appium-mcp.service"])
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -117,6 +154,7 @@ def main():
         raise ValueError("root_and_exact_commit_required")
     health()
     if args.operation == "rollback":
+        tunnel_was_active = drain_control()
         run(["systemctl", "stop", "pi-appium-mcp.service"])
         previous = BASE / "previous"
         if previous.exists():
@@ -129,6 +167,8 @@ def main():
             report = json.loads(run([str(BASE / "node/bin/node"), str(BASE / "current/smoke.mjs")]))
             if not report.get("ok"):
                 raise RuntimeError("rollback_health_failed")
+            if tunnel_was_active:
+                run(["systemctl", "start", "cloudflared-appium-mcp.service"])
         else:
             run(["systemctl", "disable", "pi-appium-mcp.service"])
             if Path("/etc/systemd/system/cloudflared-appium-mcp.service").exists():
@@ -136,6 +176,7 @@ def main():
         health()
         return {"ok": True, "rolledBack": True, "previousReleaseAvailable": previous.exists()}
     if args.operation == "withdraw":
+        drain_control()
         run(
             [
                 "systemctl",
@@ -275,8 +316,9 @@ WantedBy=multi-user.target
     previous_unit = unit_path.read_bytes() if unit_path.exists() else None
     if previous:
         atomic_link(previous, BASE / "previous")
-    atomic_link(node, BASE / "node")
+    tunnel_was_active = drain_control()
     try:
+        atomic_link(node, BASE / "node")
         atomic_link(candidate, BASE / "current")
         shutil.copyfile(candidate / "pi-appium-mcp.service", unit_path)
         run(["systemctl", "daemon-reload"])
@@ -301,6 +343,8 @@ WantedBy=multi-user.target
             unit_path.write_bytes(previous_unit)
             run(["systemctl", "daemon-reload"])
             run(["systemctl", "start", "pi-appium-mcp.service"])
+            if tunnel_was_active:
+                run(["systemctl", "start", "cloudflared-appium-mcp.service"])
         health()
         raise
 

@@ -4,7 +4,9 @@ import importlib.util
 import io
 import json
 import tarfile
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -133,3 +135,60 @@ def test_locked_service_excludes_unpatched_zip_chain_and_keeps_audit_gates():
     assert not any("node_modules/extract-zip" in path for path in lock["packages"])
     for name in ("ci.yml", "production-appium-mcp.yml"):
         assert "npm run audit:runtime" in (ROOT / ".github/workflows" / name).read_text()
+
+
+def test_rollout_closes_ingress_and_waits_for_all_phone_operations(monkeypatch):
+    calls = []
+    counts = iter((1, 0))
+    monkeypatch.setattr(INSTALL, "is_active", lambda unit: True)
+    monkeypatch.setattr(INSTALL.time, "sleep", lambda _: None)
+
+    def command(argv, **kwargs):
+        calls.append(argv)
+        if argv[-1].endswith("smoke.mjs"):
+            return json.dumps({"ok": True, "activePhoneSessions": next(counts)})
+        return ""
+
+    monkeypatch.setattr(INSTALL, "run", command)
+    assert INSTALL.drain_control() is True
+    assert calls[0] == ["systemctl", "stop", "cloudflared-appium-mcp.service"]
+    assert len([argv for argv in calls if argv[-1].endswith("smoke.mjs")]) == 2
+    assert not any("pi-appium-mcp.service" in argv for argv in calls)
+
+
+def test_unknown_phone_state_aborts_rollout_and_restores_ingress(monkeypatch):
+    calls = []
+    monkeypatch.setattr(INSTALL, "is_active", lambda unit: True)
+
+    def command(argv, **kwargs):
+        calls.append(argv)
+        return '{"ok":false}' if argv[-1].endswith("smoke.mjs") else ""
+
+    monkeypatch.setattr(INSTALL, "run", command)
+    with pytest.raises(RuntimeError, match="session_state_unknown"):
+        INSTALL.drain_control()
+    assert calls[-1] == ["systemctl", "start", "cloudflared-appium-mcp.service"]
+    assert not any("pi-appium-mcp.service" in argv for argv in calls)
+
+
+def test_public_probe_never_inherits_production_management_credentials(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "fake-management-secret")
+    monkeypatch.setenv("PI_DEVICE_SSH_PASSWORD", "fake-ssh-secret")
+    monkeypatch.setattr(
+        DEPLOY.urllib.request,
+        "build_opener",
+        lambda _: SimpleNamespace(
+            open=lambda *args, **kwargs: nullcontext(SimpleNamespace(status=401))
+        ),
+    )
+
+    def command(argv, **kwargs):
+        assert "CLOUDFLARE_API_TOKEN" not in kwargs["env"]
+        assert "PI_DEVICE_SSH_PASSWORD" not in kwargs["env"]
+        assert kwargs["env"]["CF_ACCESS_CLIENT_SECRET"] == "fake-client-secret"
+        return SimpleNamespace(returncode=0, stdout=b'{"ok":true}')
+
+    monkeypatch.setattr(DEPLOY.subprocess, "run", command)
+    assert DEPLOY.public_health(
+        {"access_client_id": "fake-client", "access_client_secret": "fake-client-secret"}
+    )["authenticatedMcpVerified"]

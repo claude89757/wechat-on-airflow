@@ -129,15 +129,36 @@ test("ambiguous creation retains the phone and fences future tools", async () =>
   assert.equal((await guard.manage({ action: "create", device: "phone_2" }, {})).isError, true);
 });
 
-test("confirmed failed creation and already-expired remote sessions release cleanly", async () => {
+test("failed creation is ambiguous even while the remote session list is empty", async () => {
   const failed = fixture();
   failed.guard.invokeSession = async () => error("definitive rejection");
-  assert.equal((await failed.guard.manage({ action: "create", device: "phone_1" }, {})).content[0].text, "session_creation_failed");
-  assert.equal(failed.locks.size, 0);
-  assert.equal(failed.guard.closing, false);
+  assert.equal((await failed.guard.manage({ action: "create", device: "phone_1" }, {})).content[0].text, "session_creation_unknown_recovery_required");
+  assert.equal(failed.locks.size, 1);
+  assert.equal(failed.guard.closing, true);
+});
+
+test("already-expired remote sessions release cleanly", async () => {
   const expired = fixture();
   const session = read(await expired.guard.manage({ action: "create", device: "phone_1" }, {}));
   expired.entries.clear();
   assert.equal((await expired.guard.close(session.sessionId, {})).isError, false);
   assert.equal(expired.locks.size, 0);
+});
+
+test("session listing includes creates still awaiting Appium, so deployment cannot mistake them for idle", async () => {
+  const { guard } = fixture();
+  const original = guard.invokeSession;
+  let finish;
+  guard.invokeSession = async args => {
+    if (args.action === "create") await new Promise(resolve => finish = resolve);
+    return original(args);
+  };
+  const pending = guard.manage({ action: "create", device: "phone_1" }, {});
+  while (!finish) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(read(await guard.manage({ action: "list" }, {})), [
+    { device: "phone_1", busy: true, creating: true },
+  ]);
+  finish();
+  await pending;
+  await guard.shutdown();
 });

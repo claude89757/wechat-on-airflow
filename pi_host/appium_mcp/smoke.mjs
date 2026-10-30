@@ -16,8 +16,13 @@ try {
   const response = await client.callTool({ name: "phone_devices", arguments: {} });
   if (response.isError) throw new Error("device_query_failed");
   const devices = JSON.parse(response.content[0].text);
+  const sessions = await client.callTool({ name: "appium_session_management", arguments: { action: "list" } });
+  if (sessions.isError) throw new Error("session_status_unknown");
+  const owned = JSON.parse(sessions.content[0].text);
+  if (!Array.isArray(owned)) throw new Error("session_status_invalid");
   console.log(JSON.stringify({ ok: true, tools: tools.length, configuredDevices: devices.length,
-    onlineDevices: devices.filter(d => d.online).length, phoneSessionsCreated: 0, externalTestSends: 0 }));
+    onlineDevices: devices.filter(d => d.online).length, activePhoneSessions: owned.length,
+    phoneSessionsCreated: 0, externalTestSends: 0 }));
 } catch {
   console.log(JSON.stringify({ ok: false, failure: "mcp_handshake_or_readonly_probe_failed" }));
   process.exitCode = 1;
