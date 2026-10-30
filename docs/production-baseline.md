@@ -1,5 +1,21 @@
 # Production Baseline
 
+## 2026-10-31: Dedicated Free-Court Group Restored, Shared Groups Paused
+
+Per the user's latest request, new Dashah free-court messages now target
+`Zacks_大沙河限定免费` alone. The two existing shared Zacks groups remain
+stored in the `SZ_TENNIS_CHATROOMS` Airflow Variable for possible future
+resumption but are filtered before new durable WeChat enqueue operations from
+every automated venue watcher. Other independent group recipients remain
+untouched. Do not replace the shared variable with the dedicated group name,
+as that would redirect unrelated venue alerts into the free-court-only group.
+
+The read-only delivery diagnosis and explicitly approved probe aliases reflect
+active recipients and count paused recipients without disclosing their names.
+Verify deployment, three natural free-court cycles and expiry of the old
+five-minute queued-intent window before declaring the old recipient path
+inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
+
 ## Pi MCP Candidate Inspection On 2026-10-31
 
 Read-only inspection found a Raspberry Pi 5 with an aarch64 kernel, 32-bit
