@@ -239,28 +239,8 @@ def test_wechat_uses_shared_groups_only_after_observation_and_cache_write(chatro
     assert result["wechat_queued"] is True
 
 
-@pytest.mark.parametrize(
-    ("configured", "expected"),
-    [
-        (
-            " shared-zacks-one \n\n shared-zacks-two\nshared-zacks-one\n",
-            ["shared-zacks-one", "shared-zacks-two"],
-        ),
-        ("", []),
-    ],
-)
-def test_load_chatrooms_uses_shared_variable_without_legacy_fallback(configured, expected) -> None:
-    airflow = ModuleType("airflow")
-    sdk = ModuleType("airflow.sdk")
-    variable = Mock()
-    variable.get.return_value = configured
-    sdk.Variable = variable
-    airflow.sdk = sdk
-
-    with patch.dict(sys.modules, {"airflow": airflow, "airflow.sdk": sdk}):
-        assert watcher._load_chatrooms() == expected
-
-    variable.get.assert_called_once_with("SZ_TENNIS_CHATROOMS", default="")
+def test_load_chatrooms_uses_dedicated_group_only() -> None:
+    assert watcher._load_chatrooms() == ["Zacks_大沙河限定免费"]
 
 
 def test_load_cache_creates_empty_variable_when_missing() -> None:
