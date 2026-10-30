@@ -190,10 +190,7 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
             with self.subTest(selector=selector):
                 namespace = {"selector": selector, "chatrooms": configured.__getitem__}
                 exec(mapping, namespace)
-                self.assertEqual(
-                    [target["receiver"] for target in namespace["targets"]], expected
-                )
-
+                self.assertEqual([target["receiver"] for target in namespace["targets"]], expected)
 
 
 class WeChatSenderServiceContractTest(unittest.TestCase):
