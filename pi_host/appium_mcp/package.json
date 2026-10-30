@@ -1,0 +1,13 @@
+{
+  "name": "zacks-pi-appium-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22.12.0"},
+  "scripts": {"start": "node server.mjs", "test": "node --test test/*.test.mjs"},
+  "dependencies": {
+    "appium-mcp": "1.99.1", "appium": "3.9.0", "zod": "4.3.6",
+    "@modelcontextprotocol/sdk": "1.32.2", "@opentelemetry/api": "1.9.1"
+  },
+  "overrides": {"appium-uiautomator2-driver": "8.0.0", "appium-xcuitest-driver": "12.1.0"}
+}

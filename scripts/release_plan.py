@@ -337,6 +337,10 @@ def write_github_output(path: Path, plan: Plan) -> None:
         "ci_webapp": str("webapp" in plan.ci_components).lower(),
         "ci_airflow": str("airflow" in plan.ci_components).lower(),
         "ci_sender": str("sender" in plan.ci_components).lower(),
+        "ci_pi_mcp": str(
+            plan.control_plane_changed
+            or any(path.startswith("pi_host/appium_mcp/") for path in plan.changed_files)
+        ).lower(),
         "control_plane_changed": str(plan.control_plane_changed).lower(),
         "changed_count": str(len(plan.changed_files)),
     }

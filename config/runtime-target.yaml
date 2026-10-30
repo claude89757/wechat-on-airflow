@@ -70,6 +70,29 @@ images:
   wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
   host_core: same_exact_airflow_application_image
 managed_services:
+  pi_appium_mcp:
+    runtime: systemd
+    deployment_owner: pi_device_host
+    workflow: production-appium-mcp.yml
+    service_unit: pi_host/appium_mcp/pi-appium-mcp.service
+    tunnel_unit: cloudflared-appium-mcp.service
+    public_base_url: https://appium-mcp.claude89757.cc/mcp
+    origin_base_url: http://127.0.0.1:3333/mcp
+    authentication: cloudflare_access_dedicated_service_token
+    connector_access_jwt_required: true
+    token_lifetime_hours: 2160
+    node: 22.23.4
+    userland_architecture: armv7l
+    appium_mcp: 1.99.1
+    appium_server_owner: existing_appium_2_services
+    config_file: /etc/pi-appium-mcp/devices.json
+    credentials_file: /etc/pi-appium-mcp/cloudflare.json
+    device_lock_directory: /run/wechat-device
+    processes: 1
+    idle_session_seconds: 30
+    maximum_lease_seconds: 120
+    smoke_creates_phone_sessions: false
+    workstation_credentials: none
   webapp:
     runtime: cloudflare_worker_stateless_edge
     public_hostname: courts.zacks.vision

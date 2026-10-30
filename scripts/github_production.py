@@ -12,6 +12,7 @@ WORKFLOWS = {
     "airflow": "production-airflow.yml",
     "sender": "production-wechat-sender.yml",
     "webapp": "production-webapp.yml",
+    "pi_mcp": "production-appium-mcp.yml",
 }
 
 
@@ -115,7 +116,10 @@ def main() -> None:
         operation = "deploy_apply" if args.apply else "deploy_preflight"
     if args.component == "sender" and operation == "deploy":
         operation = "apply" if args.apply else "dry_run"
+    if args.component == "pi_mcp" and operation == "deploy":
+        operation = "apply" if args.apply else "preflight"
     allowed = {
+        "pi_mcp": {"preflight", "apply", "health", "withdraw", "rollback"},
         "airflow": {
             "health",
             "crland_inspection_diagnose",

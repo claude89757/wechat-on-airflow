@@ -6,7 +6,7 @@ COMPOSE_BIN ?= $(shell if docker compose version >/dev/null 2>&1; then echo "doc
 LOCAL_SECRET_DIR := $(abspath .local/secrets)
 COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
 
-.PHONY: setup local-secrets webapp-setup webapp-check format lint typecheck test test-dags compose-config sender-config \
+.PHONY: setup local-secrets webapp-setup webapp-check pi-mcp-setup pi-mcp-check pi-mcp-deploy pi-mcp-health format lint typecheck test test-dags compose-config sender-config \
 	smoke verify deploy deploy-recovery deploy-check production-health rollback-check db-cleanup-check \
 	phone-diagnose wechat-delivery-diagnose wechat-delivery-probe wechat-quiesce airflow-resume pi-device-ssh-sync image sender-image sender-deploy sender-health sender-diagnose sender-screenshot sender-recover \
 	webapp-deploy webapp-health
@@ -16,6 +16,7 @@ setup:
 	$(BIN)/python -m pip install --upgrade pip
 	$(BIN)/python -m pip install -e '.[dev]'
 	$(MAKE) webapp-setup
+	$(MAKE) pi-mcp-setup
 
 webapp-setup:
 	cd webapp && npm ci
@@ -57,7 +58,19 @@ sender-config:
 smoke:
 	PYTHONPATH=src $(BIN)/python scripts/check_active_components.py
 
-verify: lint typecheck test webapp-check compose-config smoke test-dags
+pi-mcp-check:
+	cd pi_host/appium_mcp && npm test
+
+pi-mcp-setup:
+	cd pi_host/appium_mcp && npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+
+pi-mcp-deploy:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py pi_mcp deploy $(DEPLOY_ARGS)
+
+pi-mcp-health:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py pi_mcp health --target-commit $(TARGET_COMMIT)
+
+verify: lint typecheck test webapp-check pi-mcp-check compose-config smoke test-dags
 
 deploy:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow deploy $(DEPLOY_ARGS)

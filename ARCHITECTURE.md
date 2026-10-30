@@ -133,6 +133,15 @@ the final device-side idempotency boundary.
 
 ## Cloudflare boundary
 
+An independent trusted-agent control endpoint is specified in
+[ADR 0015](docs/adr/0015-pi-appium-mcp.md). It uses dedicated Cloudflare
+Access machine credentials and a separate Tunnel to a loopback-only Pi MCP
+process. It shares whole-phone locks with the Sender and device agent; it is
+not part of the venue delivery pipeline and cannot attach to their Appium
+sessions. Existing Appium 2 services are reused, not upgraded. This boundary
+does not secure legacy public Appium routes automatically; those require a
+separate caller inventory and approved restriction.
+
 Cloudflare has no durable business ownership. The production Worker has no D1
 binding, scheduled business work, migration endpoint or legacy backend import.
 It serves React assets and proxies public APIs to the host through Tunnel, with
