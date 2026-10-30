@@ -1,0 +1,42 @@
+name: BAWTT Read-only Page Probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/bawtt-ydmap-onboarding-20260916]
+    paths:
+      - scripts/probe_bawtt_ydmap.py
+      - tests/bawtt_probe_test.py
+      - .github/workflows/bawtt-readonly-probe.yml
+permissions:
+  contents: read
+concurrency:
+  group: bawtt-readonly-page-probe
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install repository-pinned browser and test dependencies
+        run: python -m pip install selenium==4.46.0 pytest==9.1.1 ruff==0.12.11
+      - name: Check isolated probe and regression tests
+        run: |
+          ruff check scripts/probe_bawtt_ydmap.py tests/bawtt_probe_test.py
+          python -m pytest -q tests/bawtt_probe_test.py
+      - name: Inspect only the two public booking pages
+        run: |
+          set -euo pipefail
+          python scripts/probe_bawtt_ydmap.py | tee "$RUNNER_TEMP/bawtt-page-probe.json"
+      - name: Record diagnostic evidence without page bodies or secrets
+        if: always()
+        run: |
+          if test -s "$RUNNER_TEMP/bawtt-page-probe.json"; then
+            echo '### Public-page probe; not production or bookability acceptance' >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/bawtt-page-probe.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
