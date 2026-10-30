@@ -56,6 +56,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/pi-mcp-release
           npm ci --ignore-scripts --omit=optional --no-audit --no-fund --cache /tmp/pi-mcp-cache
+          npm run audit:runtime
           npm test
           tar -czf /tmp/pi-mcp-release/cache.tar.gz -C /tmp/pi-mcp-cache .
           git archive HEAD:pi_host/appium_mcp | gzip > /tmp/pi-mcp-release/source.tar.gz

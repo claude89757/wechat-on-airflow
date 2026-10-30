@@ -85,6 +85,7 @@ jobs:
         working-directory: pi_host/appium_mcp
         run: |
           npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+          npm run audit:runtime
           npm test
       - name: Install development dependencies
         run: |

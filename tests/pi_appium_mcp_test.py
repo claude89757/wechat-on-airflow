@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import tarfile
 from pathlib import Path
 
@@ -125,3 +126,10 @@ def test_cloudflare_provision_orders_auth_before_public_dns(monkeypatch):
         "audTag": ["audience-test"],
     }
     assert ingress[-1] == {"service": "http_status:404"}
+
+
+def test_locked_service_excludes_unpatched_zip_chain_and_keeps_audit_gates():
+    lock = json.loads((ROOT / "pi_host/appium_mcp/package-lock.json").read_text())
+    assert not any("node_modules/extract-zip" in path for path in lock["packages"])
+    for name in ("ci.yml", "production-appium-mcp.yml"):
+        assert "npm run audit:runtime" in (ROOT / ".github/workflows" / name).read_text()

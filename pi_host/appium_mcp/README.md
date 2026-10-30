@@ -57,8 +57,15 @@ idempotency contract; generic UI actions do not gain exactly-once semantics.
 `make pi-mcp-setup` installs locked dependencies with lifecycle scripts and
 optional native/documentation packages disabled. Appium 3 is an import-time
 dependency of the upstream package only; it is never started as a server.
-The bundled driver imports are pinned to upstream's declared baseline versions.
+The complete dependency tree, including unused embedded driver imports, is locked.
 The Pi continues to use its existing Appium 2 servers.
+
+Runtime audits run locally, in CI and before release staging. Zod is pinned to
+4.6.7. The transitive `@puppeteer/browsers` override selects Google's maintained
+3.2.6 package, removing its old vulnerable ZIP/proxy chain. Its Node 22 baseline
+and exported API are exercised by upstream transport/import tests; browser
+download tools remain outside this deployment's allowlist. See the
+[upstream changes](https://github.com/puppeteer/puppeteer/blob/main/packages/browsers/CHANGELOG.md).
 
 `make pi-mcp-check` uses fake drivers and temporary flock files, never real phones.
 The repository-wide shell release tests require GNU Bash/coreutils. On macOS,

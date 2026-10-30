@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "engines": {"node": ">=22.12.0"},
-  "scripts": {"start": "node server.mjs", "test": "node --test test/*.test.mjs"},
+  "scripts": {
+    "start": "node server.mjs", "test": "node --test test/*.test.mjs",
+    "audit:runtime": "npm audit --omit=dev --omit=optional --audit-level=high"
+  },
   "dependencies": {
-    "appium-mcp": "1.99.1", "appium": "3.9.0", "zod": "4.3.6",
+    "appium-mcp": "1.99.1", "appium": "3.9.0", "zod": "4.6.7",
     "@modelcontextprotocol/sdk": "1.32.2", "@opentelemetry/api": "1.9.1"
   },
-  "overrides": {"appium-uiautomator2-driver": "8.0.0", "appium-xcuitest-driver": "12.1.0"}
+  "overrides": {"@puppeteer/browsers": "3.2.6"}
 }

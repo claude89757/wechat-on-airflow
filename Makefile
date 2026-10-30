@@ -60,6 +60,7 @@ smoke:
 
 pi-mcp-check:
 	cd pi_host/appium_mcp && npm test
+	cd pi_host/appium_mcp && npm run audit:runtime
 
 pi-mcp-setup:
 	cd pi_host/appium_mcp && npm ci --ignore-scripts --omit=optional --no-audit --no-fund
