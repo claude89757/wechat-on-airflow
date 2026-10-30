@@ -18,6 +18,20 @@ inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
 ## Pi MCP Candidate Inspection On 2026-10-31
 
+Release `419269c00361deae177a225874b5de064406ef3d` passed
+[actual-host preflight](https://github.com/claude89757/wechat-on-airflow/actions/runs/41122132103),
+then [activation 41123431445](https://github.com/claude89757/wechat-on-airflow/actions/runs/41123431445)
+stopped before configuration or service creation. The candidate npm log recorded
+exit 0; the retained cache and missing verification marker locate failure in the
+following tests. An isolated reproduction with fake devices passed. The original
+test output was discarded, so its exact failed assertion is unknown, not fixed
+by a successful rerun. Structured, redacted JUnit evidence is now preserved on
+failure, without skipping assertions or changing timeouts. Generated incomplete
+candidates may be reclaimed through the protected installer only after preserving
+sanitized metadata; active, previous, verified and ambiguous directories remain.
+Existing services and their start timestamps were unchanged; no real phone
+session or test notification was created.
+
 The repaired source passed actual ARM32
 [preflight 41117458521](https://github.com/claude89757/wechat-on-airflow/actions/runs/41117458521).
 The [first activation](https://github.com/claude89757/wechat-on-airflow/actions/runs/41118215287)

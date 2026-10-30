@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 from contextlib import nullcontext
@@ -105,6 +106,98 @@ def test_remote_error_retains_only_allowlisted_exception_class(error_class, expe
         DEPLOY.remote(client, "fake-command")
     assert caught.value.error_class == expected
     assert str(caught.value) == "pi_operation_failed"
+
+
+def test_candidate_test_report_preserves_only_numbers_and_failure_categories(tmp_path, monkeypatch):
+    payload = b"""<testsuites><testsuite>
+      <testcase name="safe"/><testcase name="fake-private-name">
+      <failure>fake-secret assert.ok(ready) EADDRINUSE</failure></testcase>
+      </testsuite></testsuites>"""
+    report = INSTALL.summarize_tests(payload, 1)
+    assert report["failed"] == [2]
+    assert report["startupNotReady"] and report["portBusy"]
+    assert "fake-" not in json.dumps(report)
+    assert INSTALL.safe_test_report(report) == DEPLOY.safe_test_report(report) == report
+    monkeypatch.setattr(
+        INSTALL.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=payload, returncode=1)
+    )
+    with pytest.raises(INSTALL.CandidateTestFailure) as caught:
+        INSTALL.run_candidate_tests(tmp_path, tmp_path, {})
+    assert caught.value.report == report
+    saved = tmp_path / "verification-failure.json"
+    assert json.loads(saved.read_text()) == report
+    assert saved.stat().st_mode & 0o777 == 0o600
+
+
+def test_incomplete_and_malicious_test_reports_fail_closed():
+    report = INSTALL.summarize_tests(b"fake-secret", -1, timed_out=True)
+    assert report["parseError"] and report["timedOut"]
+    assert report["total"] == 0
+    for validator in (INSTALL.safe_test_report, DEPLOY.safe_test_report):
+        assert validator(report) == report
+        assert validator({**report, "stdout": "fake-secret"}) is None
+        assert validator({**report, "failed": ["fake-secret"]}) is None
+        assert validator({**report, "total": True}) is None
+    for tag in ("error", "skipped"):
+        payload = f"<testsuites><testcase><{tag}/></testcase></testsuites>".encode()
+        assert INSTALL.summarize_tests(payload, 0)["failed"] == [1]
+
+
+def test_structured_candidate_failure_survives_remote_boundary_without_raw_output():
+    report = INSTALL.summarize_tests(b"<testsuites><testcase><failure/></testcase></testsuites>", 1)
+    channel = SimpleNamespace(shutdown_write=lambda: None, recv_exit_status=lambda: 1)
+    stdin = SimpleNamespace(write=lambda _: None, flush=lambda: None, channel=channel)
+    stdout = io.BytesIO(
+        json.dumps(
+            {
+                "ok": False,
+                "errorClass": "CandidateTestFailure",
+                "candidateTests": report,
+                "stdout": "fake-secret",
+            }
+        ).encode()
+    )
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (stdin, stdout, io.BytesIO(b"fake-secret"))
+    )
+    with pytest.raises(DEPLOY.RemoteOperationError) as caught:
+        DEPLOY.remote(client, "fake-command")
+    assert caught.value.test_report == report
+    assert "fake-secret" not in str(caught.value)
+
+
+def test_candidate_pruning_preserves_active_rollback_and_ambiguous_directories(
+    tmp_path, monkeypatch
+):
+    base = tmp_path / "managed"
+    base.mkdir()
+    monkeypatch.setattr(INSTALL, "BASE", base)
+
+    def source(prefix):
+        target = base / ("candidate-" + prefix * 12 + "-abcdefgh")
+        shutil.copytree(
+            ROOT / "pi_host/appium_mcp", target, ignore=shutil.ignore_patterns("node_modules")
+        )
+        return target
+
+    failed = source("1")
+    active = source("2")
+    previous = source("3")
+    (previous / "release.txt").write_text("3" * 40)
+    (base / "current").symlink_to(active)
+    (base / "previous").symlink_to(previous)
+    ambiguous = base / ("candidate-" + "4" * 12 + "-abcdefgh")
+    ambiguous.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (base / ("candidate-" + "5" * 12 + "-abcdefgh")).symlink_to(outside)
+    assert INSTALL.prune_incomplete_candidates() == 1
+    assert not failed.exists()
+    assert all(path.exists() for path in (active, previous, ambiguous, outside))
+    archived = base / "failed-verifications" / (failed.name + ".json")
+    assert json.loads(archived.read_text())["applied"] is False
+    assert archived.stat().st_mode & 0o777 == 0o600
 
 
 def test_mcp_workflow_preserves_exact_commit_environment_and_ssh_pinning():

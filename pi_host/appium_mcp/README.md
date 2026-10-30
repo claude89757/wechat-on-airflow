@@ -45,6 +45,13 @@ Idle sessions close after 30 seconds, and leases stop accepting actions after
 Busy devices return `device_busy`; do not restart Appium or delete foreign
 sessions to bypass this result.
 
+The existing Airflow maintenance DAG may reboot the phone at 05:00 Asia/Shanghai
+on its configured days. That authorized ADB maintenance is outside the MCP
+session lock. Clients must handle the offline interval and create a new session
+only after the phone is ready again. Do not override a busy or foreign session.
+Release acceptance waits for Sender readiness after scheduled maintenance;
+it does not change the maintenance schedule or promise uninterrupted sessions.
+
 Any unconfirmed session creation retains its phone lock, even if Appium's
 session list is still empty: the remote request may still be running. Recovery
 requires operator diagnosis. Apply, rollback and withdrawal stop only the new
@@ -83,6 +90,14 @@ The deployment verifies service startup, the MCP handshake, tools/list,
 phone_devices, absent/invalid Access credentials, and authenticated access.
 It must not create a phone session or send a real notification as a smoke test.
 Verify the old Sender and both Appium health endpoints before and after apply.
+
+Candidate tests keep all assertions and fail closed. The installer parses JUnit
+and retains only case numbers, exit status and fixed failure booleans in a
+root-only report, never raw test output. An incomplete test report is a failure.
+Before installing another candidate it may reclaim owner-matched, complete-source
+directories that have no verified release marker, after saving sanitized metadata.
+Current/previous targets, verified releases, symlinks and ambiguous directories
+are never reclaimed. Runtime state and credentials are outside this namespace.
 
 Device configuration lives in `/etc/pi-appium-mcp/devices.json`, outside Git.
 Keep stable aliases across reinstallations. Only phones actually found by ADB

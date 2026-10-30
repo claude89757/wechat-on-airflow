@@ -15,6 +15,7 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 BASE = Path("/opt/pi-appium-mcp")
@@ -22,6 +23,97 @@ CONFIG = Path("/etc/pi-appium-mcp")
 NODE_SHA = "c9057c6a3b8fbb9651ed115c1e96d4a7281b7b9c9ca89fa05865c98ed7ffd437"
 NODE_DIR = "node-v22.23.4-linux-armv7l"
 EXISTING = ("wechat-sender.service", "zacks-agent.service", "cloudflared-dsh.service")
+
+
+def safe_test_report(value):
+    flags = {
+        "parseError",
+        "timedOut",
+        "startupNotReady",
+        "processExitedBeforeHandshake",
+        "portBusy",
+    }
+    if not isinstance(value, dict) or set(value) != flags | {"total", "failed", "exitCode"}:
+        return None
+    if any(type(value[key]) is not bool for key in flags):
+        return None
+    if type(value["total"]) is not int or not 0 <= value["total"] <= 1000:
+        return None
+    if type(value["exitCode"]) is not int or not -128 <= value["exitCode"] <= 255:
+        return None
+    if not isinstance(value["failed"], list) or len(value["failed"]) > value["total"]:
+        return None
+    if any(type(index) is not int or not 1 <= index <= value["total"] for index in value["failed"]):
+        return None
+    return value
+
+
+class CandidateTestFailure(RuntimeError):
+    def __init__(self, report):
+        super().__init__("candidate_tests_failed")
+        self.report = report
+
+
+def summarize_tests(payload, exit_code, *, timed_out=False):
+    report = {
+        "total": 0,
+        "failed": [],
+        "exitCode": exit_code,
+        "timedOut": timed_out,
+        "parseError": False,
+        "startupNotReady": False,
+        "processExitedBeforeHandshake": False,
+        "portBusy": False,
+    }
+    try:
+        if len(payload or b"") > 1_000_000:
+            raise ValueError("oversized_report")
+        cases = ET.fromstring(payload or b"").findall(".//testcase")
+        if not cases:
+            raise ValueError("missing_test_cases")
+        report["total"] = len(cases)
+        for index, case in enumerate(cases, 1):
+            failure = case.find("failure")
+            if failure is None:
+                failure = case.find("error")
+            if failure is None:
+                failure = case.find("skipped")
+            if failure is None:
+                continue
+            report["failed"].append(index)
+            message = ET.tostring(failure, encoding="unicode")
+            report["startupNotReady"] |= "assert.ok(ready)" in message
+            report["processExitedBeforeHandshake"] |= (
+                "MCP process exited before handshake" in message
+            )
+            report["portBusy"] |= "EADDRINUSE" in message
+    except (ET.ParseError, ValueError, TypeError):
+        report["parseError"] = True
+    return report
+
+
+def run_candidate_tests(node, candidate, environment):
+    try:
+        completed = subprocess.run(
+            [
+                str(node / "bin/node"),
+                "--test",
+                "--test-reporter=junit",
+                "test/guard.test.mjs",
+                "test/transport.test.mjs",
+            ],
+            cwd=candidate,
+            env=environment,
+            capture_output=True,
+            timeout=60,
+        )
+        report = summarize_tests(completed.stdout, completed.returncode)
+    except subprocess.TimeoutExpired as exc:
+        report = summarize_tests(exc.stdout, -1, timed_out=True)
+    if report["exitCode"] or report["failed"] or report["parseError"] or report["timedOut"]:
+        private_json(candidate / "verification-failure.json", report)
+        raise CandidateTestFailure(report)
+    return report
 
 
 def run(argv, *, timeout=60, env=None, cwd=None):
@@ -96,6 +188,48 @@ def verify_source(candidate):
     )
     if not all((candidate / name).is_file() for name in required):
         raise ValueError("incomplete_source_bundle")
+
+
+def prune_incomplete_candidates():
+    protected = [(BASE / name).resolve() for name in ("current", "previous")]
+    count = 0
+    for candidate in BASE.glob("candidate-*"):
+        if (
+            not re.fullmatch(r"candidate-[0-9a-f]{12}-[a-z0-9_]{8}", candidate.name)
+            or candidate.is_symlink()
+            or not candidate.is_dir()
+            or candidate.stat().st_uid != os.geteuid()
+            or (candidate / "release.txt").exists()
+            or (candidate / "release.txt").is_symlink()
+            or any(
+                candidate.resolve() == path or candidate.resolve() in path.parents
+                for path in protected
+            )
+        ):
+            continue
+        try:
+            verify_source(candidate)
+            if (
+                json.loads((candidate / "package.json").read_text()).get("name")
+                != "zacks-pi-appium-mcp"
+            ):
+                continue
+            failure = candidate / "verification-failure.json"
+            report = safe_test_report(json.loads(failure.read_text())) if failure.exists() else None
+        except (ValueError, OSError, AttributeError):
+            continue
+        private_json(
+            BASE / "failed-verifications" / (candidate.name + ".json"),
+            {
+                "sourceCommitPrefix": candidate.name.split("-")[1],
+                "candidateTests": report,
+                "dependencyCachePresent": (candidate / "cache").exists(),
+                "applied": False,
+            },
+        )
+        shutil.rmtree(candidate)
+        count += 1
+    return count
 
 
 def device_config():
@@ -273,12 +407,13 @@ WantedBy=multi-user.target
 
     if not args.staging or not args.staging.is_dir():
         raise ValueError("staging_required")
-    if shutil.disk_usage("/opt").free < 2_000_000_000:
-        raise RuntimeError("insufficient_candidate_disk_space")
     archive = args.staging / "node.tar.xz"
     if hashlib.sha256(archive.read_bytes()).hexdigest() != NODE_SHA:
         raise ValueError("node_digest_mismatch")
     BASE.mkdir(mode=0o755, exist_ok=True)
+    pruned = prune_incomplete_candidates()
+    if shutil.disk_usage("/opt").free < 2_000_000_000:
+        raise RuntimeError("insufficient_candidate_disk_space")
     try:
         pwd.getpwnam("pi-appium-mcp")
     except KeyError:
@@ -323,18 +458,20 @@ WantedBy=multi-user.target
         env=environment,
         timeout=600,
     )
-    run(
-        [str(node / "bin/node"), "--test", "test/guard.test.mjs", "test/transport.test.mjs"],
-        cwd=candidate,
-        env=environment,
-        timeout=60,
-    )
+    test_report = run_candidate_tests(node, candidate, environment)
     shutil.rmtree(candidate / "cache")
     (candidate / "release.txt").write_text(args.commit + "\n")
     if args.operation == "preflight":
         shutil.rmtree(candidate)
         health()
-        return {"ok": True, "candidateVerified": True, "applied": False, "externalTestSends": 0}
+        return {
+            "ok": True,
+            "candidateVerified": True,
+            "applied": False,
+            "externalTestSends": 0,
+            "candidateTests": test_report,
+            "prunedIncompleteCandidates": pruned,
+        }
     devices = device_config()
     candidate.chmod(0o755)
     private_json(CONFIG / "devices.json", devices)
@@ -361,7 +498,13 @@ WantedBy=multi-user.target
                 )
                 if report.get("ok"):
                     health()
-                    return {**report, "applied": True, "commit": args.commit}
+                    return {
+                        **report,
+                        "applied": True,
+                        "commit": args.commit,
+                        "candidateTests": test_report,
+                        "prunedIncompleteCandidates": pruned,
+                    }
             except Exception:
                 pass
             time.sleep(1)
@@ -383,5 +526,14 @@ if __name__ == "__main__":
     try:
         print(json.dumps(main(), sort_keys=True))
     except Exception as exc:
-        print(json.dumps({"ok": False, "errorClass": type(exc).__name__, "externalTestSends": 0}))
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "errorClass": type(exc).__name__,
+                    "externalTestSends": 0,
+                    "candidateTests": exc.report if isinstance(exc, CandidateTestFailure) else None,
+                }
+            )
+        )
         raise SystemExit(1) from None
