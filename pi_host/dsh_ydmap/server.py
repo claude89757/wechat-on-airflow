@@ -1383,7 +1383,7 @@ def _scrape_available_slots(
                 **identity,
             )
             if not payload.get("ready"):
-                if source_evidence and payload.get("captcha") is True:
+                if source_evidence:
                     payload["diagnostic_ui"] = _capture_failure_ui(driver, venue)
                 return _stop_with_error(
                     error=payload.get("error") or "schedule_not_ready",
@@ -1437,7 +1437,7 @@ def _scrape_available_slots(
                     **identity,
                 )
                 if not payload.get("ready"):
-                    if source_evidence and payload.get("captcha") is True:
+                    if source_evidence:
                         payload["diagnostic_ui"] = _capture_failure_ui(driver, venue)
                     return _stop_with_error(
                         error=payload.get("error") or "schedule_not_ready",

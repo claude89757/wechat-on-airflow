@@ -457,6 +457,21 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(result["error"], "schedule_not_ready")
         self.assertEqual(result["accessDiagnostics"], {"typeErrors": 1})
 
+    def test_missing_schedule_without_challenge_is_available_to_opt_in_ui_diagnostic(self):
+        for diagnostic in (False, True):
+            with (
+                self.subTest(diagnostic=diagnostic),
+                patch.object(
+                    server, "_wait_for_schedule", return_value={"ready": False, "captcha": False}
+                ),
+                patch.object(server, "_capture_failure_ui", return_value=None) as capture,
+            ):
+                result = server.scrape_available_slots("dsh", 2, source_evidence=diagnostic)
+                self.assertEqual(capture.call_count, int(diagnostic))
+                self.assertEqual(result["error"], "schedule_not_ready")
+                self.assertFalse(result["captcha"])
+                self.assertEqual(result["days"], [])
+
     def test_baoti_complete_verified_groups_and_shanghai_dates(self) -> None:
         self.install_payloads(
             sum((self.group_payloads(key=key) for key in ("outdoor", "indoor", "windrain")), [])

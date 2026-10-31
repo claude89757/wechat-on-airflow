@@ -100,7 +100,8 @@ discards it at exit. No cookies are exported, and this diagnostic does not
 establish durable production access.
 
 Manual preflight may set `capture_browser_ui=true` to capture the owned public
-candidate page after a detected verification challenge. It never operates on
+candidate page after a failed source-readiness check, including a missing schedule
+without a verification mask. It never operates on
 the live service or performs a gesture. Contact/IP text, populated login inputs
 and login-QR instructions suppress capture. The PNG is bounded to 256 KiB,
 validated by type/dimensions/hash, saved privately on the Actions runner and

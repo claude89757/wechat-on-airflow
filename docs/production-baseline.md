@@ -1,5 +1,22 @@
 # Production Baseline
 
+## First service-profile preflight on 2026-10-31
+
+[Pi preflight 41210794526](https://github.com/claude89757/wechat-on-airflow/actions/runs/41210794526)
+used `c72b3278b628a0d5638ee220289e1a423ef99ff7`, after
+[CI 41210287689](https://github.com/claude89757/wechat-on-airflow/actions/runs/41210287689).
+Baoan verified all three products on both dates. Dashah failed its initial page:
+Vue/app roots existed, but no schedule component or cells were found, and both
+verification flags were false. Passive logs again showed a favicon 404 and one
+unattributed other-host loading failure, with no recorded TLS/DNS/CSP/script
+syntax error. This does not identify why the schedule did not mount.
+No complete comparison cycle passed. Drain and pause restoration were verified;
+no Pi apply or notification occurred. The first manual capture covered only
+verification failures, so this unready page produced no image. Manual opt-in
+capture now also covers non-verification source-readiness failures with the same
+privacy, size and retention restrictions. Service-profile continuity remains an
+unproven access-stability hypothesis pending the controlled same-profile repeat.
+
 ## Partial 0.9.0 rollout and browser-state continuity on 2026-10-31
 
 [Ship 41205840288](https://github.com/claude89757/wechat-on-airflow/actions/runs/41205840288)

@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       capture_browser_ui:
-        description: Capture a bounded public candidate verification page on preflight failure
+        description: Capture a bounded public candidate page on source-readiness failure
         type: boolean
         required: false
         default: false
