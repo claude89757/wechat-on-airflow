@@ -30,6 +30,7 @@ assert _contract_spec is not None and _contract_spec.loader is not None
 CONTRACT = importlib.util.module_from_spec(_contract_spec)
 _contract_spec.loader.exec_module(CONTRACT)
 FAILURES = {
+    "verification_not_authorized",
     "runuser_unavailable",
     "command_failed",
     "invalid_report",
@@ -359,6 +360,9 @@ def main() -> int:
         commit = os.environ["TARGET_COMMIT"]
         if operation not in OPERATIONS:
             raise ValueError("invalid_operation")
+        verification_once = os.environ.get("CONFIRM_VERIFICATION_ONCE", "false") == "true"
+        if verification_once and operation != "preflight":
+            raise ValueError("verification_not_authorized")
         source_hash = verify_checkout(commit)
         client.connect(
             os.environ["PI_DEVICE_SSH_HOST"],
@@ -401,6 +405,8 @@ def main() -> int:
             + " --staging "
             + shlex.quote(staging)
         )
+        if verification_once:
+            command += " --verification-once"
         report = (
             apply_with_guard(client, command, commit)
             if operation == "apply"
