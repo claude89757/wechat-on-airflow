@@ -30,6 +30,13 @@ owner-only issue-39 router also supports `/ops pi-ydmap-preflight <full-sha>`,
 
 ## Candidate and activation
 
+Manual preflight may set `diagnostic_first_product=windrain` for a cold-start
+comparison. The clean candidate environment starts Baoan at wind/rain and keeps
+the other products/dates in the inspection. Live/apply operations reject this
+option. Even successful reads end in `diagnostic_only`, never candidate acceptance
+or activation. Reusable release workflows always retain the default product order.
+
+
 After explicit operator authorization for a normal verification interaction,
 manual workflow dispatch may set `confirm_verification_once=true` with
 `operation=preflight`. This is not enabled by reusable release workflows or by

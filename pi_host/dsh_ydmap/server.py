@@ -1024,6 +1024,23 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
                 response = params.get("response", {})
                 path = urlparse(response.get("url", "")).path
                 mime = response.get("mimeType", "")
+                endpoint = path.rsplit("/", 1)[-1]
+                api = {
+                    "getSalesItemList": "catalog",
+                    "getVenueCalendarList": "calendar",
+                    "getSportVenueConfig": "config",
+                }.get(endpoint)
+                if api:
+                    increment(
+                        api
+                        + (
+                            "HtmlResponses"
+                            if mime == "text/html"
+                            else "JsonResponses"
+                            if "json" in mime
+                            else "OtherResponses"
+                        )
+                    )
                 if path.endswith("/getVenueOrderList"):
                     increment(
                         "orderHtmlResponses"
@@ -1216,6 +1233,12 @@ def _scrape_available_slots(
     groups = VENUE_GROUPS.get(venue)
     if not groups:
         return _stop_with_error(error=f"unknown_venue:{venue}", venue=venue)
+    if (
+        source_evidence
+        and venue == "baoti"
+        and os.environ.get("YDMAP_DIAGNOSTIC_FIRST_PRODUCT") == "windrain"
+    ):
+        groups = tuple(sorted(groups, key=lambda group: group[0] != "windrain"))
     days = min(max(days, 1), 7)
     # Reserve driver/browser cleanup time inside the caller's 240-second limit.
     budget = min(SCRAPE_TIMEOUT, 135) if venue == "dsh" else SCRAPE_TIMEOUT

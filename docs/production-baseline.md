@@ -1,5 +1,26 @@
 # Production Baseline
 
+## Baoan passive network evidence on 2026-10-31
+
+[Pi preflight 41192484593](https://github.com/claude89757/wechat-on-airflow/actions/runs/41192484593)
+used `3db376580094f537190b211e52824efd9fe31bbc`, after exact-main
+[CI 41192266357](https://github.com/claude89757/wechat-on-airflow/actions/runs/41192266357).
+Dashah verified all five dates. Baoan stopped at wind/rain product `111319`,
+`product_navigation`, with challenge text/mask true, no known handles or frames,
+and no change after three seconds. The log command succeeded: 344 performance
+entries and 10 browser entries; six order JSON responses, last order status 200,
+four script responses and one generic resource-load console error. No gesture ran.
+No order HTML or classified DNS/TLS/CSP/script-failure counter was observed within
+this logging window. The generic resource error is not attributable to the
+verification component and is not a proven root cause. Source evidence was
+truncated, not rejected. The candidate failed; no production apply occurred.
+
+Repeated failures at the same wind/rain transition justify a controlled cold-start
+comparison. The next manual-only preflight option starts that product first while
+retaining all products/dates. It cannot yield a release-ready candidate, even if
+all reads succeed. This distinguishes product-specific access behavior from
+sequence/load effects without treating either as already proven.
+
 ## Baoan verification UI rendering evidence on 2026-10-31
 
 [Pi preflight 41191656978](https://github.com/claude89757/wechat-on-airflow/actions/runs/41191656978)

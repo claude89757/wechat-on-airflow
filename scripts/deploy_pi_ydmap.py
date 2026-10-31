@@ -30,6 +30,7 @@ assert _contract_spec is not None and _contract_spec.loader is not None
 CONTRACT = importlib.util.module_from_spec(_contract_spec)
 _contract_spec.loader.exec_module(CONTRACT)
 FAILURES = {
+    "diagnostic_only",
     "verification_not_authorized",
     "runuser_unavailable",
     "command_failed",
@@ -361,6 +362,11 @@ def main() -> int:
         if operation not in OPERATIONS:
             raise ValueError("invalid_operation")
         verification_once = os.environ.get("CONFIRM_VERIFICATION_ONCE", "false") == "true"
+        first_product = os.environ.get("DIAGNOSTIC_FIRST_PRODUCT", "default")
+        if first_product not in {"default", "windrain"} or (
+            first_product != "default" and operation != "preflight"
+        ):
+            raise ValueError("verification_not_authorized")
         if verification_once and operation != "preflight":
             raise ValueError("verification_not_authorized")
         source_hash = verify_checkout(commit)
@@ -407,6 +413,8 @@ def main() -> int:
         )
         if verification_once:
             command += " --verification-once"
+        if first_product == "windrain":
+            command += " --first-product windrain"
         report = (
             apply_with_guard(client, command, commit)
             if operation == "apply"

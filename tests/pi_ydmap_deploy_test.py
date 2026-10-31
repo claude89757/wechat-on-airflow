@@ -1123,3 +1123,37 @@ def test_access_diagnostics_are_bounded_numeric_and_survive_repeated_sanitizatio
     }
     assert INSTALL.safe_source_diagnostic(safe) == safe
     assert "private" not in json.dumps(safe)
+
+
+@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+def test_product_order_probe_is_rejected_before_live_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, first_product="windrain"))
+
+
+def test_product_order_probe_cannot_mark_candidate_verified_or_activate(monkeypatch, tmp_path):
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *a: tmp_path)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    monkeypatch.setattr(INSTALL, "inspect_venues", lambda *a, **k: [])
+    calls = []
+
+    @contextmanager
+    def candidate(*args, **kwargs):
+        calls.append(kwargs)
+        yield 18788
+
+    monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
+    monkeypatch.setattr(INSTALL, "activate", lambda *a: pytest.fail("must not activate"))
+    with pytest.raises(INSTALL.OperationFailure, match="diagnostic_only"):
+        INSTALL.operate(
+            SimpleNamespace(
+                operation="preflight",
+                first_product="windrain",
+                commit=COMMIT,
+                source_sha256=HASH,
+                staging=tmp_path,
+            )
+        )
+    assert calls == [{"first_product": "windrain"}]
