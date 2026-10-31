@@ -363,6 +363,15 @@ def safe_source_diagnostic(value: object) -> dict:
                 "blockedFailures",
                 "cspErrors",
                 "referenceErrors",
+                "evalBlockedErrors",
+                "resourceLoadErrors",
+                "performanceLogEntries",
+                "performanceLogUnavailable",
+                "browserLogEntries",
+                "browserLogUnavailable",
+                "aliyunCdnFailures",
+                "ydmapFailures",
+                "otherHostFailures",
             )
             if type(access.get(key)) is int and 0 <= access[key] <= 10000
         }

@@ -1,5 +1,25 @@
 # Production Baseline
 
+## Baoan verification UI rendering evidence on 2026-10-31
+
+[Pi preflight 41191656978](https://github.com/claude89757/wechat-on-airflow/actions/runs/41191656978)
+used `f5fa1c375cdd0ca562041051b782a5b2b3a579cb`, after
+[CI 41191447760](https://github.com/claude89757/wechat-on-airflow/actions/runs/41191447760).
+Baoan again stopped at wind/rain product `111319` with both challenge flags true.
+The diagnostic counted two visible challenge roots, four child references,
+zero frames, zero semantic handles and zero known legacy handles. All control
+counts remained unchanged after three seconds; one verification script reference
+was present. No gesture ran and both venues failed; no apply occurred.
+
+The network/console summary had no counters. Reviewing the exact pinned Selenium
+4.46.0 wheel reproduced that generic `webdriver.Remote` has no `get_log` helper;
+only ChromiumDriver provides it, using `execute("getLog", {"type": ...})`.
+The new diagnostic had incorrectly used that missing convenience method and
+caught the error. This is a diagnostic defect, not the cause of the original
+challenge. The repair uses the supported wire command and explicitly distinguishes
+unavailable logs from successfully read empty logs. No network-root-cause claim
+can be made from this first rendering report.
+
 ## Baoan native product navigation evidence on 2026-10-31
 
 [Pi preflight 41188809021](https://github.com/claude89757/wechat-on-airflow/actions/runs/41188809021)
