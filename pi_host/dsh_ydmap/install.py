@@ -170,6 +170,9 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "verificationAttempted",
+    "verificationOutcome",
+    "verificationControl",
     "failedVenues",
     "failurePhase",
     "requestedProduct",
@@ -366,6 +369,7 @@ def safe_source_diagnostic(value: object) -> dict:
         "date_selection",
         "refreshed_schedule",
         "source_evidence",
+        "access_verification",
     }:
         result["failurePhase"] = phase
     for key in ("loadingCounter", "loadGeneration", "cellCount"):
@@ -377,6 +381,7 @@ def safe_source_diagnostic(value: object) -> dict:
     if value.get("productNameField") in {"salesItemName", "itemName", "name"}:
         result["productNameField"] = value["productNameField"]
     for key in (
+        "verificationAttempted",
         "productInCatalog",
         "challengeText",
         "challengeMaskVisible",
@@ -385,6 +390,27 @@ def safe_source_diagnostic(value: object) -> dict:
     ):
         if type(value.get(key)) is bool:
             result[key] = value[key]
+    outcome = value.get("verificationOutcome")
+    if isinstance(outcome, str) and outcome in {
+        "not_needed",
+        "unsupported_control",
+        "not_passed",
+        "passed",
+    }:
+        result["verificationOutcome"] = outcome
+    control = value.get("verificationControl")
+    if isinstance(control, str) and control in {
+        "wrong_host",
+        "root_missing",
+        "controls_missing",
+        "ambiguous_controls",
+        "instruction_unrecognized",
+        "geometry_invalid",
+        "control_obstructed",
+        "ready",
+        "probe_failed",
+    }:
+        result["verificationControl"] = control
     product_name = value.get("productName")
     if isinstance(product_name, str) and PUBLIC_TEXT.fullmatch(product_name):
         result["productName"] = product_name
@@ -1016,6 +1042,10 @@ def inspect_evidence(
         )
     report = {"venue": venue, "verified": True, "days": report_days}
     if source_evidence:
+        diagnostic = safe_source_diagnostic(payload.get("diagnostics"))
+        for key in ("verificationAttempted", "verificationOutcome", "verificationControl"):
+            if key in diagnostic:
+                report[key] = diagnostic[key]
         truncated, unresolved = limit_source_evidence([report])
         report["sourceEvidenceTruncated"] = truncated
         report["sourceEvidenceRejected"] = rejected_source or unresolved
@@ -1038,6 +1068,15 @@ def safe_inspections(value: object, *, source_evidence: bool = False) -> list[di
             if not isinstance(days, list) or not 1 <= len(days) <= 7:
                 return []
             raw = {
+                "diagnostics": {
+                    key: report[key]
+                    for key in (
+                        "verificationAttempted",
+                        "verificationOutcome",
+                        "verificationControl",
+                    )
+                    if key in report
+                },
                 "ok": True,
                 "captcha": False,
                 "schema_version": 2,
@@ -1065,7 +1104,11 @@ def safe_inspections(value: object, *, source_evidence: bool = False) -> list[di
 
 
 def inspect_venues(
-    port: int, *, at: datetime | None = None, source_evidence: bool = False
+    port: int,
+    *,
+    at: datetime | None = None,
+    source_evidence: bool = False,
+    verification_once: bool = False,
 ) -> list[dict]:
     reports = []
     failures = []
@@ -1077,6 +1120,8 @@ def inspect_venues(
             path = f"/inspect?venue={venue}&days={days}"
             if source_evidence:
                 path += "&evidence=source-v1"
+                if verification_once and venue == "baoti":
+                    path += "&verification=once"
             payload = request_json(port, path, timeout=timeout)
             reports.append(
                 inspect_evidence(payload, venue, expected, source_evidence=source_evidence)
@@ -1261,7 +1306,9 @@ def prepare_candidate(
 
 
 @contextlib.contextmanager
-def isolated_candidate(candidate: Path, account: pwd.struct_passwd, commit: str):
+def isolated_candidate(
+    candidate: Path, account: pwd.struct_passwd, commit: str, *, verification_once: bool = False
+):
     executable = checked_runuser()
     runtime = Path(tempfile.mkdtemp(prefix="pi-ydmap-candidate-"))
     os.chown(runtime, account.pw_uid, account.pw_gid)
@@ -1276,6 +1323,7 @@ def isolated_candidate(candidate: Path, account: pwd.struct_passwd, commit: str)
         "YDMAP_PROFILE": str(runtime / "profile"),
         "YDMAP_DEPLOYMENT_COMMIT": commit,
         "PYTHONDONTWRITEBYTECODE": "1",
+        "YDMAP_AUTHORIZED_VERIFICATION": "1" if verification_once else "0",
     }
     process = None
     try:
@@ -1434,6 +1482,9 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
 
 
 def operate(args) -> dict:
+    verification_once = getattr(args, "verification_once", False)
+    if verification_once and args.operation != "preflight":
+        raise OperationFailure("verification_not_authorized")
     before = other_service_identities()
     account = verify_existing_service()
     if args.operation == "apply":
@@ -1444,10 +1495,11 @@ def operate(args) -> dict:
         report = {"health": health, "inspections": evidence, "applied": False}
     else:
         candidate = prepare_candidate(args.staging, args.commit, args.source_sha256, account)
-        with isolated_candidate(candidate, account, args.commit) as port:
+        options = {"verification_once": True} if verification_once else {}
+        with isolated_candidate(candidate, account, args.commit, **options) as port:
             health = verify_health(request_json(port, "/healthz"), args.commit, args.source_sha256)
             evidence = (
-                inspect_venues(port, source_evidence=True)
+                inspect_venues(port, source_evidence=True, **options)
                 if args.operation == "preflight"
                 else inspect_venues(port)
             )
@@ -1480,6 +1532,7 @@ def main() -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--staging", type=Path)
+    parser.add_argument("--verification-once", action="store_true")
     args = parser.parse_args()
 
     def interrupted(signum, frame):

@@ -138,6 +138,48 @@ process.stdout.write(JSON.stringify(results));
 
 @unittest.skipUnless(NODE, "Node is optional on Pi; Python protocol/date tests still run")
 class PiYdmapIdentityTest(unittest.TestCase):
+    def test_verification_control_requires_visible_unambiguous_normal_slider(self) -> None:
+        harness = r"""
+const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+global.location = {hostname: input.wrongHost ? 'other.example' : 'bawtt.ydmap.cn'};
+global.innerWidth = 1280;
+global.getComputedStyle = () => ({visibility: 'visible', display: 'block'});
+const track = {innerText: input.unknownText ? 'private' : '请按住滑块，拖动到最右边',
+  getBoundingClientRect: () => ({top: 100, bottom: 140, right: input.badSize ? 900 : 400})};
+const handle = {parentElement: track, getClientRects: () => input.hidden ? [] : [{}],
+  getBoundingClientRect: () => ({left: 100, top: 100, bottom: 140, height: 40, width: 40}),
+  contains: () => false};
+const root = {getClientRects: () => [{}], querySelectorAll: () =>
+  input.noControl ? [] : input.ambiguous ? [handle, {...handle}] : [handle]};
+global.document = {querySelectorAll: () => input.noRoot ? [] : [root],
+  elementFromPoint: () => input.obstructed ? {} : handle};
+const result = new Function(input.script)();
+console.log(JSON.stringify({status: result.status, distance: result.distance}));
+"""
+        for flags, status in (
+            ({}, "ready"),
+            ({"wrongHost": True}, "wrong_host"),
+            ({"noRoot": True}, "root_missing"),
+            ({"noControl": True}, "controls_missing"),
+            ({"hidden": True}, "controls_missing"),
+            ({"ambiguous": True}, "ambiguous_controls"),
+            ({"unknownText": True}, "instruction_unrecognized"),
+            ({"badSize": True}, "geometry_invalid"),
+            ({"obstructed": True}, "control_obstructed"),
+        ):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    [NODE, "-e", harness],
+                    input=json.dumps({**flags, "script": server.VERIFICATION_CONTROL_JS}),
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                )
+                parsed = json.loads(result.stdout)
+                self.assertEqual(parsed["status"], status)
+                if status == "ready":
+                    self.assertEqual(parsed["distance"], 258)
+
     def extract(self, **fixture):
         result = subprocess.run(
             [NODE, "-e", HARNESS],

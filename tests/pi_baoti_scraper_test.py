@@ -455,7 +455,78 @@ class PiBaotiScraperTest(unittest.TestCase):
                     server, "scrape_available_slots", return_value={"ok": True}
                 ) as scrape:
                     handler.do_GET()
-                    scrape.assert_called_once_with("baoti", 2, source_evidence=expected)
+                    scrape.assert_called_once_with(
+                        "baoti", 2, source_evidence=expected, verification_once=False
+                    )
+
+    def test_verification_requires_all_gates_and_consumes_one_authorization(self) -> None:
+        with (
+            patch.object(server, "VERIFICATION_AVAILABLE", True),
+            patch.object(server, "_scrape_available_slots", return_value={"ok": False}) as inner,
+        ):
+            for venue, evidence, requested in (
+                ("baoti", True, False),
+                ("baoti", False, True),
+                ("dsh", True, True),
+            ):
+                server.scrape_available_slots(
+                    venue, 2, source_evidence=evidence, verification_once=requested
+                )
+                self.assertIsNone(inner.call_args.kwargs["verification"])
+                self.assertTrue(server.VERIFICATION_AVAILABLE)
+            result = server.scrape_available_slots(
+                "baoti", 2, source_evidence=True, verification_once=True
+            )
+            self.assertFalse(result["diagnostics"]["verificationAttempted"])
+            self.assertEqual(result["diagnostics"]["verificationOutcome"], "not_needed")
+            self.assertFalse(server.VERIFICATION_AVAILABLE)
+            server.scrape_available_slots("baoti", 2, source_evidence=True, verification_once=True)
+            self.assertIsNone(inner.call_args.kwargs["verification"])
+
+    def test_normal_verification_is_one_native_drag_and_no_retry(self) -> None:
+        handle = object()
+        driver = Mock()
+        driver.execute_script.return_value = {"status": "ready", "handle": handle, "distance": 200}
+        chain = Mock()
+        chain.click_and_hold.return_value = chain
+        chain.move_by_offset.return_value = chain
+        chain.release.return_value = chain
+        actions = Mock(return_value=chain)
+        module = types.ModuleType("selenium.webdriver.common.action_chains")
+        module.ActionChains = actions
+        state = {"attempted": False, "outcome": "not_needed"}
+        with patch.dict(sys.modules, {module.__name__: module}):
+            self.assertTrue(server._normal_verification_once(driver, state))
+        actions.assert_called_once_with(driver, duration=1000)
+        chain.click_and_hold.assert_called_once_with(handle)
+        chain.move_by_offset.assert_called_once_with(200, 0)
+        chain.release.assert_called_once_with()
+        chain.perform.assert_called_once_with()
+        self.assertEqual(state, {"attempted": True, "outcome": "not_passed", "control": "ready"})
+        driver.execute_script.return_value = None
+        self.assertFalse(server._normal_verification_once(driver, state))
+        self.assertEqual(state["outcome"], "unsupported_control")
+
+    def test_failed_verification_keeps_atomic_failure_and_audit(self) -> None:
+        self.install_payloads([{"captcha": True, "ready": False}])
+
+        def gesture(driver, state):
+            state.update(attempted=True, outcome="not_passed")
+            return True
+
+        with (
+            patch.object(server, "VERIFICATION_AVAILABLE", True),
+            patch.object(server, "_normal_verification_once", side_effect=gesture) as action,
+        ):
+            result = server.scrape_available_slots(
+                "baoti", 2, source_evidence=True, verification_once=True
+            )
+        action.assert_called_once()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["days"], [])
+        self.assertTrue(result["captcha"])
+        self.assertTrue(result["diagnostics"]["verificationAttempted"])
+        self.assertEqual(result["diagnostics"]["verificationOutcome"], "not_passed")
 
     def test_ordinary_watcher_results_never_include_source_evidence(self) -> None:
         self.install_payloads(self.group_payloads(venue="dsh"))

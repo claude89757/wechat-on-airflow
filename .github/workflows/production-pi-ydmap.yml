@@ -17,6 +17,11 @@ on:
         type: string
   workflow_dispatch:
     inputs:
+      confirm_verification_once:
+        description: Explicitly authorize one normal Baoan verification gesture in isolated preflight
+        type: boolean
+        required: false
+        default: false
       target_commit:
         description: Exact reviewed main commit with successful CI
         required: true
@@ -78,6 +83,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
       - name: Run protected scraper operation
         env:
+          CONFIRM_VERIFICATION_ONCE: ${{ inputs.confirm_verification_once || false }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
           OPERATION: ${{ inputs.operation }}
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}

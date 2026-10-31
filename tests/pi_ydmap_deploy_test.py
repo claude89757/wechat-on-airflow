@@ -993,6 +993,34 @@ def test_preflight_query_is_explicit_for_both_venues(monkeypatch):
         "/inspect?venue=dsh&days=5&evidence=source-v1",
         "/inspect?venue=baoti&days=2&evidence=source-v1",
     ]
+    paths.clear()
+    INSTALL.inspect_venues(18788, source_evidence=True, verification_once=True)
+    assert "verification=" not in paths[0]
+    assert paths[1].endswith("&evidence=source-v1&verification=once")
+
+
+@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+def test_verification_cannot_enter_live_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, verification_once=True))
+
+
+def test_verification_audit_is_allowlisted():
+    safe = INSTALL.safe_source_diagnostic(
+        {
+            "verificationAttempted": True,
+            "verificationOutcome": "not_passed",
+            "private": "cookie",
+        }
+    )
+    assert safe["verificationAttempted"] is True
+    assert safe["verificationOutcome"] == "not_passed"
+    assert "cookie" not in json.dumps(safe)
+    unknown = INSTALL.safe_source_diagnostic(
+        {"verificationAttempted": "private", "verificationOutcome": "private"}
+    )
+    assert "verificationAttempted" not in unknown
+    assert "verificationOutcome" not in unknown
 
 
 @pytest.mark.parametrize("baoti_fails", [False, True])
