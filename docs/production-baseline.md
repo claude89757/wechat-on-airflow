@@ -1,5 +1,27 @@
 # Production Baseline
 
+## Baoan access verification confirmed on 2026-10-31
+
+Independent [Pi preflight 41184233295](https://github.com/claude89757/wechat-on-airflow/actions/runs/41184233295)
+at exact-main `534aea237fd1d1b1162b665e8e988f794a24734d`, after
+[CI 41184072259](https://github.com/claude89757/wechat-on-airflow/actions/runs/41184072259),
+verified all five Dashah dates but failed Baoan with `access_verification` /
+`captcha`. The Baoan page host was `bawtt.ydmap.cn`; challenge text and visible
+challenge mask were both true, document completion was true, the schedule
+component was absent, and cell count was zero. `failedVenues` contained only
+`baoti`. This is direct evidence of the current Baoan access blocker; it does
+not retrospectively identify the earlier unclassified exception.
+
+No production apply, Baoan activation, release tag or synthetic notification
+was performed. No interaction with the verification control was attempted.
+Do not strip the mask, forge provider credentials,
+replay external cookies or repeatedly retry the blocked request. Access must
+be restored through the site's normal verification path before the coupled
+release and three-natural-cycle acceptance can proceed.
+The post-debug [Airflow health 41184414718](https://github.com/claude89757/wechat-on-airflow/actions/runs/41184414718)
+passed against the unchanged production Airflow SHA
+`c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`.
+
 ## Baoan candidate debugging on 2026-10-31, 08:01 UTC
 
 [PR #274](https://github.com/claude89757/wechat-on-airflow/pull/274) corrected
