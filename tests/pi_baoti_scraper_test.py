@@ -115,6 +115,14 @@ class AccessDiagnosticsTest(unittest.TestCase):
                     "Network.loadingFailed", type="Script", errorText="net::ERR_NAME_NOT_RESOLVED"
                 ),
                 event("Network.loadingFailed", type="Script", blockedReason="csp"),
+                event(
+                    "Network.responseReceived",
+                    response={
+                        "url": "https://bawtt.ydmap.cn/api/getSportVenueConfig?token=never-export",
+                        "status": 200,
+                        "mimeType": "text/html",
+                    },
+                ),
             ],
             [
                 {"message": "Content Security Policy never-export"},
@@ -125,7 +133,8 @@ class AccessDiagnosticsTest(unittest.TestCase):
         result = server._access_diagnostics(driver)
         self.assertEqual(driver.execute.call_args_list[0].args, ("getLog", {"type": "performance"}))
         self.assertEqual(driver.execute.call_args_list[1].args, ("getLog", {"type": "browser"}))
-        self.assertEqual(result["performanceLogEntries"], 5)
+        self.assertEqual(result["performanceLogEntries"], 6)
+        self.assertEqual(result["configHtmlResponses"], 1)
         self.assertEqual(result["browserLogEntries"], 2)
         self.assertEqual(result["orderHtmlResponses"], 1)
         self.assertEqual(result["lastOrderStatus"], 200)
@@ -278,6 +287,22 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(attached_at, [104.0])
         self.assertEqual(result["error"], "captcha")
         self.assertEqual(self.driver.visited, [])
+
+    def test_first_product_probe_requires_source_evidence_and_keeps_normal_order(self) -> None:
+        for evidence, product in ((False, "111317"), (True, "111319")):
+            with (
+                self.subTest(evidence=evidence),
+                patch.dict(server.os.environ, {"YDMAP_DIAGNOSTIC_FIRST_PRODUCT": "windrain"}),
+            ):
+                self.install_payloads([{"captcha": True, "ready": False}])
+                result = server.scrape_available_slots("baoti", 2, source_evidence=evidence)
+                self.assertTrue(server._start_chromium.call_args.args[0].endswith("=" + product))
+                self.assertEqual(result["diagnostics"]["requestedProduct"], product)
+                self.assertEqual(result["diagnostics"]["failurePhase"], "initial_schedule")
+                self.assertEqual(result["days"], [])
+        self.assertEqual(
+            [group[0] for group in server.VENUE_GROUPS["baoti"]], ["outdoor", "indoor", "windrain"]
+        )
 
     def test_browser_environment_reports_versions_without_private_capabilities(self) -> None:
         driver = types.SimpleNamespace(

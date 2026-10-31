@@ -350,6 +350,15 @@ def safe_source_diagnostic(value: object) -> dict:
                 "settledFrames",
                 "settledMaskChildren",
                 "orderHtmlResponses",
+                "catalogHtmlResponses",
+                "catalogJsonResponses",
+                "catalogOtherResponses",
+                "calendarHtmlResponses",
+                "calendarJsonResponses",
+                "calendarOtherResponses",
+                "configHtmlResponses",
+                "configJsonResponses",
+                "configOtherResponses",
                 "orderJsonResponses",
                 "orderOtherResponses",
                 "lastOrderStatus",
@@ -1377,7 +1386,12 @@ def prepare_candidate(
 
 @contextlib.contextmanager
 def isolated_candidate(
-    candidate: Path, account: pwd.struct_passwd, commit: str, *, verification_once: bool = False
+    candidate: Path,
+    account: pwd.struct_passwd,
+    commit: str,
+    *,
+    verification_once: bool = False,
+    first_product: str = "",
 ):
     executable = checked_runuser()
     runtime = Path(tempfile.mkdtemp(prefix="pi-ydmap-candidate-"))
@@ -1394,6 +1408,7 @@ def isolated_candidate(
         "YDMAP_DEPLOYMENT_COMMIT": commit,
         "PYTHONDONTWRITEBYTECODE": "1",
         "YDMAP_AUTHORIZED_VERIFICATION": "1" if verification_once else "0",
+        "YDMAP_DIAGNOSTIC_FIRST_PRODUCT": first_product,
     }
     process = None
     try:
@@ -1553,6 +1568,9 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
 
 def operate(args) -> dict:
     verification_once = getattr(args, "verification_once", False)
+    first_product = getattr(args, "first_product", "")
+    if first_product and (first_product != "windrain" or args.operation != "preflight"):
+        raise OperationFailure("verification_not_authorized")
     if verification_once and args.operation != "preflight":
         raise OperationFailure("verification_not_authorized")
     before = other_service_identities()
@@ -1566,7 +1584,11 @@ def operate(args) -> dict:
     else:
         candidate = prepare_candidate(args.staging, args.commit, args.source_sha256, account)
         options = {"verification_once": True} if verification_once else {}
-        with isolated_candidate(candidate, account, args.commit, **options) as port:
+        candidate_options = {
+            **options,
+            **({"first_product": first_product} if first_product else {}),
+        }
+        with isolated_candidate(candidate, account, args.commit, **candidate_options) as port:
             health = verify_health(request_json(port, "/healthz"), args.commit, args.source_sha256)
             evidence = (
                 inspect_venues(port, source_evidence=True, **options)
@@ -1575,6 +1597,10 @@ def operate(args) -> dict:
             )
         if before != other_service_identities():
             raise OperationFailure("unrelated_service_changed")
+        if first_product:
+            failure = OperationFailure("diagnostic_only")
+            failure.inspections = evidence
+            raise failure
         report = {
             "health": health,
             "inspections": evidence,
@@ -1603,6 +1629,7 @@ def main() -> int:
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--staging", type=Path)
     parser.add_argument("--verification-once", action="store_true")
+    parser.add_argument("--first-product", choices=("windrain",), default="")
     args = parser.parse_args()
 
     def interrupted(signum, frame):
