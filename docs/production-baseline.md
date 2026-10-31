@@ -16,6 +16,49 @@ Verify deployment, three natural free-court cycles and expiry of the old
 five-minute queued-intent window before declaring the old recipient path
 inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
+## Pi MCP OAuth Acceptance On 2026-10-31
+
+The canonical MCP endpoint `https://appium-mcp.zacks.vision/mcp` now supports
+owner-only Cloudflare Managed OAuth. Operations commit
+`dfa1cabf41606a7c53d7488dc9df1bae4dcbf49c` passed
+[exact-main CI 41178012459](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178012459),
+[protected preflight 41178608944](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178608944)
+and [protected apply 41178679434](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178679434).
+The installed Pi runtime remains `837f7efe35ae5a7042584509c0859879407e5903`.
+All five monitored host service start identities remained unchanged, and no
+credential was rotated. There are still 18 tools, one configured/online phone
+and zero active phone sessions; a second phone is not established by this work.
+
+Live Access configuration has exactly the dedicated machine policy plus the
+pinned owner's Allow policy through the existing Cloudflare login provider.
+Other account members are not phone operators. Access tokens last 15 minutes,
+with a seven-day refresh grant. DCR permits loopback/localhost and the documented
+ChatGPT callback paths only. The sole new WAF rule matches the exact MCP hostname
+and skips `bic` only, retaining Access, unrelated hostnames and other WAF checks.
+The application audience, Tunnel, DNS and existing machine credentials are unchanged.
+
+[Post-apply health 41178756304](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178756304)
+and [idempotent preflight 41178811262](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178811262),
+followed by [health 41178967478](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178967478),
+passed: RFC 9728 discovery, PKCE S256 advertisement, anonymous/invalid machine
+and invalid Bearer denial, authenticated read-only MCP and unchanged host runtime.
+The repeated preflight made no configuration writes. A separate standard MCP SDK
+probe, without authentication headers, successfully registered a public OAuth
+client and prepared a resource-bound PKCE authorization request. It stopped
+before login: zero user tokens, phone sessions or external test notifications
+were acquired/created/sent. The first real client still requires the owner to
+complete Cloudflare login/consent; no end-to-end user OAuth login is claimed.
+
+[Post-change Airflow health 41178931979](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178931979)
+passed against the unchanged `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`
+business release. This MCP control-plane change does not deploy the separate
+venue/YDMap work concurrently merged into the repository.
+
+Managed OAuth remains a Cloudflare Beta. Existing connector DNS-refresh timeout
+categories remain observable with readiness true and zero restarts; this release
+does not claim to fix them. Existing 23 moderate npm runtime audit advisories and
+the separate legacy public raw Appium surface are unchanged.
+
 ## Pi MCP OAuth Policy On 2026-10-31
 
 The first OAuth-only attempt at operations commit
@@ -34,11 +77,11 @@ false because Cloudflare added inactive default DCR fields to disabled OAuth;
 that structural comparison did not prove an authorization restore failure.
 The follow-up requires an exact-host, BIC-only skip rule, semantic disabled-OAuth
 restore checks and fixed non-secret failure reasons. No service was restarted,
-phone session created or test notification sent. OAuth remains unaccepted until
-the follow-up protected apply and client-protocol checks pass.
+phone session created or test notification sent. That attempt did not establish
+OAuth acceptance; the successful follow-up is recorded above.
 
 The owner approved managed OAuth for Codex-like agents instead of manually
-copying Access service-token headers. The candidate protected OAuth-only
+copying Access service-token headers. The protected OAuth-only
 operation enables owner-only Cloudflare login on the existing application,
 with 15-minute access tokens and a seven-day refresh grant. It preserves the
 dedicated machine token/policy, application audience, DNS, Tunnel and installed
