@@ -35,7 +35,8 @@ manual workflow dispatch may set `confirm_verification_once=true` with
 `operation=preflight`. This is not enabled by reusable release workflows or by
 the live service. The runner rejects this flag for apply/health/inspect. Only
 the isolated candidate receives the authorization, consumed once for Baoan's
-initial product page during that candidate's lifetime.
+first encountered verification challenge, including date/product transitions,
+during that candidate's lifetime. It is not limited to initial page load.
 
 The candidate inspects the rendered challenge UI for a single visible,
 unobstructed accessible slider and an instruction to drag right. It then uses
@@ -143,6 +144,10 @@ and schedule-component presence. They never include page text or cookies.
 Browser exceptions retain allowlisted exception/sentinel codes, a fixed operation
 phase and the requested public product ID. Selenium messages and stack traces
 are never exported. An absent `sourceFailure` is not proof of a provider challenge.
+Browser diagnostics retain only public Chromium/ChromeDriver version numbers,
+major-version compatibility, whether the configured UA version matches Chromium,
+and the profile-reset policy. Raw capabilities, profile paths and cookies are
+not exported. A mismatch is diagnostic evidence, not proof of a WAF root cause.
 Initial navigation retains the deployed scraper's four-second warm-up before
 attaching Selenium, within the same total timeout. This restores the original
 startup order; it is not evidence that provider access verification is resolved.

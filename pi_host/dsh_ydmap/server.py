@@ -825,6 +825,8 @@ def _wait_for_schedule(
     timeout: float = 45,
     *,
     deadline: float | None = None,
+    verification: dict[str, Any] | None = None,
+    phase: str = "initial_schedule",
     **identity: Any,
 ) -> dict[str, Any]:
     end = (
@@ -838,12 +840,34 @@ def _wait_for_schedule(
         last = _extract_day(driver)
         issue = _snapshot_issue(last, **identity)
         if issue is None:
+            if verification is not None and verification["attempted"]:
+                verification["outcome"] = "passed"
             return last
+        if (
+            issue == "captcha"
+            and verification is not None
+            and verification["outcome"] == "not_needed"
+        ):
+            if _normal_verification_once(driver, verification):
+                time.sleep(min(3, max(0, end - time.monotonic())))
+                continue
         if issue in {"captcha", "rate_limited", "login_required"}:
-            return {**last, "ready": False, "error": issue}
+            return {
+                **last,
+                "ready": False,
+                "error": issue,
+                "failurePhase": phase,
+                "requestedProduct": identity.get("sales_item_id"),
+            }
         time.sleep(min(1.0, max(0.0, end - time.monotonic())))
     # Never return a ready stale snapshot when the date switch timed out.
-    return {**last, "ready": False, "error": issue or "schedule_timeout"}
+    return {
+        **last,
+        "ready": False,
+        "error": issue or "schedule_timeout",
+        "failurePhase": phase,
+        "requestedProduct": identity.get("sales_item_id"),
+    }
 
 
 def _remaining(deadline: float, maximum: float) -> float:
@@ -924,6 +948,29 @@ def _prefixed_court_name(label: str, court: str) -> str:
     return f"{label}{name}"
 
 
+def _browser_environment(driver: webdriver.Remote) -> dict[str, Any]:
+    capabilities = getattr(driver, "capabilities", {})
+    if not isinstance(capabilities, dict):
+        return {}
+    browser = capabilities.get("browserVersion")
+    if not isinstance(browser, str) or not re.fullmatch(r"\d{1,4}(?:\.\d{1,6}){1,3}", browser):
+        return {}
+    configured = re.search(r"Chrome/([\d.]+)", UA)
+    result: dict[str, Any] = {
+        "browserVersion": browser,
+        "userAgentVersionMatchesBrowser": bool(configured and configured[1] == browser),
+        "profileResetBeforeScrape": True,
+    }
+    chrome = capabilities.get("chrome")
+    driver_value = chrome.get("chromedriverVersion") if isinstance(chrome, dict) else None
+    if isinstance(driver_value, str):
+        version = driver_value.split(" ", 1)[0]
+        if re.fullmatch(r"\d{1,4}(?:\.\d{1,6}){1,3}", version):
+            result["driverVersion"] = version
+            result["driverMajorMatchesBrowser"] = version.split(".")[0] == browser.split(".")[0]
+    return result
+
+
 def _stop_with_error(
     *,
     error: str,
@@ -987,7 +1034,12 @@ def _days_payload(
 
 
 def _scrape_available_slots(
-    venue: str, days: int, *, source_evidence: bool, verification: dict[str, Any] | None = None
+    venue: str,
+    days: int,
+    *,
+    source_evidence: bool,
+    verification: dict[str, Any] | None = None,
+    runtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     groups = VENUE_GROUPS.get(venue)
     if not groups:
@@ -1016,6 +1068,8 @@ def _scrape_available_slots(
         time.sleep(_remaining(deadline, 4))
         phase = "browser_attach"
         driver = _attach(timeout=_remaining(deadline, 30))
+        if runtime is not None:
+            runtime.update(_browser_environment(driver))
         for index, (key, label, url) in enumerate(groups):
             requested_product = parse_qs(urlparse(url).query)["salesItemId"][0]
             phase = "product_navigation"
@@ -1031,15 +1085,9 @@ def _scrape_available_slots(
                 "label": label,
             }
             phase = "initial_schedule"
-            payload = _wait_for_schedule(driver, deadline=deadline, **identity)
-            if index == 0 and verification is not None and payload.get("captcha") is True:
-                phase = "access_verification"
-                _remaining(deadline, 10)
-                if _normal_verification_once(driver, verification):
-                    time.sleep(_remaining(deadline, 3))
-                    payload = _wait_for_schedule(driver, deadline=deadline, **identity)
-                    if payload.get("ready") and not payload.get("captcha"):
-                        verification["outcome"] = "passed"
+            payload = _wait_for_schedule(
+                driver, deadline=deadline, verification=verification, phase=phase, **identity
+            )
             if not payload.get("ready"):
                 return _stop_with_error(
                     error=payload.get("error") or "schedule_not_ready",
@@ -1084,6 +1132,8 @@ def _scrape_available_slots(
                     deadline=deadline,
                     expected_date=booking_iso,
                     previous=previous,
+                    verification=verification,
+                    phase=phase,
                     **identity,
                 )
                 if not payload.get("ready"):
@@ -1190,9 +1240,12 @@ def scrape_available_slots(
     if verification_once and VERIFICATION_AVAILABLE and source_evidence and venue == "baoti":
         VERIFICATION_AVAILABLE = False
         verification = {"attempted": False, "outcome": "not_needed"}
+    runtime: dict[str, Any] = {}
     result = _scrape_available_slots(
-        venue, days, source_evidence=source_evidence, verification=verification
+        venue, days, source_evidence=source_evidence, verification=verification, runtime=runtime
     )
+    if runtime:
+        result.setdefault("diagnostics", {}).update(runtime)
     if verification is not None:
         result.setdefault("diagnostics", {}).update(
             verificationAttempted=verification["attempted"],

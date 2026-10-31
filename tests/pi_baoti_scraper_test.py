@@ -186,6 +186,26 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(result["error"], "captcha")
         self.assertEqual(self.driver.visited, [])
 
+    def test_browser_environment_reports_versions_without_private_capabilities(self) -> None:
+        driver = types.SimpleNamespace(
+            capabilities={
+                "browserVersion": "137.0.7151.119",
+                "chrome": {
+                    "chromedriverVersion": "138.0.1.2 (private-build)",
+                    "userDataDir": "private-profile",
+                },
+                "secret": "private-cookie",
+            }
+        )
+        report = server._browser_environment(driver)
+        self.assertTrue(report["userAgentVersionMatchesBrowser"])
+        self.assertFalse(report["driverMajorMatchesBrowser"])
+        self.assertEqual(report["driverVersion"], "138.0.1.2")
+        self.assertTrue(report["profileResetBeforeScrape"])
+        self.assertNotIn("private", str(report))
+        driver.capabilities["browserVersion"] = "private-token"
+        self.assertEqual(server._browser_environment(driver), {})
+
     def group_payloads(self, *, venue="baoti", key="outdoor", available=True):
         return [
             snapshot(TODAY, 1, venue=venue, key=key, available=available),
@@ -527,6 +547,56 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertTrue(result["captcha"])
         self.assertTrue(result["diagnostics"]["verificationAttempted"])
         self.assertEqual(result["diagnostics"]["verificationOutcome"], "not_passed")
+
+    def test_late_date_challenge_consumes_the_same_single_authorization(self) -> None:
+        self.install_payloads([snapshot(), {"captcha": True, "ready": False}])
+
+        def gesture(driver, state):
+            state.update(attempted=True, outcome="not_passed")
+            return True
+
+        with (
+            patch.object(server, "VERIFICATION_AVAILABLE", True),
+            patch.object(server, "_normal_verification_once", side_effect=gesture) as action,
+        ):
+            result = server.scrape_available_slots(
+                "baoti", 2, source_evidence=True, verification_once=True
+            )
+        action.assert_called_once()
+        self.assertEqual(result["days"], [])
+        self.assertEqual(result["error"], "captcha")
+        self.assertEqual(result["diagnostics"]["failurePhase"], "refreshed_schedule")
+        self.assertEqual(result["diagnostics"]["requestedProduct"], "111317")
+        self.assertTrue(result["diagnostics"]["verificationAttempted"])
+
+    def test_verification_recovery_requires_valid_source_and_never_repeats(self) -> None:
+        self.install_payloads([{"captcha": True}, snapshot(TOMORROW, 2)])
+        state = {"attempted": False, "outcome": "not_needed"}
+
+        def gesture(driver, state):
+            state.update(attempted=True, outcome="not_passed")
+            return True
+
+        with patch.object(server, "_normal_verification_once", side_effect=gesture) as action:
+            result = server._wait_for_schedule(
+                self.driver,
+                timeout=10,
+                expected_date=TOMORROW.isoformat(),
+                previous=snapshot(),
+                verification=state,
+                **OUTDOOR_IDENTITY,
+            )
+            self.assertTrue(result["ready"])
+            self.assertEqual(state["outcome"], "passed")
+            with patch.object(server, "_extract_day", return_value={"captcha": True}):
+                failed = server._wait_for_schedule(
+                    self.driver,
+                    timeout=10,
+                    verification=state,
+                    **OUTDOOR_IDENTITY,
+                )
+            self.assertFalse(failed["ready"])
+            action.assert_called_once()
 
     def test_ordinary_watcher_results_never_include_source_evidence(self) -> None:
         self.install_payloads(self.group_payloads(venue="dsh"))
