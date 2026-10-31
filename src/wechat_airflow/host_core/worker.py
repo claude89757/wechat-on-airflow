@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from .control import delivery_guard
 from .database import ensure_schema, transaction
-from .domain import format_digest, utc_now
+from .domain import format_digest, utc_now, with_subscriber_digest_note
 from .service import runtime_heartbeat
 from .settings import HostCoreSettings, load_settings, load_tencent_email_settings
 from .tencent_ses import TencentSesError, get_email_status, normalize_status, send_template_email
@@ -265,6 +265,7 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
             category = "邮箱验证" if rows[0]["email_type"] == "verification" else "系统通知"
         else:
             subject, body = format_digest(str(row["body"]) for row in rows)
+            body = with_subscriber_digest_note(body)
             category = "网球空场提醒"
         phase, reason, sent = "submission_unknown", None, None
         try:

@@ -87,9 +87,13 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   a concerned state. Keep sprite timing compositor-friendly and do not restart
   unchanged animations on polling refreshes.
 - Creating a subscription is a standalone card and flow. Users choose venues,
-  one or more ISO weekdays, a desired daily time range, and an active duration
-  from 7 to 14 days. Weekday selection defaults to all seven days and offers
-  daily, workday, and weekend presets.
+  one ideal-window preset or a custom ISO weekday set plus daily time range,
+  and an active duration from 7 to 14 days. The create form defaults to weekday
+  evening (Monday–Friday, 19:00–22:00). Named presets are weekday evening,
+  weekday noon, weekend morning, and weekend afternoon. Email matches only
+  slots that overlap that single window. WeChat group delivery stays
+  venue-level and is not filtered by the personal window. A second window is a
+  second subscription until a later multi-window phase.
 - Opening the subscription verification sheet must not summon the native
   keyboard until the user taps an input. While the native keyboard is open,
   every sheet follows `visualViewport`, keeps the focused email or verification
