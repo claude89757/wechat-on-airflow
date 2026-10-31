@@ -139,6 +139,15 @@ including public product/date/court identities and field-presence flags. Earlier
 successful venue inspections remain in the bounded report when a later venue
 fails. A missing product-name field, date mismatch, rate limit or verification
 challenge therefore remains diagnosable without exposing browser bodies or secrets.
+Challenge reports include bounded numeric `accessDiagnostics`: visible challenge
+roots/children, semantic and legacy handle counts, frames and accessible frames,
+verification script references, a three-second read-only rendering comparison,
+order-response MIME classifications/status, and
+network/console failure categories. These are passive observations; unknown fields,
+text, URLs, headers, request/response bodies and raw logs never cross the host
+boundary. Network logging starts when WebDriver attaches; absent events cannot
+rule out earlier loading failures. A legacy handle count is diagnostic only and
+does not itself authorize or execute a gesture.
 Challenge reports also retain boolean text/mask detection, document completion
 and schedule-component presence. They never include page text or cookies.
 Browser exceptions retain allowlisted exception/sentinel codes, a fixed operation

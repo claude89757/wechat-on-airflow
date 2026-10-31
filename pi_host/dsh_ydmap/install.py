@@ -171,6 +171,7 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "accessDiagnostics",
     "browserVersion",
     "driverVersion",
     "driverMajorMatchesBrowser",
@@ -332,6 +333,39 @@ def safe_source_diagnostic(value: object) -> dict:
     if not isinstance(value, dict):
         return {}
     result = {}
+    access = value.get("accessDiagnostics")
+    if isinstance(access, dict):
+        result["accessDiagnostics"] = {
+            key: access[key]
+            for key in (
+                "maskRoots",
+                "maskChildren",
+                "semanticHandles",
+                "legacyHandles",
+                "frames",
+                "accessibleFrames",
+                "verificationScripts",
+                "settledLegacyHandles",
+                "settledSemanticHandles",
+                "settledFrames",
+                "settledMaskChildren",
+                "orderHtmlResponses",
+                "orderJsonResponses",
+                "orderOtherResponses",
+                "lastOrderStatus",
+                "scriptResponses",
+                "scriptHttpErrors",
+                "orderFailures",
+                "scriptFailures",
+                "otherFailures",
+                "tlsFailures",
+                "dnsFailures",
+                "blockedFailures",
+                "cspErrors",
+                "referenceErrors",
+            )
+            if type(access.get(key)) is int and 0 <= access[key] <= 10000
+        }
     failed_venues = value.get("failedVenues")
     if (
         isinstance(failed_venues, list)
