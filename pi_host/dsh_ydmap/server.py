@@ -36,6 +36,8 @@ PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/dsh_ydmap_profile"))
 DEBUG_PORT = int(os.environ.get("YDMAP_DEBUG_PORT", "9224"))
 SCHEMA_VERSION = 2
 SCRAPE_TIMEOUT = 210
+DRIVER_HTTP_TIMEOUT = 30
+DRIVER_CLEANUP_TIMEOUT = 5
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 CHROMIUM_BIN = "/usr/lib/chromium/chromium"
 CHROMEDRIVER = "/usr/local/bin/chromedriver"
@@ -472,6 +474,7 @@ def _stop_driver_service(service: Any) -> None:
 
 
 def _attach(timeout: float = 30) -> webdriver.Remote:
+    from selenium.webdriver.remote.client_config import ClientConfig
     from selenium.webdriver.remote.remote_connection import RemoteConnection
 
     # Configure the connection before NEW_SESSION. Calling the deprecated
@@ -486,10 +489,18 @@ def _attach(timeout: float = 30) -> webdriver.Remote:
     watchdog.start()
     try:
         service.start()
-        connection = RemoteConnection(service.service_url, keep_alive=False)
-        connection.set_timeout(10)
+        # The wire timeout must exceed the 20-second page-load limit, allowing
+        # ChromeDriver to return its own bounded error instead of losing the
+        # local command response. The startup watchdog still bounds NEW_SESSION.
+        config = ClientConfig(
+            remote_server_addr=service.service_url,
+            keep_alive=False,
+            timeout=DRIVER_HTTP_TIMEOUT,
+        )
+        connection = RemoteConnection(client_config=config)
         driver = webdriver.Remote(command_executor=connection, options=opts)
         driver._ydmap_service = service
+        driver._ydmap_client_config = config
         driver.set_page_load_timeout(20)
         driver.set_script_timeout(8)
         return driver
@@ -502,6 +513,9 @@ def _attach(timeout: float = 30) -> webdriver.Remote:
 
 def _stop(proc: subprocess.Popen[Any], driver: webdriver.Remote | None) -> None:
     if driver is not None:
+        config = getattr(driver, "_ydmap_client_config", None)
+        if config is not None:
+            config.timeout = DRIVER_CLEANUP_TIMEOUT
         try:
             driver.quit()
         except Exception:
@@ -1261,6 +1275,15 @@ def _scrape_available_slots(
     source_budget: dict[str, Any] = {"remaining": SOURCE_TOTAL_BYTES, "seen": set()}
     phase = "browser_start"
     requested_product = parse_qs(urlparse(groups[0][2]).query)["salesItemId"][0]
+    # A larger local wire timeout must never extend the complete scrape budget.
+    # Kill only this scrape's current driver if a renderer stops answering;
+    # the reserved thirty seconds remain available for browser cleanup.
+    watchdog = threading.Timer(
+        max(0, deadline - time.monotonic()),
+        lambda: _stop_driver_service(getattr(driver, "_ydmap_service", None)),
+    )
+    watchdog.daemon = True
+    watchdog.start()
     try:
         next_product_at = 0.0
         for index, (key, label, url) in enumerate(groups):
@@ -1436,12 +1459,23 @@ def _scrape_available_slots(
                 if code in str(exc):
                     error = code
                     break
-        return _stop_with_error(
-            error=error,
-            venue=venue,
-            payload={"failurePhase": phase, "requestedProduct": requested_product},
-        )
+        observed: dict[str, Any] = {"failurePhase": phase, "requestedProduct": requested_product}
+        if driver is not None and error in {
+            "ReadTimeoutError",
+            "MaxRetryError",
+            "ProtocolError",
+            "TimeoutException",
+            "WebDriverException",
+        }:
+            # Passive local logs/UI only; do not repeat the failed source request
+            # or interaction. Limit each diagnostic command and total lifetime.
+            config = getattr(driver, "_ydmap_client_config", None)
+            if config is not None:
+                config.timeout = DRIVER_CLEANUP_TIMEOUT
+            observed["accessDiagnostics"] = _access_diagnostics(driver)
+        return _stop_with_error(error=error, venue=venue, payload=observed)
     finally:
+        watchdog.cancel()
         if proc is not None:
             _stop(proc, driver)
 

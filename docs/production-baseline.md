@@ -1,5 +1,35 @@
 # Production Baseline
 
+## Quiesced Pi comparison on 2026-10-31
+
+[Protected comparison 41201808352](https://github.com/claude89757/wechat-on-airflow/actions/runs/41201808352)
+used `075da07ff7de750bca2f8f6ea0485afa4c06b63e`, after
+[exact-main CI 41201211803](https://github.com/claude89757/wechat-on-airflow/actions/runs/41201211803).
+The Airflow drain and original pause-state restoration were both verified.
+Dashah verified all five dates. Baoan failed in its first candidate cycle at
+the third native product (`111319`), `product_navigation`, with the now-retained
+`ReadTimeoutError`. No complete Baoan cycle passed, no live service was replaced,
+and no synthetic notification occurred. This failure is a local driver-channel
+timeout, not a newly observed CAPTCHA. Earlier calendar-HTML/challenge evidence
+remains valid and separate. Quiescence did not restore the full candidate;
+it does not rule out every form of host resource contention.
+The independent [post-comparison Airflow health 41202111090](https://github.com/claude89757/wechat-on-airflow/actions/runs/41202111090)
+passed against unchanged production `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`.
+
+The driver connection used a ten-second HTTP timeout while allowing twenty
+seconds for page loading and eight seconds for scripts. Follow-up uses the
+supported per-connection `ClientConfig` with thirty seconds for HTTP responses,
+keeping the existing page/script limits. A scrape-deadline watchdog stops only
+the current driver before the thirty-second cleanup reserve, and cleanup uses
+five-second command timeouts. Driver-command failures retain bounded passive
+UI/log counters without repeating a source request or gesture. Source restoration
+and the exact cause of any remaining renderer delay require a new real check.
+Git history traces that ten-second limit to the earlier repair
+`f9fc7351` ([PR #263](https://github.com/claude89757/wechat-on-airflow/pull/263));
+the previous implementation used the normal Chrome driver constructor. This
+timeout regression is distinct from the original integration and from the
+independently observed upstream challenge responses.
+
 ## Native product-context comparison on 2026-10-31
 
 [Pi preflight 41199657762](https://github.com/claude89757/wechat-on-airflow/actions/runs/41199657762)
