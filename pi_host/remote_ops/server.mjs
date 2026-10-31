@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFileSync, appendFileSync } from "node:fs";
+import { readFileSync, appendFileSync, realpathSync } from "node:fs";
 import { loadavg, freemem, totalmem, uptime } from "node:os";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -109,7 +109,7 @@ http.requestTimeout = 30000;
 http.headersTimeout = 10000;
 return http;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const config = JSON.parse(readFileSync(process.env.OPS_CONFIG || "/etc/zacks-ops-mcp/runtime.json"));
   createOpsServer(config).listen(config.port || 3340, "127.0.0.1");
 }

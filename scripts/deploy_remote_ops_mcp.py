@@ -23,6 +23,16 @@ TARGETS = {
     "vps": ("vps-mcp.zacks.vision", "Zacks VPS administrators"),
     "phone": ("appium-mcp.zacks.vision", "Zacks phone operators"),
 }
+ROOT_PYTHON = "sudo -n python3"
+PHASE = "connect"
+
+
+def host_environment(client):
+    global ROOT_PYTHON
+    probe = "import json,os,sys,shutil; print(json.dumps({'rootLogin':os.geteuid()==0,'pythonVersion':list(sys.version_info[:3]),'sudoAvailable':bool(shutil.which('sudo'))}))"
+    report = json.loads(phone.remote(client, "python3 -c " + shlex.quote(probe)))
+    ROOT_PYTHON = "python3" if report["rootLogin"] else "sudo -n python3"
+    return report
 
 
 def group(name, apply):
@@ -108,7 +118,8 @@ def credential_read(client):
     return json.loads(
         phone.remote(
             client,
-            "sudo -n python3 -c "
+            ROOT_PYTHON
+            + " -c "
             + shlex.quote(
                 "from pathlib import Path; p=Path('/etc/zacks-ops-mcp/cloudflare.json'); print(p.read_text() if p.exists() else '{}')"
             ),
@@ -118,7 +129,7 @@ def credential_read(client):
 
 def save(client, installer, commit, value):
     phone.remote(
-        client, f"sudo -n python3 {installer} credentials --commit {commit}", json.dumps(value)
+        client, f"{ROOT_PYTHON} {installer} credentials --commit {commit}", json.dumps(value)
     )
 
 
@@ -356,6 +367,7 @@ def phone_access(client, apply):
 
 
 def main():
+    global PHASE
     target, operation, commit = (
         os.environ[key] for key in ("OPS_TARGET", "OPERATION", "TARGET_COMMIT")
     )
@@ -369,6 +381,7 @@ def main():
     staging = "/tmp/remote-ops-" + uuid.uuid4().hex
     try:
         if target == "phone":
+            PHASE = "phone_access"
             if operation == "withdraw":
                 raise ValueError("phone_withdraw_not_supported")
             report = phone_access(client, operation == "apply")
@@ -376,20 +389,30 @@ def main():
                 raise RuntimeError("collaborator_policy_missing")
             print(json.dumps(report))
             return
+        PHASE = "host_environment"
+        environment = host_environment(client)
+        print(
+            json.dumps({"ok": True, "phase": PHASE, "target": target, "environment": environment})
+        )
+        PHASE = "host_preflight"
         phone.remote(client, "mkdir -m 700 " + staging)
         installer = staging + "/install.py"
         with client.open_sftp() as sftp:
             sftp.put("pi_host/remote_ops/install.py", installer)
-        prefix = f"sudo -n python3 {installer}"
+        prefix = f"{ROOT_PYTHON} {installer}"
+        if operation == "withdraw":
+            print(phone.remote(client, f"{prefix} withdraw --commit {commit}"))
+            return
         preflight = json.loads(phone.remote(client, f"{prefix} preflight --commit {commit}"))
+        if not preflight["ok"]:
+            print(json.dumps({**preflight, "target": target, "phase": PHASE}))
+            raise RuntimeError("host_preflight_failed")
         if operation == "preflight":
             group(TARGETS[target][1], False)
             print(json.dumps({**preflight, "target": target, "applied": False}))
             return
-        if operation == "withdraw":
-            print(phone.remote(client, f"{prefix} withdraw --commit {commit}"))
-            return
         if operation == "apply":
+            PHASE = "cloudflare_provision"
             credentials = provision(client, installer, commit, target)
             # Reuse the already tested exact-host BIC-only exception implementation.
             phone.HOSTNAME = TARGETS[target][0]
@@ -415,15 +438,18 @@ def main():
                 },
             }
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            PHASE = "host_activate"
             phone.remote(
                 client,
                 f"{prefix} apply --commit {commit} --staging {staging} --source-sha256 {digest}",
                 json.dumps(payload),
             )
+            PHASE = "publish_dns"
             publish(credentials)
         else:
             credentials = credential_read(client)
             phone.remote(client, f"{prefix} health --commit {commit}")
+        PHASE = "public_health"
         for attempt in range(6):
             try:
                 report = public_health(credentials, commit)
@@ -455,5 +481,10 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print(json.dumps({"ok": False, "errorClass": type(exc).__name__}))
+        report = {"ok": False, "phase": PHASE, "errorClass": type(exc).__name__}
+        if isinstance(exc, phone.RemoteOperationError):
+            report["remoteErrorClass"] = exc.error_class
+        if isinstance(exc, urllib.error.HTTPError):
+            report["httpStatus"] = exc.code
+        print(json.dumps(report))
         raise SystemExit(1) from None

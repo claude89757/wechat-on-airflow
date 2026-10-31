@@ -88,8 +88,9 @@ Cloudflare management token. Each collaborator authorizes their own client.
 Revoke by removing group membership and revoking the user's Access sessions /
 OAuth grants through Cloudflare. Group removal alone is not proof that all
 existing tokens immediately stop working. Access tokens last 15 minutes and
-refresh grants seven days. Emergency `withdraw` stops only the affected host's
+refresh grants seven days. Emergency `withdraw` disables and stops only the affected host's
 operations MCP and connector, not Airflow, Sender, Appium or the other host.
+The withdrawn units stay disabled across reboots until an explicit apply.
 
 ## GitHub Window
 

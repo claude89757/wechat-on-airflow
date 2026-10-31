@@ -1,10 +1,44 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync, symlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createServer } from "node:net";
 import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from "jose";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createOpsServer } from "../server.mjs";
+
+test("systemd-style symlink entrypoint actually starts the HTTP server", { timeout: 15000 }, async () => {
+  const reserve = createServer().listen(0, "127.0.0.1");
+  await once(reserve, "listening");
+  const port = reserve.address().port;
+  reserve.close(); await once(reserve, "close");
+  const directory = mkdtempSync(join(tmpdir(), "ops-entrypoint-"));
+  const entry = join(directory, "current.mjs"), config = join(directory, "runtime.json");
+  symlinkSync(fileURLToPath(new URL("../server.mjs", import.meta.url)), entry);
+  writeFileSync(config, JSON.stringify({ origin: "https://pi-mcp.zacks.vision", target: "pi",
+    commit: "a".repeat(40), issuer: "https://zacks-vision-ops.cloudflareaccess.com",
+    audience: "isolated-audience", port }));
+  const child = spawn(process.execPath, [entry], { env: { ...process.env, OPS_CONFIG: config }, stdio: "ignore" });
+  try {
+    let report;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      assert.equal(child.exitCode, null, "server exited before opening its listener");
+      try { report = await (await fetch(`http://127.0.0.1:${port}/healthz`)).json(); break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(report?.commit, "a".repeat(40));
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = once(child, "close"); child.kill(); await closed;
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("real HTTP MCP verifies JWT, isolates users and requires browser-only confirmation", async () => {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
