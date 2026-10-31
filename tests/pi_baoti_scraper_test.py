@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import json
@@ -12,7 +13,7 @@ import types
 import unittest
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVER_PATH = ROOT / "pi_host" / "dsh_ydmap" / "server.py"
@@ -882,6 +883,30 @@ class PiBaotiScraperTest(unittest.TestCase):
 
 
 class PiDriverLifecycleTest(unittest.TestCase):
+    def test_ui_capture_is_opt_in_and_refuses_contact_or_login_content(self) -> None:
+        driver = Mock(spec=["execute_script", "get_screenshot_as_png"])
+        with patch.dict(server.os.environ, {"YDMAP_CAPTURE_BROWSER_UI": "0"}):
+            self.assertIsNone(server._capture_failure_ui(driver, "dsh"))
+        driver.execute_script.assert_not_called()
+        driver.execute_script.return_value = True
+        with patch.dict(server.os.environ, {"YDMAP_CAPTURE_BROWSER_UI": "1"}):
+            self.assertIsNone(server._capture_failure_ui(driver, "dsh"))
+        driver.get_screenshot_as_png.assert_not_called()
+
+    def test_public_verification_capture_is_bounded_and_hash_identified(self) -> None:
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl0l3sAAAAASUVORK5CYII="
+        )
+        driver = Mock(spec=["execute_script", "get_screenshot_as_png"])
+        driver.execute_script.return_value = False
+        driver.get_screenshot_as_png.return_value = png
+        with patch.dict(server.os.environ, {"YDMAP_CAPTURE_BROWSER_UI": "1"}):
+            image = server._capture_failure_ui(driver, "dsh")
+            self.assertEqual(image["sha256"], hashlib.sha256(png).hexdigest())
+            self.assertEqual(base64.b64decode("".join(image["chunks"])), png)
+            driver.get_screenshot_as_png.return_value = b"x" * (server.UI_CAPTURE_MAX_BYTES + 1)
+            self.assertIsNone(server._capture_failure_ui(driver, "dsh"))
+
     def test_native_browser_launch_uses_fixed_profile_and_no_user_agent_override(self) -> None:
         profile = Path("/tmp/service-profile/baoti-outdoor")
         with patch.object(server.subprocess, "Popen") as popen:
@@ -969,7 +994,18 @@ class PiDriverLifecycleTest(unittest.TestCase):
         with patch.object(server.os, "killpg"):
             server._stop(proc, driver)
         driver.quit.assert_called_once()
-        proc.wait.assert_called_once_with(timeout=8)
+        driver.close.assert_called_once()
+        proc.wait.assert_called_once_with(timeout=5)
+
+    def test_graceful_close_falls_back_to_bounded_process_termination(self) -> None:
+        driver, proc = Mock(), Mock(pid=12345)
+        driver._ydmap_client_config = types.SimpleNamespace(timeout=30)
+        driver._ydmap_service = types.SimpleNamespace(process=None)
+        proc.wait.side_effect = [TimeoutError(), None]
+        with patch.object(server.os, "killpg") as terminate:
+            server._stop(proc, driver)
+        self.assertEqual(proc.wait.call_args_list, [call(timeout=5), call(timeout=8)])
+        terminate.assert_called_once()
 
     def test_unresponsive_driver_process_is_killed_with_bounded_wait(self) -> None:
         process = Mock()

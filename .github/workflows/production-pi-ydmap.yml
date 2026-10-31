@@ -22,6 +22,11 @@ on:
         type: string
   workflow_dispatch:
     inputs:
+      capture_browser_ui:
+        description: Capture a bounded public candidate verification page on preflight failure
+        type: boolean
+        required: false
+        default: false
       drain_preflight:
         description: Quiesce only the YDMap DAGs during candidate preflight, then restore pause flags
         type: boolean
@@ -100,6 +105,7 @@ jobs:
       - name: Run protected scraper operation
         env:
           DRAIN_PREFLIGHT: ${{ inputs.operation == 'preflight' && inputs.drain_preflight }}
+          CAPTURE_BROWSER_UI: ${{ inputs.capture_browser_ui || false }}
           CONFIRM_VERIFICATION_ONCE: ${{ inputs.confirm_verification_once || false }}
           DIAGNOSTIC_FIRST_PRODUCT: ${{ inputs.diagnostic_first_product || 'default' }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
@@ -127,3 +133,11 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Upload explicit public verification UI diagnostic
+        if: always() && inputs.operation == 'preflight' && inputs.capture_browser_ui == true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pi-ydmap-ui-${{ inputs.request_id }}
+          path: .local/diagnostics/pi-ydmap/*.png
+          if-no-files-found: warn
+          retention-days: 1

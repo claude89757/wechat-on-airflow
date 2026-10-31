@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import hashlib
 import json
@@ -12,6 +13,7 @@ import pwd
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -23,6 +25,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 BASE = Path("/opt/pi-ydmap-scraper")
+SERVICE_PROFILE = Path("/tmp/pi-ydmap-service-profile-v2")
+PROFILE_MARKER = b"pi-ydmap-service-profile-v2\n"
 RUNUSER = Path("/usr/sbin/runuser")
 UNIT = "dsh-ydmap-scraper.service"
 DROPIN = Path("/etc/systemd/system/dsh-ydmap-scraper.service.d/90-managed-release.conf")
@@ -327,6 +331,35 @@ class OperationFailure(RuntimeError):
         self.service_diagnostic = None
         self.source_failure = None
         self.source_diagnostic = {}
+        self.diagnostic_ui = None
+
+
+def safe_diagnostic_ui(value: object) -> dict | None:
+    if not isinstance(value, dict) or set(value) != {"venue", "mime_type", "sha256", "chunks"}:
+        return None
+    if value.get("venue") not in {"dsh", "baoti"} or value.get("mime_type") != "image/png":
+        return None
+    chunks = value.get("chunks")
+    if (
+        not isinstance(chunks, list)
+        or not 1 <= len(chunks) <= 86
+        or any(not isinstance(chunk, str) or not 1 <= len(chunk) <= 4096 for chunk in chunks)
+    ):
+        return None
+    try:
+        png = base64.b64decode("".join(chunks), validate=True)
+    except (ValueError, TypeError):
+        return None
+    if not 24 <= len(png) <= 256 * 1024 or not png.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    if not png.endswith(b"\x00\x00\x00\x00IEND\xaeB`\x82"):
+        return None
+    width, height = int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
+    if not (1 <= width <= 4096 and 1 <= height <= 4096):
+        return None
+    if value.get("sha256") != hashlib.sha256(png).hexdigest():
+        return None
+    return {key: value[key] for key in ("venue", "mime_type", "sha256", "chunks")}
 
 
 def safe_source_failure(value: object) -> str | None:
@@ -937,6 +970,7 @@ def request_json(port: int, path: str, *, timeout: int = 5) -> dict:
                 failure.source_diagnostic = safe_source_diagnostic(
                     failed_payload.get("diagnostics")
                 )
+                failure.diagnostic_ui = safe_diagnostic_ui(failed_payload.get("diagnostic_ui"))
         except (ValueError, OSError):
             pass
         raise failure from None
@@ -1261,6 +1295,9 @@ def inspect_venues(
         # Diagnostic preflight checks each independent venue once. A failure
         # still blocks activation, even when the other venue was verified.
         failure = failures[-1]
+        failure.diagnostic_ui = next(
+            (item.diagnostic_ui for item in reversed(failures) if item.diagnostic_ui), None
+        )
         failure.inspections = reports
         failure.source_diagnostic = {
             **(failure.source_diagnostic or {}),
@@ -1387,6 +1424,46 @@ def wait_idle() -> None:
     raise OperationFailure("scraper_drain_timeout")
 
 
+def service_profile(account: pwd.struct_passwd) -> Path:
+    """Keep only this service's browser state on the Pi, never a personal profile."""
+    uid, gid = account.pw_uid, account.pw_gid
+    if type(uid) is not int or uid <= 0 or type(gid) is not int or gid < 0:
+        raise OperationFailure("unrecognized_service_profile")
+    profile = SERVICE_PROFILE
+    temporary = Path("/tmp").resolve()
+    if (
+        profile.is_symlink()
+        or profile.resolve() == temporary
+        or not profile.resolve().is_relative_to(temporary)
+    ):
+        raise OperationFailure("unrecognized_service_profile")
+    try:
+        profile.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    else:
+        marker = profile / ".pi-ydmap-profile"
+        marker.write_bytes(PROFILE_MARKER)
+        marker.chmod(0o600)
+        os.chown(marker, uid, gid)
+        os.chown(profile, uid, gid)
+    state = profile.lstat()
+    marker = profile / ".pi-ydmap-profile"
+    if (
+        not stat.S_ISDIR(state.st_mode)
+        or state.st_uid != uid
+        or stat.S_IMODE(state.st_mode) != 0o700
+        or marker.is_symlink()
+        or not marker.is_file()
+        or marker.stat().st_uid != uid
+        or stat.S_IMODE(marker.stat().st_mode) != 0o600
+        or marker.stat().st_size != len(PROFILE_MARKER)
+        or marker.read_bytes() != PROFILE_MARKER
+    ):
+        raise OperationFailure("unrecognized_service_profile")
+    return profile
+
+
 def prepare_candidate(
     staging: Path, commit: str, source_hash: str, account: pwd.struct_passwd
 ) -> Path:
@@ -1465,6 +1542,8 @@ def isolated_candidate(
     *,
     verification_once: bool = False,
     first_product: str = "",
+    profile: Path | None = None,
+    capture_browser_ui: bool = False,
 ):
     executable = checked_runuser()
     runtime = Path(tempfile.mkdtemp(prefix="pi-ydmap-candidate-"))
@@ -1477,11 +1556,12 @@ def isolated_candidate(
         "XDG_RUNTIME_DIR": f"/run/user/{account.pw_uid}",
         "YDMAP_LISTEN_PORT": "18788",
         "YDMAP_DEBUG_PORT": "19224",
-        "YDMAP_PROFILE": str(runtime / "profile"),
+        "YDMAP_PROFILE": str(profile or runtime / "profile"),
         "YDMAP_DEPLOYMENT_COMMIT": commit,
         "PYTHONDONTWRITEBYTECODE": "1",
         "YDMAP_AUTHORIZED_VERIFICATION": "1" if verification_once else "0",
         "YDMAP_DIAGNOSTIC_FIRST_PRODUCT": first_product,
+        "YDMAP_CAPTURE_BROWSER_UI": "1" if capture_browser_ui else "0",
     }
     process = None
     try:
@@ -1576,7 +1656,7 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
                 f"ExecStart=/usr/bin/python3 {current}/server.py\n"
                 f"Environment=YDMAP_DEPLOYMENT_COMMIT={commit}\n"
                 "Environment=YDMAP_LISTEN_PORT=8788\nEnvironment=YDMAP_DEBUG_PORT=9224\n"
-                "Environment=YDMAP_PROFILE=/tmp/dsh_ydmap_profile\n"
+                f"Environment=YDMAP_PROFILE={SERVICE_PROFILE}\n"
             )
             atomic_bytes(DROPIN, override.encode(), mode=0o644)
             run(["systemctl", "daemon-reload"])
@@ -1643,6 +1723,9 @@ def operate(args) -> dict:
     verification_once = getattr(args, "verification_once", False)
     first_product = getattr(args, "first_product", "")
     drain_preflight = getattr(args, "drain_preflight", False)
+    capture_browser_ui = getattr(args, "capture_browser_ui", False)
+    if capture_browser_ui and args.operation != "preflight":
+        raise OperationFailure("verification_not_authorized")
     if drain_preflight and (args.operation != "preflight" or verification_once or first_product):
         raise OperationFailure("verification_not_authorized")
     if first_product and (first_product != "windrain" or args.operation != "preflight"):
@@ -1652,6 +1735,8 @@ def operate(args) -> dict:
     before = other_service_identities()
     account = verify_existing_service()
     if args.operation == "apply" or drain_preflight:
+        validate_drain_proof(args.drain_proof, args.commit)
+        wait_idle()
         validate_drain_proof(args.drain_proof, args.commit)
     if args.operation in {"health", "inspect"}:
         health = verify_health(request_json(8788, "/healthz"), args.commit, args.source_sha256)
@@ -1663,6 +1748,12 @@ def operate(args) -> dict:
         candidate_options = {
             **options,
             **({"first_product": first_product} if first_product else {}),
+            **(
+                {"profile": service_profile(account)}
+                if args.operation == "apply" or drain_preflight
+                else {}
+            ),
+            **({"capture_browser_ui": True} if capture_browser_ui else {}),
         }
         with isolated_candidate(candidate, account, args.commit, **candidate_options) as port:
             health = verify_health(request_json(port, "/healthz"), args.commit, args.source_sha256)
@@ -1712,6 +1803,7 @@ def main() -> int:
     parser.add_argument("--verification-once", action="store_true")
     parser.add_argument("--first-product", choices=("windrain",), default="")
     parser.add_argument("--drain-preflight", action="store_true")
+    parser.add_argument("--capture-browser-ui", action="store_true")
     args = parser.parse_args()
 
     def interrupted(signum, frame):
@@ -1762,6 +1854,11 @@ def main() -> int:
                     if isinstance(exc, OperationFailure)
                     else {},
                     "externalTestSends": 0,
+                    **(
+                        {"diagnostic_ui": safe_diagnostic_ui(exc.diagnostic_ui)}
+                        if args.capture_browser_ui and isinstance(exc, OperationFailure)
+                        else {}
+                    ),
                 },
                 source_evidence=args.operation == "preflight",
             )

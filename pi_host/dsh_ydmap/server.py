@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -32,12 +33,13 @@ BAOTI_GROUP_ITEMS = (
 )
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
-PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/dsh_ydmap_profile"))
+PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
 DEBUG_PORT = int(os.environ.get("YDMAP_DEBUG_PORT", "9224"))
 SCHEMA_VERSION = 2
 SCRAPE_TIMEOUT = 210
 DRIVER_HTTP_TIMEOUT = 30
 DRIVER_CLEANUP_TIMEOUT = 5
+UI_CAPTURE_MAX_BYTES = 256 * 1024
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 CHROMIUM_BIN = "/usr/lib/chromium/chromium"
 CHROMEDRIVER = "/usr/local/bin/chromedriver"
@@ -517,10 +519,22 @@ def _stop(proc: subprocess.Popen[Any], driver: webdriver.Remote | None) -> None:
         if config is not None:
             config.timeout = DRIVER_CLEANUP_TIMEOUT
         try:
+            # Closing our own final tab lets Chromium flush its profile before
+            # the fallback process termination. Remote-attached quit alone need
+            # not close the independently launched browser.
+            driver.close()
+        except Exception:
+            pass
+        try:
             driver.quit()
         except Exception:
             pass
         _stop_driver_service(getattr(driver, "_ydmap_service", None))
+    try:
+        proc.wait(timeout=5)
+        return
+    except Exception:
+        pass
     try:
         os.killpg(proc.pid, signal.SIGTERM)
     except Exception:
@@ -1181,6 +1195,46 @@ def _browser_environment(driver: webdriver.Remote) -> dict[str, Any]:
     return result
 
 
+def _capture_failure_ui(driver: webdriver.Remote, venue: str) -> dict[str, Any] | None:
+    """Explicit manual preflight only; capture our public page, never credentials."""
+    if os.environ.get("YDMAP_CAPTURE_BROWSER_UI") != "1":
+        return None
+    config = getattr(driver, "_ydmap_client_config", None)
+    previous = getattr(config, "timeout", None)
+    try:
+        if config is not None:
+            config.timeout = DRIVER_CLEANUP_TIMEOUT
+        sensitive = driver.execute_script(r"""
+const text = document.body?.innerText || '';
+return /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text) ||
+  /\b1[3-9]\d{9}\b/.test(text) ||
+  /\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(text) ||
+  /(?:[0-9a-f]{0,4}:){3,7}[0-9a-f]{0,4}|\b[0-9a-f]{1,4}::[0-9a-f]+\b/i.test(text) ||
+  /扫码登录|扫码授权|扫描二维码.{0,12}登录|scan.{0,20}(?:login|log in|sign in)/i.test(text) ||
+  [...document.querySelectorAll('input[type=email],input[type=password],input[type=tel]')]
+    .some(input => !!input.value);
+""")
+        if sensitive is not False:
+            return None
+        png = driver.get_screenshot_as_png()
+        if not isinstance(png, bytes) or not 24 <= len(png) <= UI_CAPTURE_MAX_BYTES:
+            return None
+        if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+            return None
+        encoded = base64.b64encode(png).decode("ascii")
+        return {
+            "venue": venue,
+            "mime_type": "image/png",
+            "sha256": hashlib.sha256(png).hexdigest(),
+            "chunks": [encoded[offset : offset + 4096] for offset in range(0, len(encoded), 4096)],
+        }
+    except Exception:
+        return None
+    finally:
+        if config is not None:
+            config.timeout = previous
+
+
 def _stop_with_error(
     *,
     error: str,
@@ -1189,7 +1243,7 @@ def _stop_with_error(
     captcha: bool = False,
 ) -> dict[str, Any]:
     observed = payload or {}
-    return {
+    result = {
         "schema_version": SCHEMA_VERSION,
         "venue": venue,
         "ok": False,
@@ -1226,6 +1280,9 @@ def _stop_with_error(
             if key in observed
         },
     }
+    if isinstance(observed.get("diagnostic_ui"), dict):
+        result["diagnostic_ui"] = observed["diagnostic_ui"]
+    return result
 
 
 def _days_payload(
@@ -1326,6 +1383,8 @@ def _scrape_available_slots(
                 **identity,
             )
             if not payload.get("ready"):
+                if source_evidence and payload.get("captcha") is True:
+                    payload["diagnostic_ui"] = _capture_failure_ui(driver, venue)
                 return _stop_with_error(
                     error=payload.get("error") or "schedule_not_ready",
                     venue=venue,
@@ -1378,6 +1437,8 @@ def _scrape_available_slots(
                     **identity,
                 )
                 if not payload.get("ready"):
+                    if source_evidence and payload.get("captcha") is True:
+                        payload["diagnostic_ui"] = _capture_failure_ui(driver, venue)
                     return _stop_with_error(
                         error=payload.get("error") or "schedule_not_ready",
                         venue=venue,

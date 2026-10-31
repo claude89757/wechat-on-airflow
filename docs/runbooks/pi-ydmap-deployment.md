@@ -9,6 +9,15 @@ product across polls. The previous browser closes before the next starts, using
 the same reserved debug port serially. Collection does not click product tabs or
 reuse cross-product Vue/browser state. All products/dates still form one atomic
 venue observation; a failure discards all partial data.
+Guarded preflight, apply candidates and the live unit now share the dedicated
+`/tmp/pi-ydmap-service-profile-v2` root. It is separate from the legacy root that
+the old scraper deletes. The installer creates only a new private directory or
+accepts the existing service-owned 0700 directory with its 0600 ownership marker;
+foreign owners, symlinks, unmarked directories and broad permissions fail closed.
+It never copies a personal profile or exports cookies. Unquiesced diagnostic
+candidates keep their isolated temporary profiles. Candidate process cleanup
+does not delete the service profile. Closing the owned browser tab allows normal
+profile flushing before bounded process termination.
 Baoan product activations are separated by at least 30 seconds from the previous
 product's verified readiness. Date checks consume that interval; only the remaining
 time is waited. This bounds bursts to the product calendar endpoint while retaining
@@ -86,15 +95,28 @@ receive no interaction. It does not remove masks, alter browser trust, inject
 events/tokens, call provider callbacks or retry a failed gesture. Reports retain
 only fixed control/outcome codes and whether a gesture was attempted. A passed
 gesture is not venue acceptance: all date/product/source checks still apply.
-Each candidate product's browser state is retained within its fixed profile and discarded when the candidate exits; no cookies are
-exported, and this diagnostic does not establish durable production access.
+This unquiesced gesture diagnostic keeps an isolated temporary profile and
+discards it at exit. No cookies are exported, and this diagnostic does not
+establish durable production access.
+
+Manual preflight may set `capture_browser_ui=true` to capture the owned public
+candidate page after a detected verification challenge. It never operates on
+the live service or performs a gesture. Contact/IP text, populated login inputs
+and login-QR instructions suppress capture. The PNG is bounded to 256 KiB,
+validated by type/dimensions/hash, saved privately on the Actions runner and
+uploaded as a one-day diagnostic artifact. Encoded image bytes never enter
+workflow logs; cookies and browser profile files never leave the Pi. The flag is
+default-off, unavailable through the reusable release inputs, and rejected for
+apply/health/inspect. Missing capture is not evidence of an absent widget.
 
 Preflight stages the exact server and mock tests below
 `/opt/pi-ydmap-scraper/releases/`. It verifies the source SHA256, Python syntax,
 and a nonzero number of passing mock tests as the existing unprivileged service
 user. An isolated candidate uses HTTP port `18788`, Chromium debug port `19224`,
-and a unique temporary browser profile. The live service retains port `8788`,
-debug port `9224`, and its existing dedicated profile. The scraper retains this
+and a unique temporary process directory. Guarded candidates use the fixed
+service profile; unquiesced diagnostics use a temporary profile. The live service
+retains port `8788` and debug port `9224`, and uses that same dedicated v2 profile.
+The scraper retains this
 private 0700 profile across inspections; it only stops stale browser processes,
 rejecting shared/outside-temp directories and final symlinks. It never imports a
 personal profile or exports cookies. Candidate preflight never changes

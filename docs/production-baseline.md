@@ -1,5 +1,37 @@
 # Production Baseline
 
+## Partial 0.9.0 rollout and browser-state continuity on 2026-10-31
+
+[Ship 41205840288](https://github.com/claude89757/wechat-on-airflow/actions/runs/41205840288)
+used `bd8ee98381cca5f0a4c8d0a674590012d76adc57`, after
+[CI 41205329014](https://github.com/claude89757/wechat-on-airflow/actions/runs/41205329014).
+All preflights passed. The Pi preflight verified three complete cycles, restored
+the original pause flags and retained identical complete primary booking-rule
+sources. Host-core routine-upgrade then succeeded. Pi apply failed in its
+candidate's first Dashah page with explicit challenge text/mask, no schedule
+component, and no known verification handle/frame. This is genuine access
+verification, distinct from the corrected local wire timeout. It occurred before
+Pi activation, so there was no Pi unit replacement to roll back. Airflow/Sender
+application steps and tagging were skipped. The protected safety-pause operation
+succeeded; host delivery is paused pending roll-forward, with PostgreSQL queues
+retained and no D1 fallback or reimport.
+
+The reviewed launcher discarded the entire preflight profile at exit and used
+another fresh profile in apply, then a third live profile. Thus the verified
+browser cache/site state did not reach activation. The exact WAF rule remains
+unknown; continuity is a lifecycle correction, not proof that every challenge
+was caused by profile recreation. Guarded candidates and the live unit now use
+the same new service-owned private root, outside the legacy directory that the
+old scraper deletes. Ownership marker and permission checks reject unrelated
+profiles. Normal tab closure flushes browser state before bounded termination.
+Unquiesced probes remain isolated; profile/cookie files are never copied out.
+
+A default-off manual preflight capture can provide a bounded public verification
+page PNG, with contact/login-surface checks and one-day artifact retention.
+Only metadata enters logs. This enables inspection of the actual missing UI
+without assuming that zero known selectors proves no rendered control exists.
+Real source and natural-cycle acceptance still block release completion.
+
 ## Successful candidate and release-preflight isolation gap on 2026-10-31
 
 [Three-cycle Pi evidence 41202959550](https://github.com/claude89757/wechat-on-airflow/actions/runs/41202959550)
