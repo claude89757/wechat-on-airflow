@@ -7,6 +7,10 @@ and operational changes.
 
 ### Added
 
+- Productize the existing subscription window as ideal-time presets
+  (weekday evening, weekday noon, weekend morning, weekend afternoon, or custom).
+  Email stays overlap-filtered; WeChat group delivery stays venue-level. No new
+  subscription column in this phase.
 - Integrate the Bao'an Tennis Center inspection from PR #262, retaining the
   contributor's attribution. Cover today and tomorrow across the three YDMap
   products, with Host Core observations and Web venue status.

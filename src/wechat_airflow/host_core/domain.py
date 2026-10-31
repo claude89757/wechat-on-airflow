@@ -317,6 +317,104 @@ def weekdays_from_mask(value: object) -> list[int]:
     return [weekday for weekday in range(1, 8) if mask & (1 << (weekday - 1))]
 
 
+@dataclass(frozen=True)
+class IdealWindow:
+    """One named product preset stored as the existing single window."""
+
+    preset_id: str
+    label: str
+    weekdays: tuple[int, ...]
+    start_time: str
+    end_time: str
+
+
+# MVP keeps one continuous window per subscription. A later phase can add
+# time_windows jsonb; these presets must remain expressible as weekday_mask
+# plus start_time/end_time so existing rows need no migration.
+IDEAL_WINDOWS: Final[tuple[IdealWindow, ...]] = (
+    IdealWindow("weekday_evening", "下班后打球", (1, 2, 3, 4, 5), "19:00", "22:00"),
+    IdealWindow("weekday_noon", "午休局", (1, 2, 3, 4, 5), "12:00", "14:00"),
+    IdealWindow("weekend_morning", "周末上午", (6, 7), "08:00", "12:00"),
+    IdealWindow("weekend_afternoon", "周末下午", (6, 7), "14:00", "18:00"),
+)
+IDEAL_WINDOWS_BY_ID: Final[dict[str, IdealWindow]] = {
+    window.preset_id: window for window in IDEAL_WINDOWS
+}
+CUSTOM_PREFERENCE: Final = "custom"
+CUSTOM_PREFERENCE_LABEL: Final = "自定义"
+SUBSCRIBER_DIGEST_NOTE: Final = (
+    "这些空场与你订阅的理想时段有交叠。微信群消息仍按场地发送，不按个人时段过滤。"
+)
+
+
+def describe_preference(weekdays: Iterable[int], start_time: str, end_time: str) -> tuple[str, str]:
+    """Label a stored window. NULL/unknown history is custom; exact presets match."""
+    normalized = tuple(sorted(int(day) for day in weekdays))
+    for window in IDEAL_WINDOWS:
+        if (
+            window.weekdays == normalized
+            and window.start_time == start_time
+            and window.end_time == end_time
+        ):
+            return window.preset_id, window.label
+    return CUSTOM_PREFERENCE, CUSTOM_PREFERENCE_LABEL
+
+
+def resolve_subscription_window(value: Mapping[Any, Any]) -> tuple[tuple[int, ...], str, str]:
+    """Map an optional preferencePreset onto the existing weekday and clock fields.
+
+    Omitting the preset preserves legacy clients. A named preset may be sent
+    alone, or together with the same canonical weekdays and clock. Custom and
+    legacy payloads keep explicit start/end; missing weekdays still mean every day.
+    """
+    raw_preset = value.get("preferencePreset", value.get("preference_preset"))
+    if raw_preset in (None, ""):
+        preset_id = ""
+    elif isinstance(raw_preset, str):
+        preset_id = raw_preset.strip()
+    else:
+        raise ValueError("理想时段预设无效")
+
+    window: IdealWindow | None
+    if preset_id in ("", CUSTOM_PREFERENCE):
+        window = None
+    else:
+        window = IDEAL_WINDOWS_BY_ID.get(preset_id)
+        if window is None:
+            raise ValueError("理想时段预设无效")
+
+    raw_start = value.get("startTime", value.get("start_time"))
+    raw_end = value.get("endTime", value.get("end_time"))
+    has_weekdays = value.get("weekdays") is not None
+    has_start = raw_start not in (None, "")
+    has_end = raw_end not in (None, "")
+    if window is not None and (has_weekdays or has_start or has_end):
+        if not (has_weekdays and has_start and has_end):
+            raise ValueError("理想时段与所选星期或时刻不一致")
+    if window is not None and not (has_weekdays or has_start or has_end):
+        return window.weekdays, window.start_time, window.end_time
+
+    start_time = str(raw_start or "")
+    end_time = str(raw_end or "")
+    if parse_time(start_time) >= parse_time(end_time):
+        raise ValueError("结束时间必须晚于开始时间")
+    weekdays = normalize_weekdays(value.get("weekdays"))
+    if window is not None and (
+        weekdays != window.weekdays
+        or start_time != window.start_time
+        or end_time != window.end_time
+    ):
+        raise ValueError("理想时段与所选星期或时刻不一致")
+    return weekdays, start_time, end_time
+
+
+def with_subscriber_digest_note(body: str) -> str:
+    """Append the channel note once, without turning it into another slot line."""
+    if SUBSCRIBER_DIGEST_NOTE in body:
+        return body
+    return f"{body}\n\n{SUBSCRIBER_DIGEST_NOTE}"
+
+
 def validate_subscription(value: object, *, priority: bool) -> SubscriptionInput:
     if not isinstance(value, Mapping):
         raise ValueError("订阅参数无效")
@@ -330,11 +428,7 @@ def validate_subscription(value: object, *, priority: bool) -> SubscriptionInput
         or any(item not in VENUES for item in venue_ids)
     ):
         raise ValueError("场地选择无效")
-    start_time = str(value.get("startTime") or "")
-    end_time = str(value.get("endTime") or "")
-    if parse_time(start_time) >= parse_time(end_time):
-        raise ValueError("结束时间必须晚于开始时间")
-    weekdays = normalize_weekdays(value.get("weekdays"))
+    weekdays, start_time, end_time = resolve_subscription_window(value)
     raw_term = str(value.get("termCode") or "").strip().lower()
     if not raw_term:
         try:

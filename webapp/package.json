@@ -7,7 +7,7 @@
     "check:runtime": "node scripts/check-mobile-runtime.mjs",
     "check:worker": "npm run cf:types && tsc -p tsconfig.worker.json",
     "update:runtime-lock": "node scripts/update-mobile-runtime-lock.mjs",
-    "test": "vitest run cloudflare/*.test.ts",
+    "test": "vitest run cloudflare/*.test.ts src/ideal-windows.test.ts",
     "test:runtime": "playwright test",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "predev": "npm run check:runtime",

@@ -21,6 +21,7 @@ from .domain import (
     PRIORITY_TERMS,
     STANDARD_TERMS,
     decrypt_invite_code,
+    describe_preference,
     encrypt_invite_code,
     generate_invite_code,
     hash_invite_code,
@@ -30,6 +31,7 @@ from .domain import (
     normalize_email,
     random_token,
     random_verification_code,
+    resolve_subscription_window,
     resolve_term,
     subscription_dedupe_key,
     utc_now,
@@ -419,27 +421,34 @@ def bootstrap(request: Request) -> dict[str, Any]:
         }
         for row in venue_rows
     ]
-    subscriptions = [
-        {
-            "id": row["id"],
-            "venueIds": (
-                row["venue_ids"]
-                if isinstance(row["venue_ids"], list)
-                else json.loads(row["venue_ids"])
-            ),
-            "startTime": row["start_time"],
-            "endTime": row["end_time"],
-            "weekdays": weekdays_from_mask(row["weekday_mask"]),
-            "durationDays": int(row["duration_days"]),
-            "termCode": row["term_code"],
-            "autoRenew": bool(row["auto_renew"]),
-            "eligible": not bool(row["auto_renew"]) or identity_tier == "priority",
-            "activeUntil": jsonable_datetime(row["active_until"]),
-            "active": bool(row["active"]),
-            "createdAt": jsonable_datetime(row["created_at"]),
-        }
-        for row in subscription_rows
-    ]
+    subscriptions = []
+    for row in subscription_rows:
+        weekdays = weekdays_from_mask(row["weekday_mask"])
+        start_time = str(row["start_time"])
+        end_time = str(row["end_time"])
+        preference_preset, preference_label = describe_preference(weekdays, start_time, end_time)
+        subscriptions.append(
+            {
+                "id": row["id"],
+                "venueIds": (
+                    row["venue_ids"]
+                    if isinstance(row["venue_ids"], list)
+                    else json.loads(row["venue_ids"])
+                ),
+                "startTime": start_time,
+                "endTime": end_time,
+                "weekdays": weekdays,
+                "preferencePreset": preference_preset,
+                "preferenceLabel": preference_label,
+                "durationDays": int(row["duration_days"]),
+                "termCode": row["term_code"],
+                "autoRenew": bool(row["auto_renew"]),
+                "eligible": not bool(row["auto_renew"]) or identity_tier == "priority",
+                "activeUntil": jsonable_datetime(row["active_until"]),
+                "active": bool(row["active"]),
+                "createdAt": jsonable_datetime(row["created_at"]),
+            }
+        )
     return {
         "generatedAt": now.isoformat(),
         "dataStatus": {
@@ -799,6 +808,9 @@ def create_subscription(request: Request, payload: dict[str, Any] = Body(...)) -
                 {"subscription_id": subscription_id, "venue_id": venue_id},
             )
         increment_subscription_generations(connection, list(candidate.venue_ids))
+    preference_preset, preference_label = describe_preference(
+        candidate.weekdays, candidate.start_time, candidate.end_time
+    )
     return JSONResponse(
         {
             "id": subscription_id,
@@ -806,6 +818,8 @@ def create_subscription(request: Request, payload: dict[str, Any] = Body(...)) -
             "startTime": candidate.start_time,
             "endTime": candidate.end_time,
             "weekdays": list(candidate.weekdays),
+            "preferencePreset": preference_preset,
+            "preferenceLabel": preference_label,
             "durationDays": term.duration_days,
             "termCode": term.term_code,
             "autoRenew": term.auto_renew,
@@ -815,6 +829,145 @@ def create_subscription(request: Request, payload: dict[str, Any] = Body(...)) -
             "createdAt": now.isoformat(),
         },
         status_code=201,
+    )
+
+
+@app.patch(f"{API_PREFIX}/subscriptions/{{subscription_id}}")
+def update_subscription_window(
+    subscription_id: str, request: Request, payload: dict[str, Any] = Body(...)
+) -> JSONResponse:
+    """Replace the single ideal window. Venues, term, and dedupe identity stay compatible.
+
+    Already delivered mail is left alone. Pending rows outside the new window are
+    cancelled so a narrower preset does not send a previously queued mismatch.
+    Event keys already recorded are not inserted again.
+    """
+    identity = _identity(request, required=True)
+    assert identity is not None
+    weekdays, start_time, end_time = resolve_subscription_window(payload)
+    mask = weekday_mask(weekdays)
+    now = utc_now()
+    with transaction() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "zacks-subscriptions:" + identity["email"]},
+        )
+        row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT venue_ids, start_time, end_time, weekday_mask, duration_days,
+                           term_code, auto_renew, active_until, created_at
+                    FROM zacks.subscriptions
+                    WHERE id = :id AND email = :email AND active = true AND active_until > :now
+                    FOR UPDATE
+                    """
+                ),
+                {"id": subscription_id, "email": identity["email"], "now": now},
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="订阅不存在")
+        tier = _tier(connection, identity["email"])
+        eligible = (not bool(row["auto_renew"])) or tier == "priority"
+        venue_ids = (
+            row["venue_ids"] if isinstance(row["venue_ids"], list) else json.loads(row["venue_ids"])
+        )
+        unchanged = (
+            int(row["weekday_mask"]) == mask
+            and str(row["start_time"]) == start_time
+            and str(row["end_time"]) == end_time
+        )
+        if not unchanged:
+            dedupe_key = subscription_dedupe_key(
+                identity["email"], venue_ids, start_time, end_time, mask
+            )
+            existing = connection.execute(
+                text(
+                    """
+                    SELECT id FROM zacks.subscriptions
+                    WHERE email = :email AND dedupe_key = :dedupe_key
+                      AND active = true AND active_until > :now AND id <> :id
+                    """
+                ),
+                {
+                    "email": identity["email"],
+                    "dedupe_key": dedupe_key,
+                    "now": now,
+                    "id": subscription_id,
+                },
+            ).scalar_one_or_none()
+            if existing:
+                raise HTTPException(status_code=409, detail="相同订阅已经存在")
+            connection.execute(
+                text(
+                    """
+                    UPDATE zacks.subscriptions
+                    SET start_time = :start_time, end_time = :end_time, weekday_mask = :mask,
+                        dedupe_key = :dedupe_key, updated_at = :now
+                    WHERE id = :id AND email = :email
+                    """
+                ),
+                {
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "mask": mask,
+                    "dedupe_key": dedupe_key,
+                    "now": now,
+                    "id": subscription_id,
+                    "email": identity["email"],
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE zacks.notification_outbox AS outbox
+                    SET status = 'cancelled', updated_at = :now, lease_owner = NULL,
+                        lease_until = NULL, last_error = 'ideal_window_changed'
+                    WHERE outbox.subscription_id = :id
+                      AND outbox.status IN ('pending', 'retry')
+                      AND NOT EXISTS (
+                        SELECT 1 FROM zacks.observed_slots AS slot
+                        WHERE slot.event_key = outbox.event_key
+                          AND (
+                            CAST(:mask AS integer)
+                            & (1 << (EXTRACT(ISODOW FROM slot.booking_date)::integer - 1))
+                          ) <> 0
+                          AND slot.start_time < :end_time
+                          AND slot.end_time > :start_time
+                      )
+                    """
+                ),
+                {
+                    "now": now,
+                    "id": subscription_id,
+                    "mask": mask,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                },
+            )
+            increment_subscription_generations(connection, list(venue_ids))
+    preference_preset, preference_label = describe_preference(weekdays, start_time, end_time)
+    return JSONResponse(
+        {
+            "id": subscription_id,
+            "venueIds": list(venue_ids),
+            "startTime": start_time,
+            "endTime": end_time,
+            "weekdays": list(weekdays),
+            "preferencePreset": preference_preset,
+            "preferenceLabel": preference_label,
+            "durationDays": int(row["duration_days"]),
+            "termCode": row["term_code"],
+            "autoRenew": bool(row["auto_renew"]),
+            "eligible": eligible,
+            "activeUntil": jsonable_datetime(row["active_until"]),
+            "active": True,
+            "createdAt": jsonable_datetime(row["created_at"]),
+            "windowChanged": not unchanged,
+        }
     )
 
 

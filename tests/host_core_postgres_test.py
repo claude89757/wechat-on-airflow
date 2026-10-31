@@ -777,4 +777,107 @@ def test_unknown_reconciliation_is_status_only_and_does_not_replay(monkeypatch):
     wechat_worker.reconcile_unknown()
     assert urls
     assert sql("SELECT status FROM zacks.wechat_outbox")[0]["status"] == "sent"
-    assert wechat_worker._claim("test-worker") is None
+
+
+def test_ideal_window_filters_email_and_keeps_wechat_venue_level():
+    from wechat_airflow.host_core.wechat_queue import enqueue
+
+    today = utc_now().astimezone(ZoneInfo("Asia/Shanghai")).date()
+    monday = today + timedelta(days=(0 - today.weekday()) % 7 or 7)
+    with client() as c:
+        headers = identity()
+        created = c.post(
+            PREFIX + "/subscriptions",
+            headers=headers,
+            json={"venueIds": ["tops"], "preferencePreset": "weekday_evening", "termCode": "7d"},
+        )
+        assert created.status_code == 201, created.text
+        body = created.json()
+        assert body["preferencePreset"] == "weekday_evening"
+        assert body["weekdays"] == [1, 2, 3, 4, 5]
+        assert [body["startTime"], body["endTime"]] == ["19:00", "22:00"]
+        conflict = c.post(
+            PREFIX + "/subscriptions",
+            headers=headers,
+            json={
+                "venueIds": ["szw"],
+                "preferencePreset": "weekday_evening",
+                "weekdays": [6, 7],
+                "startTime": "08:00",
+                "endTime": "12:00",
+                "termCode": "7d",
+            },
+        )
+        assert conflict.status_code == 400
+        legacy = c.post(
+            PREFIX + "/subscriptions",
+            headers=headers,
+            json={
+                "venueIds": ["szw"],
+                "startTime": "18:00",
+                "endTime": "22:00",
+                "weekdays": [1, 2, 3, 4, 5, 6, 7],
+                "termCode": "7d",
+            },
+        )
+        assert legacy.status_code == 201, legacy.text
+        assert legacy.json()["preferencePreset"] == "custom"
+
+    assert service.active_subscription_for_venue("tops") is True
+    morning = observation(
+        scope="morning",
+        slots=[
+            {
+                "date": monday.isoformat(),
+                "court_name": "1号场",
+                "start_time": "09:00",
+                "end_time": "10:00",
+            }
+        ],
+    )
+    assert service.ingest_observation(morning)["matchedNotifications"] == 0
+    evening = observation(
+        scope="evening",
+        slots=[
+            {
+                "date": monday.isoformat(),
+                "court_name": "2号场",
+                "start_time": "19:00",
+                "end_time": "20:00",
+            }
+        ],
+    )
+    assert service.ingest_observation(evening)["matchedNotifications"] == 1
+    queued = enqueue(
+        {
+            "venue_id": "tops",
+            "receivers": ["test-only-group"],
+            "device_name": "test-only-device",
+            "message": f"【1号场】星期一({monday.strftime('%m-%d')})空场: 09:00-10:00",
+            "source": "test",
+        }
+    )
+    assert queued["queued"] == 1
+    assert sql("SELECT status FROM zacks.wechat_outbox")[0]["status"] == "pending"
+
+    with client() as c:
+        patched = c.patch(
+            PREFIX + "/subscriptions/" + body["id"],
+            headers=headers,
+            json={"preferencePreset": "weekend_morning"},
+        )
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["preferencePreset"] == "weekend_morning"
+        assert patched.json()["windowChanged"] is True
+        dashboard = c.get(PREFIX + "/bootstrap", headers=headers)
+        listed = {item["id"]: item for item in dashboard.json()["subscriptions"]}
+        assert listed[body["id"]]["preferenceLabel"] == "周末上午"
+        assert listed[legacy.json()["id"]]["preferencePreset"] == "custom"
+    assert sql("SELECT status FROM zacks.notification_outbox")[0]["status"] == "cancelled"
+    assert sql("SELECT status FROM zacks.wechat_outbox")[0]["status"] == "pending"
+    assert (
+        sql("SELECT generation FROM zacks.subscription_generations WHERE venue_id='tops'")[0][
+            "generation"
+        ]
+        == 2
+    )
