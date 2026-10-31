@@ -60,7 +60,7 @@ try {
     assert.equal(health.edge.legacyRuntime, false);
     assert.equal(health.host.ok, true);
     assert.equal(health.host.runtime, 'airflow-host');
-    assert.equal(await page.locator('.venue-card').count(), 26);
+    assert.equal(await page.locator('.venue-card').count(), 27);
     assert.equal(await page.locator('.phone-device-picker:visible').count(), 0);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     assert.ok(overflow <= 1);
@@ -75,7 +75,8 @@ try {
     await page.getByLabel('搜索场地').fill('no-such-court-studio-acceptance');
     await page.getByText('没有找到这个场地', { exact: true }).waitFor();
     await page.getByRole('button', { name: '查看全部场地', exact: true }).click();
-    assert.equal(await page.locator('.venue-card').count(), 26);
+    assert.equal(await page.locator('.venue-card').count(), 27);
+    await expect(page.getByTestId('venue-card-baoti').locator('.venue-card-name')).toHaveText('宝安网球中心');
     await page.getByTestId('venue-card-tops').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}/${name}-directory.png` });
     await page.getByTestId('venue-card-tops').click();
@@ -143,7 +144,7 @@ try {
     await expect(group).toBeHidden();
     await expect(page.getByRole('button', { name: '更多功能', exact: true })).toBeFocused();
     assert.deepEqual(errors, []);
-    report.views.push({ origin, name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, passed: true });
+    report.views.push({ origin, name, width, height, overflow, cards: 27, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, passed: true });
     await context.close();
   }
   }

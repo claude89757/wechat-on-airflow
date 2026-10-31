@@ -66,12 +66,22 @@ release and resolves these runtime components:
 - `webapp`: Cloudflare Worker, D1 migrations, and browser assets;
 - `airflow`: DAGs, runtime package, Airflow image/configuration, and Compose;
 - `sender`: Android-host WeChat sender runtime;
+- `pi_ydmap`: private Raspberry Pi YDMap scraping service; candidate source,
+  mock tests and real date/product/court evidence must pass before it is
+  activated and before the matching Airflow clients are deployed;
 - `control`: workflows, release tooling, documentation, tests, or version-only
   metadata that require no runtime deployment.
 
 `scope=auto` is the default. A manual scope may broaden the plan, but cannot omit
 a detected runtime component. Any sender deployment additionally requires
 `sender=true`; this remains an explicit real-host approval boundary.
+
+Pi scraper apply waits for only the Dashah/Bao'an DAGs to drain, pauses them
+through a bounded protected guard, and restores their original pause flags after
+acknowledged completion. Lost connectivity retains the pause until the bounded
+lease fence ends. The installer requires measured proof and sufficient remaining
+time for real-port inspection plus rollback, including for the first legacy
+replacement. See `docs/runbooks/pi-ydmap-deployment.md`.
 
 Component identities may therefore differ after a Web-only or control-only
 release. The release summary records the target, diff base, resolved scope, and

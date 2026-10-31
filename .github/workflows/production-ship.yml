@@ -31,6 +31,9 @@ on:
       deploy_sender:
         description: Whether sender deployment was planned
         value: ${{ jobs.deploy.outputs.deploy_sender }}
+      deploy_pi_ydmap:
+        description: Whether private Pi scraper deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_pi_ydmap }}
   workflow_dispatch:
     inputs:
       version:
@@ -52,6 +55,7 @@ on:
           - webapp
           - airflow
           - sender
+          - pi_ydmap
           - control
       include_sender:
         description: Explicit approval for an in-scope sender deployment

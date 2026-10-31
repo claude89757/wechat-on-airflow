@@ -416,6 +416,26 @@ while [ "$(active_task_count)" -ne 0 ]; do
     sleep 5
 done
 
+# Both YDMap DAGs share one physical Chromium scraper. Serialize before
+# starting the target DAG processor so a new venue cannot contend with Dashah.
+compose exec -T "$api_service" python - <<'PY'
+from airflow.models.pool import Pool
+from airflow.utils.session import create_session
+
+with create_session() as session:
+    Pool.create_or_update_pool(
+        name="ydmap_browser",
+        slots=1,
+        description="Shared Raspberry Pi YDMap Chromium scraper",
+        include_deferred=False,
+        session=session,
+    )
+with create_session() as session:
+    pool = Pool.get_pool("ydmap_browser", session=session)
+    if pool is None or pool.slots != 1 or pool.include_deferred:
+        raise RuntimeError("YDMap browser pool verification failed")
+PY
+
 git checkout --quiet --detach "$target_commit"
 active_image="$target_image"
 
@@ -478,6 +498,7 @@ print(json.dumps({{
     "purged_broker_keys": int(sys.argv[10]),
     "outbox_preserved": True,
     "dag_pause_state_restored": True,
+    "ydmap_browser_pool_slots": 1,
 }}, sort_keys=True))
 PY
 """

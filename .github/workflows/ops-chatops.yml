@@ -51,7 +51,7 @@ jobs:
           tokens = shlex.split(body)
           sha = re.compile(r"^[0-9a-fA-F]{40}$")
           version = re.compile(r"^\d+\.\d+\.\d+$")
-          scopes = {"auto", "all", "webapp", "airflow", "sender", "control"}
+          scopes = {"auto", "all", "webapp", "airflow", "sender", "pi_ydmap", "control"}
           outputs = {
               "action": "",
               "mode": "",
@@ -105,6 +105,14 @@ jobs:
                   outputs["target_commit"] = tokens[3].lower()
               else:
                   fail(f"unknown release command: {command}")
+          elif len(tokens) >= 2 and tokens[0] == "/ops" and tokens[1] in {
+              "pi-ydmap-preflight", "pi-ydmap-apply", "pi-ydmap-health", "pi-ydmap-inspect"
+          }:
+              if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
+                  fail("Pi YDMap operation requires a full 40-character SHA")
+              outputs["action"] = "pi_ydmap"
+              outputs["mode"] = tokens[1].removeprefix("pi-ydmap-")
+              outputs["target_commit"] = tokens[2].lower()
           elif tokens[:2] == ["/ops", "airflow-health"]:
               if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
                   fail("Airflow health requires a full 40-character SHA")
@@ -162,11 +170,15 @@ jobs:
           Production command was rejected before any operation ran.
 
           Supported forms:
-          - \`/release ship <version> <40-char-sha> [scope=auto|all|webapp|airflow|sender|control] [sender=true|false]\`
+          - \`/release ship <version> <40-char-sha> [scope=auto|all|webapp|airflow|sender|pi_ydmap|control] [sender=true|false]\`
           - \`/release preflight <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release apply <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release tag <version> <40-char-sha>\`
           - \`/ops airflow-health <40-char-sha>\`
+          - \`/ops pi-ydmap-preflight <40-char-sha>\`
+          - \`/ops pi-ydmap-apply <40-char-sha>\`
+          - \`/ops pi-ydmap-health <40-char-sha>\`
+          - \`/ops pi-ydmap-inspect <40-char-sha>\`
           - \`/ops crland-inspection-diagnose <40-char-sha>\`
           - \`/ops pi-tunnel-diagnose <40-char-sha>\`
           - \`/ops device-network-preflight <40-char-sha>\`
@@ -218,6 +230,16 @@ jobs:
       request_id: ops-${{ github.run_id }}
       confirm_real_send: false
       probe_target_membership: all
+    secrets: inherit
+
+  pi_ydmap:
+    if: needs.route.outputs.action == 'pi_ydmap'
+    needs: route
+    uses: ./.github/workflows/production-pi-ydmap.yml
+    with:
+      operation: ${{ needs.route.outputs.mode }}
+      target_commit: ${{ needs.route.outputs.target_commit }}
+      request_id: ops-${{ github.run_id }}
     secrets: inherit
 
   crland_inspection_diagnose:
@@ -322,6 +344,7 @@ jobs:
       - ship
       - tag
       - airflow_health
+      - pi_ydmap
       - crland_inspection_diagnose
       - webapp_observation_diagnose
       - device_network_preflight
@@ -344,13 +367,16 @@ jobs:
           RELEASE_WEBAPP: ${{ needs.release.outputs.deploy_webapp }}
           RELEASE_AIRFLOW: ${{ needs.release.outputs.deploy_airflow }}
           RELEASE_SENDER: ${{ needs.release.outputs.deploy_sender }}
+          RELEASE_PI_YDMAP: ${{ needs.release.outputs.deploy_pi_ydmap }}
           SHIP_RESULT: ${{ needs.ship.result }}
           SHIP_RESOLVED_SCOPE: ${{ needs.ship.outputs.resolved_scope }}
           SHIP_WEBAPP: ${{ needs.ship.outputs.deploy_webapp }}
           SHIP_AIRFLOW: ${{ needs.ship.outputs.deploy_airflow }}
           SHIP_SENDER: ${{ needs.ship.outputs.deploy_sender }}
+          SHIP_PI_YDMAP: ${{ needs.ship.outputs.deploy_pi_ydmap }}
           TAG_RESULT: ${{ needs.tag.result }}
           AIRFLOW_HEALTH_RESULT: ${{ needs.airflow_health.result }}
+          PI_YDMAP_RESULT: ${{ needs.pi_ydmap.result }}
           CRLAND_DIAG_RESULT: ${{ needs.crland_inspection_diagnose.result }}
           PI_TUNNEL_RESULT: ${{ needs.pi_tunnel_diagnose.result }}
           DEVICE_NETWORK_RESULT: ${{ needs.device_network_preflight.result }}
@@ -360,6 +386,7 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          pi_ydmap=""
           case "$ACTION" in
             release)
               result="$RELEASE_RESULT"
@@ -368,6 +395,7 @@ jobs:
               webapp="$RELEASE_WEBAPP"
               airflow="$RELEASE_AIRFLOW"
               sender="$RELEASE_SENDER"
+              pi_ydmap="$RELEASE_PI_YDMAP"
               ;;
             ship)
               result="$SHIP_RESULT"
@@ -376,6 +404,7 @@ jobs:
               webapp="$SHIP_WEBAPP"
               airflow="$SHIP_AIRFLOW"
               sender="$SHIP_SENDER"
+              pi_ydmap="$SHIP_PI_YDMAP"
               ;;
             tag)
               result="$TAG_RESULT"
@@ -388,6 +417,14 @@ jobs:
             airflow_health)
               result="$AIRFLOW_HEALTH_RESULT"
               label="read-only Airflow health"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            pi_ydmap)
+              result="$PI_YDMAP_RESULT"
+              label="Pi YDMap $MODE"
               resolved="n/a"
               webapp=""
               airflow=""
@@ -452,13 +489,14 @@ jobs:
 
           if [ "$resolved" = n/a ]; then
             components="n/a"
-          elif [ -z "$webapp$airflow$sender" ]; then
+          elif [ -z "$webapp$airflow$sender$pi_ydmap" ]; then
             components="unknown"
           else
             selected=()
             [ "$webapp" = true ] && selected+=(webapp)
             [ "$airflow" = true ] && selected+=(airflow)
             [ "$sender" = true ] && selected+=(sender)
+            [ "$pi_ydmap" = true ] && selected+=(pi_ydmap)
             if [ "${#selected[@]}" -eq 0 ]; then
               components="none"
             else

@@ -12,7 +12,7 @@ from pathlib import Path
 
 SEMVER_TAG = re.compile(r"^(?:v)?\d+\.\d+\.\d+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-VALID_SCOPES = {"auto", "all", "webapp", "airflow", "sender", "control"}
+VALID_SCOPES = {"auto", "all", "webapp", "airflow", "sender", "pi_ydmap", "control"}
 
 WEBAPP_RUNTIME_EXACT = {
     "webapp/index.html",
@@ -62,6 +62,8 @@ SENDER_RUNTIME_PREFIXES = (
     "wechat_sender/",
     "docker/sender/",
 )
+PI_YDMAP_RUNTIME_EXACT = {"deploy/systemd/dsh-ydmap-scraper.service"}
+PI_YDMAP_RUNTIME_PREFIXES = ("pi_host/dsh_ydmap/",)
 CONTROL_EXACT = {
     "Makefile",
     ".pre-commit-config.yaml",
@@ -110,6 +112,7 @@ class Plan:
     deploy_webapp: bool
     deploy_airflow: bool
     deploy_sender: bool
+    deploy_pi_ydmap: bool
     sender_approval_required: bool
 
 
@@ -235,6 +238,11 @@ def classify_file(
         ci.add("sender")
         return runtime, ci, control, metadata, unknown
 
+    if path in PI_YDMAP_RUNTIME_EXACT or starts_with_any(path, PI_YDMAP_RUNTIME_PREFIXES):
+        runtime.add("pi_ydmap")
+        ci.add("airflow")
+        return runtime, ci, control, metadata, unknown
+
     if path.startswith(".github/") or path in CONTROL_EXACT:
         control = True
         ci.update({"webapp", "airflow", "sender"})
@@ -263,7 +271,7 @@ def resolve_scope(detected: set[str], requested: str) -> set[str]:
     if requested == "auto":
         return set(detected)
     if requested == "all":
-        return {"webapp", "airflow", "sender"}
+        return {"webapp", "airflow", "sender", "pi_ydmap"}
     if requested == "control":
         selected: set[str] = set()
     else:
@@ -301,11 +309,13 @@ def make_plan(base: str, target: str, scope: str, include_sender: bool) -> Plan:
 
     if not selected:
         resolved = "control"
-    elif selected == {"webapp", "airflow", "sender"}:
+    elif selected == {"webapp", "airflow", "sender", "pi_ydmap"}:
         resolved = "all"
     else:
         resolved = ",".join(
-            component for component in ("webapp", "airflow", "sender") if component in selected
+            component
+            for component in ("pi_ydmap", "webapp", "airflow", "sender")
+            if component in selected
         )
 
     return Plan(
@@ -322,6 +332,7 @@ def make_plan(base: str, target: str, scope: str, include_sender: bool) -> Plan:
         deploy_webapp="webapp" in selected,
         deploy_airflow="airflow" in selected,
         deploy_sender="sender" in selected,
+        deploy_pi_ydmap="pi_ydmap" in selected,
         sender_approval_required="sender" in runtime,
     )
 
@@ -334,6 +345,7 @@ def write_github_output(path: Path, plan: Plan) -> None:
         "deploy_webapp": str(plan.deploy_webapp).lower(),
         "deploy_airflow": str(plan.deploy_airflow).lower(),
         "deploy_sender": str(plan.deploy_sender).lower(),
+        "deploy_pi_ydmap": str(plan.deploy_pi_ydmap).lower(),
         "ci_webapp": str("webapp" in plan.ci_components).lower(),
         "ci_airflow": str("airflow" in plan.ci_components).lower(),
         "ci_sender": str("sender" in plan.ci_components).lower(),
