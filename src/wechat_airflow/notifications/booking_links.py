@@ -44,6 +44,10 @@ DSH_PROGRAM = BookingMiniProgram(
     program_id="dsh",
     link="#小程序://威逊文体/il2QpVgwVeghPtg",
 )
+BAOTI_PROGRAM = BookingMiniProgram(
+    program_id="baoti",
+    link="预定入口: https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+)
 FSB_PROGRAM = BookingMiniProgram(
     program_id="fsb",
     link="#小程序://泛思博特/D0aY3jOJ2oq34fh",
@@ -61,6 +65,7 @@ VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "jdwx": JDWX_PROGRAM,
     "dsh_free": DSH_FREE_PROGRAM,
     "dsh": DSH_PROGRAM,
+    "baoti": BAOTI_PROGRAM,
     "fsb": FSB_PROGRAM,
     "fsb_shenyun": FSB_PROGRAM,
     "fsb_shekou": FSB_PROGRAM,

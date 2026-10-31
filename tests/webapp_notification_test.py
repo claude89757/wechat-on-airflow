@@ -35,6 +35,7 @@ class WebappNotificationTest(TestCase):
             "tyzx_watcher.py": "run_check_tennis_courts",
             "dashahe_free_watcher.py": "run_check_dashahe_free_courts",
             "dsh_ydmap_watcher.py": "run_check_tennis_courts",
+            "baoti_ydmap_watcher.py": "run_check_tennis_courts",
         }
         pospal_wrappers = {
             "fsb_shenyun_watcher.py",

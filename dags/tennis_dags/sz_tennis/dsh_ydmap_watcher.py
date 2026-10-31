@@ -31,5 +31,6 @@ dag = DAG(
 PythonOperator(
     task_id="check_tennis_courts",
     python_callable=run_check_tennis_courts,
+    pool="ydmap_browser",
     dag=dag,
 )

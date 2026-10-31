@@ -1,0 +1,105 @@
+name: Production Pi YDMap Scraper
+run-name: production/pi_ydmap/${{ inputs.operation }}/${{ inputs.request_id }}
+
+on:
+  workflow_call:
+    inputs:
+      target_commit:
+        description: Exact reviewed main commit with successful CI
+        required: true
+        type: string
+      operation:
+        description: preflight, apply, health or inspect
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Exact reviewed main commit with successful CI
+        required: true
+        type: string
+      operation:
+        type: choice
+        options: [preflight, apply, health, inspect]
+        default: preflight
+        required: true
+      request_id:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: production-airflow-v2
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Require exact main commit and CI
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          OPERATION: ${{ inputs.operation }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          case "$OPERATION" in preflight|apply|health|inspect) ;; *) exit 2 ;; esac
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit "$TARGET_COMMIT" --wait-seconds 0 --format json
+      - name: Install pinned SSH dependency
+        run: python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
+      - name: Configure existing Airflow SSH identity for scoped drain
+        if: inputs.operation == 'apply'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Run protected scraper operation
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          OPERATION: ${{ inputs.operation }}
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+          AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+          AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+          AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+        run: |
+          set -euo pipefail
+          python scripts/deploy_pi_ydmap.py | tee /tmp/pi-ydmap-report.json
+      - name: Record bounded evidence
+        if: always()
+        run: |
+          if [ -f /tmp/pi-ydmap-report.json ]; then
+            {
+              echo '## Pi scraper operation'
+              echo '```json'
+              cat /tmp/pi-ydmap-report.json
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

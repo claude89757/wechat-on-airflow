@@ -24,6 +24,7 @@ class BookingLinksTest(unittest.TestCase):
             "gba": booking_links.WEILAIHUI,
             "dsh_free": booking_links.DSH_FREE_PROGRAM,
             "dsh": booking_links.DSH_PROGRAM,
+            "baoti": booking_links.BAOTI_PROGRAM,
             "sysh": booking_links.SYSH_PROGRAM,
             "tops": booking_links.TOPS_PROGRAM,
             "fsb": booking_links.FSB_PROGRAM,
@@ -60,6 +61,26 @@ class BookingLinksTest(unittest.TestCase):
         self.assertEqual(
             booking_links.attach_footer(attached, booking_links.WEILAIHUI.link), attached
         )
+
+    def test_baoti_booking_link_is_added_at_delivery_with_the_shared_cooldown(self):
+        message = "【宝安网球中心·室外场1号】星期六(10-31)空场: 18:00-19:00"
+        first = booking_links.plan_booking_link(
+            message,
+            receiver="isolated-group",
+            venue_id="baoti",
+            cache={},
+            now=datetime(2026, 10, 31, 9),
+        )
+        self.assertEqual(first.message, message + "\n\n" + booking_links.BAOTI_PROGRAM.link)
+        self.assertIn("bawtt.ydmap.cn", first.message)
+        second = booking_links.plan_booking_link(
+            message,
+            receiver="isolated-group",
+            venue_id="baoti",
+            cache=first.cache,
+            now=datetime(2026, 10, 31, 10),
+        )
+        self.assertEqual(second.message, message)
 
     def test_plan_attaches_once_then_cools_down_for_the_same_program(self):
         now = datetime(2026, 8, 18, 18, 5)

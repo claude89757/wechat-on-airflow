@@ -749,7 +749,7 @@ REQUIRED_ACCEPTANCE_CHECKS = (
         "migrationReconciled",
         "zacks-notification-worker",
         "zacks-wechat-worker",
-        "all26VenueObservations",
+        "all27VenueObservations",
         "allObservationScopesHealthy",
         "allNaturalDagCycles",
         "allRequiredDagsUnpaused",

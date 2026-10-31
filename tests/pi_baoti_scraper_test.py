@@ -1,0 +1,436 @@
+#!/usr/bin/env python3
+"""Offline Pi service regressions; no provider or notification requests."""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import sys
+import types
+import unittest
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
+SERVER_PATH = ROOT / "pi_host" / "dsh_ydmap" / "server.py"
+TODAY = date(2026, 11, 1)
+TOMORROW = TODAY + timedelta(days=1)
+
+
+def install_selenium_stubs() -> None:
+    modules = {
+        name: types.ModuleType(name)
+        for name in (
+            "selenium",
+            "selenium.webdriver",
+            "selenium.webdriver.chrome",
+            "selenium.webdriver.chrome.options",
+            "selenium.webdriver.chrome.service",
+        )
+    }
+    modules["selenium.webdriver.chrome.options"].Options = type("Options", (), {})
+    modules["selenium.webdriver.chrome.service"].Service = type("Service", (), {})
+    modules["selenium.webdriver"].Chrome = type("Chrome", (), {})
+    for name, module in modules.items():
+        sys.modules.setdefault(name, module)
+
+
+def load_server() -> types.ModuleType:
+    install_selenium_stubs()
+    spec = importlib.util.spec_from_file_location("pi_dsh_ydmap_server", SERVER_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+server = load_server()
+
+
+class FixedDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        # Shanghai has crossed midnight while a UTC host has not.
+        instant = datetime(2026, 10, 31, 18, tzinfo=UTC)
+        return instant.astimezone(tz)
+
+
+class Clock:
+    value = 100.0
+
+    def monotonic(self) -> float:
+        return self.value
+
+    def sleep(self, seconds: float) -> None:
+        self.value += seconds
+
+
+class FakeElement:
+    def __init__(self, driver: FakeDriver, target: str) -> None:
+        self.driver = driver
+        self.target = target
+
+    def click(self) -> None:
+        self.driver.clicked.append(self.target)
+
+
+class FakeDriver:
+    def __init__(self) -> None:
+        self.visited: list[str] = []
+        self.clicked: list[str] = []
+
+    def get(self, url: str) -> None:
+        self.visited.append(url)
+
+    def set_page_load_timeout(self, seconds: float) -> None:
+        pass
+
+    def execute_script(self, script: str, argument: str) -> FakeElement:
+        if script != server.FIND_DATE_JS:
+            raise AssertionError("unexpected browser script")
+        return FakeElement(self, argument)
+
+
+def snapshot(
+    booking_date: date = TODAY,
+    generation: int = 1,
+    *,
+    venue: str = "baoti",
+    key: str = "outdoor",
+    available: bool = True,
+) -> dict[str, object]:
+    if venue == "dsh":
+        product_id, product_name, court_name = "100000", "网球场", "1号风雨场"
+        host, sales_id = "wxsports.ydmap.cn", "100220"
+    else:
+        product_id, product_name, court_name = {
+            "outdoor": ("111317", "室外网球场", "室外场1号"),
+            "indoor": ("103224", "室内网球场", "A号场"),
+            "windrain": ("111319", "风雨网球场", "风雨场1号"),
+        }[key]
+        host, sales_id = "bawtt.ydmap.cn", "104036"
+    return {
+        "captcha": False,
+        "accessError": None,
+        "ready": True,
+        "signature": "same-availability",
+        "courts": {court_name: [["18:00", "19:00"]]} if available else {},
+        "courtNames": [court_name],
+        "cellCount": 12,
+        "pageHost": host,
+        "selectedDate": booking_date.isoformat(),
+        "queryDate": booking_date.isoformat(),
+        "selectedProduct": product_id,
+        "sourceProduct": product_id,
+        "selectedSalesId": sales_id,
+        "sourceSalesId": sales_id,
+        "productName": product_name,
+        "productNameField": "itemName",
+        "productInCatalog": True,
+        "availableDates": [(TODAY + timedelta(days=offset)).isoformat() for offset in range(7)],
+        "loadingCounter": 0,
+        "loadGeneration": generation,
+        "dataVersion": {"platforms": generation * 2 - 1, "orders": generation * 2},
+    }
+
+
+OUTDOOR_IDENTITY = {
+    "host": "bawtt.ydmap.cn",
+    "sales_id": "104036",
+    "sales_item_id": "111317",
+    "label": "室外",
+}
+
+
+class PiBaotiScraperTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.clock = Clock()
+        self.driver = FakeDriver()
+        contexts = [
+            patch.object(server, "datetime", FixedDatetime),
+            patch.object(server.time, "monotonic", self.clock.monotonic),
+            patch.object(server.time, "sleep", self.clock.sleep),
+            patch.object(server, "_cleanup_stale_browser"),
+            patch.object(server, "_start_chromium", return_value=object()),
+            patch.object(server, "_wait_devtools"),
+            patch.object(server, "_attach", return_value=self.driver),
+            patch.object(server, "_stop"),
+        ]
+        for context in contexts:
+            context.start()
+            self.addCleanup(context.stop)
+
+    def install_payloads(self, payloads: list[dict[str, object]]) -> None:
+        queue = list(payloads)
+        last = queue[-1]
+
+        def extract(_driver):
+            nonlocal last
+            if queue:
+                last = queue.pop(0)
+            return dict(last)
+
+        context = patch.object(server, "_extract_day", side_effect=extract)
+        self.extract = context.start()
+        self.addCleanup(context.stop)
+
+    def group_payloads(self, *, venue="baoti", key="outdoor", available=True):
+        return [
+            snapshot(TODAY, 1, venue=venue, key=key, available=available),
+            snapshot(TOMORROW, 2, venue=venue, key=key, available=available),
+            snapshot(TODAY, 3, venue=venue, key=key, available=available),
+        ]
+
+    def wait_for_tomorrow(self):
+        return server._wait_for_schedule(
+            self.driver,
+            timeout=2,
+            expected_date=TOMORROW.isoformat(),
+            previous=snapshot(),
+            **OUTDOOR_IDENTITY,
+        )
+
+    def test_baoti_complete_verified_groups_and_shanghai_dates(self) -> None:
+        self.install_payloads(
+            sum((self.group_payloads(key=key) for key in ("outdoor", "indoor", "windrain")), [])
+        )
+        result = server.scrape_available_slots("baoti", 2)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["schema_version"], 2)
+        self.assertEqual(result["venue"], "baoti")
+        self.assertEqual(
+            [day["date"] for day in result["days"]], [TODAY.isoformat(), TOMORROW.isoformat()]
+        )
+        for day in result["days"]:
+            self.assertEqual(set(day["courts"]), {"室外场1号", "室内A号场", "风雨场1号"})
+            self.assertEqual(len(day["groups"]), 3)
+            for group in day["groups"]:
+                self.assertEqual(group["source_date"], day["date"])
+                self.assertEqual(group["selected_date"], day["date"])
+                self.assertTrue(set(group["court_names"]).issubset(day["court_names"]))
+        self.assertEqual(self.driver.clicked, ["11-02", "11-01"] * 3)
+        self.assertEqual(
+            self.driver.visited, [item[2] for item in server.VENUE_GROUPS["baoti"][1:]]
+        )
+        server._stop.assert_called_once()
+
+    def test_dsh_preserves_names_and_single_group(self) -> None:
+        self.install_payloads(self.group_payloads(venue="dsh"))
+        result = server.scrape_available_slots("dsh", 2)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(self.driver.visited, [])
+        for day in result["days"]:
+            self.assertEqual(day["courts"], {"1号风雨场": [["18:00", "19:00"]]})
+            self.assertEqual([group["key"] for group in day["groups"]], [""])
+
+    def test_empty_availability_is_valid_when_all_courts_are_loaded(self) -> None:
+        self.install_payloads(
+            sum(
+                (
+                    self.group_payloads(key=key, available=False)
+                    for key in ("outdoor", "indoor", "windrain")
+                ),
+                [],
+            )
+        )
+        result = server.scrape_available_slots("baoti", 2)
+        self.assertTrue(result["ok"], result)
+        for day in result["days"]:
+            self.assertEqual(day["courts"], {})
+            self.assertEqual(len(day["court_names"]), 3)
+
+    def test_unknown_venue_does_not_start_browser(self) -> None:
+        result = server.scrape_available_slots("nope", 2)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "unknown_venue:nope")
+        server._start_chromium.assert_not_called()
+
+    def test_mid_group_challenge_discards_all_partial_days(self) -> None:
+        self.install_payloads(self.group_payloads() + [{"captcha": True, "ready": False}])
+        result = server.scrape_available_slots("baoti", 2)
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["captcha"])
+        self.assertEqual(result["error"], "captcha")
+        self.assertEqual(result["days"], [])
+        self.assertEqual(len(self.driver.visited), 1)
+        server._stop.assert_called_once()
+
+    def test_mid_group_date_failure_discards_all_partial_days(self) -> None:
+        initial = snapshot(key="indoor")
+        stale = {**snapshot(TOMORROW, 1, key="indoor"), "signature": "different"}
+        self.install_payloads(self.group_payloads() + [initial, stale])
+        result = server.scrape_available_slots("baoti", 2)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "source_not_refreshed")
+        self.assertEqual(result["days"], [])
+
+    def test_wrong_venue_product_or_group_cannot_be_relabelled(self) -> None:
+        cases = [
+            ("pageHost", "wxsports.ydmap.cn", "venue_host_mismatch"),
+            ("sourceSalesId", "100220", "venue_id_mismatch"),
+            ("sourceProduct", "100000", "product_id_mismatch"),
+            ("productName", "室内网球场", "product_name_mismatch"),
+            ("productInCatalog", False, "product_name_unverified"),
+            ("courtNames", ["室内A号场", "室外场1号"], "court_group_mismatch"),
+        ]
+        for key, value, error in cases:
+            with self.subTest(key=key):
+                self.assertEqual(
+                    server._snapshot_issue({**snapshot(), key: value}, **OUTDOOR_IDENTITY), error
+                )
+
+    def test_unavailable_calendar_date_fails_without_selecting_another_day(self) -> None:
+        self.install_payloads([{**snapshot(), "availableDates": [TODAY.isoformat()]}])
+        result = server.scrape_available_slots("baoti", 2)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "requested_date_unavailable")
+        self.assertEqual(self.driver.clicked, [])
+
+    def test_one_day_request_observes_refresh_before_emitting_today(self) -> None:
+        self.install_payloads(self.group_payloads(venue="dsh"))
+        result = server.scrape_available_slots("dsh", 1)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual([day["date"] for day in result["days"]], [TODAY.isoformat()])
+        self.assertEqual(self.driver.clicked, ["11-02", "11-01"])
+
+    def test_stale_date_with_changed_availability_is_not_accepted(self) -> None:
+        self.install_payloads([{**snapshot(TODAY, 2), "signature": "changed"}])
+        result = self.wait_for_tomorrow()
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["error"], "date_not_selected")
+
+    def test_selected_date_without_refreshed_source_arrays_is_not_accepted(self) -> None:
+        self.install_payloads([{**snapshot(TOMORROW, 2), "dataVersion": snapshot()["dataVersion"]}])
+        result = self.wait_for_tomorrow()
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["error"], "source_not_refreshed")
+
+    def test_identical_availability_with_fresh_source_date_is_accepted(self) -> None:
+        self.install_payloads([snapshot(TOMORROW, 2)])
+        result = self.wait_for_tomorrow()
+        self.assertTrue(result["ready"])
+        self.assertEqual(self.extract.call_count, 1)
+
+    def test_only_one_refreshed_array_or_incomplete_load_is_not_accepted(self) -> None:
+        cases = [
+            ("dataVersion", {"platforms": 3, "orders": 2}, "source_not_refreshed"),
+            ("dataVersion", {"platforms": 1, "orders": 4}, "source_not_refreshed"),
+            ("loadGeneration", 1, "source_not_refreshed"),
+            ("loadingCounter", 1, "schedule_loading"),
+            ("queryDate", TODAY.isoformat(), "date_identity_mismatch"),
+        ]
+        for key, value, error in cases:
+            with self.subTest(key=key, value=value):
+                result = server._snapshot_issue(
+                    {**snapshot(TOMORROW, 2), key: value},
+                    expected_date=TOMORROW.isoformat(),
+                    previous=snapshot(),
+                    **OUTDOOR_IDENTITY,
+                )
+                self.assertEqual(result, error)
+
+    def test_access_restriction_is_terminal_without_retries(self) -> None:
+        for error in ("captcha", "rate_limited", "login_required"):
+            with self.subTest(error=error):
+                self.install_payloads([{**snapshot(), "accessError": error}])
+                result = server._wait_for_schedule(self.driver, timeout=25, **OUTDOOR_IDENTITY)
+                self.assertFalse(result["ready"])
+                self.assertEqual(result["error"], error)
+                self.assertEqual(self.extract.call_count, 1)
+
+    def test_total_deadline_caps_wait(self) -> None:
+        self.install_payloads([{}])
+        result = server._wait_for_schedule(
+            self.driver, timeout=45, deadline=self.clock.value + 2, **OUTDOOR_IDENTITY
+        )
+        self.assertFalse(result["ready"])
+        self.assertEqual(self.clock.value, 102.0)
+
+    def test_health_identifies_exact_server_source_release_and_busy_state(self) -> None:
+        handler = server.Handler.__new__(server.Handler)
+        handler.path = "/healthz"
+        responses = []
+        handler._send_json = lambda status, body: responses.append((status, body))
+        with patch.dict(server.os.environ, {"YDMAP_DEPLOYMENT_COMMIT": "a" * 40}):
+            server.SCRAPE_LOCK.acquire()
+            try:
+                handler.do_GET()
+            finally:
+                server.SCRAPE_LOCK.release()
+        status, body = responses[0]
+        self.assertEqual(status, 200)
+        self.assertEqual(body["protocolVersion"], 2)
+        self.assertEqual(body["deploymentCommit"], "a" * 40)
+        self.assertEqual(body["sourceSha256"], hashlib.sha256(SERVER_PATH.read_bytes()).hexdigest())
+        self.assertEqual(body["venues"], ["baoti", "dsh"])
+        self.assertTrue(body["busy"])
+
+    def test_busy_inspect_is_serialized_before_starting_a_second_browser(self) -> None:
+        handler = server.Handler.__new__(server.Handler)
+        handler.path = "/inspect?venue=baoti&days=2"
+        responses = []
+        handler._send_json = lambda status, body: responses.append((status, body))
+        server.SCRAPE_LOCK.acquire()
+        try:
+            handler.do_GET()
+        finally:
+            server.SCRAPE_LOCK.release()
+        self.assertEqual(responses[0][0], 429)
+        self.assertEqual(responses[0][1]["error"], "busy")
+        server._start_chromium.assert_not_called()
+
+
+class PiDriverLifecycleTest(unittest.TestCase):
+    def test_connection_timeout_is_set_before_creating_session(self) -> None:
+        connection = Mock()
+        connection.timeout = None
+        connection.set_timeout.side_effect = lambda value: setattr(connection, "timeout", value)
+        remote_module = types.ModuleType("selenium.webdriver.remote.remote_connection")
+        remote_module.RemoteConnection = Mock(return_value=connection)
+        service = Mock(service_url="http://127.0.0.1:12345")
+        driver = Mock()
+        timer = Mock()
+
+        def attach_remote(*, command_executor, options):
+            self.assertIs(command_executor, connection)
+            self.assertEqual(connection.timeout, 10)
+            self.assertEqual(options.debugger_address, f"127.0.0.1:{server.DEBUG_PORT}")
+            return driver
+
+        with (
+            patch.dict(sys.modules, {remote_module.__name__: remote_module}),
+            patch.object(server, "Service", return_value=service),
+            patch.object(server.threading, "Timer", return_value=timer) as timer_factory,
+            patch.object(server.webdriver, "Remote", side_effect=attach_remote, create=True),
+        ):
+            self.assertIs(server._attach(timeout=17), driver)
+        timer_factory.assert_called_once_with(17, server._stop_driver_service, args=(service,))
+        timer.start.assert_called_once()
+        timer.cancel.assert_called_once()
+        service.start.assert_called_once()
+        self.assertIs(driver._ydmap_service, service)
+
+    def test_unresponsive_driver_process_is_killed_with_bounded_wait(self) -> None:
+        process = Mock()
+        process.wait.side_effect = TimeoutError()
+        service = Mock(process=process)
+        server._stop_driver_service(service)
+        process.wait.assert_called_once_with(timeout=2)
+        process.kill.assert_called_once()
+        self.assertIsNone(service.process)
+
+    def test_cleanup_rejects_shared_or_outside_tmp_profile(self) -> None:
+        for path in ("/tmp", "/", "/home"):
+            with (
+                self.subTest(path=path),
+                patch.object(server, "PROFILE", Path(path)),
+                patch.object(server.subprocess, "run") as run,
+            ):
+                with self.assertRaisesRegex(ValueError, "dedicated directory"):
+                    server._cleanup_stale_browser()
+                run.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

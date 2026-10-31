@@ -38,6 +38,9 @@ on:
       deploy_sender:
         description: Whether sender deployment was planned
         value: ${{ jobs.gate.outputs.deploy_sender }}
+      deploy_pi_ydmap:
+        description: Whether private Pi scraper deployment was planned
+        value: ${{ jobs.gate.outputs.deploy_pi_ydmap }}
   workflow_dispatch:
     inputs:
       mode:
@@ -63,6 +66,7 @@ on:
           - webapp
           - airflow
           - sender
+          - pi_ydmap
           - control
       include_sender:
         description: Explicit approval for an in-scope Android-host sender deployment
@@ -88,6 +92,7 @@ jobs:
       deploy_webapp: ${{ steps.plan.outputs.deploy_webapp }}
       deploy_airflow: ${{ steps.plan.outputs.deploy_airflow }}
       deploy_sender: ${{ steps.plan.outputs.deploy_sender }}
+      deploy_pi_ydmap: ${{ steps.plan.outputs.deploy_pi_ydmap }}
       changed_count: ${{ steps.plan.outputs.changed_count }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -145,9 +150,23 @@ jobs:
             --poll-seconds 10 \
             --format json
 
-  webapp:
-    if: needs.gate.outputs.deploy_webapp == 'true'
+  pi_ydmap:
+    if: needs.gate.outputs.deploy_pi_ydmap == 'true'
     needs: gate
+    uses: ./.github/workflows/production-pi-ydmap.yml
+    with:
+      operation: ${{ inputs.mode == 'apply' && 'apply' || 'preflight' }}
+      target_commit: ${{ inputs.target_commit }}
+      request_id: release-${{ github.run_id }}
+    secrets: inherit
+
+  webapp:
+    if: >-
+      always() &&
+      needs.gate.result == 'success' &&
+      needs.gate.outputs.deploy_webapp == 'true' &&
+      (needs.pi_ydmap.result == 'success' || needs.pi_ydmap.result == 'skipped')
+    needs: [gate, pi_ydmap]
     uses: ./.github/workflows/production-webapp.yml
     with:
       operation: ${{ inputs.mode == 'apply' && 'deploy_apply' || 'deploy_preflight' }}
@@ -160,8 +179,9 @@ jobs:
       always() &&
       needs.gate.result == 'success' &&
       needs.gate.outputs.deploy_airflow == 'true' &&
+      (needs.pi_ydmap.result == 'success' || needs.pi_ydmap.result == 'skipped') &&
       (needs.webapp.result == 'success' || needs.webapp.result == 'skipped')
-    needs: [gate, webapp]
+    needs: [gate, pi_ydmap, webapp]
     uses: ./.github/workflows/production-airflow.yml
     with:
       operation: ${{ inputs.mode == 'apply' && 'deploy_apply' || 'deploy_preflight' }}
@@ -176,9 +196,10 @@ jobs:
       always() &&
       needs.gate.result == 'success' &&
       needs.gate.outputs.deploy_sender == 'true' &&
+      (needs.pi_ydmap.result == 'success' || needs.pi_ydmap.result == 'skipped') &&
       (needs.webapp.result == 'success' || needs.webapp.result == 'skipped') &&
       (needs.airflow.result == 'success' || needs.airflow.result == 'skipped')
-    needs: [gate, webapp, airflow]
+    needs: [gate, pi_ydmap, webapp, airflow]
     uses: ./.github/workflows/production-wechat-sender.yml
     with:
       operation: ${{ inputs.mode == 'apply' && 'apply' || 'dry_run' }}
@@ -188,7 +209,7 @@ jobs:
 
   record:
     if: always()
-    needs: [gate, webapp, airflow, sender]
+    needs: [gate, pi_ydmap, webapp, airflow, sender]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -203,9 +224,11 @@ jobs:
           WEBAPP_PLANNED: ${{ needs.gate.outputs.deploy_webapp }}
           AIRFLOW_PLANNED: ${{ needs.gate.outputs.deploy_airflow }}
           SENDER_PLANNED: ${{ needs.gate.outputs.deploy_sender }}
+          PI_YDMAP_PLANNED: ${{ needs.gate.outputs.deploy_pi_ydmap }}
           WEBAPP_RESULT: ${{ needs.webapp.result }}
           AIRFLOW_RESULT: ${{ needs.airflow.result }}
           SENDER_RESULT: ${{ needs.sender.result }}
+          PI_YDMAP_RESULT: ${{ needs.pi_ydmap.result }}
         run: |
           set -euo pipefail
           {
@@ -216,6 +239,7 @@ jobs:
             echo "- Diff base: \`$BASE_COMMIT\`"
             echo "- Resolved scope: \`$RESOLVED_SCOPE\`"
             echo "- Gate: \`$GATE_RESULT\`"
+            echo "- Pi scraper: planned=\`$PI_YDMAP_PLANNED\`, result=\`$PI_YDMAP_RESULT\`"
             echo "- Web application: planned=\`$WEBAPP_PLANNED\`, result=\`$WEBAPP_RESULT\`"
             echo "- Airflow: planned=\`$AIRFLOW_PLANNED\`, result=\`$AIRFLOW_RESULT\`"
             echo "- WeChat sender: planned=\`$SENDER_PLANNED\`, result=\`$SENDER_RESULT\`"
@@ -234,3 +258,4 @@ jobs:
           check_component "$WEBAPP_PLANNED" "$WEBAPP_RESULT"
           check_component "$AIRFLOW_PLANNED" "$AIRFLOW_RESULT"
           check_component "$SENDER_PLANNED" "$SENDER_RESULT"
+          check_component "$PI_YDMAP_PLANNED" "$PI_YDMAP_RESULT"

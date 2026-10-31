@@ -96,6 +96,52 @@ def test_existing_release_commands_keep_their_routes(tmp_path, body, action, mod
     assert outputs["target_commit"] == TARGET
 
 
+@pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])
+def test_pi_ydmap_commands_route_exact_operation_to_protected_workflow(tmp_path, operation):
+    result, outputs = parse_command(tmp_path, f"/ops pi-ydmap-{operation} {TARGET.upper()}")
+
+    assert result.returncode == 0, result.stderr
+    assert outputs["action"] == "pi_ydmap"
+    assert outputs["mode"] == operation
+    assert outputs["target_commit"] == TARGET
+    assert outputs["include_sender"] == "false"
+    jobs = load_workflow("ops-chatops.yml")["jobs"]
+    route = jobs["pi_ydmap"]
+    assert route["uses"] == "./.github/workflows/production-pi-ydmap.yml"
+    assert route["if"] == "needs.route.outputs.action == 'pi_ydmap'"
+    assert route["with"] == {
+        "operation": "${{ needs.route.outputs.mode }}",
+        "target_commit": "${{ needs.route.outputs.target_commit }}",
+        "request_id": "ops-${{ github.run_id }}",
+    }
+    assert route["secrets"] == "inherit"
+    assert "pi_ydmap" in jobs["report"]["needs"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "/ops pi-ydmap-apply HEAD",
+        "/ops pi-ydmap-inspect",
+        f"/ops pi-ydmap-apply {TARGET} legacy_drain_confirmed=true",
+        f"/ops pi-ydmap-preflight {TARGET}\n/release apply {TARGET}",
+        f"/ops pi-ydmap-exec {TARGET}",
+    ],
+)
+def test_pi_ydmap_commands_reject_ref_aliases_bypass_flags_and_extra_operations(tmp_path, body):
+    result, outputs = parse_command(tmp_path, body)
+
+    assert result.returncode != 0
+    assert outputs == {}
+
+
+def test_release_command_accepts_explicit_pi_ydmap_scope(tmp_path):
+    result, outputs = parse_command(tmp_path, f"/release preflight {TARGET} scope=pi_ydmap")
+
+    assert result.returncode == 0, result.stderr
+    assert outputs["scope"] == "pi_ydmap"
+
+
 def test_read_only_routes_keep_owner_issue_and_protected_workflow_boundaries():
     workflow = load_workflow("ops-chatops.yml")
     jobs = workflow["jobs"]
