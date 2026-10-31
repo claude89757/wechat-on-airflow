@@ -825,6 +825,8 @@ def _wait_for_schedule(
     timeout: float = 45,
     *,
     deadline: float | None = None,
+    verification: dict[str, Any] | None = None,
+    phase: str = "initial_schedule",
     **identity: Any,
 ) -> dict[str, Any]:
     end = (
@@ -838,12 +840,34 @@ def _wait_for_schedule(
         last = _extract_day(driver)
         issue = _snapshot_issue(last, **identity)
         if issue is None:
+            if verification is not None and verification["attempted"]:
+                verification["outcome"] = "passed"
             return last
+        if (
+            issue == "captcha"
+            and verification is not None
+            and verification["outcome"] == "not_needed"
+        ):
+            if _normal_verification_once(driver, verification):
+                time.sleep(min(3, max(0, end - time.monotonic())))
+                continue
         if issue in {"captcha", "rate_limited", "login_required"}:
-            return {**last, "ready": False, "error": issue}
+            return {
+                **last,
+                "ready": False,
+                "error": issue,
+                "failurePhase": phase,
+                "requestedProduct": identity.get("sales_item_id"),
+            }
         time.sleep(min(1.0, max(0.0, end - time.monotonic())))
     # Never return a ready stale snapshot when the date switch timed out.
-    return {**last, "ready": False, "error": issue or "schedule_timeout"}
+    return {
+        **last,
+        "ready": False,
+        "error": issue or "schedule_timeout",
+        "failurePhase": phase,
+        "requestedProduct": identity.get("sales_item_id"),
+    }
 
 
 def _remaining(deadline: float, maximum: float) -> float:
@@ -1031,15 +1055,9 @@ def _scrape_available_slots(
                 "label": label,
             }
             phase = "initial_schedule"
-            payload = _wait_for_schedule(driver, deadline=deadline, **identity)
-            if index == 0 and verification is not None and payload.get("captcha") is True:
-                phase = "access_verification"
-                _remaining(deadline, 10)
-                if _normal_verification_once(driver, verification):
-                    time.sleep(_remaining(deadline, 3))
-                    payload = _wait_for_schedule(driver, deadline=deadline, **identity)
-                    if payload.get("ready") and not payload.get("captcha"):
-                        verification["outcome"] = "passed"
+            payload = _wait_for_schedule(
+                driver, deadline=deadline, verification=verification, phase=phase, **identity
+            )
             if not payload.get("ready"):
                 return _stop_with_error(
                     error=payload.get("error") or "schedule_not_ready",
@@ -1084,6 +1102,8 @@ def _scrape_available_slots(
                     deadline=deadline,
                     expected_date=booking_iso,
                     previous=previous,
+                    verification=verification,
+                    phase=phase,
                     **identity,
                 )
                 if not payload.get("ready"):

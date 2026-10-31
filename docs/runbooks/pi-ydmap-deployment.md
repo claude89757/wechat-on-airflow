@@ -35,7 +35,8 @@ manual workflow dispatch may set `confirm_verification_once=true` with
 `operation=preflight`. This is not enabled by reusable release workflows or by
 the live service. The runner rejects this flag for apply/health/inspect. Only
 the isolated candidate receives the authorization, consumed once for Baoan's
-initial product page during that candidate's lifetime.
+first encountered verification challenge, including date/product transitions,
+during that candidate's lifetime. It is not limited to initial page load.
 
 The candidate inspects the rendered challenge UI for a single visible,
 unobstructed accessible slider and an instruction to drag right. It then uses
