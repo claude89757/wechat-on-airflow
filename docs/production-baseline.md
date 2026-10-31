@@ -1,5 +1,26 @@
 # Production Baseline
 
+## Baoan verification moves with product sequence on 2026-10-31
+
+[Corrected-tab cold comparison 41194768457](https://github.com/claude89757/wechat-on-airflow/actions/runs/41194768457)
+used `717abffb489980c2b3ba83e0f499ec23420ab228`, after exact-main
+[CI 41194601584](https://github.com/claude89757/wechat-on-airflow/actions/runs/41194601584).
+The wind/rain-first flow progressed through wind/rain and outdoor, then encountered
+verification at the third product, indoor `103224`. Selected/source/requested
+identities now agreed. Passive logs recorded six order JSON responses, six config
+JSON responses, two calendar JSON responses and one calendar HTML response.
+The challenge mask/text were visible and no known slider/frame appeared after
+three seconds. No gesture ran. Both venues failed the overall gate; no apply occurred.
+
+The failure therefore followed the third product activation rather than a fixed
+wind/rain product. This supports a sequence/load-related access-control problem,
+not a known provider quota or a proven server-side rule. The immediate blocker
+is now specifically the calendar HTML response. The next candidate retains the
+normal product order but spaces Baoan product activations by at least 30 seconds
+from the previous product's verified readiness. Date/source verification and the
+DAG's two-minute cadence are unchanged; no blocked request is retried. This pacing
+is a conservative repair to verify, not a claim of restored production service.
+
 ## Baoan product-tab click defect confirmed on 2026-10-31
 
 [Cold wind/rain Pi comparison 41193935434](https://github.com/claude89757/wechat-on-airflow/actions/runs/41193935434)

@@ -46,6 +46,7 @@ CHROMIUM_BIN = "/usr/lib/chromium/chromium"
 CHROMEDRIVER = "/usr/local/bin/chromedriver"
 DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
+BAOTI_PRODUCT_INTERVAL_SECONDS = 30
 SCRAPE_LOCK = threading.Lock()
 VERIFICATION_AVAILABLE = os.environ.get("YDMAP_AUTHORIZED_VERIFICATION") == "1"
 SOURCE_METHODS = (
@@ -1268,9 +1269,14 @@ def _scrape_available_slots(
         if runtime is not None:
             runtime.update(_browser_environment(driver))
         payload: dict[str, Any] = {}
+        next_product_at = 0.0
         for index, (key, label, url) in enumerate(groups):
             requested_product = parse_qs(urlparse(url).query)["salesItemId"][0]
             phase = "product_navigation"
+            if index > 0 and venue == "baoti":
+                delay = next_product_at - time.monotonic()
+                if delay > 0:
+                    time.sleep(_remaining(deadline, delay))
             _remaining(deadline, 20)
             previous_product = None
             if index > 0:
@@ -1311,6 +1317,10 @@ def _scrape_available_slots(
             initial_issue = _snapshot_issue(payload, **identity)
             if initial_issue:
                 return _stop_with_error(error=initial_issue, venue=venue, payload=payload)
+            # Calendar verification followed the third rapid product activation
+            # with either product order. Pace fresh product loads, not DAG runs
+            # or retries. Count from readiness so startup latency cannot shorten it.
+            next_product_at = time.monotonic() + BAOTI_PRODUCT_INTERVAL_SECONDS
             order = list(requested)
             if payload["selectedDate"] == order[0]:
                 if len(order) > 1:

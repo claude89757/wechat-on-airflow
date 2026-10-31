@@ -1,6 +1,12 @@
 # Pi YDMap scraper deployment
 
 The Bao'an and Dashah watchers require the same private Pi scraping service.
+Baoan product activations are separated by at least 30 seconds from the previous
+product's verified readiness. Date checks consume that interval; only the remaining
+time is waited. This bounds bursts to the product calendar endpoint while retaining
+all three products, two dates, the scrape deadline and two-minute DAG cadence.
+A verification response still fails immediately and is not retried. Dashah's
+single-product timing is unchanged. The exact provider quota is not known.
 Changing `pi_host/dsh_ydmap/` is a runtime change: the release planner selects
 `pi_ydmap`, and `production-release.yml` verifies/deploys it before Web/Airflow.
 The existing Appium MCP, Sender, phone agent and tunnels are separate services.
