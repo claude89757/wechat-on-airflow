@@ -18,6 +18,10 @@ It never copies a personal profile or exports cookies. Unquiesced diagnostic
 candidates keep their isolated temporary profiles. Candidate process cleanup
 does not delete the service profile. Closing the owned browser tab allows normal
 profile flushing before bounded process termination.
+If temporary storage is cleared at boot, the service marks only a newly created
+profile root with the installer's private ownership marker. Existing roots
+receive no marker; the installer continues to reject unmarked directories. Losing the
+profile also loses its site session; access must be verified again after that.
 Baoan product activations are separated by at least 30 seconds from the previous
 product's verified readiness. Date checks consume that interval; only the remaining
 time is waited. This bounds bursts to the product calendar endpoint while retaining

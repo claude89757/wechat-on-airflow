@@ -1058,6 +1058,27 @@ class PiDriverLifecycleTest(unittest.TestCase):
             self.assertEqual(marker.read_bytes(), b"offline-test-session")
             self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
 
+    def test_service_recreates_marked_root_after_temporary_storage_loss(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
+            profile = Path(directory) / "new-service-profile"
+            product = profile / "baoti-windrain"
+            with (
+                patch.object(server, "PROFILE", profile),
+                patch.object(server.subprocess, "run"),
+                patch.object(server.time, "sleep"),
+            ):
+                server._cleanup_stale_browser(product)
+                marker = profile / ".pi-ydmap-profile"
+                self.assertEqual(marker.read_bytes(), b"pi-ydmap-service-profile-v2\n")
+                self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+                cache = product / "Cookies"
+                cache.write_bytes(b"offline-test-session")
+                marker_before = marker.stat().st_mtime_ns
+                server._cleanup_stale_browser(product)
+                self.assertEqual(marker.stat().st_mtime_ns, marker_before)
+                self.assertEqual(cache.read_bytes(), b"offline-test-session")
+                self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
+
     def test_product_profile_cannot_escape_service_directory(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
             base = Path(directory) / "service"
