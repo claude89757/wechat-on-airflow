@@ -193,6 +193,22 @@ class PiBaotiScraperTest(unittest.TestCase):
             snapshot(TODAY, 3, venue=venue, key=key, available=available),
         ]
 
+    def test_browser_exception_retains_only_bounded_phase_and_sentinel(self) -> None:
+        exception_type = type("JavascriptException", (Exception,), {})
+        with patch.object(
+            server,
+            "_extract_day",
+            side_effect=exception_type("bookability_predicate_invalid private-cookie-value"),
+        ):
+            result = server.scrape_available_slots("baoti", 2)
+        self.assertEqual(result["error"], "bookability_predicate_invalid")
+        self.assertEqual(result["days"], [])
+        self.assertEqual(
+            result["diagnostics"],
+            {"failurePhase": "initial_schedule", "requestedProduct": "111317"},
+        )
+        self.assertNotIn("private-cookie-value", str(result))
+
     def wait_for_tomorrow(self):
         return server._wait_for_schedule(
             self.driver,

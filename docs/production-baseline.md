@@ -1,5 +1,29 @@
 # Production Baseline
 
+## Baoan candidate debugging on 2026-10-31, 08:01 UTC
+
+[PR #274](https://github.com/claude89757/wechat-on-airflow/pull/274) corrected
+availability classification using the page's pure `isAvailableStatic` predicate
+and restored the old four-second initial browser warm-up. Exact-main commit
+`ae1f8dc8aa3aa48aceb6a291698dbf5682fe4961` passed
+[CI 41182616409](https://github.com/claude89757/wechat-on-airflow/actions/runs/41182616409).
+Its protected [Pi preflight 41182781096](https://github.com/claude89757/wechat-on-airflow/actions/runs/41182781096)
+successfully verified all five Dashah dates (October 31 through November 4).
+The live pure predicate matches the previously inspected provider implementation;
+renderer coverage remains incomplete and `bookability_verified` remains false.
+This run reached Baoan but failed with `scrape_not_verified`, no retained source
+exception code and no source snapshot. This is different from the earlier Dashah
+captcha failure; it does not establish a Baoan captcha or successful Baoan parsing.
+No apply, release tag or synthetic notification occurred.
+
+The pre-change [Airflow health 41182042963](https://github.com/claude89757/wechat-on-airflow/actions/runs/41182042963)
+passed for `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`. Public and origin Host Core
+health endpoints report `9cca72d73eb05c502446bd1d947c4307d7f73f35`, while the remote
+repository is at the Airflow commit. A [read-only Host Core check 41182464849](https://github.com/claude89757/wechat-on-airflow/actions/runs/41182464849)
+using the API's SHA was consequently rejected by the remote-worktree identity
+guard. Neither component SHA alone satisfies all existing health identities;
+the coupled release must reconcile them, without reimporting D1.
+
 ## Cursor MCP Callback Repair On 2026-10-31
 
 The owner reported `redirect_uri is not allowed by the account configuration`

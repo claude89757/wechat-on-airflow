@@ -119,6 +119,9 @@ fails. A missing product-name field, date mismatch, rate limit or verification
 challenge therefore remains diagnosable without exposing browser bodies or secrets.
 Challenge reports also retain boolean text/mask detection, document completion
 and schedule-component presence. They never include page text or cookies.
+Browser exceptions retain allowlisted exception/sentinel codes, a fixed operation
+phase and the requested public product ID. Selenium messages and stack traces
+are never exported. An absent `sourceFailure` is not proof of a provider challenge.
 Initial navigation retains the deployed scraper's four-second warm-up before
 attaching Selenium, within the same total timeout. This restores the original
 startup order; it is not evidence that provider access verification is resolved.
