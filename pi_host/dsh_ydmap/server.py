@@ -48,6 +48,7 @@ DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
 SCRAPE_LOCK = threading.Lock()
 SOURCE_METHODS = (
+    "isAvailableStatic",
     "textFun",
     "isNoBook",
     "classObj",
@@ -166,8 +167,9 @@ function visible(el) {
   return true;
 }
 // Slider is the ordinary product/date strip, not a verification challenge.
-const captcha = /Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证|人机\s*验证|验证码|滑动\s*验证/i.test(bodyText) ||
-  [...document.querySelectorAll('.waf-nc-mask')].some(visible);
+const challengeText = /Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证|人机\s*验证|验证码|滑动\s*验证/i.test(bodyText);
+const challengeMaskVisible = [...document.querySelectorAll('.waf-nc-mask')].some(visible);
+const captcha = challengeText || challengeMaskVisible;
 const accessError = captcha ? 'captcha' :
   /访问的?频次过快|请求过于频繁|too many requests|rate limit/i.test(bodyText) ? 'rate_limited' :
   /请先登录|登录后查看|sign in to continue/i.test(bodyText) ? 'login_required' : null;
@@ -231,6 +233,20 @@ rows.forEach((row) => {
     const venue = col.platformInfo && col.platformInfo.venueName;
     if (!venue) return;
     if (!courtNames.includes(venue)) courtNames.push(venue);
+    // Use the page's read-only booking predicate, not a subset of CSS states.
+    // It also checks price, online booking, release time and merged cells.
+    // Missing/changed predicates fail the scrape rather than imply empty courts.
+    if (!accessError) {
+      if (typeof table.isAvailableStatic !== 'function') {
+        throw new Error('bookability_predicate_unavailable');
+      }
+      if (table.isTicket !== false) throw new Error('bookability_product_type_unverified');
+      const available = table.isAvailableStatic(col);
+      if (typeof available !== 'boolean') throw new Error('bookability_predicate_invalid');
+      if (!available || col.orderInfo != null) return;
+    } else {
+      return;
+    }
     const cls = col.className || '';
     const expired = col.expired === true || col.expired === 1;
     if (expired) return;
@@ -246,6 +262,10 @@ rows.forEach((row) => {
 });
 const result = {
   captcha,
+  challengeText,
+  challengeMaskVisible,
+  documentComplete: document.readyState === 'complete',
+  scheduleComponentPresent: !!table,
   accessError,
   ready: cellCount > 0,
   signature: `${cellCount}:${Object.keys(courts).sort().join(',')}:${JSON.stringify(courts)}`,
@@ -272,7 +292,7 @@ const result = {
   },
 };
 if (arguments[0] === true && !accessError) {
-  const methodNames = ['textFun', 'isNoBook', 'classObj', 'closeMsg', 'sellerMessage', 'isTicketDisabled'];
+  const methodNames = ['isAvailableStatic', 'textFun', 'isNoBook', 'classObj', 'closeMsg', 'sellerMessage', 'isTicketDisabled'];
   const pending = table ? [table] : [];
   const seen = new Set();
   const covered = new Set();
@@ -874,6 +894,12 @@ def _stop_with_error(
                 "dataVersion",
                 "courtNames",
                 "cellCount",
+                "challengeText",
+                "challengeMaskVisible",
+                "documentComplete",
+                "scheduleComponentPresent",
+                "failurePhase",
+                "requestedProduct",
             )
             if key in observed
         },
@@ -914,12 +940,21 @@ def scrape_available_slots(
     court_names: dict[str, list[str]] = {}
     evidence: dict[str, list[dict[str, Any]]] = {}
     source_budget: dict[str, Any] = {"remaining": SOURCE_TOTAL_BYTES, "seen": set()}
+    phase = "browser_start"
+    requested_product = parse_qs(urlparse(groups[0][2]).query)["salesItemId"][0]
     try:
         _cleanup_stale_browser()
         proc = _start_chromium(groups[0][2])
         _wait_devtools(timeout=_remaining(deadline, 40))
+        # Preserve the deployed scraper's four-second initial page warm-up.
+        # DevTools readiness only proves the browser is listening, not that
+        # the initial navigation has completed. Keep this inside our deadline.
+        time.sleep(_remaining(deadline, 4))
+        phase = "browser_attach"
         driver = _attach(timeout=_remaining(deadline, 30))
         for index, (key, label, url) in enumerate(groups):
+            requested_product = parse_qs(urlparse(url).query)["salesItemId"][0]
+            phase = "product_navigation"
             _remaining(deadline, 20)
             if index > 0:
                 driver.set_page_load_timeout(_remaining(deadline, 20))
@@ -931,6 +966,7 @@ def scrape_available_slots(
                 "sales_item_id": parse_qs(parsed.query)["salesItemId"][0],
                 "label": label,
             }
+            phase = "initial_schedule"
             payload = _wait_for_schedule(driver, deadline=deadline, **identity)
             if not payload.get("ready"):
                 return _stop_with_error(
@@ -956,6 +992,7 @@ def scrape_available_slots(
                         )
                     order.insert(0, alternatives[0])
             for booking_iso in order:
+                phase = "date_selection"
                 _remaining(deadline, 25)
                 if booking_iso not in payload.get("availableDates", []):
                     return _stop_with_error(
@@ -968,6 +1005,7 @@ def scrape_available_slots(
                 # remove a WAF mask or force a JavaScript click through it.
                 element.click()
                 previous = payload
+                phase = "refreshed_schedule"
                 payload = _wait_for_schedule(
                     driver,
                     timeout=25,
@@ -991,6 +1029,7 @@ def scrape_available_slots(
                 if booking_iso not in requested:
                     continue
                 if source_evidence:
+                    phase = "source_evidence"
                     _remaining(deadline, 10)
                     payload = _extract_day(driver, source_evidence=True)
                     issue = _snapshot_issue(
@@ -1045,7 +1084,23 @@ def scrape_available_slots(
             "days": _days_payload(collected, court_names, evidence),
         }
     except Exception as exc:
-        return _stop_with_error(error=type(exc).__name__, venue=venue)
+        error = type(exc).__name__
+        # Only our fixed JS sentinel codes may cross the browser exception boundary.
+        # Never publish Selenium messages, stacks, URLs or page content.
+        if error == "JavascriptException":
+            for code in (
+                "bookability_predicate_unavailable",
+                "bookability_predicate_invalid",
+                "bookability_product_type_unverified",
+            ):
+                if code in str(exc):
+                    error = code
+                    break
+        return _stop_with_error(
+            error=error,
+            venue=venue,
+            payload={"failurePhase": phase, "requestedProduct": requested_product},
+        )
     finally:
         if proc is not None:
             _stop(proc, driver)

@@ -4,7 +4,7 @@ This repository follows a stability-first dependency policy.
 
 ## Default behavior
 
-Routine Dependabot version-update pull requests are disabled for Python, the web app, GitHub Actions, and Docker images. Dependabot remains configured with `open-pull-requests-limit: 0` so that repository security updates can still be raised when Dependabot security updates are enabled in the repository settings.
+Routine Dependabot version-update pull requests are disabled for Python, the web app, GitHub Actions, and Docker images. Dependabot remains configured with `open-pull-requests-limit: 0` so that repository security updates can still be raised when Dependabot security updates are enabled in the repository settings. Automatic rebasing is disabled. An already-open routine version bump is not a merge queue and is not kept current by Dependabot.
 
 Dependency versions are not advanced merely because a newer release exists. A non-security upgrade must be opened deliberately for a concrete production need, compatibility requirement, or scheduled maintenance window.
 

@@ -3,6 +3,19 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [Unreleased]
+
+### Changed
+
+- Align the README license badge and license statement with the MIT `LICENSE`.
+- State current acceptance as all 27 active venue DAGs. The count matches the
+  runtime target, public venue cards, and architecture. Dated incident records
+  keep their historical counts.
+- Disable Dependabot automatic rebasing. Routine version-update pull requests
+  stay closed to the merge queue.
+- Type the shared HTTPS proxy watcher and remove it from the strict mypy
+  exclusion list. The remaining six adapters stay the bounded typing backlog.
+
 ## [0.9.0] - 2026-10-31
 
 ### Added
@@ -24,6 +37,10 @@ and operational changes.
 
 ### Fixed
 
+- Use the page's read-only booking predicate to exclude empty cells that lack
+  prices, are not open for online booking, or represent merged/special ranges.
+  Preserve the original browser startup warm-up and retain bounded challenge
+  evidence for Pi preflight diagnosis.
 - Require source venue, product name and freshly loaded booking date evidence
   before accepting a court grid. Reject stale rows, incomplete product groups,
   access verification pages and old scraper responses instead of publishing

@@ -44,7 +44,7 @@ const parent = {
 function cell(cls, extra = {}) {
   return {
     startTimeText: '18:00', endTimeText: '19:00', className: cls,
-    platformInfo: {venueName: '室外场1号'}, ...extra,
+    platformInfo: {venueName: '室外场1号', onlineBooking: 1}, priceBean: {price: 0}, ...extra,
   };
 }
 const rows = input.cells || [cell('')];
@@ -54,10 +54,20 @@ const table = {
   tableLoadingCounter: 0, tableLoadingFlag: 1,
   serverData: {sportPlatformList: [{venueName: '室外场1号'}], orderInfoList: []},
   rows: [rows],
+  isTicket: false,
+  // Source rule recorded in the successful October browser inspection.
+  isAvailableStatic(col) {
+    if (input.invalidPredicate) return 'true';
+    return !(col.expired || col.priceBean == null || col.orderNoBook ||
+      col.platformInfo.onlineBooking !== 1 || input.notOpen || col.className ||
+      col.freeRange || col.rowspan > 1 || col.colspan > 1);
+  },
 };
+if (input.noPredicate) delete table.isAvailableStatic;
 let functionCalls = 0;
 if (input.renderer) {
   const definitions = {
+    isAvailableStatic: table.isAvailableStatic,
     textFun: function textFun(col) {
       functionCalls++;
       // private-comment-token
@@ -105,6 +115,7 @@ globalThis.getComputedStyle = el => ({
 globalThis.window = {};
 globalThis.location = {hostname: 'bawtt.ydmap.cn'};
 globalThis.document = {
+  readyState: 'complete',
   body: {innerText: input.body || ''},
   querySelector: selector => selector === '#app' ? {__vue__: root} : null,
   querySelectorAll: selector => selector === '.waf-nc-mask' && input.mask ? [mask(input.mask === 'hidden')] : [],
@@ -214,7 +225,8 @@ class PiYdmapIdentityTest(unittest.TestCase):
             },
         ]
         evidence = self.evidence(cells=cells, partial=True, label="室内")
-        self.assertEqual(len(evidence["samples"]), 2)
+        # Both rows are unavailable; the bounded sampler emits one per category.
+        self.assertEqual(len(evidence["samples"]), 1)
         self.assertEqual(evidence["matched_cell_count"], 1)
         self.assertFalse(evidence["coverage_complete"])
         sample = evidence["samples"][0]
@@ -222,7 +234,8 @@ class PiYdmapIdentityTest(unittest.TestCase):
         self.assertIsNone(sample["online_booking"])
         self.assertTrue(sample["online_booking_redacted"])
         self.assertTrue(sample["has_price"])
-        self.assertEqual(evidence["samples"][1]["known_classes"], ["col-completed"])
+        completed = self.evidence(cells=cells[1:])
+        self.assertEqual(completed["samples"][0]["known_classes"], ["col-completed"])
         self.assertNotIn("private-", json.dumps(evidence))
 
     def test_challenge_does_not_collect_optional_function_source(self) -> None:
@@ -247,7 +260,12 @@ class PiYdmapIdentityTest(unittest.TestCase):
                 self.assertEqual(data["accessError"], "captcha")
 
     def test_visible_waf_mask_is_a_challenge_even_without_text(self) -> None:
-        self.assertTrue(self.extract(mask="visible")[0]["captcha"])
+        data = self.extract(mask="visible")[0]
+        self.assertTrue(data["captcha"])
+        self.assertTrue(data["challengeMaskVisible"])
+        self.assertFalse(data["challengeText"])
+        self.assertTrue(data["documentComplete"])
+        self.assertTrue(data["scheduleComponentPresent"])
 
     def test_hidden_waf_mask_and_product_slider_are_not_challenges(self) -> None:
         data = self.extract(mask="hidden", body="室外网球场 11-01 11-02")[0]
@@ -315,7 +333,8 @@ class PiYdmapIdentityTest(unittest.TestCase):
                     "startTimeText": "18:00",
                     "endTimeText": "19:00",
                     "className": "",
-                    "platformInfo": {"venueName": f"室外场{index + 1}号"},
+                    "platformInfo": {"venueName": f"室外场{index + 1}号", "onlineBooking": 1},
+                    "priceBean": {"price": 0},
                     **extra,
                 }
             )
@@ -323,6 +342,36 @@ class PiYdmapIdentityTest(unittest.TestCase):
         self.assertEqual(data["courts"], {"室外场1号": [["18:00", "19:00"]]})
         self.assertEqual(data["cellCount"], len(cells))
         self.assertEqual(len(data["courtNames"]), len(cells))
+
+    def test_booking_rules_reject_empty_but_unbookable_cells(self) -> None:
+        base = {
+            "startTimeText": "18:00",
+            "endTimeText": "19:00",
+            "className": "",
+            "platformInfo": {"venueName": "室外场1号", "onlineBooking": 1},
+            "priceBean": {"price": 0},
+        }
+        self.assertTrue(self.extract(cells=[base])[0]["courts"])
+        for extra in (
+            {"priceBean": None},
+            {"platformInfo": {"venueName": "室外场1号", "onlineBooking": 0}},
+            {"freeRange": True},
+            {"rowspan": 2},
+            {"colspan": 2},
+            {"className": "new-vendor-blocked-state"},
+            {"orderInfo": {}},
+        ):
+            with self.subTest(extra=extra):
+                data = self.extract(cells=[{**base, **extra}])[0]
+                self.assertEqual(data["courts"], {})
+                self.assertEqual(data["courtNames"], ["室外场1号"])
+                self.assertEqual(data["cellCount"], 1)
+        self.assertEqual(self.extract(cells=[base], notOpen=True)[0]["courts"], {})
+
+    def test_missing_or_changed_booking_predicate_fails_closed(self) -> None:
+        for mode in ("noPredicate", "invalidPredicate"):
+            with self.subTest(mode=mode), self.assertRaises(subprocess.CalledProcessError):
+                self.extract(**{mode: True})
 
 
 if __name__ == "__main__":

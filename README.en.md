@@ -1,10 +1,3 @@
-> **Host Core-only hardening (2026-09-05):** the old compatibility/rollback
-> description below is superseded by [Architecture](ARCHITECTURE.md) and
-> [ADR 0013](docs/adr/0013-host-core-only-reliable-delivery.md). Production uses
-> PostgreSQL-owned email and a dedicated WeChat worker with durable device
-> idempotency. D1 is an unbound archive, never a runtime fallback. Only an
-> exact-commit production acceptance report establishes deployment completion.
-
 # 🎾 WeChat-on-Airflow
 
 > Shenzhen tennis availability alerts: Apache Airflow 3 performs high-frequency venue polling, a PostgreSQL-backed notification core on the Airflow host owns subscriptions and email, and Cloudflare is reduced to the public edge.
@@ -15,16 +8,16 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
 [![Airflow 3.3](https://img.shields.io/badge/Airflow-3.3.0-017CEE)](https://airflow.apache.org/)
 [![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1)](https://www.postgresql.org/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 ## ✨ Features
 
-- **Multi-venue polling**: 26 Shenzhen venue DAGs. Shenzhen Bay polls every two minutes and Greater Bay Area every three minutes, from 08:00 inclusive to 21:00 exclusive in Asia/Shanghai. Three CRLand accounts rotate independently by each venue's scheduled round; other venues use the one-minute default or an explicit policy exception.
+- **Multi-venue polling**: 27 Shenzhen venue DAGs. Shenzhen Bay polls every two minutes and Greater Bay Area every three minutes, from 08:00 inclusive to 21:00 exclusive in Asia/Shanghai. Three CRLand accounts rotate independently by each venue's scheduled round. Dashah International and Bao'an Tennis Center share a single-slot browser pool and poll every two minutes. Other venues use the one-minute default or an explicit policy exception.
 - **Host-owned subscription core**: local `zacks-api` accepts observations and Web requests; PostgreSQL schema `zacks` stores identities, subscriptions, dedupe state, Outboxes, quotas, and delivery results.
 - **Subscriber email**: `zacks-notification-worker` performs matching, digesting, tier limits, weather policy, Tencent SES submission, retries, and delivery reconciliation.
-- **WeChat alerts**: Airflow continues to call the Android-hosted WeChat Sender directly. The venue gate is read from local PostgreSQL rather than Cloudflare D1.
-- **Stateless Cloudflare edge**: the Worker serves React assets and proxies `/api/*`; D1 is retained read-only only for the rollback window.
-- **Failure isolation**: Cloudflare/D1 failure does not stop existing email or WeChat delivery, and Redis loss cannot lose or duplicate durable notification work.
+- **WeChat alerts**: venue tasks only write durable WeChat intents. The separate `zacks-wechat-worker` calls the Android Sender, and device-side durable idempotency avoids duplicate sends after a restart.
+- **Stateless Cloudflare edge**: the Worker serves React assets and proxies `/api/*` without business state. After cutover, D1 has no runtime binding and remains only a migration archive, never a compatibility backend.
+- **Failure isolation**: a Cloudflare or D1 failure does not stop email or WeChat for existing subscriptions. Redis loss cannot lose or duplicate a notification. A failure in one delivery channel does not contaminate the other.
 - **Exact-commit releases**: GitHub Actions is the only production control plane and verifies the deployed SHA across all affected runtimes.
 - **Complete quality gate**: `make verify` covers Ruff, mypy, Python tests, Web/Worker tests, browser regression, Compose, images, and Airflow DagBag contracts.
 
@@ -43,7 +36,7 @@ flowchart TB
         Worker["zacks-notification-worker"]
         PG[("PostgreSQL 17\nAirflow metadata + zacks schema")]
         Redis[("Redis\nCelery broker / disposable coordination")]
-        WeChatClient["Airflow WeChat client"]
+        WeChatClient["zacks-wechat-worker"]
     end
 
     subgraph Edge["Cloudflare edge"]
@@ -66,7 +59,8 @@ flowchart TB
     API --> PG
     PG --> Worker
     Worker --> SES --> Mail
-    Airflow -->|"local subscription gate"| WeChatClient --> Android --> Group
+    Airflow -->|"durable local WeChat intent"| API
+    PG --> WeChatClient --> Android --> Group
 
     Browser["Mobile or desktop browser"] --> Static
     Browser --> Proxy --> Tunnel --> API
@@ -76,12 +70,14 @@ flowchart TB
 
 1. **PostgreSQL is the only durable business source of truth.** It owns users, subscriptions, venue status, event identities, notification Outboxes, daily limits, and provider status.
 2. **Redis is not authoritative.** It remains the Celery broker and may provide wake-ups or hot cache entries, but notification correctness never depends on Redis persistence.
-3. **Exactly one email owner is active.** Cloudflare remains the legacy owner during migration; the host worker becomes the sole owner only after the atomic cutover.
-4. **WeChat no longer depends on Cloudflare.** Airflow obtains the venue eligibility decision from local PostgreSQL before calling the Android sender.
-5. **Cloudflare is an edge boundary only.** It provides static assets, TLS/WAF, stateless API forwarding, and Tunnel ingress—no D1 query, notification Cron, matching, or email delivery after cutover.
-6. **The migration is reversible.** Shadow services, encrypted secret transfer, initial import, natural dual-write observations, quiescence, final delta import, and automatic rollback are required. D1 is not deleted.
+3. **Exactly one email owner is active.** The first activation freezes the previous owner, imports and verifies the data, then lets the host worker own delivery. There is no dual-write path and no legacy runtime fallback.
+4. **WeChat does not depend on Cloudflare.** The separate WeChat worker decides delivery from PostgreSQL subscriptions and current availability. Venue DAGs do not wait for the device send.
+5. **Cloudflare is only the edge.** It serves static assets, TLS/WAF, stateless API forwarding, and Tunnel ingress. It does not query D1, run a notification Cron, or own a notification decision.
+6. **Failure pauses delivery and rolls forward.** The first cutover uses a maintenance window, encrypted secret transfer, bulk import, and per-table verification. After activation, D1 is not imported again, the old path is not restored automatically, and the original business data is not deleted.
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md), [ADR 0012](./docs/adr/0012-airflow-host-notification-core.md), and the [cutover runbook](./docs/runbooks/host-core-cutover.md).
+Current production status is established only by an exact-commit acceptance report from the protected workflow. This page does not by itself show that migration is complete. Acceptance includes three natural inspection cycles for all 27 venues, the production transaction-rollback subscription probe, and real natural email and WeChat delivery records.
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) and [ADR 0013](./docs/adr/0013-host-core-only-reliable-delivery.md).
 
 ## 🧱 Tech Stack
 
@@ -135,10 +131,22 @@ make verify
 
 Tests, CI, and normal health checks **never** send real email or WeChat messages.
 
-The local Compose runtime includes PostgreSQL, Redis, all Airflow services,
-`zacks-api`, and `zacks-notification-worker`. The initial production transition
-must use the protected `Production Host Core` workflow; it must not be replaced
-with an ordinary Web deployment.
+The local Compose runtime includes:
+
+```text
+postgresql
+redis
+airflow-api-server
+airflow-scheduler
+airflow-dag-processor
+airflow-worker
+airflow-triggerer
+zacks-api
+zacks-notification-worker
+zacks-wechat-worker
+```
+
+The initial production transition must use the protected `Production Host Core` workflow and the [host-core cutover runbook](./docs/runbooks/host-core-cutover.md). It must not be replaced with an ordinary Web deployment.
 
 ## 📖 Documentation
 
@@ -158,7 +166,8 @@ with an ordinary Web deployment.
 - Airflow Variables store venue configuration and emergency switches, not growing business history.
 - PostgreSQL schema `zacks` stores all durable application state.
 - Tencent SES credentials live in root-owned host Secret files. During migration they are transferred directly through an ephemeral RSA-OAEP/AES-GCM envelope; GitHub never receives plaintext.
-- D1 deletion, business-data cleanup, secret rotation, and database replacement are separately approved high-risk operations.
+- Cloudflare Worker secrets keep only the values the previous owner needs during the migration window. After cutover, the edge API uses only the reverse-proxy authentication token.
+- Deleting D1, cleaning business data, rotating secrets, and replacing a database are separate high-risk operations. This cutover does not perform them.
 
 ## 🤝 Contributing
 
@@ -166,4 +175,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md), [SECURITY.md](./SECURITY.md), and [COD
 
 ## 📄 License
 
-Apache License 2.0. See [LICENSE](./LICENSE).
+MIT License. See [LICENSE](./LICENSE).

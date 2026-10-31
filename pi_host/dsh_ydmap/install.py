@@ -23,6 +23,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 BASE = Path("/opt/pi-ydmap-scraper")
+RUNUSER = Path("/usr/sbin/runuser")
 UNIT = "dsh-ydmap-scraper.service"
 DROPIN = Path("/etc/systemd/system/dsh-ydmap-scraper.service.d/90-managed-release.conf")
 OTHER_UNITS = (
@@ -36,6 +37,7 @@ TEST_NAMES = ("pi_baoti_scraper_test.py", "pi_ydmap_identity_test.py")
 MAX_BYTES = 1_000_000
 MAX_SOURCE_EVIDENCE_BYTES = 128 * 1024
 RENDERER_METHODS = {
+    "isAvailableStatic",
     "textFun",
     "isNoBook",
     "classObj",
@@ -119,6 +121,26 @@ ACTIVATION_SECONDS = 540
 ROLLBACK_SECONDS = 150
 ACTIVATION_LEASE_REQUIRED = ACTIVATION_SECONDS + ROLLBACK_SECONDS + 60
 SOURCE_FAILURES = {
+    "JavascriptException",
+    "SessionNotCreatedException",
+    "ElementClickInterceptedException",
+    "ElementNotInteractableException",
+    "StaleElementReferenceException",
+    "NoSuchElementException",
+    "InvalidArgumentException",
+    "MoveTargetOutOfBoundsException",
+    "OSError",
+    "PermissionError",
+    "IndexError",
+    "RuntimeError",
+    "KeyError",
+    "TypeError",
+    "ValueError",
+    "AttributeError",
+    "FileNotFoundError",
+    "bookability_predicate_unavailable",
+    "bookability_predicate_invalid",
+    "bookability_product_type_unverified",
     "captcha",
     "rate_limited",
     "login_required",
@@ -148,6 +170,13 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "failedVenues",
+    "failurePhase",
+    "requestedProduct",
+    "challengeText",
+    "challengeMaskVisible",
+    "documentComplete",
+    "scheduleComponentPresent",
     "pageHost",
     "selectedDate",
     "queryDate",
@@ -172,6 +201,102 @@ PRODUCTS = {
         "windrain": ("111319", "风雨"),
     },
 }
+ERROR_CLASSES = {
+    "OperationFailure",
+    "OSError",
+    "PermissionError",
+    "FileNotFoundError",
+    "FileExistsError",
+    "NotADirectoryError",
+    "IsADirectoryError",
+    "TimeoutError",
+    "ConnectionError",
+    "ConnectionRefusedError",
+    "ConnectionResetError",
+    "BrokenPipeError",
+    "URLError",
+    "HTTPError",
+    "JSONDecodeError",
+    "UnicodeDecodeError",
+    "TypeError",
+    "ValueError",
+    "KeyError",
+    "AttributeError",
+    "IndexError",
+    "RuntimeError",
+    "TimeoutExpired",
+    "CalledProcessError",
+    "EOFError",
+    "SSHException",
+    "AuthenticationException",
+    "BadHostKeyException",
+    "NoValidConnectionsError",
+}
+FAILURE_PHASES = {
+    "main": "operation_setup",
+    "other_service_identities": "service_snapshot",
+    "verify_existing_service": "existing_service_verification",
+    "prepare_candidate": "candidate_prepare",
+    "isolated_candidate": "candidate_runtime",
+    "inspect_venues": "venue_inspection",
+    "activate": "activation",
+    "verify_checkout": "checkout_verification",
+    "remote": "remote_operation",
+    "apply_with_guard": "airflow_drain",
+}
+FAILURE_FUNCTIONS = set(FAILURE_PHASES) | {
+    "operate",
+    "service_properties",
+    "request_json",
+    "checked_runuser",
+    "inspect_evidence",
+    "verify_health",
+    "wait_idle",
+    "active_connections",
+    "wait_health",
+    "validate_drain_proof",
+    "run",
+    "digest",
+    "atomic_bytes",
+    "atomic_link",
+    "encode_report",
+}
+
+
+def safe_error_class(value: object) -> str:
+    return value if isinstance(value, str) and value in ERROR_CLASSES else "Exception"
+
+
+def safe_failure_diagnostic(value: object) -> dict | None:
+    if (
+        not isinstance(value, dict)
+        or not isinstance(value.get("phase"), str)
+        or value.get("phase") not in set(FAILURE_PHASES.values())
+        or not isinstance(value.get("function"), str)
+        or value.get("function") not in FAILURE_FUNCTIONS
+        or type(value.get("line")) is not int
+        or not 1 <= value["line"] <= 100000
+    ):
+        return None
+    return {key: value[key] for key in ("phase", "function", "line")}
+
+
+def failure_details(exc: Exception, *, source_file: str = __file__) -> dict:
+    # Only named functions/lines from our exact source; never messages, paths or locals.
+    phase = "operation_setup"
+    location = None
+    trace = exc.__traceback__
+    while trace is not None:
+        code = trace.tb_frame.f_code
+        if code.co_filename == source_file and code.co_name in FAILURE_FUNCTIONS:
+            if phase == "operation_setup" and code.co_name != "main":
+                phase = FAILURE_PHASES.get(code.co_name, phase)
+            location = {"phase": phase, "function": code.co_name, "line": trace.tb_lineno}
+        trace = trace.tb_next
+    return {
+        "errorClass": safe_error_class(type(exc).__name__),
+        "failureDiagnostic": safe_failure_diagnostic(location),
+    }
 
 
 class OperationFailure(RuntimeError):
@@ -198,6 +323,13 @@ def safe_source_diagnostic(value: object) -> dict:
     if not isinstance(value, dict):
         return {}
     result = {}
+    failed_venues = value.get("failedVenues")
+    if (
+        isinstance(failed_venues, list)
+        and 1 <= len(failed_venues) <= 2
+        and all(isinstance(venue, str) and venue in {"dsh", "baoti"} for venue in failed_venues)
+    ):
+        result["failedVenues"] = list(dict.fromkeys(failed_venues))
     # Presence alone is useful when a provider changed field types. No unknown
     # string, URL, cookie, body fragment or error message is forwarded.
     present = value.get("present", {})
@@ -215,10 +347,27 @@ def safe_source_diagnostic(value: object) -> dict:
                 result[key] = candidate
         except ValueError:
             pass
-    for key in ("selectedSalesId", "sourceSalesId", "selectedProduct", "sourceProduct"):
+    for key in (
+        "selectedSalesId",
+        "sourceSalesId",
+        "selectedProduct",
+        "sourceProduct",
+        "requestedProduct",
+    ):
         candidate = value.get(key)
         if isinstance(candidate, str) and re.fullmatch(r"[0-9]{1,12}", candidate):
             result[key] = candidate
+    phase = value.get("failurePhase")
+    if isinstance(phase, str) and phase in {
+        "browser_start",
+        "browser_attach",
+        "product_navigation",
+        "initial_schedule",
+        "date_selection",
+        "refreshed_schedule",
+        "source_evidence",
+    }:
+        result["failurePhase"] = phase
     for key in ("loadingCounter", "loadGeneration", "cellCount"):
         candidate = value.get(key)
         if type(candidate) is int and 0 <= candidate <= 1_000_000:
@@ -227,8 +376,15 @@ def safe_source_diagnostic(value: object) -> dict:
         result["pageHost"] = value["pageHost"]
     if value.get("productNameField") in {"salesItemName", "itemName", "name"}:
         result["productNameField"] = value["productNameField"]
-    if type(value.get("productInCatalog")) is bool:
-        result["productInCatalog"] = value["productInCatalog"]
+    for key in (
+        "productInCatalog",
+        "challengeText",
+        "challengeMaskVisible",
+        "documentComplete",
+        "scheduleComponentPresent",
+    ):
+        if type(value.get(key)) is bool:
+            result[key] = value[key]
     product_name = value.get("productName")
     if isinstance(product_name, str) and PUBLIC_TEXT.fullmatch(product_name):
         result["productName"] = product_name
@@ -592,6 +748,12 @@ def run(argv: list[str], *, timeout: int = 30) -> str:
     return result.stdout.decode("utf-8")
 
 
+def checked_runuser() -> str:
+    if not RUNUSER.is_file() or not os.access(RUNUSER, os.X_OK):
+        raise OperationFailure("runuser_unavailable")
+    return str(RUNUSER)
+
+
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -906,6 +1068,7 @@ def inspect_venues(
     port: int, *, at: datetime | None = None, source_evidence: bool = False
 ) -> list[dict]:
     reports = []
+    failures = []
     local = at or datetime.now(ZoneInfo("Asia/Shanghai"))
     for venue, days, timeout in (("dsh", 5 if local.hour >= 12 else 4, 150), ("baoti", 2, 240)):
         today = local.date()
@@ -921,7 +1084,19 @@ def inspect_venues(
         except OperationFailure as exc:
             exc.venue = venue
             exc.inspections = reports
-            raise
+            if not source_evidence:
+                raise
+            failures.append(exc)
+    if failures:
+        # Diagnostic preflight checks each independent venue once. A failure
+        # still blocks activation, even when the other venue was verified.
+        failure = failures[-1]
+        failure.inspections = reports
+        failure.source_diagnostic = {
+            **(failure.source_diagnostic or {}),
+            "failedVenues": [item.venue for item in failures],
+        }
+        raise failure
     return reports
 
 
@@ -1051,7 +1226,7 @@ def prepare_candidate(
     run(["/usr/bin/python3", "-m", "py_compile", str(server)])
     result = subprocess.run(
         [
-            "runuser",
+            checked_runuser(),
             "-u",
             account.pw_name,
             "--",
@@ -1087,6 +1262,7 @@ def prepare_candidate(
 
 @contextlib.contextmanager
 def isolated_candidate(candidate: Path, account: pwd.struct_passwd, commit: str):
+    executable = checked_runuser()
     runtime = Path(tempfile.mkdtemp(prefix="pi-ydmap-candidate-"))
     os.chown(runtime, account.pw_uid, account.pw_gid)
     environment = {
@@ -1101,21 +1277,22 @@ def isolated_candidate(candidate: Path, account: pwd.struct_passwd, commit: str)
         "YDMAP_DEPLOYMENT_COMMIT": commit,
         "PYTHONDONTWRITEBYTECODE": "1",
     }
-    process = subprocess.Popen(
-        [
-            "runuser",
-            "-u",
-            account.pw_name,
-            "--",
-            "/usr/bin/python3",
-            str(candidate / "pi_host/dsh_ydmap/server.py"),
-        ],
-        env=environment,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    process = None
     try:
+        process = subprocess.Popen(
+            [
+                executable,
+                "-u",
+                account.pw_name,
+                "--",
+                "/usr/bin/python3",
+                str(candidate / "pi_host/dsh_ydmap/server.py"),
+            ],
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if process.poll() is not None:
@@ -1129,24 +1306,25 @@ def isolated_candidate(candidate: Path, account: pwd.struct_passwd, commit: str)
             raise OperationFailure("candidate_start_failed")
         yield 18788
     finally:
-        if process.poll() is None:
+        if process is not None and process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)
             try:
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=5)
-        subprocess.run(
-            [
-                "pkill",
-                "-TERM",
-                "-f",
-                r"^/usr/lib/chromium/chromium .*--remote-debugging-port=19224( |$)",
-            ],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
+        if process is not None:
+            subprocess.run(
+                [
+                    "pkill",
+                    "-TERM",
+                    "-f",
+                    r"^/usr/lib/chromium/chromium .*--remote-debugging-port=19224( |$)",
+                ],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
         # Only this candidate's directory is removed; active and legacy profiles are untouched.
         shutil.rmtree(runtime)
 
@@ -1331,7 +1509,7 @@ def main() -> int:
                 {
                     "ok": False,
                     "operationComplete": True,
-                    "errorClass": type(exc).__name__,
+                    **failure_details(exc),
                     "failure": exc.code
                     if isinstance(exc, OperationFailure)
                     else "operation_failed",

@@ -6,11 +6,13 @@ import importlib.util
 import io
 import json
 import signal
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 
@@ -257,6 +259,132 @@ def test_candidate_failure_never_replaces_or_stops_live_service(monkeypatch, tmp
     with pytest.raises(INSTALL.OperationFailure, match="access_verification"):
         INSTALL.operate(args)
     assert calls == []
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="runuser is a Linux runtime prerequisite")
+def test_candidate_launcher_executes_with_its_restricted_path(monkeypatch, tmp_path):
+    # Exercise the actual executable lookup with the candidate's environment;
+    # a mocked Popen alone would miss a bare runuser hidden outside PATH.
+    real_popen = INSTALL.subprocess.Popen
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    account = SimpleNamespace(pw_name="pi-test", pw_uid=1000, pw_gid=1000, pw_dir=str(tmp_path))
+    polls = iter((None, 0))
+    launches = []
+    cleanup = []
+
+    def launch(command, **kwargs):
+        assert Path(command[0]).is_absolute()
+        assert "/usr/sbin" not in kwargs["env"]["PATH"].split(":")
+        with real_popen(
+            [command[0], "--version"],
+            env=kwargs["env"],
+            stdout=INSTALL.subprocess.PIPE,
+            stderr=INSTALL.subprocess.PIPE,
+        ) as probe:
+            output, _ = probe.communicate(timeout=5)
+            assert probe.returncode == 0 and b"runuser" in output
+        launches.append(command)
+        return SimpleNamespace(poll=lambda: next(polls))
+
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", launch)
+    monkeypatch.setattr(INSTALL.subprocess, "run", lambda argv, **kwargs: cleanup.append(argv))
+    monkeypatch.setattr(INSTALL, "request_json", lambda *args: health())
+    with INSTALL.isolated_candidate(tmp_path, account, COMMIT) as port:
+        assert port == 18788
+    assert launches[0][:4] == [INSTALL.checked_runuser(), "-u", "pi-test", "--"]
+    assert len(cleanup) == 1 and "19224" in cleanup[0][-1]
+    assert not runtime.exists()
+
+
+def test_missing_runuser_fails_before_candidate_directory_creation(monkeypatch, tmp_path):
+    monkeypatch.setattr(INSTALL, "RUNUSER", tmp_path / "missing-runuser")
+    monkeypatch.setattr(
+        INSTALL.tempfile, "mkdtemp", lambda **kwargs: pytest.fail("candidate must not be created")
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="runuser_unavailable"):
+        with INSTALL.isolated_candidate(tmp_path, object(), COMMIT):
+            pytest.fail("missing launcher cannot start a candidate")
+
+
+def test_launch_exception_diagnostic_survives_remote_filter_without_private_data(
+    monkeypatch, tmp_path, capsys
+):
+    monkeypatch.setattr(INSTALL, "checked_runuser", lambda: "/usr/sbin/runuser")
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    account = SimpleNamespace(pw_name="pi-test", pw_uid=1000, pw_gid=1000, pw_dir=str(tmp_path))
+    monkeypatch.setattr(
+        INSTALL.sys,
+        "argv",
+        [
+            "install.py",
+            "preflight",
+            "--commit",
+            COMMIT,
+            "--source-sha256",
+            HASH,
+            "--staging",
+            str(tmp_path),
+        ],
+    )
+    monkeypatch.setattr(INSTALL.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: account)
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *args: tmp_path)
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+
+    def failed_launch(*args, **kwargs):
+        raise FileNotFoundError("private path and secret-value")
+
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", failed_launch)
+    monkeypatch.setattr(
+        INSTALL.subprocess, "run", lambda *args, **kwargs: pytest.fail("no process was started")
+    )
+    handlers = {
+        signum: signal.getsignal(signum)
+        for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+    }
+    try:
+        assert INSTALL.main() == 1
+    finally:
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["errorClass"] == "FileNotFoundError"
+    assert payload["failureDiagnostic"]["phase"] == "candidate_runtime"
+    assert payload["failureDiagnostic"]["function"] == "isolated_candidate"
+    assert type(payload["failureDiagnostic"]["line"]) is int
+    assert not runtime.exists()
+    assert "secret-value" not in json.dumps(payload)
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
+    )
+    stdout = io.BytesIO(json.dumps(payload).encode())
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (
+            SimpleNamespace(channel=channel),
+            stdout,
+            io.BytesIO(b"secret-value"),
+        )
+    )
+    retained = DEPLOY.remote(client, "fake-command")
+    assert retained["errorClass"] == payload["errorClass"]
+    assert retained["failureDiagnostic"] == payload["failureDiagnostic"]
+    assert retained["inspections"] == []
+    assert "secret-value" not in json.dumps(retained)
+
+
+@pytest.mark.parametrize("field,value", [("phase", []), ("function", {}), ("line", True)])
+def test_failure_diagnostic_rejects_malformed_untrusted_fields(field, value):
+    diagnostic = {"phase": "candidate_runtime", "function": "isolated_candidate", "line": 1200}
+    assert INSTALL.safe_failure_diagnostic({**diagnostic, field: value}) is None
+    assert INSTALL.safe_error_class("secret-value") == "Exception"
+    assert INSTALL.safe_failure_diagnostic({**diagnostic, "private": "secret-value"}) == diagnostic
 
 
 def test_any_apply_requires_measured_protected_drain(monkeypatch, tmp_path):
@@ -548,6 +676,10 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
             "courtNames": ["1号室外场"],
             "secret": "private-cookie",
             "sourceSalesId": "token=private",
+            "challengeMaskVisible": True,
+            "challengeText": "private-token",
+            "failurePhase": "initial_schedule",
+            "requestedProduct": "111317",
         },
         "cookie": "private-cookie",
     }
@@ -567,6 +699,13 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
     assert error.source_diagnostic["sourceProduct"] == "111317"
     assert error.source_diagnostic["present"]["productName"] is True
     assert error.source_diagnostic["productInCatalog"] is False
+    assert error.source_diagnostic["challengeMaskVisible"] is True
+    assert "challengeText" not in error.source_diagnostic
+    assert error.source_diagnostic["failurePhase"] == "initial_schedule"
+    assert error.source_diagnostic["requestedProduct"] == "111317"
+    assert "failurePhase" not in INSTALL.safe_source_diagnostic({"failurePhase": "private"})
+    assert INSTALL.safe_source_failure("JavascriptException") == "JavascriptException"
+    assert INSTALL.safe_source_failure("private-cookie-value") is None
     assert "private" not in json.dumps(error.source_diagnostic)
     assert INSTALL.safe_source_diagnostic(error.source_diagnostic) == error.source_diagnostic
 
@@ -854,6 +993,45 @@ def test_preflight_query_is_explicit_for_both_venues(monkeypatch):
         "/inspect?venue=dsh&days=5&evidence=source-v1",
         "/inspect?venue=baoti&days=2&evidence=source-v1",
     ]
+
+
+@pytest.mark.parametrize("baoti_fails", [False, True])
+def test_preflight_inspects_baoti_after_dsh_failure_without_accepting_partial_success(
+    monkeypatch, baoti_fails
+):
+    paths = []
+
+    def request(port, path, **kwargs):
+        paths.append(path)
+        if "venue=dsh" in path or baoti_fails:
+            failure = INSTALL.OperationFailure("scrape_not_verified")
+            failure.source_failure = (
+                "RuntimeError" if "venue=baoti" in path else "schedule_not_ready"
+            )
+            raise failure
+        return {}
+
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    monkeypatch.setattr(
+        INSTALL, "inspect_evidence", lambda payload, venue, dates, **kwargs: {"venue": venue}
+    )
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_venues(18788, source_evidence=True)
+    assert len(paths) == 2
+    failure = caught.value
+    assert failure.venue == ("baoti" if baoti_fails else "dsh")
+    assert failure.inspections == ([] if baoti_fails else [{"venue": "baoti"}])
+    expected = ["dsh", "baoti"] if baoti_fails else ["dsh"]
+    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == expected
+    assert "failedVenues" not in INSTALL.safe_source_diagnostic({"failedVenues": ["private"]})
+
+
+def test_apply_inspection_still_stops_after_first_failure(monkeypatch):
+    request = Mock(side_effect=INSTALL.OperationFailure("scrape_not_verified"))
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    with pytest.raises(INSTALL.OperationFailure):
+        INSTALL.inspect_venues(18788)
+    assert request.call_count == 1
 
 
 def test_workflow_gates_and_release_order_cover_pi_before_airflow():

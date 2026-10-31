@@ -20,11 +20,17 @@ application rather than distributing service-token headers. Add only the pinned
 owner's email selector, resolved privately from their Cloudflare user ID, with
 the existing Cloudflare login-method requirement. No account-wide or Everyone
 policy is allowed. Keep the machine policy for protected health automation.
-Use PKCE S256/DCR, loopback and documented ChatGPT callbacks, 15-minute access
+Use PKCE S256/DCR, loopback and explicit ChatGPT/Cursor/Grok callbacks, 15-minute access
 tokens and a seven-day refresh grant. The origin continues to receive the signed
 Access assertion validated by cloudflared; no new Worker or phone daemon is needed.
 This uses Cloudflare's Beta Managed OAuth feature and requires a compatible
 client and initial owner login; it is not reuse of the management plugin's token.
+
+Browser Integrity Check is incompatible with some legitimate programmatic
+clients. Skip that product alone on the exact dedicated MCP hostname using an
+owned custom rule; keep Access and all other WAF/custom rules intact. Do not
+disable BIC zone-wide or disguise probes as browser user agents. Preserve
+unrelated rules and reverse only the rule created by this operation on failure.
 
 Wrap actual upstream tool callbacks, including their failure paths. Share the
 existing per-device flock for the full MCP session, reject foreign sessions,
