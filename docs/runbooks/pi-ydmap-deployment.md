@@ -206,6 +206,16 @@ Initial navigation retains the deployed scraper's four-second warm-up before
 attaching Selenium, within the same total timeout. This restores the original
 startup order; it is not evidence that provider access verification is resolved.
 
+The local WebDriver transport uses a per-connection `ClientConfig` with a
+30-second HTTP timeout, longer than the 20-second page-load and eight-second
+script limits. NEW_SESSION retains its startup watchdog. A separate deadline
+watchdog stops only the current scrape's driver at the pre-existing deadline,
+leaving the 30-second cleanup reserve; cleanup commands use five seconds.
+Driver timeout/transport errors request only bounded passive UI/log diagnostics,
+with five seconds per diagnostic command, under that same watchdog. They never
+repeat the failed source request or click. A local `ReadTimeoutError` is not
+itself evidence of an upstream CAPTCHA or successful booking-data retrieval.
+
 The legacy scraper has no atomic drain API; the automatic Airflow guard handles
 the first replacement as well as subsequent deployments. Zero active socket
 checks are an additional guard. New servers also expose their scrape-busy state.

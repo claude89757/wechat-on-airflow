@@ -411,6 +411,34 @@ class PiBaotiScraperTest(unittest.TestCase):
         )
         self.assertNotIn("private-cookie-value", str(result))
 
+    def test_driver_deadline_aborts_hung_command_without_repeating_source_request(self) -> None:
+        service = object()
+        self.driver._ydmap_service = service
+        timer = Mock()
+        error = type("ReadTimeoutError", (Exception,), {})
+
+        def hung(*args, **kwargs):
+            timer_factory.call_args.args[1]()
+            raise error("private-wire-message")
+
+        with (
+            patch.object(server.threading, "Timer", return_value=timer) as timer_factory,
+            patch.object(server, "_extract_day", side_effect=hung) as extract,
+            patch.object(server, "_stop_driver_service") as stop_service,
+            patch.object(server, "_access_diagnostics", return_value={"browserLogUnavailable": 1}),
+        ):
+            result = server.scrape_available_slots("baoti", 2)
+        self.assertEqual(timer_factory.call_args.args[0], 180)
+        timer.start.assert_called_once()
+        timer.cancel.assert_called_once()
+        stop_service.assert_called_once_with(service)
+        extract.assert_called_once()
+        self.assertEqual(result["error"], "ReadTimeoutError")
+        self.assertEqual(result["days"], [])
+        self.assertEqual(result["diagnostics"]["accessDiagnostics"], {"browserLogUnavailable": 1})
+        self.assertEqual(self.browser_events, ["start", "stop"])
+        self.assertNotIn("private-wire-message", str(result))
+
     def wait_for_tomorrow(self):
         return server._wait_for_schedule(
             self.driver,
@@ -888,22 +916,31 @@ class PiDriverLifecycleTest(unittest.TestCase):
 
     def test_connection_timeout_is_set_before_creating_session(self) -> None:
         connection = Mock()
-        connection.timeout = None
-        connection.set_timeout.side_effect = lambda value: setattr(connection, "timeout", value)
         remote_module = types.ModuleType("selenium.webdriver.remote.remote_connection")
         remote_module.RemoteConnection = Mock(return_value=connection)
+        config_module = types.ModuleType("selenium.webdriver.remote.client_config")
+        config_module.ClientConfig = Mock(
+            side_effect=lambda **kwargs: types.SimpleNamespace(**kwargs)
+        )
         service = Mock(service_url="http://127.0.0.1:12345")
         driver = Mock()
         timer = Mock()
 
         def attach_remote(*, command_executor, options):
             self.assertIs(command_executor, connection)
-            self.assertEqual(connection.timeout, 10)
+            config = remote_module.RemoteConnection.call_args.kwargs["client_config"]
+            self.assertEqual(config.timeout, 30)
+            self.assertGreater(config.timeout, 20)
+            self.assertFalse(config.keep_alive)
+            self.assertEqual(config.remote_server_addr, service.service_url)
             self.assertEqual(options.debugger_address, f"127.0.0.1:{server.DEBUG_PORT}")
             return driver
 
         with (
-            patch.dict(sys.modules, {remote_module.__name__: remote_module}),
+            patch.dict(
+                sys.modules,
+                {remote_module.__name__: remote_module, config_module.__name__: config_module},
+            ),
             patch.object(server, "Options", return_value=Mock()),
             patch.object(server, "Service", return_value=service),
             patch.object(server.threading, "Timer", return_value=timer) as timer_factory,
@@ -915,6 +952,24 @@ class PiDriverLifecycleTest(unittest.TestCase):
         timer.cancel.assert_called_once()
         service.start.assert_called_once()
         self.assertIs(driver._ydmap_service, service)
+        self.assertEqual(driver._ydmap_client_config.timeout, 30)
+        connection.set_timeout.assert_not_called()
+        driver.set_page_load_timeout.assert_called_once_with(20)
+        driver.set_script_timeout.assert_called_once_with(8)
+
+    def test_cleanup_keeps_short_wire_timeout_inside_reserved_budget(self) -> None:
+        driver, proc = Mock(), Mock(pid=12345)
+        driver._ydmap_client_config = types.SimpleNamespace(timeout=30)
+        driver._ydmap_service = types.SimpleNamespace(process=None)
+
+        def quit_driver():
+            self.assertEqual(driver._ydmap_client_config.timeout, 5)
+
+        driver.quit.side_effect = quit_driver
+        with patch.object(server.os, "killpg"):
+            server._stop(proc, driver)
+        driver.quit.assert_called_once()
+        proc.wait.assert_called_once_with(timeout=8)
 
     def test_unresponsive_driver_process_is_killed_with_bounded_wait(self) -> None:
         process = Mock()
