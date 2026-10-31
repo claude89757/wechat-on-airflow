@@ -30,6 +30,23 @@ owner-only issue-39 router also supports `/ops pi-ydmap-preflight <full-sha>`,
 
 ## Candidate and activation
 
+After explicit operator authorization for a normal verification interaction,
+manual workflow dispatch may set `confirm_verification_once=true` with
+`operation=preflight`. This is not enabled by reusable release workflows or by
+the live service. The runner rejects this flag for apply/health/inspect. Only
+the isolated candidate receives the authorization, consumed once for Baoan's
+initial product page during that candidate's lifetime.
+
+The candidate inspects the rendered challenge UI for a single visible,
+unobstructed accessible slider and an instruction to drag right. It then uses
+one native WebDriver pointer drag. Unsupported, ambiguous or obscured controls
+receive no interaction. It does not remove masks, alter browser trust, inject
+events/tokens, call provider callbacks or retry a failed gesture. Reports retain
+only fixed control/outcome codes and whether a gesture was attempted. A passed
+gesture is not venue acceptance: all date/product/source checks still apply.
+Candidate browser state is discarded after the inspection; no cookies are
+exported, and this diagnostic does not establish durable production access.
+
 Preflight stages the exact server and mock tests below
 `/opt/pi-ydmap-scraper/releases/`. It verifies the source SHA256, Python syntax,
 and a nonzero number of passing mock tests as the existing unprivileged service

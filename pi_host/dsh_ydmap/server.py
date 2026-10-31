@@ -47,6 +47,7 @@ CHROMEDRIVER = "/usr/local/bin/chromedriver"
 DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
 SCRAPE_LOCK = threading.Lock()
+VERIFICATION_AVAILABLE = os.environ.get("YDMAP_AUTHORIZED_VERIFICATION") == "1"
 SOURCE_METHODS = (
     "isAvailableStatic",
     "textFun",
@@ -852,6 +853,69 @@ def _remaining(deadline: float, maximum: float) -> float:
     return min(remaining, maximum)
 
 
+VERIFICATION_CONTROL_JS = r"""
+// Inspect only the rendered verification UI. Never call provider callbacks,
+// modify the DOM, manufacture events/tokens, or inspect cookies.
+if (location.hostname !== 'bawtt.ydmap.cn') return {status: 'wrong_host'};
+const visible = el => el && el.getClientRects().length &&
+  getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none';
+const roots = [...document.querySelectorAll('.waf-nc-mask, #WAF_NC_WRAPPER')].filter(visible);
+if (!roots.length) return {status: 'root_missing'};
+const controls = roots.flatMap(root => [...root.querySelectorAll('[role="slider"], [aria-label="滑块"]')]);
+const unique = [...new Set(controls)].filter(visible);
+if (!unique.length) return {status: 'controls_missing'};
+if (unique.length !== 1) return {status: 'ambiguous_controls'};
+const handle = unique[0];
+const track = handle.parentElement;
+const instruction = (track.innerText || '').replace(/\s+/g, '');
+if (!/请.*(?:按住|向右|拖动).*滑块|请.*滑块.*(?:拖动|向右)|请向右滑动验证|slide.*(?:right|verify)/i.test(instruction)) return {status: 'instruction_unrecognized'};
+const h = handle.getBoundingClientRect(), t = track.getBoundingClientRect();
+const x = t.right - h.width / 2 - 2;
+const distance = x - (h.left + h.width / 2);
+if (distance < 50 || distance > 600 || h.height < 10 || h.height > 100 ||
+    h.top < t.top || h.bottom > t.bottom || x >= innerWidth) return {status: 'geometry_invalid'};
+const hit = document.elementFromPoint(h.left + h.width / 2, h.top + h.height / 2);
+if (hit !== handle && !handle.contains(hit)) return {status: 'control_obstructed'};
+return {status: 'ready', handle, distance: Math.round(distance)};
+"""
+
+
+def _normal_verification_once(driver: webdriver.Remote, state: dict[str, Any]) -> bool:
+    control = driver.execute_script(VERIFICATION_CONTROL_JS)
+    status = control.get("status") if isinstance(control, dict) else None
+    state["control"] = (
+        status
+        if status
+        in (
+            "wrong_host",
+            "root_missing",
+            "controls_missing",
+            "ambiguous_controls",
+            "instruction_unrecognized",
+            "geometry_invalid",
+            "control_obstructed",
+            "ready",
+        )
+        else "probe_failed"
+    )
+    if not isinstance(control, dict) or status != "ready" or "handle" not in control:
+        state["outcome"] = "unsupported_control"
+        return False
+    distance = control.get("distance")
+    if type(distance) is not int or not 50 <= distance <= 600:
+        state["outcome"] = "unsupported_control"
+        return False
+    from selenium.webdriver.common.action_chains import ActionChains
+
+    # A single ordinary pointer drag, explicitly authorized by the operator.
+    # No retry, evasive trajectory, event injection or provider API invocation.
+    state.update(attempted=True, outcome="not_passed")
+    ActionChains(driver, duration=1000).click_and_hold(control["handle"]).move_by_offset(
+        distance, 0
+    ).release().perform()
+    return True
+
+
 def _prefixed_court_name(label: str, court: str) -> str:
     """Disambiguate courts whose raw name omits its venue group."""
     name = str(court).strip()
@@ -922,8 +986,8 @@ def _days_payload(
     ]
 
 
-def scrape_available_slots(
-    venue: str = DEFAULT_VENUE, days: int = DEFAULT_DAYS, *, source_evidence: bool = False
+def _scrape_available_slots(
+    venue: str, days: int, *, source_evidence: bool, verification: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     groups = VENUE_GROUPS.get(venue)
     if not groups:
@@ -968,6 +1032,14 @@ def scrape_available_slots(
             }
             phase = "initial_schedule"
             payload = _wait_for_schedule(driver, deadline=deadline, **identity)
+            if index == 0 and verification is not None and payload.get("captcha") is True:
+                phase = "access_verification"
+                _remaining(deadline, 10)
+                if _normal_verification_once(driver, verification):
+                    time.sleep(_remaining(deadline, 3))
+                    payload = _wait_for_schedule(driver, deadline=deadline, **identity)
+                    if payload.get("ready") and not payload.get("captcha"):
+                        verification["outcome"] = "passed"
             if not payload.get("ready"):
                 return _stop_with_error(
                     error=payload.get("error") or "schedule_not_ready",
@@ -1106,6 +1178,31 @@ def scrape_available_slots(
             _stop(proc, driver)
 
 
+def scrape_available_slots(
+    venue: str = DEFAULT_VENUE,
+    days: int = DEFAULT_DAYS,
+    *,
+    source_evidence: bool = False,
+    verification_once: bool = False,
+) -> dict[str, Any]:
+    global VERIFICATION_AVAILABLE
+    verification = None
+    if verification_once and VERIFICATION_AVAILABLE and source_evidence and venue == "baoti":
+        VERIFICATION_AVAILABLE = False
+        verification = {"attempted": False, "outcome": "not_needed"}
+    result = _scrape_available_slots(
+        venue, days, source_evidence=source_evidence, verification=verification
+    )
+    if verification is not None:
+        result.setdefault("diagnostics", {}).update(
+            verificationAttempted=verification["attempted"],
+            verificationOutcome=verification["outcome"],
+        )
+        if "control" in verification:
+            result["diagnostics"]["verificationControl"] = verification["control"]
+    return result
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         print(f"[dsh-ydmap] {format % args}")
@@ -1148,7 +1245,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             requested_evidence = query.get("evidence") == ["source-v1"]
-            payload = scrape_available_slots(venue, days, source_evidence=requested_evidence)
+            payload = scrape_available_slots(
+                venue,
+                days,
+                source_evidence=requested_evidence,
+                verification_once=query.get("verification") == ["once"],
+            )
             self._send_json(200 if payload.get("ok") else 503, payload)
         except Exception as exc:
             self._send_json(500, _stop_with_error(error=type(exc).__name__, venue=venue))
