@@ -172,6 +172,8 @@ class FakeElement:
 
     def click(self) -> None:
         (self.driver.products if self.product else self.driver.clicked).append(self.target)
+        if self.product:
+            self.driver.product_click_times.append(server.time.monotonic())
 
 
 class FakeDriver:
@@ -179,6 +181,7 @@ class FakeDriver:
         self.visited: list[str] = []
         self.clicked: list[str] = []
         self.products: list[str] = []
+        self.product_click_times: list[float] = []
 
     def get(self, url: str) -> None:
         self.visited.append(url)
@@ -377,6 +380,10 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(self.driver.clicked, ["11-02", "11-01"] * 3)
         self.assertEqual(self.driver.visited, [])
         self.assertEqual(self.driver.products, ["103224", "111319"])
+        self.assertGreaterEqual(self.driver.product_click_times[0], 130)
+        self.assertGreaterEqual(
+            self.driver.product_click_times[1] - self.driver.product_click_times[0], 30
+        )
         server._stop.assert_called_once()
 
     def test_dsh_preserves_names_and_single_group(self) -> None:
@@ -384,6 +391,7 @@ class PiBaotiScraperTest(unittest.TestCase):
         result = server.scrape_available_slots("dsh", 2)
         self.assertTrue(result["ok"], result)
         self.assertEqual(self.driver.visited, [])
+        self.assertEqual(self.clock.value, 104)  # Only its existing initial warm-up.
         for day in result["days"]:
             self.assertEqual(day["courts"], {"1号风雨场": [["18:00", "19:00"]]})
             self.assertEqual([group["key"] for group in day["groups"]], [""])
