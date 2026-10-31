@@ -204,7 +204,14 @@ before any configuration write. Do not fall back to Everyone, account-wide
 membership, a different email, or a different login method.
 
 Apply preserves the application audience, dedicated service policy/token,
-Tunnel and DNS. It adds exactly one owner Allow policy with the pinned Cloudflare
+Tunnel and DNS. A narrowly owned custom rule skips only Browser Integrity Check
+(`products: ["bic"]`) on the exact MCP hostname, so API clients can reach Access's
+401/OAuth challenge. It does not skip Access, other custom rules, managed WAF,
+rate limits or any other hostname. The token also needs zone WAF edit permission.
+Preflight inventories that entrypoint; apply creates only the owned rule and
+retains unrelated rules. Failure removes only the newly created owned rule,
+and deletes a newly created ruleset only if it is still empty.
+It adds exactly one owner Allow policy with the pinned Cloudflare
 login-method requirement and bounded OAuth/DCR settings. Failure restores and
 verifies the captured application/policies. Host service start identities must
 remain unchanged. Acceptance checks anonymous, invalid machine credentials and
@@ -215,9 +222,18 @@ and read-only MCP call have been separately verified. No synthetic notification
 or phone session is necessary. Only the owner's client stores its resulting
 OAuth tokens; never place them in CI logs or artifacts.
 
+Cloudflare may materialize default DCR fields when OAuth is disabled. Rollback
+therefore verifies disabled OAuth semantics plus the original audience, policies
+and login controls, rather than treating those inactive defaults as a failed
+restore. Failure reports expose only fixed reason codes, never raw API errors.
+Discovery supports RFC 9728 and Access's documented application-origin RFC 8414
+bootstrap while pinning all issuer/endpoint hosts and PKCE S256.
+
 References: [Cloudflare managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/),
 [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp),
 [ChatGPT OAuth callbacks](https://developers.openai.com/plugins/build/auth#redirect-url).
+The hostname-only BIC exception follows [Cloudflare's selective BIC guidance](https://developers.cloudflare.com/waf/tools/browser-integrity-check/)
+and [product-specific skip options](https://developers.cloudflare.com/waf/custom-rules/skip/options/).
 
 ### Application Lifecycle
 
