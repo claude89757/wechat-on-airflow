@@ -225,9 +225,10 @@ Venue tasks enqueue WeChat intents; only `zacks-wechat-worker` calls the durable
 device Sender. Email and WeChat uncertain submission states are never blindly
 replayed. All production operations remain protected GitHub workflows.
 
-Acceptance requires the exact commit on host, edge and Sender; 27 venue DAGs
-with three natural successful cycles; fresh observations and consumers; migration
-identity reconciliation; the production transaction-rollback API probe; and
-actual natural SES-delivered and WeChat-sent records. The rollback probe is not
+Acceptance requires the exact commit on host, edge and Sender; all 27 active
+venue DAGs with three natural successful cycles; fresh observations and
+consumers; migration identity reconciliation; the production
+transaction-rollback API probe; and actual natural SES-delivered and
+WeChat-sent records. The rollback probe is not
 a public browser test or a real verification email. No synthetic notifications
 may be sent without a separately authorized recipient and explicit permission.
