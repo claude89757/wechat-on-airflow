@@ -675,6 +675,8 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
             "courtNames": ["1号室外场"],
             "secret": "private-cookie",
             "sourceSalesId": "token=private",
+            "challengeMaskVisible": True,
+            "challengeText": "private-token",
         },
         "cookie": "private-cookie",
     }
@@ -694,6 +696,8 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
     assert error.source_diagnostic["sourceProduct"] == "111317"
     assert error.source_diagnostic["present"]["productName"] is True
     assert error.source_diagnostic["productInCatalog"] is False
+    assert error.source_diagnostic["challengeMaskVisible"] is True
+    assert "challengeText" not in error.source_diagnostic
     assert "private" not in json.dumps(error.source_diagnostic)
     assert INSTALL.safe_source_diagnostic(error.source_diagnostic) == error.source_diagnostic
 

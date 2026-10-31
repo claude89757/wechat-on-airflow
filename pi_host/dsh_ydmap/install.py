@@ -37,6 +37,7 @@ TEST_NAMES = ("pi_baoti_scraper_test.py", "pi_ydmap_identity_test.py")
 MAX_BYTES = 1_000_000
 MAX_SOURCE_EVIDENCE_BYTES = 128 * 1024
 RENDERER_METHODS = {
+    "isAvailableStatic",
     "textFun",
     "isNoBook",
     "classObj",
@@ -149,6 +150,10 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "challengeText",
+    "challengeMaskVisible",
+    "documentComplete",
+    "scheduleComponentPresent",
     "pageHost",
     "selectedDate",
     "queryDate",
@@ -324,8 +329,15 @@ def safe_source_diagnostic(value: object) -> dict:
         result["pageHost"] = value["pageHost"]
     if value.get("productNameField") in {"salesItemName", "itemName", "name"}:
         result["productNameField"] = value["productNameField"]
-    if type(value.get("productInCatalog")) is bool:
-        result["productInCatalog"] = value["productInCatalog"]
+    for key in (
+        "productInCatalog",
+        "challengeText",
+        "challengeMaskVisible",
+        "documentComplete",
+        "scheduleComponentPresent",
+    ):
+        if type(value.get(key)) is bool:
+            result[key] = value[key]
     product_name = value.get("productName")
     if isinstance(product_name, str) and PUBLIC_TEXT.fullmatch(product_name):
         result["productName"] = product_name

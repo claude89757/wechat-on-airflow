@@ -56,9 +56,10 @@ version 2 remains unchanged.
 
 For each final fresh group/date snapshot, `groups[].source_evidence` can describe
 how many source cells matched renderer components, bounded public cell samples,
-and sanitized source from six known renderer methods: `textFun`, `isNoBook`,
-`classObj`, `closeMsg`, `sellerMessage`, and `isTicketDisabled`. Methods and
-computed getters are never invoked for diagnostics. Unknown literals, comments,
+and sanitized source from seven known methods: `isAvailableStatic`, `textFun`,
+`isNoBook`, `classObj`, `closeMsg`, `sellerMessage`, and `isTicketDisabled`.
+Methods and computed getters are never invoked for diagnostics; normal cell
+classification uses the read-only `isAvailableStatic` predicate. Unknown literals, comments,
 templates, regex bodies, URLs and token-like values are removed or redacted;
 no order details, account data, cookies or request/response bodies are exported.
 
@@ -116,6 +117,11 @@ including public product/date/court identities and field-presence flags. Earlier
 successful venue inspections remain in the bounded report when a later venue
 fails. A missing product-name field, date mismatch, rate limit or verification
 challenge therefore remains diagnosable without exposing browser bodies or secrets.
+Challenge reports also retain boolean text/mask detection, document completion
+and schedule-component presence. They never include page text or cookies.
+Initial navigation retains the deployed scraper's four-second warm-up before
+attaching Selenium, within the same total timeout. This restores the original
+startup order; it is not evidence that provider access verification is resolved.
 
 The legacy scraper has no atomic drain API; the automatic Airflow guard handles
 the first replacement as well as subsequent deployments. Zero active socket
@@ -124,6 +130,17 @@ Do not stop unrelated services to
 make a candidate pass, remove access verification, or change browser trust.
 
 ## Acceptance
+
+The extractor requires the schedule component's read-only `isAvailableStatic`
+predicate to return a boolean and requires `orderInfo == null`. A list of CSS
+blocked states alone misses missing prices, closed online booking, unreleased
+dates and merged/free-range cells. The successful October browser investigation
+recorded this predicate in `booking-schedule-venue.3ea7d08e.js`; historical source
+and offline regressions are not proof of the current provider implementation.
+Missing predicates, non-boolean results and non-court products fail closed.
+Optional renderer diagnostics still do not call renderer methods or establish
+`bookability_verified`; inspect the live predicate and representative cells
+before release. This change does not resolve the access-verification blocker.
 
 1. Record the prior component identities and normal production health.
 2. Require the protected candidate preflight to pass; retain its bounded report.
