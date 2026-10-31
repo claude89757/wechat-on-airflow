@@ -36,6 +36,7 @@ VENUE_DEDUPE_CACHE_KEYS: dict[str, str] = {
     "gba": "大湾区网球场",
     "dsh_free": "大沙河免费场",
     "dsh": "大沙河国际网球中心",
+    "baoti": "宝安网球中心",
     "sysh": "上越沙河网球场",
     "tops": "TOPS科技园网球场",
     "fsb": "泛思博特福中福网球场",

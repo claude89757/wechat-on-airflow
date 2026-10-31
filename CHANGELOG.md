@@ -3,6 +3,40 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [0.9.0] - 2026-10-31
+
+### Added
+
+- Integrate the Bao'an Tennis Center inspection from PR #262, retaining the
+  contributor's attribution. Cover today and tomorrow across the three YDMap
+  products, with Host Core observations and Web venue status.
+- Add protected exact-commit Pi scraper preflight, deployment, health and
+  inspection operations. Validate an isolated candidate against real Dashah
+  and Bao'an pages before activation, with source identity and rollback checks.
+
+### Fixed
+
+- Require source venue, product name and freshly loaded booking date evidence
+  before accepting a court grid. Reject stale rows, incomplete product groups,
+  access verification pages and old scraper responses instead of publishing
+  misleading healthy observations.
+- Quote the complete SSH curl URL so venue and day parameters reach the Pi,
+  preserve curl failures, and publish observations before claiming alerts.
+- Enqueue only validated availability lines. Add booking links at delivery time
+  and release Bao'an dedupe claims when enqueue fails or delivery is suppressed.
+- Handle midnight interval endings and booking dates across New Year.
+- Serialize Dashah and Bao'an tasks in a single-slot Airflow pool so simultaneous
+  schedules cannot compete for the shared Chromium scraper.
+
+### Operations
+
+- Pause and drain only affected YDMap DAGs during scraper replacement, then
+  restore their recorded pause states. Preserve existing shared-group delivery
+  restrictions, notification history and unrelated device services.
+- Require exact-main CI and real-page preflight before the Pi update can unblock
+  Airflow and Web release. Production acceptance remains a separate evidence gate;
+  this changelog does not assert that deployment has completed.
+
 ## [0.8.7] - 2026-10-31
 
 ### Changed

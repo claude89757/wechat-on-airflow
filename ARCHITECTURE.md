@@ -175,7 +175,7 @@ Acceptance has four distinct evidence classes:
 2. Production database/API logic through an operator-only transaction probe; all
    test writes are rolled back and it sends no real email/WeChat. It is not a
    public browser or external verification-email test.
-3. All 26 venue DAGs passing three natural cycles, fresh per-scope observations,
+3. All 27 venue DAGs passing three natural cycles, fresh per-scope observations,
    healthy auxiliary tasks and advancing consumers/queues.
 4. Real natural SES-delivered and WeChat-sent records after the release window.
 

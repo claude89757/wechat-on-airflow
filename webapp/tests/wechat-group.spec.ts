@@ -13,7 +13,7 @@ async function fixture(page: Page, verified = false) {
     return route.fulfill({ json: dashboard });
   });
   await page.goto("/");
-  await expect(page.locator(".venue-card")).toHaveCount(26);
+  await expect(page.locator(".venue-card")).toHaveCount(27);
   return () => writes;
 }
 async function openGroup(page: Page) {

@@ -70,6 +70,21 @@ images:
   wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
   host_core: same_exact_airflow_application_image
 managed_services:
+  pi_ydmap_scraper:
+    runtime: systemd
+    deployment_owner: github_actions
+    workflow: production-pi-ydmap.yml
+    service: dsh-ydmap-scraper.service
+    origin_base_url: http://127.0.0.1:8788
+    authentication: pinned_ssh_to_loopback
+    protocol_version: 2
+    release_directory: /opt/pi-ydmap-scraper
+    source_identity: server_py_sha256_and_exact_commit
+    candidate_origin_base_url: http://127.0.0.1:18788
+    candidate_debug_port: 19224
+    preflight_requires_real_date_product_court_identity: true
+    deploy_before: airflow
+    tests_send_notifications: false
   pi_appium_mcp:
     runtime: systemd
     deployment_owner: pi_device_host
@@ -106,7 +121,7 @@ managed_services:
     additional_public_base_urls:
     - https://zacks.claude89757.cc
     health_path: /api/healthz
-    expected_venue_count: 26
+    expected_venue_count: 27
     deployment_owner: github_actions
     static_assets: webapp/dist/client
     api_proxy:
@@ -302,7 +317,7 @@ verification:
   - postgresql_schema_ready
   - one_delivery_owner
   - all_15_source_tables_reconciled
-  - all_26_venues_three_natural_cycles
+  - all_27_venues_three_natural_cycles
   - sender_exact_commit_and_durable_idempotency
   - natural_email_provider_delivery
   - natural_wechat_send

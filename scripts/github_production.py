@@ -13,6 +13,7 @@ WORKFLOWS = {
     "sender": "production-wechat-sender.yml",
     "webapp": "production-webapp.yml",
     "pi_mcp": "production-appium-mcp.yml",
+    "pi_ydmap": "production-pi-ydmap.yml",
 }
 
 
@@ -120,11 +121,12 @@ def main() -> None:
         operation = "deploy_apply" if args.apply else "deploy_preflight"
     if args.component == "sender" and operation == "deploy":
         operation = "apply" if args.apply else "dry_run"
-    if args.component == "pi_mcp" and operation == "deploy":
+    if args.component in {"pi_mcp", "pi_ydmap"} and operation == "deploy":
         operation = "apply" if args.apply else "preflight"
     if args.component == "pi_mcp" and operation in {"domain", "oauth"}:
         operation = operation + ("_apply" if args.apply else "_preflight")
     allowed = {
+        "pi_ydmap": {"preflight", "apply", "health", "inspect"},
         "pi_mcp": {
             "preflight",
             "apply",

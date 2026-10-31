@@ -25,6 +25,12 @@ exceptions:
     schedule: every_2_minutes
     interval_seconds: 120
     reason: Business-approved two-minute cadence for Raspberry Pi Chromium scraping.
+  宝安网球中心巡检:
+    schedule: every_2_minutes
+    interval_seconds: 120
+    reason: >-
+      User-approved two-minute cadence for Raspberry Pi Chromium scraping of the
+      three Bao'an Tennis Center venue groups (outdoor, indoor, wind-rain).
 change_control:
   new_venues_use_default: true
   exceptions_require:
