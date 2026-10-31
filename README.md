@@ -8,7 +8,7 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
 [![Airflow 3.3](https://img.shields.io/badge/Airflow-3.3.0-017CEE)](https://airflow.apache.org/)
 [![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1)](https://www.postgresql.org/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 ## ✨ 功能特性
 
@@ -75,7 +75,7 @@ flowchart TB
 5. **Cloudflare 只做边缘。** 静态资源、TLS/WAF、无状态 API 转发和 Tunnel；不查询 D1、不运行通知 Cron、不持有通知决策。
 6. **失败后安全暂停、向前修复。** 首次切换采用业务维护窗口、加密密钥转移、批量导入和逐表核验；激活后不再导入 D1，不自动恢复旧方案，不删除原业务数据。
 
-当前生产状态须以受保护工作流的精确提交验收报告为准，不能仅凭本页判断迁移已完成。验收包括 26 场馆三次自然巡检、生产事务回滚式订阅测试，以及真实自然邮件与微信投递记录。
+当前生产状态须以受保护工作流的精确提交验收报告为准，不能仅凭本页判断迁移已完成。验收包括 27 场馆三次自然巡检、生产事务回滚式订阅测试，以及真实自然邮件与微信投递记录。
 
 更多细节见 [ARCHITECTURE.md](./ARCHITECTURE.md) 和 [ADR 0013](./docs/adr/0013-host-core-only-reliable-delivery.md)。
 
@@ -176,4 +176,4 @@ zacks-wechat-worker
 
 ## 📄 License
 
-Apache License 2.0。见 [LICENSE](./LICENSE)。
+MIT License。见 [LICENSE](./LICENSE)。
