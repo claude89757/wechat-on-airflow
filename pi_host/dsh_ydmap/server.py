@@ -383,6 +383,37 @@ if (arguments[0] === true && !accessError) {
 return result;
 """
 
+FIND_PRODUCT_JS = r"""
+const target = String(arguments[0]);
+const root = document.querySelector('#app')?.__vue__;
+const pending = root ? [root] : [], seen = new Set();
+let table;
+while (pending.length && seen.size < 512) {
+  const vm = pending.shift();
+  if (!vm || seen.has(vm)) continue;
+  seen.add(vm);
+  if ((vm.$options?.name || vm.$options?._componentTag) === 'ScheduleTable') { table = vm; break; }
+  pending.push(...(vm.$children || []));
+}
+const catalog = table?.$parent?.serverData?.itemDataList;
+if (!Array.isArray(catalog)) return null;
+const item = catalog.find(value => String(value.salesItemId) === target);
+if (!item) return null;
+const name = ['salesItemName', 'itemName', 'name'].map(key => item[key])
+  .find(value => typeof value === 'string' && value.trim())?.trim();
+if (!name) return null;
+const matches = [...document.querySelectorAll('button,li,a,span,div')].filter(el => {
+  if ((el.innerText || '').trim().split('\n')[0] !== name) return false;
+  const rect = el.getBoundingClientRect();
+  const style = getComputedStyle(el);
+  return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 &&
+    rect.left < innerWidth && rect.top < innerHeight &&
+    style.display !== 'none' && style.visibility !== 'hidden';
+});
+matches.sort((a, b) => a.children.length - b.children.length);
+return matches[0] || null;
+"""
+
 
 def _cleanup_stale_browser() -> None:
     # Candidate deployment must never erase a shared/home directory via a typo.
@@ -799,7 +830,12 @@ def _snapshot_issue(
         # Both public data arrays must have been replaced by a new successful
         # generation. A changed selected tab or changed availability signature
         # alone does not prove that the response belongs to that date.
-        if generation <= previous.get("loadGeneration", 0) or any(
+        # A product switch can mount a new table with a fresh generation counter.
+        # Both actual source arrays must still be new; a relabelled old table fails.
+        product_changed = isinstance(previous.get("sourceProduct"), str) and (
+            payload.get("sourceProduct") != previous["sourceProduct"]
+        )
+        if (not product_changed and generation <= previous.get("loadGeneration", 0)) or any(
             version[key] == old.get(key) for key in ("platforms", "orders")
         ):
             return "source_not_refreshed"
@@ -1070,13 +1106,24 @@ def _scrape_available_slots(
         driver = _attach(timeout=_remaining(deadline, 30))
         if runtime is not None:
             runtime.update(_browser_environment(driver))
+        payload: dict[str, Any] = {}
         for index, (key, label, url) in enumerate(groups):
             requested_product = parse_qs(urlparse(url).query)["salesItemId"][0]
             phase = "product_navigation"
             _remaining(deadline, 20)
+            previous_product = None
             if index > 0:
-                driver.set_page_load_timeout(_remaining(deadline, 20))
-                driver.get(url)
+                previous_product = payload
+                element = driver.execute_script(FIND_PRODUCT_JS, requested_product)
+                if element is None:
+                    return _stop_with_error(
+                        error="product_tab_not_found",
+                        venue=venue,
+                        payload={"failurePhase": phase, "requestedProduct": requested_product},
+                    )
+                # Use the site's normal product tab and retain the browser/app session.
+                # Native click respects any verification overlay; never force it away.
+                element.click()
             parsed = urlparse(url)
             identity: VenueIdentity = {
                 "host": parsed.hostname or "",
@@ -1084,9 +1131,14 @@ def _scrape_available_slots(
                 "sales_item_id": parse_qs(parsed.query)["salesItemId"][0],
                 "label": label,
             }
-            phase = "initial_schedule"
+            phase = "initial_schedule" if index == 0 else "product_navigation"
             payload = _wait_for_schedule(
-                driver, deadline=deadline, verification=verification, phase=phase, **identity
+                driver,
+                deadline=deadline,
+                verification=verification,
+                phase=phase,
+                previous=previous_product,
+                **identity,
             )
             if not payload.get("ready"):
                 return _stop_with_error(

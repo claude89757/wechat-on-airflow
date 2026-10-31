@@ -121,6 +121,7 @@ ACTIVATION_SECONDS = 540
 ROLLBACK_SECONDS = 150
 ACTIVATION_LEASE_REQUIRED = ACTIVATION_SECONDS + ROLLBACK_SECONDS + 60
 SOURCE_FAILURES = {
+    "product_tab_not_found",
     "JavascriptException",
     "SessionNotCreatedException",
     "ElementClickInterceptedException",

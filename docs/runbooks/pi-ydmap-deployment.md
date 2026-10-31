@@ -160,6 +160,12 @@ make a candidate pass, remove access verification, or change browser trust.
 
 ## Acceptance
 
+Baoan product changes use the page's visible native product control, matched
+against the actual catalog ID/name. They do not reopen each product URL.
+Both source arrays must be replaced after a product switch; a newly mounted
+product table may restart its generation counter. Missing controls or stale
+arrays fail the complete observation, without full-navigation fallback.
+
 The extractor requires the schedule component's read-only `isAvailableStatic`
 predicate to return a boolean and requires `orderInfo == null`. A list of CSS
 blocked states alone misses missing prices, closed online booking, unreleased

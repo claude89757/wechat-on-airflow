@@ -1,5 +1,29 @@
 # Production Baseline
 
+## Pi browser compatibility and Baoan product transition on 2026-10-31
+
+[Pi run 41187599590](https://github.com/claude89757/wechat-on-airflow/actions/runs/41187599590)
+used exact-main `058c576d0298b310f6837f4fd339e972ce3fa0d9`, after
+[CI 41187408444](https://github.com/claude89757/wechat-on-airflow/actions/runs/41187408444).
+Chromium and ChromeDriver both reported `137.0.7151.119`; the configured UA
+version matched. There is no version-mismatch evidence in this run. The report
+confirmed `profileResetBeforeScrape=true`, but does not prove that profile reset
+caused access verification.
+
+Baoan failed at the indoor product's initial schedule check after the outdoor
+product flow, with challenge text and mask visible and no schedule component.
+The configured requested product is `103224` (the workflow masks a substring
+of this otherwise public ID). `verificationControl=controls_missing`,
+`verificationAttempted=false` and `verificationOutcome=unsupported_control`:
+no gesture was executed and no verification rejection can be inferred.
+Both venues were in the failed-venue list; Dashah's individual failure details
+were not retained because the report carries the final failure's diagnostics.
+
+The follow-up uses the normal visible product controls instead of reopening
+Baoan URLs, with replacement of both source arrays required across products.
+This is a navigation repair to be tested, not evidence that provider access
+or production availability has been restored. No apply or synthetic send occurred.
+
 ## Authorized Baoan verification diagnosis on 2026-10-31
 
 The user explicitly authorized normal verification interaction. [PR #278](https://github.com/claude89757/wechat-on-airflow/pull/278)
