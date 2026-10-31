@@ -1,5 +1,27 @@
 # Production Baseline
 
+## Native product-context comparison on 2026-10-31
+
+[Pi preflight 41199657762](https://github.com/claude89757/wechat-on-airflow/actions/runs/41199657762)
+used `72d5a7902a765f78a8eb0cf968f80464923a9827`, after
+[CI 41199454730](https://github.com/claude89757/wechat-on-airflow/actions/runs/41199454730).
+Both venues failed before Baoan product switching. Dashah had a complete document,
+Vue/app roots, no schedule component/cells and no detected challenge. Baoan
+stopped in `initial_schedule` for outdoor `111317`, with an exception code omitted
+by the fixed source-error allowlist. Both reported native UA policy and matching
+Chromium/ChromeDriver versions. This run neither proves a challenge nor validates
+the per-product context repair. No live scraper apply or synthetic send occurred.
+
+Ordinary preflight leaves scheduled Dashah collection running. The next controlled
+comparison uses an explicit manual-only quiesced preflight, reusing the existing
+scoped drain/restore guard, to distinguish concurrent browser workload from the
+separate calendar-verification evidence. Known urllib3 transport exception class
+names are retained without messages. An absent diagnostic must not be called CAPTCHA.
+The fresh [Airflow health 41200280400](https://github.com/claude89757/wechat-on-airflow/actions/runs/41200280400)
+passed against unchanged production `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`
+before the scoped comparison. This is a runtime-health baseline, not evidence
+of fresh successful YDMap business observations.
+
 ## Shared session comparison did not restore Baoan on 2026-10-31
 
 [Retained-session Pi preflight 41198130676](https://github.com/claude89757/wechat-on-airflow/actions/runs/41198130676)
