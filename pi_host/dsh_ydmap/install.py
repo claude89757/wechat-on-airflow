@@ -837,7 +837,9 @@ def encode_report(report: dict, *, source_evidence: bool = False) -> str:
             bounded["sourceEvidenceRejected"] = (
                 rejected or bounded.get("sourceEvidenceRejected") is True
             )
-    encoded = json.dumps(bounded, ensure_ascii=False, sort_keys=True)
+    # GitHub CLI log readers can omit a single large JSON line. Keep source
+    # evidence reviewable line-by-line while enforcing the actual UTF-8 budget.
+    encoded = json.dumps(bounded, ensure_ascii=False, sort_keys=True, indent=2)
     if len(encoded.encode("utf-8")) + 1 >= MAX_BYTES:
         encoded = json.dumps(
             {

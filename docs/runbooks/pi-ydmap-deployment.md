@@ -44,23 +44,27 @@ owner-only issue-39 router also supports `/ops pi-ydmap-preflight <full-sha>`,
 
 ## Candidate and activation
 
-Manual preflight may set `drain_preflight=true` to compare the same candidate
-without concurrent scheduled YDMap scrapes. It uses the existing scoped Airflow
+Normal manual and reusable release preflight default to `drain_preflight=true`
+to reserve the same single-browser capacity as the production YDMap task pool.
+Separate ports/profiles do not isolate Pi CPU, desktop focus or upstream traffic.
+Preflight uses the existing scoped Airflow
 guard: wait for Dashah/Baoan work to finish, save/pause only those DAGs, run the
 isolated candidate, then restore and verify the original pause flags, including
 after a reported candidate failure. No live scraper source, unit or listener is
 replaced. Both runner and installer reject this flag for other operations; the
 installer requires the same target-bound expiring drain proof as apply. Loss of
 the operation channel retains the existing lease fence rather than resuming
-while an unknown candidate may still run. Reusable release inputs do not expose
-this diagnostic option. This comparison runs three read-only candidate cycles
+while an unknown candidate may still run. The release explicitly enables this
+guard for preflight and disables the preflight-only flag for apply, which has
+its own mandatory guard. This comparison runs three read-only candidate cycles
 on the same profiles, with starts at least 120 seconds apart, stopping at the
 first failed cycle. It cannot be combined with the product-order or authorized
 gesture probes. Reports retain the last successful cycle's inspection on success
 and the completed-cycle count on failure. These are candidate checks, not natural
 production cycles; a pass alone does not prove resource contention or stability.
 
-Manual preflight may set `diagnostic_first_product=windrain` for a cold-start
+Manual diagnostic preflight may explicitly set `drain_preflight=false` with
+`diagnostic_first_product=windrain` for a cold-start
 comparison. The clean candidate environment starts Baoan at wind/rain and keeps
 the other products/dates in the inspection. Live/apply operations reject this
 option. Even successful reads end in `diagnostic_only`, never candidate acceptance
@@ -69,7 +73,7 @@ or activation. Reusable release workflows always retain the default product orde
 
 After explicit operator authorization for a normal verification interaction,
 manual workflow dispatch may set `confirm_verification_once=true` with
-`operation=preflight`. This is not enabled by reusable release workflows or by
+`operation=preflight` and `drain_preflight=false`. This is not enabled by reusable release workflows or by
 the live service. The runner rejects this flag for apply/health/inspect. Only
 the isolated candidate receives the authorization, consumed once for Baoan's
 first encountered verification challenge, including date/product transitions,
@@ -138,6 +142,12 @@ unresolved references. Ordinary verified date/product/court evidence remains
 available when optional diagnostics are omitted. JSON reports are always smaller
 than 1,000,000 bytes; oversized reports fail with `report_too_large` rather than
 printing partial JSON.
+
+Operation reports use multiline JSON under that same whole-report UTF-8 budget.
+This prevents log readers from omitting a large single report line. For older
+reports absent from `gh run view --log`, download raw job logs with
+`gh api repos/<owner>/<repo>/actions/jobs/<job_id>/logs`, or the run's raw log ZIP,
+then parse the already sanitized JSON locally. Do not print raw workflow logs.
 
 `verified: true` describes source identity and freshness. It does not certify
 the classification of every booking cell. The diagnostic schema deliberately

@@ -4,6 +4,11 @@ run-name: production/pi_ydmap/${{ inputs.operation }}/${{ inputs.request_id }}
 on:
   workflow_call:
     inputs:
+      drain_preflight:
+        description: Reserve the shared Pi browser capacity during preflight
+        type: boolean
+        required: false
+        default: true
       target_commit:
         description: Exact reviewed main commit with successful CI
         required: true
@@ -21,7 +26,7 @@ on:
         description: Quiesce only the YDMap DAGs during candidate preflight, then restore pause flags
         type: boolean
         required: false
-        default: false
+        default: true
       diagnostic_first_product:
         description: Diagnostic-only cold start product; non-default results cannot authorize activation
         type: choice
@@ -94,7 +99,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
       - name: Run protected scraper operation
         env:
-          DRAIN_PREFLIGHT: ${{ inputs.drain_preflight || false }}
+          DRAIN_PREFLIGHT: ${{ inputs.operation == 'preflight' && inputs.drain_preflight }}
           CONFIRM_VERIFICATION_ONCE: ${{ inputs.confirm_verification_once || false }}
           DIAGNOSTIC_FIRST_PRODUCT: ${{ inputs.diagnostic_first_product || 'default' }}
           TARGET_COMMIT: ${{ inputs.target_commit }}

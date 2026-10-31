@@ -155,6 +155,7 @@ jobs:
     needs: gate
     uses: ./.github/workflows/production-pi-ydmap.yml
     with:
+      drain_preflight: ${{ inputs.mode == 'preflight' }}
       operation: ${{ inputs.mode == 'apply' && 'apply' || 'preflight' }}
       target_commit: ${{ inputs.target_commit }}
       request_id: release-${{ github.run_id }}

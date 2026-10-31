@@ -100,6 +100,8 @@ managed_services:
     candidate_origin_base_url: http://127.0.0.1:18788
     candidate_debug_port: 19224
     preflight_requires_real_date_product_court_identity: true
+    release_preflight_requires_scoped_drain: true
+    release_preflight_cycles: 3
     deploy_before: airflow
     tests_send_notifications: false
   pi_appium_mcp:

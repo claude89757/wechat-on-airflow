@@ -905,6 +905,15 @@ def test_final_report_is_valid_json_below_limit_including_utf8_bytes():
     assert report["ok"] is False and report["failure"] == "report_too_large"
 
 
+def test_large_report_preserves_json_without_an_oversized_log_line():
+    payload = {"ok": True, "rows": [{"source": "x" * 4096} for _ in range(20)]}
+    encoded = INSTALL.encode_report(payload)
+    assert len(encoded.encode()) > 65536
+    assert max(len(line.encode()) for line in encoded.splitlines()) < 65536
+    assert len(encoded.encode()) + 1 < INSTALL.MAX_BYTES
+    assert json.loads(encoded) == payload
+
+
 @pytest.mark.parametrize("status", [0, 1])
 def test_remote_source_evidence_roundtrip_for_success_and_prior_success_on_failure(status):
     summary = INSTALL.inspect_evidence(
@@ -923,7 +932,7 @@ def test_remote_source_evidence_roundtrip_for_success_and_prior_success_on_failu
     stdin = SimpleNamespace(channel=channel)
 
     def remote_files(*args, **kwargs):
-        stdout = io.BytesIO(json.dumps(payload, ensure_ascii=False).encode())
+        stdout = io.BytesIO(INSTALL.encode_report(payload, source_evidence=True).encode())
         stdout.channel = channel
         return stdin, stdout, io.BytesIO()
 
@@ -1095,6 +1104,32 @@ def test_workflow_gates_and_release_order_cover_pi_before_airflow():
     assert "pi_ydmap" in release["jobs"]["airflow"]["needs"]
     assert "needs.pi_ydmap.result == 'success'" in release["jobs"]["airflow"]["if"]
     assert "pi_ydmap" in release["jobs"]["record"]["needs"]
+
+
+def test_normal_release_preflight_reserves_shared_browser_capacity():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/production-pi-ydmap.yml").read_text())
+    triggers = workflow[True]  # PyYAML's YAML 1.1 treats the Actions 'on' key as true.
+    for entry in ("workflow_call", "workflow_dispatch"):
+        assert triggers[entry]["inputs"]["drain_preflight"]["default"] is True
+    steps = workflow["jobs"]["operate"]["steps"]
+    operation = next(
+        step for step in steps if step.get("name") == "Run protected scraper operation"
+    )
+    assert operation["env"]["DRAIN_PREFLIGHT"] == (
+        "${{ inputs.operation == 'preflight' && inputs.drain_preflight }}"
+    )
+    ssh = next(
+        step for step in steps if step.get("name", "").startswith("Configure existing Airflow SSH")
+    )
+    assert "inputs.drain_preflight == true" in ssh["if"]
+    release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
+    assert release["jobs"]["pi_ydmap"]["with"]["drain_preflight"] == (
+        "${{ inputs.mode == 'preflight' }}"
+    )
+    contract = yaml.safe_load((ROOT / "config/runtime-target.yaml").read_text())
+    scraper = contract["managed_services"]["pi_ydmap_scraper"]
+    assert scraper["release_preflight_requires_scoped_drain"] is True
+    assert scraper["release_preflight_cycles"] == 3
 
 
 def test_access_diagnostics_are_bounded_numeric_and_survive_repeated_sanitization():
