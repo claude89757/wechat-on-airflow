@@ -18,6 +18,25 @@ inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
 ## Pi MCP OAuth Policy On 2026-10-31
 
+The first OAuth-only attempt at operations commit
+`bf33e578750db53727d9a029ca2a55f509524752` passed
+[exact-main CI](https://github.com/claude89757/wechat-on-airflow/actions/runs/41175526455)
+and [read-only preflight](https://github.com/claude89757/wechat-on-airflow/actions/runs/41176146352).
+[Apply 41176227450](https://github.com/claude89757/wechat-on-airflow/actions/runs/41176227450)
+was not accepted. Zone HTTP/security analytics identified nine `/mcp` 403s from
+Browser Integrity Check during the attempt, including the OAuth discovery
+retries; no discovery endpoint was reached. Audit records confirm that the
+requested owner-only OAuth settings were stored and then disabled again.
+The original machine-only policy was restored and independently verified through
+[protected previous-operations health 41176381601](https://github.com/claude89757/wechat-on-airflow/actions/runs/41176381601).
+The automatic rollback flag was
+false because Cloudflare added inactive default DCR fields to disabled OAuth;
+that structural comparison did not prove an authorization restore failure.
+The follow-up requires an exact-host, BIC-only skip rule, semantic disabled-OAuth
+restore checks and fixed non-secret failure reasons. No service was restarted,
+phone session created or test notification sent. OAuth remains unaccepted until
+the follow-up protected apply and client-protocol checks pass.
+
 The owner approved managed OAuth for Codex-like agents instead of manually
 copying Access service-token headers. The candidate protected OAuth-only
 operation enables owner-only Cloudflare login on the existing application,
