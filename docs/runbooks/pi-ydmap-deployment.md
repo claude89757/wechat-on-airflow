@@ -58,7 +58,7 @@ receive no interaction. It does not remove masks, alter browser trust, inject
 events/tokens, call provider callbacks or retry a failed gesture. Reports retain
 only fixed control/outcome codes and whether a gesture was attempted. A passed
 gesture is not venue acceptance: all date/product/source checks still apply.
-Candidate browser state is discarded after the inspection; no cookies are
+Candidate browser state is retained across that candidate's venue inspections and discarded when the candidate exits; no cookies are
 exported, and this diagnostic does not establish durable production access.
 
 Preflight stages the exact server and mock tests below
@@ -66,7 +66,10 @@ Preflight stages the exact server and mock tests below
 and a nonzero number of passing mock tests as the existing unprivileged service
 user. An isolated candidate uses HTTP port `18788`, Chromium debug port `19224`,
 and a unique temporary browser profile. The live service retains port `8788`,
-debug port `9224`, and its existing profile. Candidate preflight never changes
+debug port `9224`, and its existing dedicated profile. The scraper retains this
+private 0700 profile across inspections; it only stops stale browser processes,
+rejecting shared/outside-temp directories and final symlinks. It never imports a
+personal profile or exports cookies. Candidate preflight never changes
 the live service or its systemd override.
 
 The candidate must report protocol version 2, the exact deployment commit and
