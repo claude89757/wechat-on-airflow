@@ -55,6 +55,39 @@ const table = {
   serverData: {sportPlatformList: [{venueName: '室外场1号'}], orderInfoList: []},
   rows: [rows],
 };
+let functionCalls = 0;
+if (input.renderer) {
+  const definitions = {
+    textFun: function textFun(col) {
+      functionCalls++;
+      // private-comment-token
+      const ignored = 'https://private.example/?token=private-token';
+      return col.className === 'noOpen' ? '已预订' : '免费';
+    },
+    isNoBook: function isNoBook(col) { functionCalls++; return !!col.orderNoBook; },
+    closeMsg: function closeMsg() { functionCalls++; return '不可预约'; },
+    sellerMessage: function sellerMessage(col) { functionCalls++; return col.orderInfo?.sellerMessage; },
+    isTicketDisabled: function isTicketDisabled(col) { functionCalls++; return !!col.expired; },
+    unrelatedSecretMethod: function unrelatedSecretMethod() { return 'unrelated-private'; },
+  };
+  for (let i = 0; i < (input.rendererCount || 1); i++) {
+    const methods = {...definitions};
+    if (input.largeMethods) {
+      for (const key of Object.keys(methods)) {
+        methods[key] = new Function('col', 'return ' + Array(700).fill('"已预订"').join('+') + '+' + i + ';');
+      }
+    }
+    const renderer = {
+      $options: {name: input.componentName || 'CanvasRow', methods,
+        computed: {classObj: {get: function classObj() {functionCalls++; return {noOpen: true};}}}},
+      $children: [], _isMounted: true, _isDestroyed: false,
+      $el: {isConnected: !input.detached},
+      row: input.cloned ? rows.map(col => ({...col})) : input.partial ? rows.slice(0, 1) : rows,
+    };
+    Object.defineProperty(renderer, 'classObj', {get() { throw new Error('computed getter invoked'); }});
+    table.$children.push(renderer);
+  }
+}
 if (input.noSource) delete table.serverData;
 const root = {$options: {name: 'App'}, $children: [
   {$options: {name: 'Slider'}, $children: []}, table,
@@ -77,16 +110,17 @@ globalThis.document = {
   querySelectorAll: selector => selector === '.waf-nc-mask' && input.mask ? [mask(input.mask === 'hidden')] : [],
 };
 const extract = new Function(input.script);
-const results = [extract()];
+const results = [extract(input.evidence === true)];
 if (input.changeDate) {
   parent.curDate = tomorrow;
   table.params.dateTime = tomorrow;
   table.tableLoadingFlag = 2;
-  results.push(extract());
+  results.push(extract(input.evidence === true));
   table.serverData.sportPlatformList = [{venueName: '室外场1号'}];
   table.serverData.orderInfoList = [];
-  results.push(extract());
+  results.push(extract(input.evidence === true));
 }
+for (const result of results) result.fixtureFunctionCalls = functionCalls;
 process.stdout.write(JSON.stringify(results));
 """
 
@@ -103,6 +137,100 @@ class PiYdmapIdentityTest(unittest.TestCase):
             timeout=10,
         )
         return json.loads(result.stdout)
+
+    def evidence(self, *, budget=None, label="室外", **fixture):
+        raw = self.extract(evidence=True, renderer=True, **fixture)[0]
+        self.assertEqual(raw["fixtureFunctionCalls"], 0)
+        return server._source_evidence(
+            raw["sourceEvidence"],
+            label,
+            budget
+            if budget is not None
+            else {"remaining": server.SOURCE_TOTAL_BYTES, "seen": set()},
+        )
+
+    def test_source_evidence_is_opt_in_and_never_invokes_renderer_functions(self) -> None:
+        ordinary = self.extract(renderer=True)[0]
+        self.assertNotIn("sourceEvidence", ordinary)
+        self.assertEqual(ordinary["fixtureFunctionCalls"], 0)
+        evidence = self.evidence()
+        self.assertFalse(evidence["bookability_verified"])
+        self.assertTrue(evidence["coverage_complete"])
+        self.assertEqual(evidence["matched_cell_count"], 1)
+        self.assertEqual({item["name"] for item in evidence["methods"]}, set(server.SOURCE_METHODS))
+        self.assertEqual(len(evidence["samples"]), 1)
+        serialized = json.dumps(evidence, ensure_ascii=False)
+        self.assertNotIn("private-token", serialized)
+        self.assertNotIn("private-comment", serialized)
+        self.assertNotIn("https://", serialized)
+        self.assertNotIn("unrelatedSecretMethod", serialized)
+        self.assertIn("已预订", serialized)
+        self.assertIn("noOpen", serialized)
+
+    def test_unmounted_or_cloned_row_bindings_are_not_complete_coverage(self) -> None:
+        for mode in ("detached", "cloned"):
+            with self.subTest(mode=mode):
+                evidence = self.evidence(**{mode: True})
+                self.assertFalse(evidence["coverage_complete"])
+                self.assertEqual(evidence["unmatched_cell_count"], 1)
+                self.assertFalse(evidence["bookability_verified"])
+
+    def test_methods_components_and_utf8_source_have_hard_bounds(self) -> None:
+        evidence = self.evidence(rendererCount=25, largeMethods=True)
+        self.assertEqual(len(evidence["components"]), 16)
+        self.assertLessEqual(len(evidence["methods"]), 24)
+        self.assertTrue(evidence["component_scan_truncated"])
+        self.assertTrue(evidence["source_truncated"])
+        self.assertFalse(evidence["coverage_complete"])
+        self.assertLessEqual(sum(item["emitted_bytes"] for item in evidence["methods"]), 24576)
+        for item in evidence["methods"]:
+            self.assertLessEqual(len(item["source"].encode("utf-8")), 4096)
+
+    def test_repeated_sources_share_hashes_without_repeating_source_bytes(self) -> None:
+        budget = {"remaining": 24576, "seen": set()}
+        first = self.evidence(budget=budget)
+        second = self.evidence(budget=budget)
+        self.assertTrue(all(item["reused"] and item["source"] == "" for item in second["methods"]))
+        self.assertEqual(
+            [item["sha256"] for item in first["methods"]],
+            [item["sha256"] for item in second["methods"]],
+        )
+
+    def test_samples_retain_only_public_known_fields_and_two_categories(self) -> None:
+        cells = [
+            {
+                "startTimeText": "18:00",
+                "endTimeText": "19:00",
+                "className": "",
+                "platformInfo": {"venueName": "A号场", "onlineBooking": "private-auth-token"},
+                "priceBean": {"price": 100, "private": "private-price-data"},
+            },
+            {
+                "startTimeText": "19:00",
+                "endTimeText": "20:00",
+                "className": "col-completed private-class",
+                "platformInfo": {"venueName": "A号场", "onlineBooking": 1},
+                "orderInfo": {"orderNo": "private-order", "sellerMessage": "private-name"},
+            },
+        ]
+        evidence = self.evidence(cells=cells, partial=True, label="室内")
+        self.assertEqual(len(evidence["samples"]), 2)
+        self.assertEqual(evidence["matched_cell_count"], 1)
+        self.assertFalse(evidence["coverage_complete"])
+        sample = evidence["samples"][0]
+        self.assertEqual(sample["court"], "室内A号场")
+        self.assertIsNone(sample["online_booking"])
+        self.assertTrue(sample["online_booking_redacted"])
+        self.assertTrue(sample["has_price"])
+        self.assertEqual(evidence["samples"][1]["known_classes"], ["col-completed"])
+        self.assertNotIn("private-", json.dumps(evidence))
+
+    def test_challenge_does_not_collect_optional_function_source(self) -> None:
+        for body in ("Access Verification", "请先登录", "您访问的频次过快，请休息一会儿!"):
+            with self.subTest(body=body):
+                payload = self.extract(evidence=True, renderer=True, body=body)[0]
+                self.assertNotIn("sourceEvidence", payload)
+                self.assertEqual(payload["fixtureFunctionCalls"], 0)
 
     def test_chinese_and_english_verification_are_terminal(self) -> None:
         for text in (

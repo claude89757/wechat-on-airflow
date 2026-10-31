@@ -165,7 +165,7 @@ class PiBaotiScraperTest(unittest.TestCase):
         queue = list(payloads)
         last = queue[-1]
 
-        def extract(_driver):
+        def extract(_driver, **kwargs):
             nonlocal last
             if queue:
                 last = queue.pop(0)
@@ -366,6 +366,77 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(body["venues"], ["baoti", "dsh"])
         self.assertTrue(body["busy"])
 
+    def test_optional_evidence_is_collected_only_after_validated_date_refresh(self) -> None:
+        diagnostic = {
+            "schema_version": 1,
+            "bookability_verified": False,
+            "source_cell_count": 12,
+            "matched_cell_count": 0,
+            "unmatched_cell_count": 12,
+            "coverage_complete": False,
+            "component_scan_truncated": False,
+            "source_truncated": False,
+            "components": [],
+            "methods": [],
+            "samples": [],
+        }
+        self.install_payloads(
+            [
+                snapshot(venue="dsh"),
+                snapshot(TOMORROW, 2, venue="dsh"),
+                {**snapshot(TOMORROW, 2, venue="dsh"), "sourceEvidence": diagnostic},
+                snapshot(TODAY, 3, venue="dsh"),
+                {**snapshot(TODAY, 3, venue="dsh"), "sourceEvidence": diagnostic},
+            ]
+        )
+        result = server.scrape_available_slots("dsh", 2, source_evidence=True)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(
+            [call.kwargs for call in self.extract.call_args_list],
+            [{}, {}, {"source_evidence": True}, {}, {"source_evidence": True}],
+        )
+        for day in result["days"]:
+            self.assertFalse(day["groups"][0]["source_evidence"]["bookability_verified"])
+
+    def test_evidence_capture_revalidates_identity_and_discards_failure(self) -> None:
+        for failed in (
+            {"captcha": True, "ready": False},
+            {**snapshot(TODAY, 2, venue="dsh"), "sourceEvidence": {"private": "never-export"}},
+        ):
+            with self.subTest(failed=failed):
+                self.install_payloads(
+                    [snapshot(venue="dsh"), snapshot(TOMORROW, 2, venue="dsh"), failed]
+                )
+                result = server.scrape_available_slots("dsh", 2, source_evidence=True)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["days"], [])
+                self.assertNotIn("source_evidence", str(result))
+                self.assertNotIn("never-export", str(result))
+
+    def test_http_evidence_requires_exact_explicit_flag(self) -> None:
+        for suffix, expected in (
+            ("", False),
+            ("&evidence=true", False),
+            ("&evidence=source-v1", True),
+            ("&evidence=source-v1&evidence=other", False),
+        ):
+            with self.subTest(suffix=suffix):
+                handler = server.Handler.__new__(server.Handler)
+                handler.path = "/inspect?venue=baoti&days=2" + suffix
+                handler._send_json = lambda *args: None
+                with patch.object(
+                    server, "scrape_available_slots", return_value={"ok": True}
+                ) as scrape:
+                    handler.do_GET()
+                    scrape.assert_called_once_with("baoti", 2, source_evidence=expected)
+
+    def test_ordinary_watcher_results_never_include_source_evidence(self) -> None:
+        self.install_payloads(self.group_payloads(venue="dsh"))
+        result = server.scrape_available_slots("dsh", 2)
+        self.assertTrue(result["ok"])
+        self.assertNotIn("source_evidence", str(result))
+        self.assertTrue(all(not call.kwargs for call in self.extract.call_args_list))
+
     def test_busy_inspect_is_serialized_before_starting_a_second_browser(self) -> None:
         handler = server.Handler.__new__(server.Handler)
         handler.path = "/inspect?venue=baoti&days=2"
@@ -382,6 +453,30 @@ class PiBaotiScraperTest(unittest.TestCase):
 
 
 class PiDriverLifecycleTest(unittest.TestCase):
+    def test_source_sanitizer_removes_nested_private_literals_and_comments(self) -> None:
+        code = """function textFun(e) {
+          const a = `private-template ${/}/.test(e) ? `nested-private ${e}` : "private-string"}`;
+          const b = "https://private.example/?token=private-token";
+          const c = /private-regexp/g; /* private-comment */
+          return e.className === "noOpen" ? "已预订" : "免费";
+        }"""
+        source, redacted, incomplete = server._sanitize_function_source(code)
+        self.assertTrue(redacted)
+        self.assertFalse(incomplete)
+        self.assertNotIn("private", source)
+        self.assertNotIn("https://", source)
+        self.assertNotIn("`", source)
+        self.assertIn('"noOpen"', source)
+        self.assertIn('"已预订"', source)
+
+    def test_unterminated_literal_is_redacted_and_marked_incomplete(self) -> None:
+        source, redacted, incomplete = server._sanitize_function_source(
+            'function textFun(){return "private-unfinished'
+        )
+        self.assertTrue(redacted)
+        self.assertTrue(incomplete)
+        self.assertNotIn("private", source)
+
     def test_connection_timeout_is_set_before_creating_session(self) -> None:
         connection = Mock()
         connection.timeout = None

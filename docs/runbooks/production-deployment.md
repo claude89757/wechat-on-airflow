@@ -123,11 +123,19 @@ are accumulating; preserve that evidence instead of changing task/run states.
 
 ## Component Deployment Order
 
-When multiple components are in scope, deployment remains ordered:
+When multiple components are in scope, `production-release.yml` orders its
+component jobs as follows:
 
-1. Web application and D1 migrations;
-2. Airflow application services;
-3. WeChat sender when explicitly approved.
+1. Private Pi YDMap scraper, including candidate verification before activation;
+2. Stateless Web edge and browser assets;
+3. Airflow application services;
+4. WeChat sender when explicitly approved.
+
+A `scope=all` ship wraps these jobs with the Host Core routine-upgrade,
+worker-activation and business-acceptance stages. PostgreSQL remains the business
+owner, and D1 remains an unbound archive. Source identity alone does not establish
+correct bookability: complete the source-rule comparison described in
+`pi-ydmap-deployment.md` before activating a new YDMap venue.
 
 A skipped component is recorded as skipped, not treated as a failure. Unknown
 or unclassified runtime paths conservatively expand to all components.
