@@ -42,7 +42,11 @@ agent must have an initial authorization flow and protected token storage; this
 is not permanent unattended access. Managed OAuth is currently a Cloudflare Beta.
 Clients must support OAuth discovery, resource indicators, DCR, PKCE S256 and
 refresh tokens. Supported redirects are loopback/localhost (Codex desktop/CLI)
-and the documented ChatGPT connector callbacks, not arbitrary HTTPS domains.
+and the documented ChatGPT connector callbacks, plus the exact Cursor desktop,
+Cursor agents/bot and Grok callbacks, not arbitrary HTTPS domains. Cursor's
+public metadata is at `https://cursor.com/oauth/mcp-client.json`; desktop DCR
+also requires `cursor://anysphere.cursor-mcp/oauth/callback`. DCR validates all
+registered redirects, not just the callback selected for the current login.
 Use the callback displayed by the actual client; do not disable callback checks
 for an unsupported platform.
 

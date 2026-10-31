@@ -1,5 +1,24 @@
 # Production Baseline
 
+## Cursor MCP Callback Repair On 2026-10-31
+
+The owner reported `redirect_uri is not allowed by the account configuration`
+from Cursor/Grok. Cursor's public client metadata at
+`https://cursor.com/oauth/mcp-client.json` declares exact agents, bot, Grok and
+loopback callbacks. The desktop DCR also supplies the owner-reported
+`cursor://anysphere.cursor-mcp/oauth/callback`. A standard MCP SDK registration
+probe with this callback set failed with `InvalidClientMetadataError` before
+login. Existing protected health run
+[41180959376](https://github.com/claude89757/wechat-on-airflow/actions/runs/41180959376)
+passed with 18 tools, one online phone and no phone sessions.
+
+The repair adds only these four non-loopback callback URIs to the existing
+allowlist. Localhost/loopback were already enabled. Owner-only login, PKCE,
+grant duration, machine credentials and installed Pi runtime are unchanged.
+Deployment and repeat DCR acceptance must be recorded before claiming repair;
+the owner must still complete the real client login. No phone sessions or
+notifications are permitted during verification.
+
 ## Baoan YDMap Production Acceptance Blocked On 2026-10-31
 
 The external Baoan contribution [PR #262](https://github.com/claude89757/wechat-on-airflow/pull/262)

@@ -540,6 +540,10 @@ def test_oauth_contract_is_owner_only_bounded_and_does_not_allow_arbitrary_https
     assert dcr["allowed_uris"] == [
         "https://chatgpt.com/connector/oauth/*",
         "https://chatgpt.com/connector_platform_oauth_redirect",
+        "cursor://anysphere.cursor-mcp/oauth/callback",
+        "https://www.cursor.com/agents/mcp/oauth/callback",
+        "https://www.cursor.com/bot/mcp/oauth/callback",
+        "https://grok.com/connectors-oauth-exchange-code/",
     ]
     workflow = yaml.load(
         (ROOT / ".github/workflows/production-appium-mcp.yml").read_text(), Loader=yaml.BaseLoader

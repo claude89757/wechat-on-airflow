@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import signal
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -259,6 +260,7 @@ def test_candidate_failure_never_replaces_or_stops_live_service(monkeypatch, tmp
     assert calls == []
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="runuser is a Linux runtime prerequisite")
 def test_candidate_launcher_executes_with_its_restricted_path(monkeypatch, tmp_path):
     # Exercise the actual executable lookup with the candidate's environment;
     # a mocked Popen alone would miss a bare runuser hidden outside PATH.
@@ -309,6 +311,7 @@ def test_missing_runuser_fails_before_candidate_directory_creation(monkeypatch, 
 def test_launch_exception_diagnostic_survives_remote_filter_without_private_data(
     monkeypatch, tmp_path, capsys
 ):
+    monkeypatch.setattr(INSTALL, "checked_runuser", lambda: "/usr/sbin/runuser")
     runtime = tmp_path / "candidate-runtime"
     runtime.mkdir()
     account = SimpleNamespace(pw_name="pi-test", pw_uid=1000, pw_gid=1000, pw_dir=str(tmp_path))

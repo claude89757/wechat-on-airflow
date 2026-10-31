@@ -49,6 +49,10 @@ OAUTH_CONFIGURATION = {
         "allowed_uris": [
             "https://chatgpt.com/connector/oauth/*",
             "https://chatgpt.com/connector_platform_oauth_redirect",
+            "cursor://anysphere.cursor-mcp/oauth/callback",
+            "https://www.cursor.com/agents/mcp/oauth/callback",
+            "https://www.cursor.com/bot/mcp/oauth/callback",
+            "https://grok.com/connectors-oauth-exchange-code/",
         ],
     },
     "grant": {"access_token_lifetime": "15m", "session_duration": "168h"},
