@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import importlib.util
 import io
 import json
+import os
 import signal
 import sys
+import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -35,6 +38,129 @@ DEPLOY = load("pi_ydmap_deployer_test", "scripts/deploy_pi_ydmap.py")
 GUARD = load("pi_ydmap_dag_guard_test", "scripts/pi_ydmap_dag_guard.py")
 COMMIT = "a" * 40
 HASH = "b" * 64
+PUBLIC_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl0l3sAAAAASUVORK5CYII="
+)
+
+
+def public_ui():
+    return {
+        "venue": "dsh",
+        "mime_type": "image/png",
+        "sha256": hashlib.sha256(PUBLIC_PNG).hexdigest(),
+        "chunks": [base64.b64encode(PUBLIC_PNG).decode()],
+    }
+
+
+def test_service_profile_preserves_own_state_and_rejects_unsafe_reuse(monkeypatch):
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-profile-test-") as directory:
+        profile = Path(directory) / "service-profile"
+        monkeypatch.setattr(INSTALL, "SERVICE_PROFILE", profile)
+        account = SimpleNamespace(pw_uid=os.geteuid() or 1001, pw_gid=os.getegid())
+        assert INSTALL.service_profile(account) == profile
+        cache = profile / "public-cache"
+        cache.write_bytes(b"owned browser cache")
+        assert INSTALL.service_profile(account) == profile
+        assert cache.read_bytes() == b"owned browser cache"
+        assert profile.stat().st_mode & 0o777 == 0o700
+        marker = profile / ".pi-ydmap-profile"
+        marker.unlink()
+        with pytest.raises(INSTALL.OperationFailure, match="unrecognized_service_profile"):
+            INSTALL.service_profile(account)
+        assert cache.exists()
+
+
+def test_service_profile_rejects_symlink_without_modifying_target(monkeypatch, tmp_path):
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-profile-test-") as directory:
+        profile = Path(directory) / "profile"
+        target = Path(directory) / "target"
+        target.mkdir(mode=0o755)
+        profile.symlink_to(target, target_is_directory=True)
+        monkeypatch.setattr(INSTALL, "SERVICE_PROFILE", profile)
+        with pytest.raises(INSTALL.OperationFailure, match="unrecognized_service_profile"):
+            INSTALL.service_profile(
+                SimpleNamespace(pw_uid=os.geteuid() or 1001, pw_gid=os.getegid())
+            )
+        assert target.stat().st_mode & 0o777 == 0o755
+        assert list(target.iterdir()) == []
+
+
+def test_public_ui_is_validated_and_saved_only_as_a_private_artifact(tmp_path):
+    image = public_ui()
+    assert INSTALL.safe_diagnostic_ui(image) == image
+    assert DEPLOY.save_diagnostic_ui(image, tmp_path / "ui") is True
+    output = tmp_path / "ui/dsh.png"
+    assert output.read_bytes() == PUBLIC_PNG
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert INSTALL.safe_diagnostic_ui({**image, "cookies": "never-export"}) is None
+    assert INSTALL.safe_diagnostic_ui({**image, "sha256": "0" * 64}) is None
+    assert INSTALL.safe_diagnostic_ui({**image, "chunks": ["not-base64"]}) is None
+    assert DEPLOY.save_diagnostic_ui(image, tmp_path / "ui") is False
+
+
+@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+def test_ui_capture_cannot_enter_live_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, capture_browser_ui=True))
+
+
+@pytest.mark.parametrize("capture", [False, True])
+def test_remote_ui_bytes_are_opt_in_and_never_part_of_normal_reports(capture):
+    payload = {
+        "ok": False,
+        "operationComplete": True,
+        "failure": "access_verification",
+        "diagnostic_ui": public_ui(),
+        "externalTestSends": 0,
+    }
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
+    )
+    stdout = io.BytesIO(json.dumps(payload).encode())
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (SimpleNamespace(channel=channel), stdout, io.BytesIO())
+    )
+    report = DEPLOY.remote(client, "candidate", capture_browser_ui=capture)
+    assert ("diagnostic_ui" in report) is capture
+
+
+def test_candidate_shutdown_preserves_the_guarded_service_profile(monkeypatch, tmp_path):
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    profile = tmp_path / "service-profile"
+    profile.mkdir()
+    (profile / "public-cache").write_bytes(b"keep")
+    account = SimpleNamespace(pw_name="test-user", pw_uid=123, pw_gid=123, pw_dir="/tmp/test-user")
+    process = Mock()
+    process.poll.side_effect = [None, 0]
+    launch = Mock(return_value=process)
+    monkeypatch.setattr(INSTALL, "checked_runuser", lambda: "/usr/sbin/runuser")
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", launch)
+    monkeypatch.setattr(INSTALL.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    with INSTALL.isolated_candidate(
+        tmp_path, account, COMMIT, profile=profile, capture_browser_ui=True
+    ):
+        environment = launch.call_args.kwargs["env"]
+        assert environment["YDMAP_PROFILE"] == str(profile)
+        assert environment["YDMAP_CAPTURE_BROWSER_UI"] == "1"
+    assert not runtime.exists()
+    assert (profile / "public-cache").read_bytes() == b"keep"
+
+
+def test_capture_survives_a_later_independent_venue_failure(monkeypatch):
+    first = INSTALL.OperationFailure("access_verification")
+    first.diagnostic_ui = public_ui()
+    second = INSTALL.OperationFailure("scrape_not_verified")
+    request = Mock(side_effect=[first, second])
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_venues(18788, source_evidence=True)
+    assert caught.value.venue == "baoti"
+    assert caught.value.diagnostic_ui["venue"] == "dsh"
 
 
 def health():
@@ -234,11 +360,13 @@ def test_candidate_failure_never_replaces_or_stops_live_service(monkeypatch, tmp
     calls = []
     monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {"other": "unchanged"})
     monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "service_profile", lambda account: tmp_path / "service-profile")
+    monkeypatch.setattr(INSTALL, "wait_idle", lambda: None)
     monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
     monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *a: tmp_path)
 
     @contextmanager
-    def candidate(*args):
+    def candidate(*args, **kwargs):
         yield 18788
 
     monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
@@ -953,6 +1081,8 @@ def test_only_preflight_requests_source_evidence(monkeypatch, tmp_path, operatio
     calls = []
     monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
     monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "service_profile", lambda account: tmp_path / "service-profile")
+    monkeypatch.setattr(INSTALL, "wait_idle", lambda: None)
     monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *a: tmp_path)
     monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
     monkeypatch.setattr(INSTALL, "activate", lambda *a: {"applied": True})
@@ -963,7 +1093,7 @@ def test_only_preflight_requests_source_evidence(monkeypatch, tmp_path, operatio
     )
 
     @contextmanager
-    def candidate(*args):
+    def candidate(*args, **kwargs):
         yield 18788
 
     monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
@@ -1214,6 +1344,10 @@ def test_quiesced_preflight_rejects_other_operations(operation):
 def test_quiesced_preflight_requires_proof_and_never_activates(monkeypatch, tmp_path, proof):
     monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
     monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    profile = Mock(return_value=tmp_path / "service-profile")
+    monkeypatch.setattr(INSTALL, "service_profile", profile)
+    idle = Mock()
+    monkeypatch.setattr(INSTALL, "wait_idle", idle)
     prepare = Mock(return_value=tmp_path)
     monkeypatch.setattr(INSTALL, "prepare_candidate", prepare)
     monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
@@ -1226,6 +1360,7 @@ def test_quiesced_preflight_requires_proof_and_never_activates(monkeypatch, tmp_
 
     @contextmanager
     def candidate(*args, **kwargs):
+        assert kwargs["profile"] == tmp_path / "service-profile"
         yield 18788
 
     monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
@@ -1249,6 +1384,8 @@ def test_quiesced_preflight_requires_proof_and_never_activates(monkeypatch, tmp_
         with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
             INSTALL.operate(args)
         prepare.assert_not_called()
+        profile.assert_not_called()
+        idle.assert_not_called()
 
 
 @pytest.mark.parametrize("ok", [False, True])

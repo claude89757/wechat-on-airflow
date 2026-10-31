@@ -30,6 +30,7 @@ assert _contract_spec is not None and _contract_spec.loader is not None
 CONTRACT = importlib.util.module_from_spec(_contract_spec)
 _contract_spec.loader.exec_module(CONTRACT)
 FAILURES = {
+    "unrecognized_service_profile",
     "diagnostic_only",
     "verification_not_authorized",
     "runuser_unavailable",
@@ -231,13 +232,25 @@ class AirflowGuard:
             raise RuntimeError("airflow_pause_restore_not_verified")
 
 
-def apply_with_guard(client, command: str, commit: str, *, source_evidence: bool = False) -> dict:
+def apply_with_guard(
+    client,
+    command: str,
+    commit: str,
+    *,
+    source_evidence: bool = False,
+    capture_browser_ui: bool = False,
+) -> dict:
     guard = AirflowGuard(commit)
     report = None
     try:
         with guard:
             report = remote(
-                client, command, payload=guard.proof, timeout=1500, source_evidence=source_evidence
+                client,
+                command,
+                payload=guard.proof,
+                timeout=1500,
+                source_evidence=source_evidence,
+                capture_browser_ui=capture_browser_ui,
             )
     except Exception:
         return {
@@ -273,6 +286,7 @@ def remote(
     payload: dict | None = None,
     timeout: int = 900,
     source_evidence: bool = False,
+    capture_browser_ui: bool = False,
 ) -> dict:
     stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
     if payload is not None:
@@ -293,6 +307,12 @@ def remote(
     report = json.loads(content) if content.strip() else {}
     if not isinstance(report, dict) or status < 0 or report.get("operationComplete") is not True:
         raise RuntimeError("invalid_remote_report")
+    diagnostic_ui = (
+        CONTRACT.safe_diagnostic_ui(report.pop("diagnostic_ui", None))
+        if capture_browser_ui
+        else None
+    )
+    report.pop("diagnostic_ui", None)
     if status:
         diagnostic = report.get("serviceDiagnostic")
         diagnostic_keys = {
@@ -328,7 +348,29 @@ def remote(
             "sourceDiagnostic": CONTRACT.safe_source_diagnostic(report.get("sourceDiagnostic")),
             "externalTestSends": 0,
         }
+    if diagnostic_ui is not None:
+        report["diagnostic_ui"] = diagnostic_ui
     return json.loads(CONTRACT.encode_report(report, source_evidence=source_evidence))
+
+
+def save_diagnostic_ui(value: object, directory: Path) -> bool:
+    image = CONTRACT.safe_diagnostic_ui(value)
+    if image is None:
+        return False
+    import base64
+
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if directory.is_symlink():
+            return False
+        directory.chmod(0o700)
+        destination = directory / (image["venue"] + ".png")
+        with destination.open("xb") as output:
+            destination.chmod(0o600)
+            output.write(base64.b64decode("".join(image["chunks"]), validate=True))
+        return True
+    except OSError:
+        return False
 
 
 def verify_checkout(commit: str) -> str:
@@ -364,6 +406,9 @@ def main() -> int:
         if operation not in OPERATIONS:
             raise ValueError("invalid_operation")
         verification_once = os.environ.get("CONFIRM_VERIFICATION_ONCE", "false") == "true"
+        capture_browser_ui = os.environ.get("CAPTURE_BROWSER_UI", "false") == "true"
+        if capture_browser_ui and operation != "preflight":
+            raise ValueError("verification_not_authorized")
         drain_preflight = os.environ.get("DRAIN_PREFLIGHT", "false") == "true"
         if drain_preflight and operation != "preflight":
             raise ValueError("verification_not_authorized")
@@ -424,11 +469,30 @@ def main() -> int:
             command += " --first-product windrain"
         if drain_preflight:
             command += " --drain-preflight"
+        if capture_browser_ui:
+            command += " --capture-browser-ui"
         report = (
-            apply_with_guard(client, command, commit, source_evidence=operation == "preflight")
+            apply_with_guard(
+                client,
+                command,
+                commit,
+                source_evidence=operation == "preflight",
+                capture_browser_ui=capture_browser_ui,
+            )
             if operation == "apply" or drain_preflight
-            else remote(client, command, timeout=1100, source_evidence=operation == "preflight")
+            else remote(
+                client,
+                command,
+                timeout=1100,
+                source_evidence=operation == "preflight",
+                capture_browser_ui=capture_browser_ui,
+            )
         )
+        image = report.pop("diagnostic_ui", None)
+        if capture_browser_ui:
+            report["diagnosticUiCaptured"] = save_diagnostic_ui(
+                image, ROOT / ".local/diagnostics/pi-ydmap"
+            )
         encoded = CONTRACT.encode_report(report, source_evidence=operation == "preflight")
         print(encoded)
         return 0 if json.loads(encoded).get("ok") is True else 1

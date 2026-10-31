@@ -102,6 +102,9 @@ managed_services:
     preflight_requires_real_date_product_court_identity: true
     release_preflight_requires_scoped_drain: true
     release_preflight_cycles: 3
+    profile_directory: /tmp/pi-ydmap-service-profile-v2
+    profile_owner: existing_unprivileged_scraper_service_user
+    profile_scope: shared_by_guarded_preflight_apply_and_live_service
     deploy_before: airflow
     tests_send_notifications: false
   pi_appium_mcp:
