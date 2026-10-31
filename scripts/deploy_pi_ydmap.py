@@ -30,6 +30,7 @@ assert _contract_spec is not None and _contract_spec.loader is not None
 CONTRACT = importlib.util.module_from_spec(_contract_spec)
 _contract_spec.loader.exec_module(CONTRACT)
 FAILURES = {
+    "runuser_unavailable",
     "command_failed",
     "invalid_report",
     "scraper_busy",
@@ -306,6 +307,8 @@ def remote(
         )
         report = {
             "ok": False,
+            "errorClass": CONTRACT.safe_error_class(report.get("errorClass")),
+            "failureDiagnostic": CONTRACT.safe_failure_diagnostic(report.get("failureDiagnostic")),
             "failure": report.get("failure")
             if report.get("failure") in FAILURES
             else "operation_failed",
@@ -411,7 +414,7 @@ def main() -> int:
             json.dumps(
                 {
                     "ok": False,
-                    "errorClass": type(exc).__name__,
+                    **CONTRACT.failure_details(exc, source_file=__file__),
                     "failure": "operation_failed",
                     "externalTestSends": 0,
                 }

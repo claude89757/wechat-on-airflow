@@ -259,6 +259,130 @@ def test_candidate_failure_never_replaces_or_stops_live_service(monkeypatch, tmp
     assert calls == []
 
 
+def test_candidate_launcher_executes_with_its_restricted_path(monkeypatch, tmp_path):
+    # Exercise the actual executable lookup with the candidate's environment;
+    # a mocked Popen alone would miss a bare runuser hidden outside PATH.
+    real_popen = INSTALL.subprocess.Popen
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    account = SimpleNamespace(pw_name="pi-test", pw_uid=1000, pw_gid=1000, pw_dir=str(tmp_path))
+    polls = iter((None, 0))
+    launches = []
+    cleanup = []
+
+    def launch(command, **kwargs):
+        assert Path(command[0]).is_absolute()
+        assert "/usr/sbin" not in kwargs["env"]["PATH"].split(":")
+        with real_popen(
+            [command[0], "--version"],
+            env=kwargs["env"],
+            stdout=INSTALL.subprocess.PIPE,
+            stderr=INSTALL.subprocess.PIPE,
+        ) as probe:
+            output, _ = probe.communicate(timeout=5)
+            assert probe.returncode == 0 and b"runuser" in output
+        launches.append(command)
+        return SimpleNamespace(poll=lambda: next(polls))
+
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", launch)
+    monkeypatch.setattr(INSTALL.subprocess, "run", lambda argv, **kwargs: cleanup.append(argv))
+    monkeypatch.setattr(INSTALL, "request_json", lambda *args: health())
+    with INSTALL.isolated_candidate(tmp_path, account, COMMIT) as port:
+        assert port == 18788
+    assert launches[0][:4] == [INSTALL.checked_runuser(), "-u", "pi-test", "--"]
+    assert len(cleanup) == 1 and "19224" in cleanup[0][-1]
+    assert not runtime.exists()
+
+
+def test_missing_runuser_fails_before_candidate_directory_creation(monkeypatch, tmp_path):
+    monkeypatch.setattr(INSTALL, "RUNUSER", tmp_path / "missing-runuser")
+    monkeypatch.setattr(
+        INSTALL.tempfile, "mkdtemp", lambda **kwargs: pytest.fail("candidate must not be created")
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="runuser_unavailable"):
+        with INSTALL.isolated_candidate(tmp_path, object(), COMMIT):
+            pytest.fail("missing launcher cannot start a candidate")
+
+
+def test_launch_exception_diagnostic_survives_remote_filter_without_private_data(
+    monkeypatch, tmp_path, capsys
+):
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    account = SimpleNamespace(pw_name="pi-test", pw_uid=1000, pw_gid=1000, pw_dir=str(tmp_path))
+    monkeypatch.setattr(
+        INSTALL.sys,
+        "argv",
+        [
+            "install.py",
+            "preflight",
+            "--commit",
+            COMMIT,
+            "--source-sha256",
+            HASH,
+            "--staging",
+            str(tmp_path),
+        ],
+    )
+    monkeypatch.setattr(INSTALL.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: account)
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *args: tmp_path)
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+
+    def failed_launch(*args, **kwargs):
+        raise FileNotFoundError("private path and secret-value")
+
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", failed_launch)
+    monkeypatch.setattr(
+        INSTALL.subprocess, "run", lambda *args, **kwargs: pytest.fail("no process was started")
+    )
+    handlers = {
+        signum: signal.getsignal(signum)
+        for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+    }
+    try:
+        assert INSTALL.main() == 1
+    finally:
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["errorClass"] == "FileNotFoundError"
+    assert payload["failureDiagnostic"]["phase"] == "candidate_runtime"
+    assert payload["failureDiagnostic"]["function"] == "isolated_candidate"
+    assert type(payload["failureDiagnostic"]["line"]) is int
+    assert not runtime.exists()
+    assert "secret-value" not in json.dumps(payload)
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
+    )
+    stdout = io.BytesIO(json.dumps(payload).encode())
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (
+            SimpleNamespace(channel=channel),
+            stdout,
+            io.BytesIO(b"secret-value"),
+        )
+    )
+    retained = DEPLOY.remote(client, "fake-command")
+    assert retained["errorClass"] == payload["errorClass"]
+    assert retained["failureDiagnostic"] == payload["failureDiagnostic"]
+    assert retained["inspections"] == []
+    assert "secret-value" not in json.dumps(retained)
+
+
+@pytest.mark.parametrize("field,value", [("phase", []), ("function", {}), ("line", True)])
+def test_failure_diagnostic_rejects_malformed_untrusted_fields(field, value):
+    diagnostic = {"phase": "candidate_runtime", "function": "isolated_candidate", "line": 1200}
+    assert INSTALL.safe_failure_diagnostic({**diagnostic, field: value}) is None
+    assert INSTALL.safe_error_class("secret-value") == "Exception"
+    assert INSTALL.safe_failure_diagnostic({**diagnostic, "private": "secret-value"}) == diagnostic
+
+
 def test_any_apply_requires_measured_protected_drain(monkeypatch, tmp_path):
     monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
     monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
