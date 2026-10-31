@@ -76,7 +76,8 @@ managed_services:
     workflow: production-appium-mcp.yml
     service_unit: pi_host/appium_mcp/pi-appium-mcp.service
     tunnel_unit: cloudflared-appium-mcp.service
-    public_base_url: https://appium-mcp.claude89757.cc/mcp
+    public_base_url: https://appium-mcp.zacks.vision/mcp
+    domain_operations_preserve_runtime_commit: true
     origin_base_url: http://127.0.0.1:3333/mcp
     authentication: cloudflare_access_dedicated_service_token
     connector_access_jwt_required: true

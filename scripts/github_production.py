@@ -48,6 +48,7 @@ def dispatch(
     *,
     confirm_real_send: bool = False,
     probe_target_membership: str = "",
+    runtime_commit: str = "",
 ) -> None:
     workflow = WORKFLOWS[component]
     request_id = uuid.uuid4().hex
@@ -69,6 +70,8 @@ def dispatch(
     if component == "airflow":
         command.extend(["-f", f"confirm_real_send={str(confirm_real_send).lower()}"])
         command.extend(["-f", f"probe_target_membership={probe_target_membership or 'all'}"])
+    if runtime_commit:
+        command.extend(["-f", f"runtime_commit={runtime_commit}"])
     run(command)
     run_id = discover_run(workflow, title)
     watched = run(["gh", "run", "watch", str(run_id), "--exit-status"], check=False)
@@ -106,6 +109,7 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-real-send", action="store_true")
     parser.add_argument("--target-membership", default="")
+    parser.add_argument("--runtime-commit", default="")
     args = parser.parse_args()
 
     target_commit = run(
@@ -118,8 +122,18 @@ def main() -> None:
         operation = "apply" if args.apply else "dry_run"
     if args.component == "pi_mcp" and operation == "deploy":
         operation = "apply" if args.apply else "preflight"
+    if args.component == "pi_mcp" and operation == "domain":
+        operation = "domain_apply" if args.apply else "domain_preflight"
     allowed = {
-        "pi_mcp": {"preflight", "apply", "health", "withdraw", "rollback"},
+        "pi_mcp": {
+            "preflight",
+            "apply",
+            "health",
+            "withdraw",
+            "rollback",
+            "domain_preflight",
+            "domain_apply",
+        },
         "airflow": {
             "health",
             "crland_inspection_diagnose",
@@ -154,12 +168,25 @@ def main() -> None:
         raise OpsError("--confirm-real-send is only valid for wechat_delivery_probe")
     if args.target_membership and operation != "wechat_delivery_probe":
         raise OpsError("--target-membership is only valid for wechat_delivery_probe")
+    if operation in {"domain_preflight", "domain_apply"} and not args.runtime_commit:
+        raise OpsError("domain operations require --runtime-commit")
+    if args.runtime_commit and (
+        args.component != "pi_mcp"
+        or operation not in {"health", "domain_preflight", "domain_apply"}
+    ):
+        raise OpsError("runtime override is only valid for Pi MCP health/domain operations")
+    runtime = (
+        run(["git", "rev-parse", "--verify", f"{args.runtime_commit}^{{commit}}"]).stdout.strip()
+        if args.runtime_commit
+        else ""
+    )
     dispatch(
         args.component,
         operation,
         target_commit,
         confirm_real_send=args.confirm_real_send,
         probe_target_membership=args.target_membership,
+        **({"runtime_commit": runtime} if runtime else {}),
     )
 
 

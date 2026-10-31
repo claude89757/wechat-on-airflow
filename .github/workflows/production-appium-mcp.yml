@@ -9,8 +9,12 @@ on:
         type: string
       operation:
         type: choice
-        options: [preflight, apply, health, withdraw, rollback]
+        options: [preflight, apply, health, withdraw, rollback, domain_preflight, domain_apply]
         default: preflight
+      runtime_commit:
+        description: Existing full runtime SHA for domain-only operations or health
+        type: string
+        default: ''
       request_id:
         type: string
         required: true
@@ -37,6 +41,7 @@ jobs:
       - name: Require exact main commit and CI
         env:
           TARGET_COMMIT: ${{ inputs.target_commit }}
+          RUNTIME_COMMIT: ${{ inputs.runtime_commit }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -45,8 +50,13 @@ jobs:
           git fetch --quiet origin main
           git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
           PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit "$TARGET_COMMIT" --wait-seconds 0 --format json
+          if [ -n "$RUNTIME_COMMIT" ]; then
+            [[ "$RUNTIME_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            git merge-base --is-ancestor "$RUNTIME_COMMIT" origin/main
+            PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit "$RUNTIME_COMMIT" --wait-seconds 0 --format json
+          fi
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        if: inputs.operation == 'preflight' || inputs.operation == 'apply' || inputs.operation == 'health'
+        if: inputs.operation != 'withdraw' && inputs.operation != 'rollback'
         with:
           node-version: '22.23.4'
       - name: Stage locked offline dependencies and verified ARM32 Node
@@ -67,13 +77,14 @@ jobs:
       - name: Install SSH dependency
         run: python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
       - name: Install public health probe dependencies
-        if: inputs.operation == 'health'
+        if: inputs.operation == 'health' || inputs.operation == 'domain_preflight' || inputs.operation == 'domain_apply'
         working-directory: pi_host/appium_mcp
         run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund
       - name: Run protected Pi operation
         env:
           TARGET_COMMIT: ${{ inputs.target_commit }}
           OPERATION: ${{ inputs.operation }}
+          RUNTIME_COMMIT: ${{ inputs.runtime_commit }}
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
           PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
           PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}

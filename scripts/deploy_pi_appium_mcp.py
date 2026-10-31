@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -20,9 +21,11 @@ from pathlib import Path
 
 import paramiko
 
-HOSTNAME = "appium-mcp.claude89757.cc"
+HOSTNAME = "appium-mcp.zacks.vision"
+PREVIOUS_HOSTNAME = "appium-mcp.claude89757.cc"
 RESOURCE_NAME = "Pi Appium MCP"
-ZONE_ID = "741a41032993004661579d76e63668bf"
+ZONE_ID = "8b0b6ef700b6a826539e597a3e1ec2b2"
+PREVIOUS_ZONE_ID = "741a41032993004661579d76e63668bf"
 SOURCE = Path(__file__).resolve().parents[1] / "pi_host/appium_mcp"
 
 
@@ -292,13 +295,13 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def public_health(credentials):
+def public_health(credentials, *, hostname=HOSTNAME):
     opener = urllib.request.build_opener(NoRedirect)
     for headers in (
         {},
         {"CF-Access-Client-Id": "invalid.access", "CF-Access-Client-Secret": "invalid"},
     ):
-        request = urllib.request.Request(f"https://{HOSTNAME}/mcp", headers=headers)
+        request = urllib.request.Request(f"https://{hostname}/mcp", headers=headers)
         try:
             with opener.open(request, timeout=20) as response:
                 status = response.status
@@ -312,7 +315,7 @@ def public_health(credentials):
             for key in ("PATH", "HOME", "LANG", "LC_ALL", "NODE_EXTRA_CA_CERTS")
             if key in os.environ
         },
-        "MCP_URL": f"https://{HOSTNAME}/mcp",
+        "MCP_URL": f"https://{hostname}/mcp",
         "CF_ACCESS_CLIENT_ID": credentials["access_client_id"],
         "CF_ACCESS_CLIENT_SECRET": credentials["access_client_secret"],
     }
@@ -328,6 +331,258 @@ def public_health(credentials):
     }
 
 
+def verify_public(credentials, hostname):
+    for attempt in range(6):
+        try:
+            return public_health(credentials, hostname=hostname)
+        except Exception:
+            if attempt == 5:
+                raise
+            time.sleep(5)
+
+
+class DomainMigrationFailure(RuntimeError):
+    def __init__(self, rollback_verified, stage, cause):
+        super().__init__("domain_migration_failed")
+        self.rollback_verified = rollback_verified
+        self.stage = stage
+        self.cause_class = type(cause).__name__
+        self.http_status = cause.code if isinstance(cause, urllib.error.HTTPError) else None
+
+
+def owned_dns(zone, hostname, tunnel_id):
+    records = cf("GET", f"/zones/{zone}/dns_records?name={hostname}")
+    if len(records) > 1 or any(
+        record.get("type") != "CNAME"
+        or record.get("name") != hostname
+        or record.get("content") != tunnel_id + ".cfargotunnel.com"
+        or record.get("proxied") is not True
+        or record.get("comment") != RESOURCE_NAME
+        for record in records
+    ):
+        raise RuntimeError("dns_ownership_mismatch")
+    return records
+
+
+def dns_body(record):
+    return {key: record[key] for key in ("type", "name", "content", "proxied", "ttl", "comment")}
+
+
+def access_body(app, policies, hostnames):
+    fields = (
+        "name",
+        "type",
+        "app_launcher_visible",
+        "service_auth_401_redirect",
+        "session_duration",
+        "allowed_idps",
+        "auto_redirect_to_identity",
+        "allow_authenticate_via_warp",
+        "enable_binding_cookie",
+        "http_only_cookie_attribute",
+        "same_site_cookie_attribute",
+        "options_preflight_bypass",
+        "cors_headers",
+        "skip_interstitial",
+        "tags",
+    )
+    body = {key: copy.deepcopy(app[key]) for key in fields if app.get(key) is not None}
+    body.update(
+        domain=hostnames[0],
+        destinations=[{"type": "public", "uri": hostname} for hostname in hostnames],
+        policies=[
+            {
+                key: copy.deepcopy(policy[key])
+                for key in ("id", "name", "decision", "include", "exclude", "require", "precedence")
+                if key in policy
+            }
+            for policy in policies
+        ],
+    )
+    return body
+
+
+def domain_snapshot(credentials):
+    prefix = f"/accounts/{os.environ['CLOUDFLARE_ACCOUNT_ID']}"
+    app_path = prefix + f"/access/apps/{credentials['app_id']}"
+    app = cf("GET", app_path)
+    policies = cf("GET", app_path + "/policies")
+    allowed = {HOSTNAME, PREVIOUS_HOSTNAME}
+    destinations = app.get("destinations", [])
+    if (
+        app.get("name") != RESOURCE_NAME
+        or app.get("type") != "self_hosted"
+        or app.get("domain") not in allowed
+        or not app.get("aud")
+        or app.get("service_auth_401_redirect") is not True
+        or not destinations
+        or len({item.get("uri") for item in destinations}) != len(destinations)
+        or app.get("domain") not in {item.get("uri") for item in destinations}
+        or any(
+            item not in [{"type": "public", "uri": name} for name in allowed]
+            for item in destinations
+        )
+        or len(policies) != 1
+        or policies[0].get("decision") != "non_identity"
+        or policies[0].get("include") != [{"service_token": {"token_id": credentials["token_id"]}}]
+        or policies[0].get("exclude")
+        or policies[0].get("require")
+    ):
+        raise RuntimeError("access_ownership_mismatch")
+    apps = cf("GET", prefix + "/access/apps?per_page=100")
+    if len(apps) >= 100 or any(
+        other.get("id") != credentials["app_id"]
+        and (
+            other.get("domain") == HOSTNAME
+            or any(item.get("uri") == HOSTNAME for item in (other.get("destinations") or []))
+        )
+        for other in apps
+    ):
+        raise RuntimeError("domain_access_conflict")
+    config_path = prefix + f"/cfd_tunnel/{credentials['tunnel_id']}/configurations"
+    config = cf("GET", config_path)["config"]
+    ingress = config.get("ingress", [])
+    rules = ingress[:-1]
+    if (
+        not rules
+        or ingress[-1] != {"service": "http_status:404"}
+        or len({rule.get("hostname") for rule in rules}) != len(rules)
+        or any(
+            rule.get("hostname") not in allowed
+            or rule.get("service") != "http://127.0.0.1:3333"
+            or rule.get("originRequest", {}).get("access", {}).get("required") is not True
+            or rule.get("originRequest", {}).get("access", {}).get("audTag") != [app["aud"]]
+            for rule in rules
+        )
+    ):
+        raise RuntimeError("tunnel_ownership_mismatch")
+    return {
+        "app_path": app_path,
+        "app": app,
+        "policies": policies,
+        "config_path": config_path,
+        "config": config,
+        "old_dns": owned_dns(PREVIOUS_ZONE_ID, PREVIOUS_HOSTNAME, credentials["tunnel_id"]),
+        "new_dns": owned_dns(ZONE_ID, HOSTNAME, credentials["tunnel_id"]),
+    }
+
+
+def migrate_domain(credentials, *, apply):
+    state = domain_snapshot(credentials)
+    current = (
+        HOSTNAME
+        if state["new_dns"]
+        and any(item.get("hostname") == HOSTNAME for item in state["config"]["ingress"])
+        and {"type": "public", "uri": HOSTNAME} in state["app"]["destinations"]
+        else PREVIOUS_HOSTNAME
+    )
+    verify_public(credentials, current)
+    complete = (
+        state["app"]["domain"] == HOSTNAME
+        and state["app"]["destinations"] == [{"type": "public", "uri": HOSTNAME}]
+        and len(state["config"]["ingress"]) == 2
+        and state["config"]["ingress"][0]["hostname"] == HOSTNAME
+        and not state["old_dns"]
+        and bool(state["new_dns"])
+    )
+    if not apply or complete:
+        return {
+            "ok": True,
+            "applied": False,
+            "domainReady": complete,
+            "publicUrl": f"https://{HOSTNAME}/mcp",
+        }
+    rule = copy.deepcopy(state["config"]["ingress"][0])
+    stage = "protect_new_domain"
+    try:
+        cf(
+            "PUT",
+            state["app_path"],
+            access_body(state["app"], state["policies"], [PREVIOUS_HOSTNAME, HOSTNAME]),
+        )
+        stage = "route_new_domain"
+        dual_config = copy.deepcopy(state["config"])
+        dual_config["ingress"] = [
+            {**rule, "hostname": hostname} for hostname in (PREVIOUS_HOSTNAME, HOSTNAME)
+        ] + [{"service": "http_status:404"}]
+        cf("PUT", state["config_path"], {"config": dual_config})
+        stage = "publish_new_dns"
+        if not state["new_dns"]:
+            cf(
+                "POST",
+                f"/zones/{ZONE_ID}/dns_records",
+                {
+                    "type": "CNAME",
+                    "name": HOSTNAME,
+                    "content": credentials["tunnel_id"] + ".cfargotunnel.com",
+                    "proxied": True,
+                    "ttl": 1,
+                    "comment": RESOURCE_NAME,
+                },
+            )
+        stage = "verify_new_domain"
+        verify_public(credentials, HOSTNAME)
+        stage = "retire_previous_domain"
+        for record in state["old_dns"]:
+            cf("DELETE", f"/zones/{PREVIOUS_ZONE_ID}/dns_records/{record['id']}")
+        final_config = copy.deepcopy(dual_config)
+        final_config["ingress"] = [{**rule, "hostname": HOSTNAME}, {"service": "http_status:404"}]
+        cf("PUT", state["config_path"], {"config": final_config})
+        cf("PUT", state["app_path"], access_body(state["app"], state["policies"], [HOSTNAME]))
+        stage = "verify_final_domain"
+        final = domain_snapshot(credentials)
+        if (
+            final["app"]["aud"] != state["app"]["aud"]
+            or final["old_dns"]
+            or not final["new_dns"]
+            or final["app"]["domain"] != HOSTNAME
+            or final["app"]["destinations"] != [{"type": "public", "uri": HOSTNAME}]
+            or final["config"]["ingress"] != final_config["ingress"]
+            or final["policies"][0]["id"] != state["policies"][0]["id"]
+        ):
+            raise RuntimeError("domain_cutover_incomplete")
+        report = verify_public(credentials, HOSTNAME)
+        return {
+            "ok": True,
+            "applied": True,
+            "domainReady": True,
+            "oldDomainRetired": True,
+            "credentialsRotated": False,
+            "publicUrl": f"https://{HOSTNAME}/mcp",
+            **report,
+        }
+    except Exception as cause:
+        restored = False
+        try:
+            if not state["new_dns"]:
+                for record in owned_dns(ZONE_ID, HOSTNAME, credentials["tunnel_id"]):
+                    cf("DELETE", f"/zones/{ZONE_ID}/dns_records/{record['id']}")
+            cf(
+                "PUT",
+                state["app_path"],
+                access_body(
+                    state["app"],
+                    state["policies"],
+                    [item["uri"] for item in state["app"]["destinations"]],
+                ),
+            )
+            cf("PUT", state["config_path"], {"config": state["config"]})
+            if state["old_dns"] and not owned_dns(
+                PREVIOUS_ZONE_ID, PREVIOUS_HOSTNAME, credentials["tunnel_id"]
+            ):
+                cf("POST", f"/zones/{PREVIOUS_ZONE_ID}/dns_records", dns_body(state["old_dns"][0]))
+            verify_public(credentials, current)
+            restored = True
+        except Exception:
+            pass
+        raise DomainMigrationFailure(restored, stage, cause) from None
+
+
+def runtime_starts(client):
+    code = "import json,subprocess; units=['wechat-sender.service','zacks-agent.service','cloudflared-dsh.service','pi-appium-mcp.service','cloudflared-appium-mcp.service']; print(json.dumps({unit:subprocess.check_output(['systemctl','show',unit,'--property=ExecMainStartTimestampMonotonic','--value'],text=True).strip() for unit in units}))"
+    return json.loads(remote(client, "python3 -c " + shlex.quote(code)))
+
+
 def main():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(PinnedHostKey())
@@ -338,14 +593,24 @@ def main():
     try:
         commit = os.environ["TARGET_COMMIT"]
         operation = os.environ["OPERATION"]
+        runtime_commit = os.environ.get("RUNTIME_COMMIT") or commit
+        domain_operation = operation in {"domain_preflight", "domain_apply"}
         if not re.fullmatch(r"[0-9a-f]{40}", commit) or operation not in {
             "preflight",
             "apply",
             "health",
             "withdraw",
             "rollback",
+            "domain_preflight",
+            "domain_apply",
         }:
             raise ValueError("invalid_operation")
+        if not re.fullmatch(r"[0-9a-f]{40}", runtime_commit) or (
+            domain_operation and not os.environ.get("RUNTIME_COMMIT")
+        ):
+            raise ValueError("exact_runtime_commit_required")
+        if os.environ.get("RUNTIME_COMMIT") and not (domain_operation or operation == "health"):
+            raise ValueError("runtime_override_requires_readonly_or_domain_operation")
         if operation in {"preflight", "apply"}:
             phase = "cloudflare_permissions"
             prefix = f"/accounts/{os.environ['CLOUDFLARE_ACCOUNT_ID']}"
@@ -379,12 +644,28 @@ def main():
             if operation in {"preflight", "apply"}:
                 for name in ("source.tar.gz", "cache.tar.gz", "node.tar.xz"):
                     sftp.put(str(Path("/tmp/pi-mcp-release") / name), staging + "/" + name)
-        command = f"sudo -n python3 {shlex.quote(installer)} {operation} --commit {commit} --staging {shlex.quote(staging)}"
+        host_operation = "health" if domain_operation else operation
+        command = f"sudo -n python3 {shlex.quote(installer)} {host_operation} --commit {runtime_commit} --staging {shlex.quote(staging)}"
         phase = "pi_" + operation
         report = json.loads(remote(client, command))
         if not report.get("ok"):
             raise RuntimeError("pi_verification_failed")
-        if operation == "apply":
+        if domain_operation:
+            phase = "cloudflare_domain"
+            if report.get("activePhoneSessions") != 0:
+                raise RuntimeError("domain_cutover_requires_idle_control")
+            starts = runtime_starts(client)
+            report.update(
+                migrate_domain(read_credentials(client), apply=operation == "domain_apply")
+            )
+            report.update(
+                runtimeCommit=runtime_commit,
+                controlPlaneCommit=commit,
+                hostRuntimeUnchanged=starts == runtime_starts(client),
+            )
+            if not report["hostRuntimeUnchanged"]:
+                raise RuntimeError("runtime_changed_during_domain_operation")
+        elif operation == "apply":
             application_applied = True
             phase = "cloudflare_provision"
             credentials = provision(client, installer, commit)
@@ -400,6 +681,11 @@ def main():
         elif operation == "health":
             phase = "public_auth_acceptance"
             report.update(public_health(read_credentials(client)))
+            report.update(
+                runtimeCommit=runtime_commit,
+                controlPlaneCommit=commit,
+                publicUrl=f"https://{HOSTNAME}/mcp",
+            )
         print(json.dumps(report, sort_keys=True))
         return 0
     except Exception as exc:
@@ -429,6 +715,16 @@ def main():
                     else None,
                     "httpStatus": exc.code if isinstance(exc, urllib.error.HTTPError) else None,
                     "rollbackVerified": rollback_verified,
+                    "domainRollbackVerified": exc.rollback_verified
+                    if isinstance(exc, DomainMigrationFailure)
+                    else None,
+                    "domainStage": exc.stage if isinstance(exc, DomainMigrationFailure) else None,
+                    "domainCauseClass": exc.cause_class
+                    if isinstance(exc, DomainMigrationFailure)
+                    else None,
+                    "domainHttpStatus": exc.http_status
+                    if isinstance(exc, DomainMigrationFailure)
+                    else None,
                     "connector": exc.connector if isinstance(exc, RemoteOperationError) else None,
                     "externalTestSends": 0,
                 }

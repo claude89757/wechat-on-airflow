@@ -16,6 +16,21 @@ Verify deployment, three natural free-court cycles and expiry of the old
 five-minute queued-intent window before declaring the old recipient path
 inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
+## Pi MCP Domain Policy On 2026-10-31
+
+The owner requested `https://appium-mcp.zacks.vision/mcp` as the canonical
+endpoint, replacing the previous `claude89757.cc` hostname below. Use the
+protected `domain_preflight` / `domain_apply` lifecycle from the component
+runbook, with explicit operations-code and installed-runtime commits. This
+changes Access destinations, the dedicated Tunnel's remote ingress and owned
+DNS records only; the installed MCP runtime, Access audience, machine credentials
+and host units remain unchanged. Authenticate and verify the new endpoint before
+retiring the old route, and restore the captured state on a failed cutover.
+Successful protected operation/health reports establish acceptance; changing a
+URL in configuration alone does not establish a completed migration. Historical
+runtime acceptance below remains valid for that runtime, not proof of the new
+hostname's acceptance.
+
 ## Pi MCP Production Acceptance On 2026-10-31
 
 The independent MCP service runs
