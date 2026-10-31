@@ -677,6 +677,8 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
             "sourceSalesId": "token=private",
             "challengeMaskVisible": True,
             "challengeText": "private-token",
+            "failurePhase": "initial_schedule",
+            "requestedProduct": "111317",
         },
         "cookie": "private-cookie",
     }
@@ -698,6 +700,11 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
     assert error.source_diagnostic["productInCatalog"] is False
     assert error.source_diagnostic["challengeMaskVisible"] is True
     assert "challengeText" not in error.source_diagnostic
+    assert error.source_diagnostic["failurePhase"] == "initial_schedule"
+    assert error.source_diagnostic["requestedProduct"] == "111317"
+    assert "failurePhase" not in INSTALL.safe_source_diagnostic({"failurePhase": "private"})
+    assert INSTALL.safe_source_failure("JavascriptException") == "JavascriptException"
+    assert INSTALL.safe_source_failure("private-cookie-value") is None
     assert "private" not in json.dumps(error.source_diagnostic)
     assert INSTALL.safe_source_diagnostic(error.source_diagnostic) == error.source_diagnostic
 

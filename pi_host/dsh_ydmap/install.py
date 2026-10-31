@@ -121,6 +121,16 @@ ACTIVATION_SECONDS = 540
 ROLLBACK_SECONDS = 150
 ACTIVATION_LEASE_REQUIRED = ACTIVATION_SECONDS + ROLLBACK_SECONDS + 60
 SOURCE_FAILURES = {
+    "JavascriptException",
+    "RuntimeError",
+    "KeyError",
+    "TypeError",
+    "ValueError",
+    "AttributeError",
+    "FileNotFoundError",
+    "bookability_predicate_unavailable",
+    "bookability_predicate_invalid",
+    "bookability_product_type_unverified",
     "captcha",
     "rate_limited",
     "login_required",
@@ -150,6 +160,8 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "failurePhase",
+    "requestedProduct",
     "challengeText",
     "challengeMaskVisible",
     "documentComplete",
@@ -317,10 +329,27 @@ def safe_source_diagnostic(value: object) -> dict:
                 result[key] = candidate
         except ValueError:
             pass
-    for key in ("selectedSalesId", "sourceSalesId", "selectedProduct", "sourceProduct"):
+    for key in (
+        "selectedSalesId",
+        "sourceSalesId",
+        "selectedProduct",
+        "sourceProduct",
+        "requestedProduct",
+    ):
         candidate = value.get(key)
         if isinstance(candidate, str) and re.fullmatch(r"[0-9]{1,12}", candidate):
             result[key] = candidate
+    phase = value.get("failurePhase")
+    if isinstance(phase, str) and phase in {
+        "browser_start",
+        "browser_attach",
+        "product_navigation",
+        "initial_schedule",
+        "date_selection",
+        "refreshed_schedule",
+        "source_evidence",
+    }:
+        result["failurePhase"] = phase
     for key in ("loadingCounter", "loadGeneration", "cellCount"):
         candidate = value.get(key)
         if type(candidate) is int and 0 <= candidate <= 1_000_000:
