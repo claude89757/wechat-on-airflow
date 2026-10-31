@@ -143,19 +143,25 @@ class PiYdmapIdentityTest(unittest.TestCase):
 const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 global.innerWidth = 1280; global.innerHeight = 800;
 global.getComputedStyle = el => ({display: el.hidden ? 'none' : 'block', visibility: 'visible'});
-const control = {id: 'native-tab', innerText: '室内网球场\n其他信息', children: [],
+const control = {id: 'native-tab', innerText: '室外网球场', children: [{}],
   hidden: input.hidden, getBoundingClientRect: () => ({width: 80, height: 30, right: 100, bottom: 50, left: 20, top: 20})};
+// Real slider wrappers precede the LI, share its child count, and begin with
+// the same product label. A native click at their centre selects another tab.
+const wrapper = {...control, id: 'wrong-wide-wrapper', hidden: false,
+  innerText: '室外网球场\n室内网球场\n儿童短网\n风雨球场'};
 const table = {$options: {name: 'ScheduleTable'}, $parent: {serverData: {itemDataList:
-  input.noCatalog ? [] : [{salesItemId: 103224, itemName: '室内网球场'}]}}};
+  input.noCatalog ? [] : [{salesItemId: 111317, itemName: '室外网球场'}]}}};
 const root = {$children: [table]};
-global.document = {querySelector: () => ({__vue__: root}), querySelectorAll: () => [control]};
-const result = new Function(input.script)(input.product || '103224');
+global.document = {querySelector: () => ({__vue__: root}), querySelectorAll: () =>
+  input.noExactLabel ? [wrapper] : [wrapper, control]};
+const result = new Function(input.script)(input.product || '111317');
 console.log(JSON.stringify(result ? result.id : null));
 """
         for flags, expected in (
             ({}, "native-tab"),
             ({"hidden": True}, None),
             ({"noCatalog": True}, None),
+            ({"noExactLabel": True}, None),
             ({"product": "111319"}, None),
         ):
             with self.subTest(flags=flags):
