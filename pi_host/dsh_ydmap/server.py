@@ -503,6 +503,7 @@ def _attach(timeout: float = 30) -> webdriver.Remote:
     # Selenium; setting it after Chrome() leaves session startup unbounded.
     opts = Options()
     opts.debugger_address = f"127.0.0.1:{DEBUG_PORT}"
+    opts.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
     service = Service(CHROMEDRIVER)
     watchdog = threading.Timer(timeout, _stop_driver_service, args=(service,))
     watchdog.daemon = True
@@ -890,6 +891,7 @@ def _wait_for_schedule(
         if issue in {"captcha", "rate_limited", "login_required"}:
             return {
                 **last,
+                "accessDiagnostics": _access_diagnostics(driver),
                 "ready": False,
                 "error": issue,
                 "failurePhase": phase,
@@ -938,6 +940,120 @@ const hit = document.elementFromPoint(h.left + h.width / 2, h.top + h.height / 2
 if (hit !== handle && !handle.contains(hit)) return {status: 'control_obstructed'};
 return {status: 'ready', handle, distance: Math.round(distance)};
 """
+
+
+ACCESS_DIAGNOSTIC_JS = r"""
+// Export counts only, never page text, URLs, attributes or challenge material.
+const visible = el => el.getClientRects().length &&
+  getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none';
+const roots = [...document.querySelectorAll('.waf-nc-mask, #WAF_NC_WRAPPER')].filter(visible);
+const inside = selector => [...new Set(roots.flatMap(root => [...root.querySelectorAll(selector)]))];
+const frames = inside('iframe');
+const first = {
+  maskRoots: roots.length,
+  maskChildren: roots.reduce((n, root) => n + root.children.length, 0),
+  semanticHandles: inside('[role="slider"], [aria-label="滑块"]').filter(visible).length,
+  legacyHandles: inside('.nc_iconfont.btn_slide, [id$="_n1z"]').filter(visible).length,
+  frames: frames.length,
+  accessibleFrames: frames.filter(frame => {try {return !!frame.contentDocument;} catch (_) {return false;}}).length,
+  verificationScripts: [...document.scripts].filter(script => /(?:captcha|nocaptcha|awsc|\/nc\/|waf)/i.test(script.src)).length
+};
+// Allow asynchronous challenge rendering to settle without another navigation,
+// request replay, or interaction. WebDriver's eight-second script limit applies.
+return new Promise(resolve => setTimeout(() => resolve({...first,
+  settledLegacyHandles: inside('.nc_iconfont.btn_slide, [id$="_n1z"]').filter(visible).length,
+  settledSemanticHandles: inside('[role="slider"], [aria-label="滑块"]').filter(visible).length,
+  settledFrames: inside('iframe').length,
+  settledMaskChildren: roots.reduce((n, root) => n + root.children.length, 0)
+}), 3000));
+"""
+
+
+def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
+    """Summarize passive browser evidence locally; raw logs never leave the Pi."""
+    counts: dict[str, int] = {}
+    try:
+        ui = driver.execute_script(ACCESS_DIAGNOSTIC_JS)
+        if isinstance(ui, dict):
+            for key in (
+                "maskRoots",
+                "maskChildren",
+                "semanticHandles",
+                "legacyHandles",
+                "frames",
+                "accessibleFrames",
+                "verificationScripts",
+                "settledLegacyHandles",
+                "settledSemanticHandles",
+                "settledFrames",
+                "settledMaskChildren",
+            ):
+                if type(ui.get(key)) is int and 0 <= ui[key] <= 10000:
+                    counts[key] = ui[key]
+    except Exception:
+        pass
+
+    def increment(key: str) -> None:
+        counts[key] = min(counts.get(key, 0) + 1, 10000)
+
+    try:
+        events = driver.get_log("performance")
+        requests: dict[str, str] = {}
+        for entry in events:
+            message = json.loads(entry["message"])["message"]
+            params = message.get("params", {})
+            method = message.get("method")
+            if method == "Network.requestWillBeSent":
+                path = urlparse(params.get("request", {}).get("url", "")).path
+                requests[params.get("requestId", "")] = (
+                    "order" if path.endswith("/getVenueOrderList") else "other"
+                )
+            elif method == "Network.responseReceived":
+                response = params.get("response", {})
+                path = urlparse(response.get("url", "")).path
+                mime = response.get("mimeType", "")
+                if path.endswith("/getVenueOrderList"):
+                    increment(
+                        "orderHtmlResponses"
+                        if mime == "text/html"
+                        else "orderJsonResponses"
+                        if "json" in mime
+                        else "orderOtherResponses"
+                    )
+                    status = response.get("status")
+                    if type(status) is int and 100 <= status <= 599:
+                        counts["lastOrderStatus"] = status
+                if params.get("type") == "Script":
+                    increment("scriptResponses")
+                    if response.get("status", 0) >= 400:
+                        increment("scriptHttpErrors")
+            elif method == "Network.loadingFailed":
+                increment(
+                    "orderFailures"
+                    if requests.get(params.get("requestId")) == "order"
+                    else "scriptFailures"
+                    if params.get("type") == "Script"
+                    else "otherFailures"
+                )
+                error = params.get("errorText", "")
+                if "CERT" in error or "SSL" in error:
+                    increment("tlsFailures")
+                elif "NAME_NOT_RESOLVED" in error:
+                    increment("dnsFailures")
+                if params.get("blockedReason"):
+                    increment("blockedFailures")
+    except Exception:
+        pass
+    try:
+        for entry in driver.get_log("browser"):
+            message = entry.get("message", "")
+            if "Content Security Policy" in message or "Content-Security-Policy" in message:
+                increment("cspErrors")
+            if "ReferenceError" in message:
+                increment("referenceErrors")
+    except Exception:
+        pass
+    return counts
 
 
 def _normal_verification_once(driver: webdriver.Remote, state: dict[str, Any]) -> bool:
@@ -1047,6 +1163,7 @@ def _stop_with_error(
                 "scheduleComponentPresent",
                 "failurePhase",
                 "requestedProduct",
+                "accessDiagnostics",
             )
             if key in observed
         },

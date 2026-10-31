@@ -1093,3 +1093,33 @@ def test_workflow_gates_and_release_order_cover_pi_before_airflow():
     assert "pi_ydmap" in release["jobs"]["airflow"]["needs"]
     assert "needs.pi_ydmap.result == 'success'" in release["jobs"]["airflow"]["if"]
     assert "pi_ydmap" in release["jobs"]["record"]["needs"]
+
+
+def test_access_diagnostics_are_bounded_numeric_and_survive_repeated_sanitization():
+    raw = {
+        "accessDiagnostics": {
+            "legacyHandles": 1,
+            "semanticHandles": 0,
+            "frames": 2,
+            "orderHtmlResponses": 1,
+            "scriptFailures": 3,
+            "lastOrderStatus": 200,
+            "maskRoots": True,
+            "maskChildren": -1,
+            "dnsFailures": 10001,
+            "referenceErrors": "private",
+            "url": "private",
+            "cookies": "private",
+        }
+    }
+    safe = INSTALL.safe_source_diagnostic(raw)
+    assert safe["accessDiagnostics"] == {
+        "legacyHandles": 1,
+        "semanticHandles": 0,
+        "frames": 2,
+        "orderHtmlResponses": 1,
+        "scriptFailures": 3,
+        "lastOrderStatus": 200,
+    }
+    assert INSTALL.safe_source_diagnostic(safe) == safe
+    assert "private" not in json.dumps(safe)

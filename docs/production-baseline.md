@@ -1,5 +1,24 @@
 # Production Baseline
 
+## Baoan native product navigation evidence on 2026-10-31
+
+[Pi preflight 41188809021](https://github.com/claude89757/wechat-on-airflow/actions/runs/41188809021)
+used `95695a841c42783dac6eecac9e74bb41c0c0b54a` after exact-main
+[CI 41188648825](https://github.com/claude89757/wechat-on-airflow/actions/runs/41188648825).
+Native product navigation reached Baoan's wind/rain product `111319`, with
+selected/source product identity matching and the schedule component present.
+Challenge text and mask were visible; `failurePhase=product_navigation`,
+`verificationControl=controls_missing`, and `verificationAttempted=false`.
+Both venues failed the overall candidate. No partial Baoan dates were published,
+no verification gesture ran, and no production apply occurred.
+
+This rules out full URL navigation as the sole explanation. The current
+verification probe only recognizes semantic slider markers, so `controls_missing`
+does not prove that the page has no rendered control. Follow-up passive diagnostics
+count known legacy handles, frames and challenge children, and summarize browser
+network/console failures without exporting raw logs or verification material.
+No cause is inferred from missing events before WebDriver attached.
+
 ## Operations MCP First Deployment On 2026-10-31
 
 PR #280 merged as `2df99f59c34daf508c32a8dd991567a833afbcba`, with

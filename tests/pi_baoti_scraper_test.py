@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import sys
 import types
 import unittest
@@ -54,6 +55,74 @@ class FixedDatetime(datetime):
         # Shanghai has crossed midnight while a UTC host has not.
         instant = datetime(2026, 10, 31, 18, tzinfo=UTC)
         return instant.astimezone(tz)
+
+
+class AccessDiagnosticsTest(unittest.TestCase):
+    def test_passive_logs_distinguish_html_api_and_resource_failures_without_secrets(self):
+        driver = Mock()
+        driver.execute_script.return_value = {
+            "maskRoots": 1,
+            "legacyHandles": 1,
+            "semanticHandles": 0,
+            "frames": 0,
+            "private": "never-export",
+            "maskChildren": True,
+        }
+
+        def event(method, **params):
+            return {"message": json.dumps({"message": {"method": method, "params": params}})}
+
+        driver.get_log.side_effect = [
+            [
+                event(
+                    "Network.requestWillBeSent",
+                    requestId="private-id",
+                    request={
+                        "url": "https://bawtt.ydmap.cn/api/getVenueOrderList?token=never-export"
+                    },
+                ),
+                event(
+                    "Network.responseReceived",
+                    response={
+                        "url": "https://bawtt.ydmap.cn/api/getVenueOrderList?token=never-export",
+                        "status": 200,
+                        "mimeType": "text/html",
+                        "headers": {"secret": "never-export"},
+                    },
+                ),
+                event(
+                    "Network.loadingFailed",
+                    requestId="private-id",
+                    type="XHR",
+                    errorText="net::ERR_CERT_AUTHORITY_INVALID",
+                ),
+                event(
+                    "Network.loadingFailed", type="Script", errorText="net::ERR_NAME_NOT_RESOLVED"
+                ),
+                event("Network.loadingFailed", type="Script", blockedReason="csp"),
+            ],
+            [
+                {"message": "Content Security Policy never-export"},
+                {"message": "ReferenceError never-export"},
+            ],
+        ]
+        result = server._access_diagnostics(driver)
+        self.assertEqual(result["orderHtmlResponses"], 1)
+        self.assertEqual(result["lastOrderStatus"], 200)
+        self.assertEqual(result["orderFailures"], 1)
+        self.assertEqual(result["scriptFailures"], 2)
+        for key in (
+            "tlsFailures",
+            "dnsFailures",
+            "blockedFailures",
+            "cspErrors",
+            "referenceErrors",
+        ):
+            self.assertEqual(result[key], 1)
+        self.assertEqual(result["legacyHandles"], 1)
+        self.assertNotIn("maskChildren", result)
+        self.assertNotIn("never-export", json.dumps(result))
+        self.assertTrue(all(type(value) is int for value in result.values()))
 
 
 class Clock:
@@ -691,6 +760,7 @@ class PiDriverLifecycleTest(unittest.TestCase):
 
         with (
             patch.dict(sys.modules, {remote_module.__name__: remote_module}),
+            patch.object(server, "Options", return_value=Mock()),
             patch.object(server, "Service", return_value=service),
             patch.object(server.threading, "Timer", return_value=timer) as timer_factory,
             patch.object(server.webdriver, "Remote", side_effect=attach_remote, create=True),
