@@ -1,5 +1,23 @@
 # Production Baseline
 
+## Baoan pacing comparison inconclusive on 2026-10-31
+
+[Normal-order paced Pi preflight 41195644144](https://github.com/claude89757/wechat-on-airflow/actions/runs/41195644144)
+used `90167a1d7cf7ed982e3945b2b955d651f24aa955`, after exact-main
+[CI 41195446255](https://github.com/claude89757/wechat-on-airflow/actions/runs/41195446255).
+Both venues failed. Baoan stopped at `initial_schedule` / `schedule_not_ready`,
+requested outdoor `111317`: document complete, no schedule component, zero cells,
+and both challenge flags false. It never reached product switching, so this run
+neither validates nor rejects the new 30-second product pacing. The existing
+passive diagnostic was limited to explicit access challenges and retained no
+network/console counters for this initialization failure. Follow-up also captures
+those counters after schedule timeout, including HTTP, script MIME and fixed
+JavaScript error categories. No raw logs, page bodies or credentials are exported.
+
+The fresh read-only [Airflow health 41195470640](https://github.com/claude89757/wechat-on-airflow/actions/runs/41195470640)
+passed against unchanged production `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`.
+No production apply or synthetic notification occurred.
+
 ## Baoan verification moves with product sequence on 2026-10-31
 
 [Corrected-tab cold comparison 41194768457](https://github.com/claude89757/wechat-on-airflow/actions/runs/41194768457)

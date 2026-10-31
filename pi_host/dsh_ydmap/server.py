@@ -904,6 +904,7 @@ def _wait_for_schedule(
     # Never return a ready stale snapshot when the date switch timed out.
     return {
         **last,
+        "accessDiagnostics": _access_diagnostics(driver),
         "ready": False,
         "error": issue or "schedule_timeout",
         "failurePhase": phase,
@@ -953,6 +954,11 @@ const roots = [...document.querySelectorAll('.waf-nc-mask, #WAF_NC_WRAPPER')].fi
 const inside = selector => [...new Set(roots.flatMap(root => [...root.querySelectorAll(selector)]))];
 const frames = inside('iframe');
 const first = {
+  documentHidden: Number(document.hidden),
+  documentFocused: Number(document.hasFocus()),
+  appRootPresent: Number(!!document.querySelector('#app')),
+  vueRootPresent: Number(!!document.querySelector('#app')?.__vue__),
+  scriptReferences: document.scripts.length,
   maskRoots: roots.length,
   maskChildren: roots.reduce((n, root) => n + root.children.length, 0),
   semanticHandles: inside('[role="slider"], [aria-label="滑块"]').filter(visible).length,
@@ -979,6 +985,11 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
         ui = driver.execute_script(ACCESS_DIAGNOSTIC_JS)
         if isinstance(ui, dict):
             for key in (
+                "documentHidden",
+                "documentFocused",
+                "appRootPresent",
+                "vueRootPresent",
+                "scriptReferences",
                 "maskRoots",
                 "maskChildren",
                 "semanticHandles",
@@ -1027,6 +1038,13 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
                 response = params.get("response", {})
                 path = urlparse(response.get("url", "")).path
                 mime = response.get("mimeType", "")
+                status = response.get("status", 0)
+                if isinstance(status, int | float) and status >= 400:
+                    increment("httpErrors")
+                    if params.get("type") == "Document":
+                        increment("documentHttpErrors")
+                    if path.endswith("/favicon.ico"):
+                        increment("faviconHttpErrors")
                 endpoint = path.rsplit("/", 1)[-1]
                 api = {
                     "getSalesItemList": "catalog",
@@ -1057,6 +1075,8 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
                         counts["lastOrderStatus"] = status
                 if params.get("type") == "Script":
                     increment("scriptResponses")
+                    if mime == "text/html":
+                        increment("scriptHtmlResponses")
                     if response.get("status", 0) >= 400:
                         increment("scriptHttpErrors")
             elif method == "Network.loadingFailed":
@@ -1086,6 +1106,19 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
                 increment("cspErrors")
             if "ReferenceError" in message:
                 increment("referenceErrors")
+            if "TypeError" in message:
+                increment("typeErrors")
+            if "SyntaxError" in message:
+                increment("syntaxErrors")
+            if "MIME type" in message:
+                increment("mimeTypeErrors")
+            http_error = re.search(r"status of (401|403|404|429|500|502|503)\b", message)
+            if http_error:
+                increment("consoleHttp" + http_error[1] + "Errors")
+            if "ERR_CERT" in message or "ERR_SSL" in message:
+                increment("consoleTlsErrors")
+            if "ERR_NAME_NOT_RESOLVED" in message:
+                increment("consoleDnsErrors")
             if "unsafe-eval" in message:
                 increment("evalBlockedErrors")
             if "Failed to load resource" in message:

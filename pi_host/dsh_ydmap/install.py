@@ -171,6 +171,7 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "failedVenueDiagnostics",
     "accessDiagnostics",
     "browserVersion",
     "driverVersion",
@@ -329,15 +330,48 @@ def safe_source_failure(value: object) -> str | None:
     return value if value in SOURCE_FAILURES else None
 
 
-def safe_source_diagnostic(value: object) -> dict:
+def safe_source_diagnostic(value: object, *, nested: bool = False) -> dict:
     if not isinstance(value, dict):
         return {}
     result = {}
+    failures = value.get("failedVenueDiagnostics")
+    if not nested and isinstance(failures, dict):
+        result["failedVenueDiagnostics"] = {
+            venue: {
+                "sourceFailure": safe_source_failure(item.get("sourceFailure")),
+                "sourceDiagnostic": safe_source_diagnostic(
+                    item.get("sourceDiagnostic"), nested=True
+                ),
+            }
+            for venue, item in failures.items()
+            if venue in {"dsh", "baoti"} and isinstance(item, dict)
+        }
     access = value.get("accessDiagnostics")
     if isinstance(access, dict):
         result["accessDiagnostics"] = {
             key: access[key]
             for key in (
+                "documentHidden",
+                "documentFocused",
+                "appRootPresent",
+                "vueRootPresent",
+                "scriptReferences",
+                "httpErrors",
+                "documentHttpErrors",
+                "faviconHttpErrors",
+                "scriptHtmlResponses",
+                "typeErrors",
+                "syntaxErrors",
+                "mimeTypeErrors",
+                "consoleHttp401Errors",
+                "consoleHttp403Errors",
+                "consoleHttp404Errors",
+                "consoleHttp429Errors",
+                "consoleHttp500Errors",
+                "consoleHttp502Errors",
+                "consoleHttp503Errors",
+                "consoleTlsErrors",
+                "consoleDnsErrors",
                 "maskRoots",
                 "maskChildren",
                 "semanticHandles",
@@ -1219,6 +1253,13 @@ def inspect_venues(
         failure.source_diagnostic = {
             **(failure.source_diagnostic or {}),
             "failedVenues": [item.venue for item in failures],
+            "failedVenueDiagnostics": {
+                item.venue: {
+                    "sourceFailure": safe_source_failure(item.source_failure),
+                    "sourceDiagnostic": safe_source_diagnostic(item.source_diagnostic, nested=True),
+                }
+                for item in failures
+            },
         }
         raise failure
     return reports
