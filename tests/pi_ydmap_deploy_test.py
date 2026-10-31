@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -98,6 +99,64 @@ def drain_proof():
         "expires_at": int(time.time()) + INSTALL.LEASE_SECONDS - INSTALL.PROOF_MARGIN_SECONDS,
         "dags": [{"dag_id": INSTALL.DAG_IDS[0], "was_paused": False, "paused": True}],
     }
+
+
+def renderer_evidence():
+    source = 'function textFun() { return "已预订"; }'
+    size = len(source.encode("utf-8"))
+    return {
+        "schema_version": 1,
+        "bookability_verified": False,
+        "source_cell_count": 24,
+        "matched_cell_count": 24,
+        "unmatched_cell_count": 0,
+        "coverage_complete": True,
+        "component_scan_truncated": False,
+        "source_truncated": False,
+        "components": [
+            {
+                "index": 0,
+                "name": "ScheduleCell",
+                "matched_cell_count": 24,
+                "methods": {name: name == "textFun" for name in INSTALL.RENDERER_METHODS},
+            }
+        ],
+        "methods": [
+            {
+                "component_indices": [0],
+                "name": "textFun",
+                "kind": "method",
+                "sha256": hashlib.sha256(source.encode()).hexdigest(),
+                "source": source,
+                "original_bytes": size,
+                "emitted_bytes": size,
+                "truncated": False,
+                "redacted": False,
+                "reused": False,
+            }
+        ],
+        "samples": [
+            {
+                "included": False,
+                "court": "室外1号场",
+                "start": "19:00",
+                "end": "20:00",
+                "known_classes": ["col-completed"],
+                "expired": False,
+                "order_no_book": False,
+                "has_order": True,
+                "has_price": True,
+                "online_booking": 1,
+                "online_booking_redacted": False,
+            }
+        ],
+    }
+
+
+def observation_with_source():
+    value = observation()
+    value["days"][0]["groups"][0]["source_evidence"] = renderer_evidence()
+    return value
 
 
 @pytest.mark.parametrize(
@@ -519,7 +578,9 @@ def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, d
         INSTALL, "request_json", lambda port, path, **kwargs: requests.append(path) or {}
     )
     monkeypatch.setattr(
-        INSTALL, "inspect_evidence", lambda payload, venue, dates: {"venue": venue, "dates": dates}
+        INSTALL,
+        "inspect_evidence",
+        lambda payload, venue, dates, **kwargs: {"venue": venue, "dates": dates},
     )
     result = INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, hour, minute, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -552,6 +613,247 @@ def test_remote_failure_does_not_forward_raw_errors_or_upstream_data():
     assert report["failure"] == "operation_failed"
     assert report["venue"] == "baoti"
     assert "secret-value" not in json.dumps(report)
+
+
+def test_source_evidence_is_opt_in_and_strips_unknown_sensitive_fields():
+    payload = observation_with_source()
+    optional = payload["days"][0]["groups"][0]["source_evidence"]
+    optional["cookies"] = {"session": "private-value"}
+    optional["components"][0]["user"] = "private-value"
+    optional["methods"][0]["headers"] = "private-value"
+    optional["samples"][0]["orderInfo"] = {"phone": "private-value"}
+    ordinary = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"])
+    assert "source_evidence" not in json.dumps(ordinary)
+    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    retained = report["days"][0]["groups"][0]["source_evidence"]
+    assert retained == renderer_evidence()
+    assert retained["bookability_verified"] is False
+    assert "private-value" not in json.dumps(report)
+    assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
+    assert "source_evidence" not in json.dumps(INSTALL.safe_inspections([report]))
+
+
+def test_actual_scraper_source_sanitizer_matches_report_contract():
+    server = load("pi_ydmap_source_report_contract", "tests/pi_baoti_scraper_test.py").server
+    assert set(server.SOURCE_CLASSES) == INSTALL.SOURCE_CLASSES
+    assert set(server.SOURCE_LITERAL_ALLOWLIST).issubset(INSTALL.SOURCE_LITERAL_ALLOWLIST)
+    raw = renderer_evidence()
+    raw["methods"][0]["source"] = (
+        'function textFun(){ /* private comment */ return "https://private.test/token"; }'
+    )
+    raw["methods"][0]["original_bytes"] = len(raw["methods"][0]["source"].encode())
+    raw["samples"][0]["court"] = "1号场"
+    budget = {"remaining": server.SOURCE_TOTAL_BYTES, "seen": set()}
+    canonical = server._source_evidence(raw, "室内", budget)
+    reused = server._source_evidence(raw, "室外", budget)
+    assert reused["methods"][0]["reused"] is True
+    payload = observation()
+    payload["days"][0]["groups"][0]["source_evidence"] = reused
+    payload["days"][0]["groups"][1]["source_evidence"] = canonical
+    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    assert report["sourceEvidenceRejected"] is False
+    assert report["sourceEvidenceTruncated"] is False
+    assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
+    encoded = INSTALL.encode_report({"ok": True, "inspections": [report]}, source_evidence=True)
+    assert json.loads(encoded)["inspections"] == [report]
+    retained = report["days"][0]["groups"][1]["source_evidence"]
+    assert retained["methods"][0]["redacted"] is True
+    assert "private" not in json.dumps(retained)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("sha256", "0" * 64),
+        ("emitted_bytes", 999),
+        ("original_bytes", True),
+        ("truncated", "false"),
+        ("redacted", 1),
+        ("reused", 1),
+        ("name", "readCookies"),
+        ("component_indices", [16]),
+    ],
+)
+def test_invalid_source_method_metadata_is_rejected_without_losing_identity(field, value):
+    payload = observation_with_source()
+    payload["days"][0]["groups"][0]["source_evidence"]["methods"][0][field] = value
+    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    assert report["verified"] is True and report["sourceEvidenceRejected"] is True
+    assert "source_evidence" not in report["days"][0]["groups"][0]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'function textFun(){return "private-cookie-value";}',
+        "function textFun(){/* private-cookie-value */ return 1;}",
+        "function textFun(){return `private-cookie-value`;}",
+        "function textFun(){return " + "1" * 4097 + ";}",
+    ],
+)
+def test_source_hash_is_not_a_substitute_for_sanitization(source):
+    payload = observation_with_source()
+    method = payload["days"][0]["groups"][0]["source_evidence"]["methods"][0]
+    method.update(
+        source=source,
+        sha256=hashlib.sha256(source.encode()).hexdigest(),
+        emitted_bytes=len(source.encode()),
+        original_bytes=len(source.encode()),
+        redacted=True,
+    )
+    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    assert report["sourceEvidenceRejected"] is True
+    assert "private-cookie-value" not in json.dumps(report)
+
+
+def test_source_evidence_requires_false_bookability_and_bounded_public_samples():
+    for field, value in (
+        ("bookability_verified", True),
+        ("matched_cell_count", True),
+        ("samples", [renderer_evidence()["samples"][0]] * 3),
+    ):
+        evidence = renderer_evidence()
+        evidence[field] = value
+        assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+    evidence = renderer_evidence()
+    evidence["samples"][0]["online_booking"] = {"token": "private-value"}
+    assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+    evidence = renderer_evidence()
+    evidence["component_scan_truncated"] = True
+    assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+    evidence = renderer_evidence()
+    evidence["methods"][0]["truncated"] = True
+    assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+
+
+def test_forward_source_reuse_is_resolved_and_unknown_hash_is_rejected():
+    payload = observation_with_source()
+    groups = payload["days"][0]["groups"]
+    groups[1]["source_evidence"] = copy.deepcopy(groups[0]["source_evidence"])
+    method = groups[0]["source_evidence"]["methods"][0]
+    method.update(source="", emitted_bytes=0, reused=True)
+    valid = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    assert valid["sourceEvidenceRejected"] is False
+    assert valid["days"][0]["groups"][0]["source_evidence"]["methods"][0]["reused"] is True
+    method["sha256"] = "f" * 64
+    invalid = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    assert invalid["sourceEvidenceRejected"] is True
+    assert "source_evidence" not in invalid["days"][0]["groups"][0]
+
+
+def test_optional_evidence_budget_preserves_identity_and_flags_roundtrip(monkeypatch):
+    report = INSTALL.inspect_evidence(
+        observation_with_source(), "baoti", ["2026-11-01"], source_evidence=True
+    )
+    monkeypatch.setattr(INSTALL, "MAX_SOURCE_EVIDENCE_BYTES", 1)
+    encoded = INSTALL.encode_report(
+        {"ok": True, "operationComplete": True, "inspections": [report]}, source_evidence=True
+    )
+    bounded = json.loads(encoded)
+    assert bounded["ok"] is True and bounded["sourceEvidenceTruncated"] is True
+    assert bounded["inspections"][0]["verified"] is True
+    assert "source_evidence" not in encoded
+    again = json.loads(INSTALL.encode_report(bounded, source_evidence=True))
+    assert again == bounded
+
+
+def test_final_report_is_valid_json_below_limit_including_utf8_bytes():
+    encoded = INSTALL.encode_report(
+        {"ok": True, "operationComplete": True, "padding": "中" * INSTALL.MAX_BYTES}
+    )
+    assert len(encoded.encode("utf-8")) + 1 < INSTALL.MAX_BYTES
+    report = json.loads(encoded)
+    assert report["ok"] is False and report["failure"] == "report_too_large"
+
+
+@pytest.mark.parametrize("status", [0, 1])
+def test_remote_source_evidence_roundtrip_for_success_and_prior_success_on_failure(status):
+    summary = INSTALL.inspect_evidence(
+        observation_with_source(), "baoti", ["2026-11-01"], source_evidence=True
+    )
+    payload = {
+        "ok": status == 0,
+        "operationComplete": True,
+        "failure": "access_verification",
+        "venue": "dsh",
+        "inspections": [summary],
+    }
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: status, close=lambda: None
+    )
+    stdin = SimpleNamespace(channel=channel)
+
+    def remote_files(*args, **kwargs):
+        stdout = io.BytesIO(json.dumps(payload, ensure_ascii=False).encode())
+        stdout.channel = channel
+        return stdin, stdout, io.BytesIO()
+
+    client = SimpleNamespace(exec_command=remote_files)
+    retained = DEPLOY.remote(client, "fake", source_evidence=True)
+    assert retained["inspections"] == [summary]
+    assert (
+        retained["inspections"][0]["days"][0]["groups"][0]["source_evidence"][
+            "bookability_verified"
+        ]
+        is False
+    )
+    assert "source_evidence" not in json.dumps(DEPLOY.remote(client, "fake"))
+
+
+@pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])
+def test_only_preflight_requests_source_evidence(monkeypatch, tmp_path, operation):
+    calls = []
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *a: tmp_path)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    monkeypatch.setattr(INSTALL, "activate", lambda *a: {"applied": True})
+    monkeypatch.setattr(
+        INSTALL,
+        "inspect_venues",
+        lambda port, **kwargs: calls.append((port, kwargs.get("source_evidence", False))) or [],
+    )
+
+    @contextmanager
+    def candidate(*args):
+        yield 18788
+
+    monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
+    INSTALL.operate(
+        SimpleNamespace(
+            operation=operation,
+            commit=COMMIT,
+            source_sha256=HASH,
+            staging=tmp_path,
+            drain_proof=drain_proof(),
+        )
+    )
+    assert (
+        calls
+        == (
+            {
+                "preflight": [(18788, True)],
+                "apply": [(18788, False)],
+                "health": [],
+                "inspect": [(8788, False)],
+            }[operation]
+        )
+    )
+
+
+def test_preflight_query_is_explicit_for_both_venues(monkeypatch):
+    paths = []
+    monkeypatch.setattr(
+        INSTALL, "request_json", lambda port, path, **kwargs: paths.append(path) or {}
+    )
+    monkeypatch.setattr(INSTALL, "inspect_evidence", lambda *args, **kwargs: {})
+    INSTALL.inspect_venues(
+        18788, at=datetime(2026, 11, 1, 12, tzinfo=ZoneInfo("Asia/Shanghai")), source_evidence=True
+    )
+    assert paths == [
+        "/inspect?venue=dsh&days=5&evidence=source-v1",
+        "/inspect?venue=baoti&days=2&evidence=source-v1",
+    ]
 
 
 def test_workflow_gates_and_release_order_cover_pi_before_airflow():

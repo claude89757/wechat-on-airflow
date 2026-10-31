@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -46,6 +47,71 @@ CHROMEDRIVER = "/usr/local/bin/chromedriver"
 DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
 SCRAPE_LOCK = threading.Lock()
+SOURCE_METHODS = (
+    "textFun",
+    "isNoBook",
+    "classObj",
+    "closeMsg",
+    "sellerMessage",
+    "isTicketDisabled",
+)
+SOURCE_METHOD_BYTES = 4096
+SOURCE_TOTAL_BYTES = 24 * 1024
+SOURCE_CLASSES = frozenset(
+    "col-inprocess col-completed col-locked col-scheduled orderNoBook expired noOpen disabled "
+    "not-open col-fight-ing col-fight-request col-fight-respond fight-request fight-request-ing "
+    "fight-respond col-max-ball col-ball selected".split()
+)
+SOURCE_LITERAL_ALLOWLIST = SOURCE_CLASSES | frozenset(
+    {
+        "",
+        " ",
+        "/",
+        "-",
+        ":",
+        "(",
+        ")",
+        "元",
+        "分钟",
+        "免费",
+        "预订中",
+        "已预订",
+        "已过期",
+        "已占用",
+        "约战中",
+        "已约战",
+        "已应战",
+        "未开放",
+        "不可预约",
+        "已售罄",
+        "剩余",
+        "可约",
+        "undefined",
+        "object",
+        "function",
+        "string",
+        "number",
+        "boolean",
+        "length",
+        "row",
+        "price",
+        "platformInfo",
+        "venueName",
+        "orderInfo",
+        "className",
+        "onlineBooking",
+        "salesItemId",
+        "open",
+        "closed",
+        "enabled",
+        "disabled",
+    }
+)
+SOURCE_ONLINE_ENUMS = frozenset(
+    word
+    for word in ("open", "closed", "enabled", "disabled")
+    for word in (word, word.upper(), word.title())
+) | {"开放", "关闭", "开启", "不开放"}
 
 
 def _baoti_group_url(sales_item_id: str) -> str:
@@ -153,12 +219,15 @@ const sourceData = table && table.serverData || {};
 const rows = (table && table.rows) || [];
 const courts = {};
 const courtNames = [];
+const sourceCells = [];
+const includedCells = new Set();
 let cellCount = 0;
 rows.forEach((row) => {
   const cells = Array.isArray(row) ? row : Object.values(row || {});
   cells.forEach((col) => {
     if (!col || !col.startTimeText || !col.endTimeText) return;
     cellCount += 1;
+    sourceCells.push(col);
     const venue = col.platformInfo && col.platformInfo.venueName;
     if (!venue) return;
     if (!courtNames.includes(venue)) courtNames.push(venue);
@@ -167,6 +236,7 @@ rows.forEach((row) => {
     if (expired) return;
     if (col.orderNoBook || col.orderInfo && Object.keys(col.orderInfo).length) return;
     if (/completed|locked|scheduled|inprocess|disabled|expired|not-open|noOpen|fight|max-ball/i.test(cls)) return;
+    includedCells.add(col);
     const ranges = courts[venue] || [];
     if (!ranges.some((item) => item[0] === col.startTimeText && item[1] === col.endTimeText)) {
       ranges.push([col.startTimeText, col.endTimeText]);
@@ -174,7 +244,7 @@ rows.forEach((row) => {
     courts[venue] = ranges;
   });
 });
-return {
+const result = {
   captcha,
   accessError,
   ready: cellCount > 0,
@@ -201,6 +271,95 @@ return {
     orders: objectId(sourceData.orderInfoList),
   },
 };
+if (arguments[0] === true && !accessError) {
+  const methodNames = ['textFun', 'isNoBook', 'classObj', 'closeMsg', 'sellerMessage', 'isTicketDisabled'];
+  const pending = table ? [table] : [];
+  const seen = new Set();
+  const covered = new Set();
+  const components = [];
+  const methods = [];
+  const definitions = new Map();
+  const encoder = new TextEncoder();
+  let scanTruncated = false;
+  let sourceTruncated = false;
+  let remaining = 24576;
+  function definition(vm, name) {
+    for (const kind of ['methods', 'computed']) {
+      const entry = Object.getOwnPropertyDescriptor(vm.$options?.[kind] || {}, name)?.value;
+      const fn = typeof entry === 'function' ? entry :
+        kind === 'computed' ? Object.getOwnPropertyDescriptor(entry || {}, 'get')?.value : null;
+      if (typeof fn === 'function') return {fn, kind: kind === 'methods' ? 'method' : 'computed'};
+    }
+    return null;
+  }
+  while (pending.length && seen.size < 256) {
+    const vm = pending.shift();
+    if (!vm || seen.has(vm)) continue;
+    seen.add(vm);
+    const children = Array.isArray(vm.$children) ? vm.$children : [];
+    const room = Math.max(0, 256 - seen.size - pending.length);
+    pending.push(...children.slice(0, room));
+    if (children.length > room) scanTruncated = true;
+    const found = methodNames.map(name => ({name, definition: definition(vm, name)}));
+    if (!found.some(value => value.definition)) continue;
+    if (components.length >= 16) { scanTruncated = true; continue; }
+    const index = components.length;
+    // Read the already-bound row prop only. Never evaluate renderer/computed
+    // functions, call booking handlers, or assume offscreen rows are mounted.
+    const bound = vm.row;
+    const mounted = vm._isMounted === true && vm._isDestroyed !== true && vm.$el?.isConnected === true;
+    const matched = mounted && Array.isArray(bound) ? sourceCells.filter(col => bound.includes(col)) : [];
+    matched.forEach(col => covered.add(col));
+    const rawName = vm.$options?.name || vm.$options?._componentTag;
+    components.push({
+      index, name: typeof rawName === 'string' && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(rawName) ? rawName : null,
+      matched_cell_count: matched.length,
+      methods: Object.fromEntries(found.map(value => [value.name, !!value.definition])),
+    });
+    for (const {name, definition: item} of found) {
+      if (!item) continue;
+      const key = name + ':' + item.kind;
+      const previous = definitions.get(item.fn)?.get(key);
+      if (previous !== undefined) { methods[previous].component_indices.push(index); continue; }
+      if (methods.length >= 24) { sourceTruncated = true; continue; }
+      const raw = Function.prototype.toString.call(item.fn);
+      const bytes = encoder.encode(raw);
+      const limit = Math.min(4096, remaining);
+      const source = new TextDecoder().decode(bytes.slice(0, limit), {stream: true});
+      const emitted = encoder.encode(source).length;
+      const truncated = bytes.length > emitted;
+      remaining -= emitted;
+      sourceTruncated ||= truncated;
+      const record = {name, kind: item.kind, component_indices: [index], source,
+        original_bytes: bytes.length, truncated};
+      if (!definitions.has(item.fn)) definitions.set(item.fn, new Map());
+      definitions.get(item.fn).set(key, methods.length);
+      methods.push(record);
+    }
+  }
+  scanTruncated ||= pending.length > 0;
+  const matched = sourceCells.filter(col => covered.has(col)).length;
+  const samples = [];
+  for (const included of [true, false]) {
+    const col = sourceCells.find(value => includedCells.has(value) === included && value.platformInfo?.venueName);
+    if (!col) continue;
+    const rawOnline = col.platformInfo.onlineBooking;
+    samples.push({included, court: col.platformInfo.venueName, start: col.startTimeText, end: col.endTimeText,
+      known_classes: typeof col.className === 'string' ? col.className.split(/\s+/).slice(0, 32) : [],
+      expired: col.expired === true || col.expired === 1, order_no_book: !!col.orderNoBook,
+      has_order: !!col.orderInfo && Object.keys(col.orderInfo).length > 0, has_price: !!col.priceBean,
+      online_booking: ['string', 'number', 'boolean'].includes(typeof rawOnline) ? rawOnline : null,
+      online_booking_redacted: rawOnline != null && !['string', 'number', 'boolean'].includes(typeof rawOnline),
+    });
+  }
+  result.sourceEvidence = {schema_version: 1, bookability_verified: false,
+    source_cell_count: sourceCells.length, matched_cell_count: matched,
+    unmatched_cell_count: sourceCells.length - matched,
+    coverage_complete: !scanTruncated && sourceCells.length > 0 && matched === sourceCells.length,
+    component_scan_truncated: scanTruncated, source_truncated: sourceTruncated,
+    components, methods, samples};
+}
+return result;
 """
 
 
@@ -329,9 +488,230 @@ def _stop(proc: subprocess.Popen[Any], driver: webdriver.Remote | None) -> None:
         proc.kill()
 
 
-def _extract_day(driver: webdriver.Remote) -> dict[str, Any]:
-    payload = driver.execute_script(EXTRACT_DAY_JS)
+def _extract_day(driver: webdriver.Remote, *, source_evidence: bool = False) -> dict[str, Any]:
+    payload = driver.execute_script(EXTRACT_DAY_JS, source_evidence)
     return payload if isinstance(payload, dict) else {}
+
+
+def _utf8_prefix(value: str, limit: int) -> str:
+    return value.encode("utf-8")[: max(0, limit)].decode("utf-8", errors="ignore")
+
+
+def _regexp_end(source: str, start: int) -> int | None:
+    index = start + 1
+    in_class = False
+    while index < len(source) and source[index] not in "\r\n":
+        if source[index] == "\\":
+            index += 2
+            continue
+        if source[index] == "[":
+            in_class = True
+        elif source[index] == "]":
+            in_class = False
+        elif source[index] == "/" and not in_class:
+            index += 1
+            while index < len(source) and source[index] in "dgimsuvy":
+                index += 1
+            return index
+        index += 1
+    return None
+
+
+def _literal_end(source: str, start: int, *, template: bool = False, depth: int = 0) -> int:
+    """Skip literal contents, including nested template expressions, without executing JS."""
+    if depth > 16:
+        return len(source)
+    quote = source[start]
+    index = start + 1
+    braces = 0
+    while index < len(source):
+        char = source[index]
+        if char == "\\":
+            index += 2
+            continue
+        if template and not braces and source.startswith("${", index):
+            braces = 1
+            index += 2
+            continue
+        if template and braces:
+            if char in "\"'`":
+                index = _literal_end(source, index, template=char == "`", depth=depth + 1)
+                continue
+            if source.startswith("//", index):
+                end = source.find("\n", index + 2)
+                index = len(source) if end < 0 else end + 1
+                continue
+            if source.startswith("/*", index):
+                end = source.find("*/", index + 2)
+                index = len(source) if end < 0 else end + 2
+                continue
+            if char == "/":
+                regex_end = _regexp_end(source, index)
+                if regex_end is not None:
+                    index = regex_end
+                    continue
+            if char == "{":
+                braces += 1
+            elif char == "}":
+                braces -= 1
+            index += 1
+            continue
+        if char == quote:
+            return index + 1
+        index += 1
+    return len(source)
+
+
+def _sanitize_function_source(source: str) -> tuple[str, bool, bool]:
+    """Keep reviewable static code, with no arbitrary literal/comment contents."""
+    output: list[str] = []
+    index = 0
+    redacted = False
+    incomplete = False
+    while index < len(source):
+        char = source[index]
+        if source.startswith(("//", "/*"), index):
+            block = source[index + 1] == "*"
+            end = source.find("*/" if block else "\n", index + 2)
+            index = len(source) if end < 0 else end + (2 if block else 1)
+            output.append(" ")
+            redacted = True
+        elif char in "\"'`":
+            end = _literal_end(source, index, template=char == "`")
+            raw = source[index + 1 : max(index + 1, end - 1)]
+            closed = end > index + 1 and source[end - 1] == char
+            allowed = (
+                char != "`"
+                and closed
+                and "\\" not in raw
+                and (raw in SOURCE_LITERAL_ALLOWLIST or re.fullmatch(r"\d{1,3}", raw) is not None)
+            )
+            value = raw if allowed else "[redacted template]" if char == "`" else "[redacted]"
+            output.append(json.dumps(value, ensure_ascii=False))
+            redacted |= not allowed
+            incomplete |= not closed
+            index = end
+        elif char == "/":
+            # Conservatively omit regexp contents. An ambiguous division tail
+            # may be omitted too; that is reported as incomplete, never inferred.
+            regex_end = _regexp_end(source, index)
+            closed = regex_end is not None
+            index = regex_end if regex_end is not None else len(source)
+            output.append('"[redacted regex]"')
+            redacted = True
+            incomplete |= not closed
+        elif char.isascii() and (char.isalpha() or char in "_$"):
+            match = re.match(r"[A-Za-z_$][A-Za-z0-9_$]*", source[index:])
+            assert match is not None
+            word = match[0]
+            output.append(word if len(word) <= 64 else "redactedIdentifier")
+            redacted |= len(word) > 64
+            index += len(word)
+        elif char.isascii() and char.isdigit():
+            match = re.match(
+                r"(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)", source[index:]
+            )
+            assert match is not None
+            number = match[0]
+            output.append(number if len(number) <= 6 else "0")
+            redacted |= len(number) > 6
+            index += len(number)
+        else:
+            if ord(char) >= 32 or char in "\n\r\t":
+                output.append(char)
+            else:
+                redacted = True
+            index += 1
+    return "".join(output), redacted, incomplete
+
+
+def _source_evidence(raw: dict[str, Any], label: str, budget: dict[str, Any]) -> dict[str, Any]:
+    """Bound and sanitize optional diagnostics before any HTTP response is built."""
+    result = {
+        key: raw[key]
+        for key in (
+            "schema_version",
+            "bookability_verified",
+            "source_cell_count",
+            "matched_cell_count",
+            "unmatched_cell_count",
+            "coverage_complete",
+            "component_scan_truncated",
+            "source_truncated",
+        )
+    }
+    result["bookability_verified"] = False
+    result["components"] = raw.get("components", [])[:16]
+    result["methods"] = []
+    for record in raw.get("methods", [])[:24]:
+        if record.get("name") not in SOURCE_METHODS or record.get("kind") not in {
+            "method",
+            "computed",
+        }:
+            continue
+        source, redacted, incomplete = _sanitize_function_source(str(record.get("source") or ""))
+        canonical = _utf8_prefix(source, SOURCE_METHOD_BYTES)
+        truncated = bool(record.get("truncated")) or incomplete or canonical != source
+        full_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        reused = (record["name"], full_hash) in budget["seen"]
+        emitted = "" if reused else _utf8_prefix(canonical, budget["remaining"])
+        if not reused:
+            truncated |= emitted != canonical
+            full_hash = hashlib.sha256(emitted.encode("utf-8")).hexdigest()
+            budget["seen"].add((record["name"], full_hash))
+            budget["remaining"] -= len(emitted.encode("utf-8"))
+        result["source_truncated"] |= truncated
+        result["methods"].append(
+            {
+                "component_indices": record["component_indices"][:16],
+                "name": record["name"],
+                "kind": record["kind"],
+                "sha256": full_hash,
+                "source": emitted,
+                "original_bytes": record["original_bytes"],
+                "emitted_bytes": len(emitted.encode("utf-8")),
+                "truncated": truncated,
+                "redacted": redacted,
+                "reused": reused,
+            }
+        )
+    result["samples"] = []
+    for sample in raw.get("samples", [])[:2]:
+        online = sample.get("online_booking")
+        safe_online = (
+            online is None
+            or type(online) is bool
+            or (type(online) in (int, float) and -1000 <= online <= 1000)
+            or (
+                isinstance(online, str)
+                and (
+                    online in SOURCE_ONLINE_ENUMS
+                    or re.fullmatch(r"-?\d{1,3}(?:\.\d{1,3})?", online)
+                )
+            )
+        )
+        if not all(isinstance(sample.get(key), str) for key in ("court", "start", "end")):
+            continue
+        if not re.fullmatch(r"[\w\u3400-\u9fff ·.()（）-]{1,120}", sample["court"]):
+            continue
+        if not all(re.fullmatch(r"\d{2}:\d{2}", sample[key]) for key in ("start", "end")):
+            continue
+        result["samples"].append(
+            {
+                key: bool(sample.get(key))
+                for key in ("included", "expired", "order_no_book", "has_order", "has_price")
+            }
+            | {
+                "court": _prefixed_court_name(label, sample["court"]),
+                "start": sample["start"],
+                "end": sample["end"],
+                "known_classes": sorted(set(sample.get("known_classes", [])) & SOURCE_CLASSES),
+                "online_booking": online if safe_online else None,
+                "online_booking_redacted": bool(sample.get("online_booking_redacted"))
+                or not safe_online,
+            }
+        )
+    return result
 
 
 class VenueIdentity(TypedDict):
@@ -516,7 +896,9 @@ def _days_payload(
     ]
 
 
-def scrape_available_slots(venue: str = DEFAULT_VENUE, days: int = DEFAULT_DAYS) -> dict[str, Any]:
+def scrape_available_slots(
+    venue: str = DEFAULT_VENUE, days: int = DEFAULT_DAYS, *, source_evidence: bool = False
+) -> dict[str, Any]:
     groups = VENUE_GROUPS.get(venue)
     if not groups:
         return _stop_with_error(error=f"unknown_venue:{venue}", venue=venue)
@@ -531,6 +913,7 @@ def scrape_available_slots(venue: str = DEFAULT_VENUE, days: int = DEFAULT_DAYS)
     collected: dict[str, dict[str, list[list[str]]]] = {}
     court_names: dict[str, list[str]] = {}
     evidence: dict[str, list[dict[str, Any]]] = {}
+    source_budget: dict[str, Any] = {"remaining": SOURCE_TOTAL_BYTES, "seen": set()}
     try:
         _cleanup_stale_browser()
         proc = _start_chromium(groups[0][2])
@@ -607,6 +990,23 @@ def scrape_available_slots(venue: str = DEFAULT_VENUE, days: int = DEFAULT_DAYS)
                     return _stop_with_error(error=issue, venue=venue, payload=payload)
                 if booking_iso not in requested:
                     continue
+                if source_evidence:
+                    _remaining(deadline, 10)
+                    payload = _extract_day(driver, source_evidence=True)
+                    issue = _snapshot_issue(
+                        payload, expected_date=booking_iso, previous=previous, **identity
+                    )
+                    if issue:
+                        return _stop_with_error(
+                            error=issue,
+                            venue=venue,
+                            payload=payload,
+                            captcha=bool(payload.get("captcha")),
+                        )
+                    if not isinstance(payload.get("sourceEvidence"), dict):
+                        return _stop_with_error(
+                            error="source_identity_unavailable", venue=venue, payload=payload
+                        )
                 bucket = collected.setdefault(booking_iso, {})
                 known = court_names.setdefault(booking_iso, [])
                 group_names = [_prefixed_court_name(label, name) for name in payload["courtNames"]]
@@ -616,23 +1016,26 @@ def scrape_available_slots(venue: str = DEFAULT_VENUE, days: int = DEFAULT_DAYS)
                 for court, ranges in payload["courts"].items():
                     name = _prefixed_court_name(label, str(court))
                     bucket[name] = ranges
-                evidence.setdefault(booking_iso, []).append(
-                    {
-                        "key": key,
-                        "sales_item_id": payload["sourceProduct"],
-                        "source_sales_id": payload["sourceSalesId"],
-                        "source_host": payload["pageHost"],
-                        "product_name": payload["productName"],
-                        "product_name_field": payload["productNameField"],
-                        "source_date": payload["queryDate"],
-                        "selected_date": payload["selectedDate"],
-                        "court_names": group_names,
-                        "cell_count": payload["cellCount"],
-                        "load_generation": payload["loadGeneration"],
-                        "data_version": payload["dataVersion"],
-                        "freshness": "both_source_arrays_replaced_after_date_selection",
-                    }
-                )
+                group = {
+                    "key": key,
+                    "sales_item_id": payload["sourceProduct"],
+                    "source_sales_id": payload["sourceSalesId"],
+                    "source_host": payload["pageHost"],
+                    "product_name": payload["productName"],
+                    "product_name_field": payload["productNameField"],
+                    "source_date": payload["queryDate"],
+                    "selected_date": payload["selectedDate"],
+                    "court_names": group_names,
+                    "cell_count": payload["cellCount"],
+                    "load_generation": payload["loadGeneration"],
+                    "data_version": payload["dataVersion"],
+                    "freshness": "both_source_arrays_replaced_after_date_selection",
+                }
+                if source_evidence:
+                    group["source_evidence"] = _source_evidence(
+                        payload["sourceEvidence"], label, source_budget
+                    )
+                evidence.setdefault(booking_iso, []).append(group)
         return {
             "schema_version": SCHEMA_VERSION,
             "ok": True,
@@ -689,7 +1092,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(429, _stop_with_error(error="busy", venue=venue))
             return
         try:
-            payload = scrape_available_slots(venue, days)
+            requested_evidence = query.get("evidence") == ["source-v1"]
+            payload = scrape_available_slots(venue, days, source_evidence=requested_evidence)
             self._send_json(200 if payload.get("ok") else 503, payload)
         except Exception as exc:
             self._send_json(500, _stop_with_error(error=type(exc).__name__, venue=venue))
