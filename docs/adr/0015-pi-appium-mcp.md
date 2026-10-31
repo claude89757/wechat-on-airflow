@@ -20,7 +20,7 @@ application rather than distributing service-token headers. Add only the pinned
 owner's email selector, resolved privately from their Cloudflare user ID, with
 the existing Cloudflare login-method requirement. No account-wide or Everyone
 policy is allowed. Keep the machine policy for protected health automation.
-Use PKCE S256/DCR, loopback and documented ChatGPT callbacks, 15-minute access
+Use PKCE S256/DCR, loopback and explicit ChatGPT/Cursor/Grok callbacks, 15-minute access
 tokens and a seven-day refresh grant. The origin continues to receive the signed
 Access assertion validated by cloudflared; no new Worker or phone daemon is needed.
 This uses Cloudflare's Beta Managed OAuth feature and requires a compatible
