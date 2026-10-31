@@ -37,10 +37,6 @@ DEBUG_PORT = int(os.environ.get("YDMAP_DEBUG_PORT", "9224"))
 SCHEMA_VERSION = 2
 SCRAPE_TIMEOUT = 210
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-UA = (
-    "Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/137.0.7151.119 Safari/537.36"
-)
 CHROMIUM_BIN = "/usr/lib/chromium/chromium"
 CHROMEDRIVER = "/usr/local/bin/chromedriver"
 DEFAULT_DAYS = 5
@@ -383,48 +379,19 @@ if (arguments[0] === true && !accessError) {
 return result;
 """
 
-FIND_PRODUCT_JS = r"""
-const target = String(arguments[0]);
-const root = document.querySelector('#app')?.__vue__;
-const pending = root ? [root] : [], seen = new Set();
-let table;
-while (pending.length && seen.size < 512) {
-  const vm = pending.shift();
-  if (!vm || seen.has(vm)) continue;
-  seen.add(vm);
-  if ((vm.$options?.name || vm.$options?._componentTag) === 'ScheduleTable') { table = vm; break; }
-  pending.push(...(vm.$children || []));
-}
-const catalog = table?.$parent?.serverData?.itemDataList;
-if (!Array.isArray(catalog)) return null;
-const item = catalog.find(value => String(value.salesItemId) === target);
-if (!item) return null;
-const name = ['salesItemName', 'itemName', 'name'].map(key => item[key])
-  .find(value => typeof value === 'string' && value.trim())?.trim();
-if (!name) return null;
-const matches = [...document.querySelectorAll('button,li,a,span,div')].filter(el => {
-  // A multi-product wrapper starts with the first product's name too. Its
-  // centre can hit another tab; require the complete visible label instead.
-  if ((el.innerText || '').trim() !== name) return false;
-  const rect = el.getBoundingClientRect();
-  const style = getComputedStyle(el);
-  return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 &&
-    rect.left < innerWidth && rect.top < innerHeight &&
-    style.display !== 'none' && style.visibility !== 'hidden';
-});
-matches.sort((a, b) => a.children.length - b.children.length);
-return matches[0] || null;
-"""
 
-
-def _cleanup_stale_browser() -> None:
+def _cleanup_stale_browser(profile: Path | None = None) -> None:
     # Never reuse or chmod a shared/home profile via a typo or final symlink.
     temporary_root = Path("/tmp").resolve()
-    resolved = PROFILE.resolve()
+    profile = profile or PROFILE
+    base = PROFILE.resolve()
+    resolved = profile.resolve()
     if (
         PROFILE.is_symlink()
-        or resolved == temporary_root
-        or not resolved.is_relative_to(temporary_root)
+        or profile.is_symlink()
+        or base == temporary_root
+        or not base.is_relative_to(temporary_root)
+        or not resolved.is_relative_to(base)
     ):
         raise ValueError("YDMAP_PROFILE must be a dedicated directory below /tmp")
     subprocess.run(
@@ -438,9 +405,11 @@ def _cleanup_stale_browser() -> None:
     # the service's dedicated profile, never a copied personal browser profile.
     PROFILE.mkdir(parents=True, exist_ok=True, mode=0o700)
     PROFILE.chmod(0o700)
+    profile.mkdir(parents=True, exist_ok=True, mode=0o700)
+    profile.chmod(0o700)
 
 
-def _start_chromium(url: str) -> subprocess.Popen[Any]:
+def _start_chromium(url: str, *, profile: Path | None = None) -> subprocess.Popen[Any]:
     env = os.environ.copy()
     env["DISPLAY"] = env.get("DISPLAY") or ":0"
     env.setdefault("XAUTHORITY", "/home/claude/.Xauthority")
@@ -451,7 +420,7 @@ def _start_chromium(url: str) -> subprocess.Popen[Any]:
         CHROMIUM_BIN,
         f"--remote-debugging-port={DEBUG_PORT}",
         "--remote-allow-origins=*",
-        f"--user-data-dir={PROFILE}",
+        f"--user-data-dir={profile or PROFILE}",
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-dev-shm-usage",
@@ -459,7 +428,6 @@ def _start_chromium(url: str) -> subprocess.Popen[Any]:
         "--disable-sync",
         "--lang=zh-CN",
         "--accept-lang=zh-CN,zh,en-US,en",
-        f"--user-agent={UA}",
         "--window-size=1280,800",
         "--window-position=80,40",
         url,
@@ -1184,10 +1152,9 @@ def _browser_environment(driver: webdriver.Remote) -> dict[str, Any]:
     browser = capabilities.get("browserVersion")
     if not isinstance(browser, str) or not re.fullmatch(r"\d{1,4}(?:\.\d{1,6}){1,3}", browser):
         return {}
-    configured = re.search(r"Chrome/([\d.]+)", UA)
     result: dict[str, Any] = {
         "browserVersion": browser,
-        "userAgentVersionMatchesBrowser": bool(configured and configured[1] == browser),
+        "userAgentOverrideEnabled": False,
         "profileResetBeforeScrape": False,
     }
     chrome = capabilities.get("chrome")
@@ -1295,40 +1262,31 @@ def _scrape_available_slots(
     phase = "browser_start"
     requested_product = parse_qs(urlparse(groups[0][2]).query)["salesItemId"][0]
     try:
-        _cleanup_stale_browser()
-        proc = _start_chromium(groups[0][2])
-        _wait_devtools(timeout=_remaining(deadline, 40))
-        # Preserve the deployed scraper's four-second initial page warm-up.
-        # DevTools readiness only proves the browser is listening, not that
-        # the initial navigation has completed. Keep this inside our deadline.
-        time.sleep(_remaining(deadline, 4))
-        phase = "browser_attach"
-        driver = _attach(timeout=_remaining(deadline, 30))
-        if runtime is not None:
-            runtime.update(_browser_environment(driver))
-        payload: dict[str, Any] = {}
         next_product_at = 0.0
         for index, (key, label, url) in enumerate(groups):
             requested_product = parse_qs(urlparse(url).query)["salesItemId"][0]
-            phase = "product_navigation"
+            if proc is not None:
+                _stop(proc, driver)
+                proc = None
+                driver = None
+            phase = "browser_start"
             if index > 0 and venue == "baoti":
                 delay = next_product_at - time.monotonic()
                 if delay > 0:
                     time.sleep(_remaining(deadline, delay))
             _remaining(deadline, 20)
-            previous_product = None
-            if index > 0:
-                previous_product = payload
-                element = driver.execute_script(FIND_PRODUCT_JS, requested_product)
-                if element is None:
-                    return _stop_with_error(
-                        error="product_tab_not_found",
-                        venue=venue,
-                        payload={"failurePhase": phase, "requestedProduct": requested_product},
-                    )
-                # Use the site's normal product tab and retain the browser/app session.
-                # Native click respects any verification overlay; never force it away.
-                element.click()
+            # A fixed private profile belongs to this product across polls.
+            # Each source opens its supported URL natively, like Dashah;
+            # no cross-product browser/app state or product-tab click is reused.
+            profile = PROFILE / f"{venue}-{key or 'main'}"
+            _cleanup_stale_browser(profile)
+            proc = _start_chromium(url, profile=profile)
+            _wait_devtools(timeout=_remaining(deadline, 40))
+            time.sleep(_remaining(deadline, 4))
+            phase = "browser_attach"
+            driver = _attach(timeout=_remaining(deadline, 30))
+            if runtime is not None:
+                runtime.update(_browser_environment(driver))
             parsed = urlparse(url)
             identity: VenueIdentity = {
                 "host": parsed.hostname or "",
@@ -1342,7 +1300,6 @@ def _scrape_available_slots(
                 deadline=deadline,
                 verification=verification,
                 phase=phase,
-                previous=previous_product,
                 **identity,
             )
             if not payload.get("ready"):

@@ -278,14 +278,23 @@ def test_actual_scraper_payload_reaches_watcher_and_queue_with_verified_identity
     monkeypatch.setattr(
         server, "time", SimpleNamespace(monotonic=clock.monotonic, sleep=clock.sleep)
     )
-    monkeypatch.setattr(server, "_cleanup_stale_browser", lambda: None)
-    monkeypatch.setattr(server, "_start_chromium", lambda url: object())
+    profiles = []
+    monkeypatch.setattr(server, "_cleanup_stale_browser", lambda profile: None)
+    monkeypatch.setattr(
+        server, "_start_chromium", lambda url, *, profile: profiles.append(profile) or object()
+    )
     monkeypatch.setattr(server, "_wait_devtools", lambda timeout: None)
     monkeypatch.setattr(server, "_attach", lambda **kwargs: driver)
     monkeypatch.setattr(server, "_extract_day", lambda driver: next(snapshots))
     monkeypatch.setattr(server, "_stop", Mock())
     payload = server.scrape_available_slots("baoti", 2)
     assert payload["ok"] is True, json.dumps(payload, ensure_ascii=False)
+    assert [profile.name for profile in profiles] == [
+        "baoti-outdoor",
+        "baoti-indoor",
+        "baoti-windrain",
+    ]
+    assert server._stop.call_count == 3
     dates = {pi.TODAY.isoformat(), pi.TOMORROW.isoformat()}
     parsed = client.parse_inspect_payload(payload, expected_dates=dates)
     assert set(parsed) == dates

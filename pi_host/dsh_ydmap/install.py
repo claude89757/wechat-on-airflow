@@ -177,6 +177,7 @@ SOURCE_FIELDS = {
     "driverVersion",
     "driverMajorMatchesBrowser",
     "userAgentVersionMatchesBrowser",
+    "userAgentOverrideEnabled",
     "profileResetBeforeScrape",
     "verificationAttempted",
     "verificationOutcome",
@@ -476,6 +477,7 @@ def safe_source_diagnostic(value: object, *, nested: bool = False) -> dict:
         "verificationAttempted",
         "driverMajorMatchesBrowser",
         "userAgentVersionMatchesBrowser",
+        "userAgentOverrideEnabled",
         "profileResetBeforeScrape",
         "productInCatalog",
         "challengeText",
@@ -1150,6 +1152,7 @@ def inspect_evidence(
             "driverVersion",
             "driverMajorMatchesBrowser",
             "userAgentVersionMatchesBrowser",
+            "userAgentOverrideEnabled",
             "profileResetBeforeScrape",
         ):
             if key in diagnostic:
@@ -1186,6 +1189,7 @@ def safe_inspections(value: object, *, source_evidence: bool = False) -> list[di
                         "driverVersion",
                         "driverMajorMatchesBrowser",
                         "userAgentVersionMatchesBrowser",
+                        "userAgentOverrideEnabled",
                         "profileResetBeforeScrape",
                     )
                     if key in report
