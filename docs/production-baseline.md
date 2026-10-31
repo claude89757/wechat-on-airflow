@@ -1,5 +1,45 @@
 # Production Baseline
 
+## Successful candidate and release-preflight isolation gap on 2026-10-31
+
+[Three-cycle Pi evidence 41202959550](https://github.com/claude89757/wechat-on-airflow/actions/runs/41202959550)
+used `9a7ebc68ff1756b612dc6375a312d81c27ad103e`, after
+[CI 41202679969](https://github.com/claude89757/wechat-on-airflow/actions/runs/41202679969).
+The scoped drain/restoration succeeded; all three candidate cycles verified
+Dashah's five dates and Baoan's three products on both dates. The last cycle
+retained 16 outdoor, three indoor and three wind/rain court identities with fresh
+source arrays. No real test send occurred and unrelated services were unchanged.
+The complete `isAvailableStatic` and `isNoBook` sources were identical across
+Baoan groups, with representative available/unavailable samples consistent with
+those rules. Renderer scanning remained capped/incomplete and some unrelated
+formatter diagnostics truncated; `bookability_verified` deliberately remains false.
+This is source-rule review and candidate evidence, not a booking transaction or
+natural production-cycle acceptance.
+
+The first formal [ship 41203870674](https://github.com/claude89757/wechat-on-airflow/actions/runs/41203870674)
+stopped in ordinary Pi preflight, before any application deployment, host-core
+upgrade, delivery pause or tag. That path omitted the drain flag and ran alongside
+scheduled Dashah scraping. Both venues reported `schedule_not_ready`, no schedule
+component/cells, no detected challenge, and one favicon 404. Baoan reached indoor
+before failing. There was also one unattributed other-host load failure; it is
+not proven to be a required API dependency. The evidence establishes different
+concurrency conditions, not which shared resource caused initialization failure.
+
+Release preflight now explicitly reserves the shared Pi browser capacity using
+the already verified scoped guard and all three candidate cycles. Both manual
+and reusable defaults enable it; special manual diagnostics may explicitly opt
+out and do not weaken the release's explicit guard. Application apply keeps its
+own mandatory drain and all source checks. This aligns preflight with the
+production task pool's single-browser condition.
+
+`gh run view --log` omitted the large successful report line. The raw workflow
+log ZIP contained the complete sanitized JSON and proved `candidateVerifiedCycles=3`.
+Operation reports now use bounded multiline JSON, with parser/transport round-trip
+checks. The fresh [pre-ship Airflow health 41203712820](https://github.com/claude89757/wechat-on-airflow/actions/runs/41203712820)
+passed against unchanged production `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`.
+The [post-ship Airflow health 41204282517](https://github.com/claude89757/wechat-on-airflow/actions/runs/41204282517)
+also passed against that unchanged commit after the rejected preflight.
+
 ## Quiesced Pi comparison on 2026-10-31
 
 [Protected comparison 41201808352](https://github.com/claude89757/wechat-on-airflow/actions/runs/41201808352)
