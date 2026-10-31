@@ -33,6 +33,10 @@ and operational changes.
 
 ### Fixed
 
+- Use the page's read-only booking predicate to exclude empty cells that lack
+  prices, are not open for online booking, or represent merged/special ranges.
+  Preserve the original browser startup warm-up and retain bounded challenge
+  evidence for Pi preflight diagnosis.
 - Require source venue, product name and freshly loaded booking date evidence
   before accepting a court grid. Reject stale rows, incomplete product groups,
   access verification pages and old scraper responses instead of publishing

@@ -175,6 +175,17 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.extract = context.start()
         self.addCleanup(context.stop)
 
+    def test_initial_page_warmup_precedes_attach_without_reloading(self) -> None:
+        self.install_payloads([{"captcha": True, "ready": False}])
+        attached_at = []
+        server._attach.side_effect = (
+            lambda **kwargs: attached_at.append(self.clock.value) or self.driver
+        )
+        result = server.scrape_available_slots("baoti", 2)
+        self.assertEqual(attached_at, [104.0])
+        self.assertEqual(result["error"], "captcha")
+        self.assertEqual(self.driver.visited, [])
+
     def group_payloads(self, *, venue="baoti", key="outdoor", available=True):
         return [
             snapshot(TODAY, 1, venue=venue, key=key, available=available),

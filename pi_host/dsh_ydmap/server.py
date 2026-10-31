@@ -48,6 +48,7 @@ DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
 SCRAPE_LOCK = threading.Lock()
 SOURCE_METHODS = (
+    "isAvailableStatic",
     "textFun",
     "isNoBook",
     "classObj",
@@ -166,8 +167,9 @@ function visible(el) {
   return true;
 }
 // Slider is the ordinary product/date strip, not a verification challenge.
-const captcha = /Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证|人机\s*验证|验证码|滑动\s*验证/i.test(bodyText) ||
-  [...document.querySelectorAll('.waf-nc-mask')].some(visible);
+const challengeText = /Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证|人机\s*验证|验证码|滑动\s*验证/i.test(bodyText);
+const challengeMaskVisible = [...document.querySelectorAll('.waf-nc-mask')].some(visible);
+const captcha = challengeText || challengeMaskVisible;
 const accessError = captcha ? 'captcha' :
   /访问的?频次过快|请求过于频繁|too many requests|rate limit/i.test(bodyText) ? 'rate_limited' :
   /请先登录|登录后查看|sign in to continue/i.test(bodyText) ? 'login_required' : null;
@@ -231,6 +233,19 @@ rows.forEach((row) => {
     const venue = col.platformInfo && col.platformInfo.venueName;
     if (!venue) return;
     if (!courtNames.includes(venue)) courtNames.push(venue);
+    // Use the page's read-only booking predicate, not a subset of CSS states.
+    // It also checks price, online booking, release time and merged cells.
+    // Missing/changed predicates fail the scrape rather than imply empty courts.
+    if (!accessError) {
+      if (typeof table.isAvailableStatic !== 'function' || table.isTicket !== false) {
+        throw new Error('bookability_predicate_unavailable');
+      }
+      const available = table.isAvailableStatic(col);
+      if (typeof available !== 'boolean') throw new Error('bookability_predicate_invalid');
+      if (!available || col.orderInfo != null) return;
+    } else {
+      return;
+    }
     const cls = col.className || '';
     const expired = col.expired === true || col.expired === 1;
     if (expired) return;
@@ -246,6 +261,10 @@ rows.forEach((row) => {
 });
 const result = {
   captcha,
+  challengeText,
+  challengeMaskVisible,
+  documentComplete: document.readyState === 'complete',
+  scheduleComponentPresent: !!table,
   accessError,
   ready: cellCount > 0,
   signature: `${cellCount}:${Object.keys(courts).sort().join(',')}:${JSON.stringify(courts)}`,
@@ -272,7 +291,7 @@ const result = {
   },
 };
 if (arguments[0] === true && !accessError) {
-  const methodNames = ['textFun', 'isNoBook', 'classObj', 'closeMsg', 'sellerMessage', 'isTicketDisabled'];
+  const methodNames = ['isAvailableStatic', 'textFun', 'isNoBook', 'classObj', 'closeMsg', 'sellerMessage', 'isTicketDisabled'];
   const pending = table ? [table] : [];
   const seen = new Set();
   const covered = new Set();
@@ -874,6 +893,10 @@ def _stop_with_error(
                 "dataVersion",
                 "courtNames",
                 "cellCount",
+                "challengeText",
+                "challengeMaskVisible",
+                "documentComplete",
+                "scheduleComponentPresent",
             )
             if key in observed
         },
@@ -918,6 +941,10 @@ def scrape_available_slots(
         _cleanup_stale_browser()
         proc = _start_chromium(groups[0][2])
         _wait_devtools(timeout=_remaining(deadline, 40))
+        # Preserve the deployed scraper's four-second initial page warm-up.
+        # DevTools readiness only proves the browser is listening, not that
+        # the initial navigation has completed. Keep this inside our deadline.
+        time.sleep(_remaining(deadline, 4))
         driver = _attach(timeout=_remaining(deadline, 30))
         for index, (key, label, url) in enumerate(groups):
             _remaining(deadline, 20)
