@@ -1,5 +1,29 @@
 # Production Baseline
 
+## Operations MCP First Deployment On 2026-10-31
+
+PR #280 merged as `2df99f59c34daf508c32a8dd991567a833afbcba`, with
+[main CI 41188110663](https://github.com/claude89757/wechat-on-airflow/actions/runs/41188110663)
+passing. [Phone policy apply 41188925292](https://github.com/claude89757/wechat-on-airflow/actions/runs/41188925292)
+verified collaborator readiness, authenticated MCP and anonymous/invalid-token denial
+without replacing the phone runtime or overwriting membership.
+
+[Pi apply 41188772801](https://github.com/claude89757/wechat-on-airflow/actions/runs/41188772801)
+failed before DNS publication. Owner-authorized LAN read-only inspection found
+both new units inactive, exit status zero, and successful module import. A local
+real-process regression reproduced the cause: Node resolves the entrypoint's
+symlink but the main-module comparison used the unresolved argv path, so it
+exited without opening the listener. Resolve both paths before comparing.
+Recovery must also allow replacement of an installed but inactive runtime.
+
+[VPS preflight 41188711853](https://github.com/claude89757/wechat-on-airflow/actions/runs/41188711853)
+failed with an opaque remote error; its root cause is not yet established.
+The follow-up adds bounded prerequisite diagnostics, root-without-sudo support
+and a legacy system-Python-compatible bootstrap. Do not claim host acceptance
+until new protected apply/health reports pass. The unchanged Airflow baseline
+`c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5` passed
+[health 41187484116](https://github.com/claude89757/wechat-on-airflow/actions/runs/41187484116).
+
 ## Pi browser compatibility and Baoan product transition on 2026-10-31
 
 [Pi run 41187599590](https://github.com/claude89757/wechat-on-airflow/actions/runs/41187599590)

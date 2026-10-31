@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import sys
@@ -35,6 +36,75 @@ def test_existing_membership_is_never_written(monkeypatch):
     monkeypatch.setattr(DEPLOY.phone, "cf", cf)
     assert DEPLOY.group("Zacks Pi administrators", True) == "owned-group"
     assert calls == ["GET"]
+
+
+@pytest.mark.parametrize("root,expected", [(True, "python3"), (False, "sudo -n python3")])
+def test_host_authority_uses_root_directly_without_requiring_sudo(monkeypatch, root, expected):
+    monkeypatch.setattr(DEPLOY, "ROOT_PYTHON", "sudo -n python3")
+    monkeypatch.setattr(
+        DEPLOY.phone,
+        "remote",
+        lambda *a: json.dumps(
+            {
+                "rootLogin": root,
+                "pythonVersion": [3, 6, 9],
+                "sudoAvailable": not root,
+            }
+        ),
+    )
+    assert DEPLOY.host_environment(object())["rootLogin"] is root
+    assert DEPLOY.ROOT_PYTHON == expected
+
+
+def test_host_installer_preserves_legacy_python_and_withdrawal_contract():
+    source = (ROOT / "pi_host/remote_ops/install.py").read_text()
+    assert "from __future__ import annotations" not in source
+    assert "capture_output=True" not in source
+    assert "missing_ok=True" not in source
+    assert ".is_relative_to(" not in source
+    commands = [
+        [item.value for item in node.elts]
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.List) and all(isinstance(item, ast.Constant) for item in node.elts)
+    ]
+    assert [
+        "systemctl",
+        "disable",
+        "--now",
+        "zacks-ops-mcp.service",
+        "cloudflared-ops-mcp.service",
+    ] in commands
+    assert '"originPortAvailableOrOwned"' in source
+    deploy = (
+        (ROOT / "scripts/deploy_remote_ops_mcp.py")
+        .read_text()
+        .split('prefix = f"{ROOT_PYTHON} {installer}"')[1]
+    )
+    assert deploy.index('if operation == "withdraw":') < deploy.index("preflight =")
+
+
+def test_inactive_failed_first_install_can_be_recovered(monkeypatch, tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "ops_install_test", ROOT / "pi_host/remote_ops/install.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    connector = tmp_path / "connector.service"
+    connector.touch()
+    monkeypatch.setattr(module, "BASE", tmp_path / "base")
+    monkeypatch.setattr(module, "CONFIG", tmp_path / "config")
+    monkeypatch.setattr(module, "Path", lambda path: connector)
+    calls = []
+
+    def run(command):
+        calls.append(command)
+        return "inactive\n" if "show" in command else ""
+
+    monkeypatch.setattr(module, "run", run)
+    monkeypatch.setattr(module, "health", lambda: pytest.fail("inactive runtime has no listener"))
+    monkeypatch.setattr(module, "activate", lambda *args: {"ok": True})
+    assert module.install(object(), {}) == {"ok": True}
+    assert any("show" in command for command in calls)
 
 
 def test_preflight_does_not_create_group(monkeypatch):

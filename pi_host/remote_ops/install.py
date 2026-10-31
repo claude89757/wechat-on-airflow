@@ -1,7 +1,5 @@
 """Protected additive installation of the independent administrator MCP."""
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json
@@ -27,7 +25,26 @@ HASHES = {
 
 
 def run(args):
-    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=120).stdout
+    # The host bootstrap must run before an isolated modern runtime exists.
+    return subprocess.run(  # noqa: UP022
+        args,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,  # noqa: UP021
+        timeout=120,
+    ).stdout
+
+
+def unlink(path):
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def within(path, root):
+    return os.path.commonpath([str(path), str(root)]) == str(root)
 
 
 def private_json(path, value):
@@ -46,11 +63,11 @@ def unpack(archive, destination):
         root = destination.resolve()
         for member in handle.getmembers():
             target = (root / member.name).resolve()
-            if not target.is_relative_to(root) or member.isdev() or member.isfifo():
+            if not within(target, root) or member.isdev() or member.isfifo():
                 raise ValueError("unsafe_archive")
             if member.issym() or member.islnk():
                 link = (target.parent / member.linkname).resolve()
-                if not link.is_relative_to(root):
+                if not within(link, root):
                     raise ValueError("unsafe_link")
         if hasattr(tarfile, "data_filter"):
             handle.extractall(root, filter="data")
@@ -70,21 +87,29 @@ def preflight():
         if bits == "32" and platform.machine() in {"aarch64", "armv7l"}
         else {"x86_64": "x64", "aarch64": "arm64"}.get(platform.machine())
     )
-    if arch not in HASHES or not shutil.which("cloudflared") or not shutil.which("systemctl"):
-        raise RuntimeError("host_prerequisite_missing")
     current = BASE / "current"
     with socket.socket() as probe:
         probe.settimeout(2)
         occupied = probe.connect_ex(("127.0.0.1", 3340)) == 0
-    if occupied and not current.is_symlink():
-        raise RuntimeError("origin_port_owned_by_another_service")
-    if shutil.disk_usage("/opt").free < 600_000_000:
-        raise RuntimeError("insufficient_disk")
-    return {"ok": True, "architecture": arch, "installed": current.is_symlink()}
+    checks = {
+        "architectureSupported": arch in HASHES,
+        "cloudflaredAvailable": bool(shutil.which("cloudflared")),
+        "systemdAvailable": bool(shutil.which("systemctl")),
+        "originPortAvailableOrOwned": not occupied or current.is_symlink(),
+        "diskSpaceReady": shutil.disk_usage("/opt").free >= 600_000_000,
+    }
+    return {
+        "ok": all(checks.values()),
+        "architecture": arch,
+        "installed": current.is_symlink(),
+        "checks": checks,
+    }
 
 
 def activate(args, value):
     state = preflight()
+    if not state["ok"]:
+        raise RuntimeError("host_prerequisite_missing")
     arch = state["architecture"]
     node_archive = args.staging / f"node-{arch}.tar.xz"
     source = args.staging / "source.tar.gz"
@@ -121,7 +146,7 @@ def activate(args, value):
     logs = Path("/var/log/zacks-ops-mcp")
     logs.mkdir(mode=0o700, exist_ok=True)
     temp = BASE / "next"
-    temp.unlink(missing_ok=True)
+    unlink(temp)
     temp.symlink_to(candidate)
     os.replace(temp, BASE / "current")
     unit = f"""[Unit]
@@ -203,7 +228,13 @@ def install(args, value):
         run(["systemctl", "stop", "cloudflared-ops-mcp.service"])
     activation_started = False
     try:
-        if existed:
+        if (
+            existed
+            and run(
+                ["systemctl", "show", "zacks-ops-mcp.service", "--property=ActiveState", "--value"]
+            ).strip()
+            == "active"
+        ):
             for _ in range(130):
                 if health().get("activeOperations") == 0:
                     break
@@ -217,7 +248,7 @@ def install(args, value):
             run(["systemctl", "start", "cloudflared-ops-mcp.service"])
         elif existed and old_current and old_config:
             temp = BASE / "restore"
-            temp.unlink(missing_ok=True)
+            unlink(temp)
             temp.symlink_to(old_current)
             os.replace(temp, BASE / "current")
             private_json(CONFIG / "runtime.json", old_config)
@@ -244,7 +275,15 @@ def main():
     elif args.operation == "apply":
         report = install(args, json.load(sys.stdin))
     elif args.operation == "withdraw":
-        run(["systemctl", "stop", "zacks-ops-mcp.service", "cloudflared-ops-mcp.service"])
+        run(
+            [
+                "systemctl",
+                "disable",
+                "--now",
+                "zacks-ops-mcp.service",
+                "cloudflared-ops-mcp.service",
+            ]
+        )
         report = {"ok": True, "withdrawn": True}
     else:
         report = health()
