@@ -1,5 +1,58 @@
 # Production Baseline
 
+## Baoan YDMap Production Acceptance Blocked On 2026-10-31
+
+The external Baoan contribution [PR #262](https://github.com/claude89757/wechat-on-airflow/pull/262)
+was integrated through [PR #263](https://github.com/claude89757/wechat-on-airflow/pull/263),
+with follow-ups [#265](https://github.com/claude89757/wechat-on-airflow/pull/265)
+and [#267](https://github.com/claude89757/wechat-on-airflow/pull/267). The resulting main commit
+`302d90a3a0b8f1f07b31c5a4b71039b1c641b8c2` passed its complete
+[exact-main push CI 41178652599](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178652599).
+The original PR is closed as superseded, with its contributor attribution retained in the integrated commit.
+Merged code and passing CI do not establish production availability acceptance.
+
+The first protected [Pi preflight 41177429612](https://github.com/claude89757/wechat-on-airflow/actions/runs/41177429612),
+against `9758330d9fcdc462c442a513479b8814c94b37a5`, returned generic
+`operation_failed` with no inspections. Its original exception class was not retained.
+Code review and a local executable-lookup reproduction found that the isolated
+candidate's restricted PATH omitted `/usr/sbin`, while its launcher used bare
+`runuser`. PR #267 switched both launch sites to the checked absolute executable
+and retained bounded, allowlisted exception/stage diagnostics. The local reproduction
+supports this cause; the first production report did not itself record `FileNotFoundError`.
+
+The second protected [Pi preflight 41179031523](https://github.com/claude89757/wechat-on-airflow/actions/runs/41179031523),
+against `302d90a3a0b8f1f07b31c5a4b71039b1c641b8c2`, passed the exact-main/CI gate
+and reached candidate venue inspection. It stopped on Dashah (`dsh`) with
+`failure=access_verification`, `sourceFailure=captcha`, page host `wxsports.ydmap.cn`,
+zero cells and `inspections=[]`. Baoan was not reached. No validated renderer source
+or bookability evidence was obtained; neither empty availability nor Baoan access
+success can be inferred. Presence flags only indicate diagnostic keys existed.
+
+No Pi YDMap apply, Baoan production release, `0.9.0` release tag or test notification
+was performed. The post-attempt protected
+[health run 41179265173](https://github.com/claude89757/wechat-on-airflow/actions/runs/41179265173)
+passed at 2026-10-31 07:07 UTC against expected and deployed
+`c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5` (release `0.8.7`). It reported healthy
+services, 29 existing DAGs, zero import errors and no recent failed DAG runs. The
+paid Dashah DAG's latest three scheduled runs succeeded. These runtime checks do
+not supply the missing candidate source or Baoan bookability evidence.
+
+A separate read-only [Host Core observation diagnosis 41179428118](https://github.com/claude89757/wechat-on-airflow/actions/runs/41179428118)
+used that Airflow SHA as its expected identity and stopped at
+`local host-core deployment identity mismatch`. It emitted no business report,
+actual Host Core SHA, venue observation or scope timestamps. The failed identity
+expectation does not establish a new production fault or a common component
+version. Verify actual component identities before the next coupled release;
+do not treat this attempt as evidence of healthy persisted observations.
+
+Provider requests and apply remain stopped at this access-verification blocker.
+Resume only after legitimate provider access is available, through the existing
+exact-main CI and protected-environment gates, isolated candidate preflight for both venues and actual
+source/bookability review. A subsequent apply must retain the bounded scoped DAG
+pause/drain/restore, rollback, installed-version and live-inspection checks; downstream
+release, natural-cycle acceptance and tagging retain their existing full gates.
+Do not bypass access verification or automatically repeat the blocked requests.
+
 ## 2026-10-31: Dedicated Free-Court Group Restored, Shared Groups Paused
 
 Per the user's latest request, new Dashah free-court messages now target
