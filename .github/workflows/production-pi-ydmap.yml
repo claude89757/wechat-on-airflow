@@ -17,6 +17,11 @@ on:
         type: string
   workflow_dispatch:
     inputs:
+      drain_preflight:
+        description: Quiesce only the YDMap DAGs during candidate preflight, then restore pause flags
+        type: boolean
+        required: false
+        default: false
       diagnostic_first_product:
         description: Diagnostic-only cold start product; non-default results cannot authorize activation
         type: choice
@@ -78,7 +83,7 @@ jobs:
       - name: Install pinned SSH dependency
         run: python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
       - name: Configure existing Airflow SSH identity for scoped drain
-        if: inputs.operation == 'apply'
+        if: inputs.operation == 'apply' || (inputs.operation == 'preflight' && inputs.drain_preflight == true)
         env:
           SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
@@ -89,6 +94,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
       - name: Run protected scraper operation
         env:
+          DRAIN_PREFLIGHT: ${{ inputs.drain_preflight || false }}
           CONFIRM_VERIFICATION_ONCE: ${{ inputs.confirm_verification_once || false }}
           DIAGNOSTIC_FIRST_PRODUCT: ${{ inputs.diagnostic_first_product || 'default' }}
           TARGET_COMMIT: ${{ inputs.target_commit }}

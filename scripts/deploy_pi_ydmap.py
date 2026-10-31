@@ -231,12 +231,14 @@ class AirflowGuard:
             raise RuntimeError("airflow_pause_restore_not_verified")
 
 
-def apply_with_guard(client, command: str, commit: str) -> dict:
+def apply_with_guard(client, command: str, commit: str, *, source_evidence: bool = False) -> dict:
     guard = AirflowGuard(commit)
     report = None
     try:
         with guard:
-            report = remote(client, command, payload=guard.proof, timeout=1500)
+            report = remote(
+                client, command, payload=guard.proof, timeout=1500, source_evidence=source_evidence
+            )
     except Exception:
         return {
             "ok": False,
@@ -362,7 +364,12 @@ def main() -> int:
         if operation not in OPERATIONS:
             raise ValueError("invalid_operation")
         verification_once = os.environ.get("CONFIRM_VERIFICATION_ONCE", "false") == "true"
+        drain_preflight = os.environ.get("DRAIN_PREFLIGHT", "false") == "true"
+        if drain_preflight and operation != "preflight":
+            raise ValueError("verification_not_authorized")
         first_product = os.environ.get("DIAGNOSTIC_FIRST_PRODUCT", "default")
+        if drain_preflight and (verification_once or first_product != "default"):
+            raise ValueError("verification_not_authorized")
         if first_product not in {"default", "windrain"} or (
             first_product != "default" and operation != "preflight"
         ):
@@ -415,9 +422,11 @@ def main() -> int:
             command += " --verification-once"
         if first_product == "windrain":
             command += " --first-product windrain"
+        if drain_preflight:
+            command += " --drain-preflight"
         report = (
-            apply_with_guard(client, command, commit)
-            if operation == "apply"
+            apply_with_guard(client, command, commit, source_evidence=operation == "preflight")
+            if operation == "apply" or drain_preflight
             else remote(client, command, timeout=1100, source_evidence=operation == "preflight")
         )
         encoded = CONTRACT.encode_report(report, source_evidence=operation == "preflight")

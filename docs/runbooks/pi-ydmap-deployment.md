@@ -44,6 +44,22 @@ owner-only issue-39 router also supports `/ops pi-ydmap-preflight <full-sha>`,
 
 ## Candidate and activation
 
+Manual preflight may set `drain_preflight=true` to compare the same candidate
+without concurrent scheduled YDMap scrapes. It uses the existing scoped Airflow
+guard: wait for Dashah/Baoan work to finish, save/pause only those DAGs, run the
+isolated candidate, then restore and verify the original pause flags, including
+after a reported candidate failure. No live scraper source, unit or listener is
+replaced. Both runner and installer reject this flag for other operations; the
+installer requires the same target-bound expiring drain proof as apply. Loss of
+the operation channel retains the existing lease fence rather than resuming
+while an unknown candidate may still run. Reusable release inputs do not expose
+this diagnostic option. This comparison runs three read-only candidate cycles
+on the same profiles, with starts at least 120 seconds apart, stopping at the
+first failed cycle. It cannot be combined with the product-order or authorized
+gesture probes. Reports retain the last successful cycle's inspection on success
+and the completed-cycle count on failure. These are candidate checks, not natural
+production cycles; a pass alone does not prove resource contention or stability.
+
 Manual preflight may set `diagnostic_first_product=windrain` for a cold-start
 comparison. The clean candidate environment starts Baoan at wind/rain and keeps
 the other products/dates in the inspection. Live/apply operations reject this
@@ -198,11 +214,10 @@ make a candidate pass, remove access verification, or change browser trust.
 
 ## Acceptance
 
-Baoan product changes use the page's visible native product control, matched
-against the actual catalog ID/name. They do not reopen each product URL.
-Both source arrays must be replaced after a product switch; a newly mounted
-product table may restart its generation counter. Missing controls or stale
-arrays fail the complete observation, without full-navigation fallback.
+Each Baoan product opens its native URL in its fixed private browser profile.
+The source catalog, selected product, query product and court group must agree.
+Both source arrays must be replaced after each date selection within that
+product. Missing dates or stale arrays fail the complete observation.
 
 The extractor requires the schedule component's read-only `isAvailableStatic`
 predicate to return a boolean and requires `orderInfo == null`. A list of CSS

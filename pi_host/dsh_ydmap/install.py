@@ -122,6 +122,11 @@ ROLLBACK_SECONDS = 150
 ACTIVATION_LEASE_REQUIRED = ACTIVATION_SECONDS + ROLLBACK_SECONDS + 60
 SOURCE_FAILURES = {
     "product_tab_not_found",
+    "ReadTimeoutError",
+    "MaxRetryError",
+    "ProtocolError",
+    "ConnectionResetError",
+    "ConnectionRefusedError",
     "JavascriptException",
     "SessionNotCreatedException",
     "ElementClickInterceptedException",
@@ -171,6 +176,7 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "completedCandidateCycles",
     "failedVenueDiagnostics",
     "accessDiagnostics",
     "browserVersion",
@@ -465,7 +471,7 @@ def safe_source_diagnostic(value: object, *, nested: bool = False) -> dict:
         "access_verification",
     }:
         result["failurePhase"] = phase
-    for key in ("loadingCounter", "loadGeneration", "cellCount"):
+    for key in ("loadingCounter", "loadGeneration", "cellCount", "completedCandidateCycles"):
         candidate = value.get(key)
         if type(candidate) is int and 0 <= candidate <= 1_000_000:
             result[key] = candidate
@@ -1269,6 +1275,26 @@ def inspect_venues(
     return reports
 
 
+def inspect_quiesced_candidate(port: int, proof: dict, commit: str) -> list[dict]:
+    """Three read-only cycles on the same profiles, stopping at the first failure."""
+    started = time.monotonic()
+    reports = []
+    for cycle in range(3):
+        if cycle:
+            time.sleep(max(0, started + 120 - time.monotonic()))
+        validate_drain_proof(proof, commit)
+        started = time.monotonic()
+        try:
+            reports = inspect_venues(port, source_evidence=True)
+        except OperationFailure as exc:
+            exc.source_diagnostic = {
+                **(exc.source_diagnostic or {}),
+                "completedCandidateCycles": cycle,
+            }
+            raise
+    return reports
+
+
 def service_properties(unit: str) -> dict[str, str]:
     result = run(
         [
@@ -1614,13 +1640,16 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
 def operate(args) -> dict:
     verification_once = getattr(args, "verification_once", False)
     first_product = getattr(args, "first_product", "")
+    drain_preflight = getattr(args, "drain_preflight", False)
+    if drain_preflight and (args.operation != "preflight" or verification_once or first_product):
+        raise OperationFailure("verification_not_authorized")
     if first_product and (first_product != "windrain" or args.operation != "preflight"):
         raise OperationFailure("verification_not_authorized")
     if verification_once and args.operation != "preflight":
         raise OperationFailure("verification_not_authorized")
     before = other_service_identities()
     account = verify_existing_service()
-    if args.operation == "apply":
+    if args.operation == "apply" or drain_preflight:
         validate_drain_proof(args.drain_proof, args.commit)
     if args.operation in {"health", "inspect"}:
         health = verify_health(request_json(8788, "/healthz"), args.commit, args.source_sha256)
@@ -1635,11 +1664,14 @@ def operate(args) -> dict:
         }
         with isolated_candidate(candidate, account, args.commit, **candidate_options) as port:
             health = verify_health(request_json(port, "/healthz"), args.commit, args.source_sha256)
-            evidence = (
-                inspect_venues(port, source_evidence=True, **options)
-                if args.operation == "preflight"
-                else inspect_venues(port)
-            )
+            if drain_preflight:
+                evidence = inspect_quiesced_candidate(port, args.drain_proof, args.commit)
+            else:
+                evidence = (
+                    inspect_venues(port, source_evidence=True, **options)
+                    if args.operation == "preflight"
+                    else inspect_venues(port)
+                )
         if before != other_service_identities():
             raise OperationFailure("unrelated_service_changed")
         if first_product:
@@ -1652,6 +1684,8 @@ def operate(args) -> dict:
             "candidateVerified": True,
             "applied": False,
         }
+        if drain_preflight:
+            report["candidateVerifiedCycles"] = 3
         if args.operation == "apply":
             validate_drain_proof(args.drain_proof, args.commit)
             report.update(activate(candidate, args.commit, args.source_sha256, args.drain_proof))
@@ -1675,6 +1709,7 @@ def main() -> int:
     parser.add_argument("--staging", type=Path)
     parser.add_argument("--verification-once", action="store_true")
     parser.add_argument("--first-product", choices=("windrain",), default="")
+    parser.add_argument("--drain-preflight", action="store_true")
     args = parser.parse_args()
 
     def interrupted(signum, frame):
@@ -1691,7 +1726,9 @@ def main() -> int:
             raise OperationFailure("root_required")
         if args.operation in {"preflight", "apply"} and not args.staging:
             raise OperationFailure("staging_required")
-        args.drain_proof = json.load(sys.stdin) if args.operation == "apply" else None
+        args.drain_proof = (
+            json.load(sys.stdin) if args.operation == "apply" or args.drain_preflight else None
+        )
         encoded = encode_report(
             {**operate(args), "operationComplete": True},
             source_evidence=args.operation == "preflight",

@@ -1169,6 +1169,130 @@ def test_product_order_probe_cannot_mark_candidate_verified_or_activate(monkeypa
     assert calls == [{"first_product": "windrain"}]
 
 
+@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+def test_quiesced_preflight_rejects_other_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, drain_preflight=True))
+
+
+@pytest.mark.parametrize("proof", [None, "valid"])
+def test_quiesced_preflight_requires_proof_and_never_activates(monkeypatch, tmp_path, proof):
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    prepare = Mock(return_value=tmp_path)
+    monkeypatch.setattr(INSTALL, "prepare_candidate", prepare)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    inspect = Mock(return_value=[])
+    monkeypatch.setattr(INSTALL, "inspect_venues", inspect)
+    clock = [0.0]
+    monkeypatch.setattr(INSTALL.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(INSTALL.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    monkeypatch.setattr(INSTALL, "activate", lambda *a: pytest.fail("must not activate"))
+
+    @contextmanager
+    def candidate(*args, **kwargs):
+        yield 18788
+
+    monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
+    args = SimpleNamespace(
+        operation="preflight",
+        drain_preflight=True,
+        drain_proof=drain_proof() if proof else None,
+        commit=COMMIT,
+        source_sha256=HASH,
+        staging=tmp_path,
+    )
+    if proof:
+        report = INSTALL.operate(args)
+        assert report["applied"] is False
+        assert report["candidateVerified"] is True
+        assert inspect.call_count == 3
+        assert all(call.kwargs == {"source_evidence": True} for call in inspect.call_args_list)
+        assert report["candidateVerifiedCycles"] == 3
+        assert clock[0] == 240
+    else:
+        with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
+            INSTALL.operate(args)
+        prepare.assert_not_called()
+
+
+@pytest.mark.parametrize("ok", [False, True])
+def test_quiesced_preflight_guard_restores_flags_and_retains_source_evidence(monkeypatch, ok):
+    events = []
+
+    class Guard:
+        proof = drain_proof()
+        restored = False
+
+        def __enter__(self):
+            events.append("drained")
+            return self
+
+        def __exit__(self, *args):
+            events.append("restored")
+            self.restored = True
+
+    guard = Guard()
+    monkeypatch.setattr(DEPLOY, "AirflowGuard", lambda commit: guard)
+
+    def remote(client, command, **kwargs):
+        assert events == ["drained"]
+        assert kwargs["payload"] == guard.proof
+        assert kwargs["source_evidence"] is True
+        return {"ok": ok, "applied": False, "sourceFailure": "ReadTimeoutError"}
+
+    monkeypatch.setattr(DEPLOY, "remote", remote)
+    report = DEPLOY.apply_with_guard(None, "candidate preflight", COMMIT, source_evidence=True)
+    assert events == ["drained", "restored"]
+    assert report["ok"] is ok
+    assert report["applied"] is False
+    assert report["airflowPauseRestored"] is True
+    assert report["sourceFailure"] == "ReadTimeoutError"
+
+
+@pytest.mark.parametrize(
+    "code", ["ReadTimeoutError", "MaxRetryError", "ProtocolError", "date_tab_not_found"]
+)
+def test_source_transport_errors_survive_repeated_sanitization(code):
+    assert INSTALL.safe_source_failure(INSTALL.safe_source_failure(code)) == code
+    assert INSTALL.safe_source_failure("date_tab_not_found:2026-11-01") == "date_tab_not_found"
+    assert INSTALL.safe_source_failure("ReadTimeoutError private-cookie") is None
+
+
+def test_quiesced_cycles_stop_at_first_failure_without_restarting_the_candidate(monkeypatch):
+    clock, starts = [0.0], []
+    failure = INSTALL.OperationFailure("access_verification")
+    failure.source_diagnostic = {"requestedProduct": "111319"}
+
+    def inspect(*args, **kwargs):
+        starts.append(clock[0])
+        clock[0] += 50
+        if len(starts) == 2:
+            raise failure
+        return []
+
+    monkeypatch.setattr(INSTALL, "inspect_venues", inspect)
+    monkeypatch.setattr(INSTALL.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(INSTALL.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_quiesced_candidate(18788, drain_proof(), COMMIT)
+    assert starts == [0, 120]
+    assert caught.value is failure
+    assert failure.source_diagnostic == {
+        "requestedProduct": "111319",
+        "completedCandidateCycles": 1,
+    }
+    assert (
+        INSTALL.safe_source_diagnostic(failure.source_diagnostic)["completedCandidateCycles"] == 1
+    )
+
+
+@pytest.mark.parametrize("option", [{"verification_once": True}, {"first_product": "windrain"}])
+def test_quiesced_cycles_require_the_normal_unattended_flow(option):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation="preflight", drain_preflight=True, **option))
+
+
 def test_per_venue_failure_diagnostics_are_bounded_and_idempotent():
     nested = {
         "accessDiagnostics": {"typeErrors": 1, "private": "never-export"},
