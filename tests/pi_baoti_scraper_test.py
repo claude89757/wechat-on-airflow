@@ -58,8 +58,23 @@ class FixedDatetime(datetime):
 
 
 class AccessDiagnosticsTest(unittest.TestCase):
+    def test_empty_logs_and_unavailable_logging_remain_distinct(self):
+        driver = Mock(spec=["execute_script", "execute"])
+        driver.execute_script.return_value = {}
+        driver.execute.return_value = {"value": []}
+        result = server._access_diagnostics(driver)
+        self.assertEqual(result, {"performanceLogEntries": 0, "browserLogEntries": 0})
+        driver.execute.side_effect = RuntimeError("never-export")
+        self.assertEqual(
+            server._access_diagnostics(driver),
+            {
+                "performanceLogUnavailable": 1,
+                "browserLogUnavailable": 1,
+            },
+        )
+
     def test_passive_logs_distinguish_html_api_and_resource_failures_without_secrets(self):
-        driver = Mock()
+        driver = Mock(spec=["execute_script", "execute"])
         driver.execute_script.return_value = {
             "maskRoots": 1,
             "legacyHandles": 1,
@@ -72,7 +87,7 @@ class AccessDiagnosticsTest(unittest.TestCase):
         def event(method, **params):
             return {"message": json.dumps({"message": {"method": method, "params": params}})}
 
-        driver.get_log.side_effect = [
+        logs = [
             [
                 event(
                     "Network.requestWillBeSent",
@@ -106,7 +121,12 @@ class AccessDiagnosticsTest(unittest.TestCase):
                 {"message": "ReferenceError never-export"},
             ],
         ]
+        driver.execute.side_effect = [{"value": events} for events in logs]
         result = server._access_diagnostics(driver)
+        self.assertEqual(driver.execute.call_args_list[0].args, ("getLog", {"type": "performance"}))
+        self.assertEqual(driver.execute.call_args_list[1].args, ("getLog", {"type": "browser"}))
+        self.assertEqual(result["performanceLogEntries"], 5)
+        self.assertEqual(result["browserLogEntries"], 2)
         self.assertEqual(result["orderHtmlResponses"], 1)
         self.assertEqual(result["lastOrderStatus"], 200)
         self.assertEqual(result["orderFailures"], 1)

@@ -146,7 +146,9 @@ order-response MIME classifications/status, and
 network/console failure categories. These are passive observations; unknown fields,
 text, URLs, headers, request/response bodies and raw logs never cross the host
 boundary. Network logging starts when WebDriver attaches; absent events cannot
-rule out earlier loading failures. A legacy handle count is diagnostic only and
+rule out earlier loading failures. Log entry counts and unavailable flags
+distinguish an empty log from a failed read. Generic Remote sessions use the
+Chromium log wire command directly because their Python class lacks `get_log`. A legacy handle count is diagnostic only and
 does not itself authorize or execute a gesture.
 Challenge reports also retain boolean text/mask detection, document completion
 and schedule-component presence. They never include page text or cookies.

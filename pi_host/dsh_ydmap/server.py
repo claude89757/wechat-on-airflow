@@ -997,8 +997,12 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
         counts[key] = min(counts.get(key, 0) + 1, 10000)
 
     try:
-        events = driver.get_log("performance")
+        # Generic Remote has no Chromium get_log helper in Selenium 4.46.
+        # Use the same wire command as ChromiumDriver, without changing sessions.
+        events = driver.execute("getLog", {"type": "performance"})["value"]
+        counts["performanceLogEntries"] = min(len(events), 10000)
         requests: dict[str, str] = {}
+        hosts: dict[str, str] = {}
         for entry in events:
             message = json.loads(entry["message"])["message"]
             params = message.get("params", {})
@@ -1007,6 +1011,14 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
                 path = urlparse(params.get("request", {}).get("url", "")).path
                 requests[params.get("requestId", "")] = (
                     "order" if path.endswith("/getVenueOrderList") else "other"
+                )
+                host = urlparse(params.get("request", {}).get("url", "")).hostname or ""
+                hosts[params.get("requestId", "")] = (
+                    "aliyunCdnFailures"
+                    if host == "alicdn.com" or host.endswith(".alicdn.com")
+                    else "ydmapFailures"
+                    if host == "ydmap.cn" or host.endswith(".ydmap.cn")
+                    else "otherHostFailures"
                 )
             elif method == "Network.responseReceived":
                 response = params.get("response", {})
@@ -1028,6 +1040,7 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
                     if response.get("status", 0) >= 400:
                         increment("scriptHttpErrors")
             elif method == "Network.loadingFailed":
+                increment(hosts.get(params.get("requestId", ""), "otherHostFailures"))
                 increment(
                     "orderFailures"
                     if requests.get(params.get("requestId")) == "order"
@@ -1043,16 +1056,22 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
                 if params.get("blockedReason"):
                     increment("blockedFailures")
     except Exception:
-        pass
+        counts["performanceLogUnavailable"] = 1
     try:
-        for entry in driver.get_log("browser"):
+        browser_events = driver.execute("getLog", {"type": "browser"})["value"]
+        counts["browserLogEntries"] = min(len(browser_events), 10000)
+        for entry in browser_events:
             message = entry.get("message", "")
             if "Content Security Policy" in message or "Content-Security-Policy" in message:
                 increment("cspErrors")
             if "ReferenceError" in message:
                 increment("referenceErrors")
+            if "unsafe-eval" in message:
+                increment("evalBlockedErrors")
+            if "Failed to load resource" in message:
+                increment("resourceLoadErrors")
     except Exception:
-        pass
+        counts["browserLogUnavailable"] = 1
     return counts
 
 
