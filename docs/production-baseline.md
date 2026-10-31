@@ -24,6 +24,15 @@ using the API's SHA was consequently rejected by the remote-worktree identity
 guard. Neither component SHA alone satisfies all existing health identities;
 the coupled release must reconcile them, without reimporting D1.
 
+The following [preflight 41183535577](https://github.com/claude89757/wechat-on-airflow/actions/runs/41183535577)
+on `2723b8e3a3efa71b530b66a6e5711bd1b6f4d3f5` stopped at Dashah with
+`schedule_not_ready`: document complete, no schedule component, zero cells,
+and both challenge text/mask flags false. It did not reach Baoan. A single
+successful Dashah run therefore does not establish reliable source availability
+or prove that the warm-up change resolved all earlier failures. Diagnostic
+preflight now inspects both independent venues once while retaining a failed
+overall gate if either fails; production activation requirements remain unchanged.
+
 ## Cursor MCP Callback Repair On 2026-10-31
 
 The owner reported `redirect_uri is not allowed by the account configuration`

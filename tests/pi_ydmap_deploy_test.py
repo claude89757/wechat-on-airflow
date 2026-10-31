@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 
@@ -992,6 +993,45 @@ def test_preflight_query_is_explicit_for_both_venues(monkeypatch):
         "/inspect?venue=dsh&days=5&evidence=source-v1",
         "/inspect?venue=baoti&days=2&evidence=source-v1",
     ]
+
+
+@pytest.mark.parametrize("baoti_fails", [False, True])
+def test_preflight_inspects_baoti_after_dsh_failure_without_accepting_partial_success(
+    monkeypatch, baoti_fails
+):
+    paths = []
+
+    def request(port, path, **kwargs):
+        paths.append(path)
+        if "venue=dsh" in path or baoti_fails:
+            failure = INSTALL.OperationFailure("scrape_not_verified")
+            failure.source_failure = (
+                "RuntimeError" if "venue=baoti" in path else "schedule_not_ready"
+            )
+            raise failure
+        return {}
+
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    monkeypatch.setattr(
+        INSTALL, "inspect_evidence", lambda payload, venue, dates, **kwargs: {"venue": venue}
+    )
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_venues(18788, source_evidence=True)
+    assert len(paths) == 2
+    failure = caught.value
+    assert failure.venue == ("baoti" if baoti_fails else "dsh")
+    assert failure.inspections == ([] if baoti_fails else [{"venue": "baoti"}])
+    expected = ["dsh", "baoti"] if baoti_fails else ["dsh"]
+    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == expected
+    assert "failedVenues" not in INSTALL.safe_source_diagnostic({"failedVenues": ["private"]})
+
+
+def test_apply_inspection_still_stops_after_first_failure(monkeypatch):
+    request = Mock(side_effect=INSTALL.OperationFailure("scrape_not_verified"))
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    with pytest.raises(INSTALL.OperationFailure):
+        INSTALL.inspect_venues(18788)
+    assert request.call_count == 1
 
 
 def test_workflow_gates_and_release_order_cover_pi_before_airflow():

@@ -122,6 +122,16 @@ ROLLBACK_SECONDS = 150
 ACTIVATION_LEASE_REQUIRED = ACTIVATION_SECONDS + ROLLBACK_SECONDS + 60
 SOURCE_FAILURES = {
     "JavascriptException",
+    "SessionNotCreatedException",
+    "ElementClickInterceptedException",
+    "ElementNotInteractableException",
+    "StaleElementReferenceException",
+    "NoSuchElementException",
+    "InvalidArgumentException",
+    "MoveTargetOutOfBoundsException",
+    "OSError",
+    "PermissionError",
+    "IndexError",
     "RuntimeError",
     "KeyError",
     "TypeError",
@@ -160,6 +170,7 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "failedVenues",
     "failurePhase",
     "requestedProduct",
     "challengeText",
@@ -312,6 +323,13 @@ def safe_source_diagnostic(value: object) -> dict:
     if not isinstance(value, dict):
         return {}
     result = {}
+    failed_venues = value.get("failedVenues")
+    if (
+        isinstance(failed_venues, list)
+        and 1 <= len(failed_venues) <= 2
+        and all(isinstance(venue, str) and venue in {"dsh", "baoti"} for venue in failed_venues)
+    ):
+        result["failedVenues"] = list(dict.fromkeys(failed_venues))
     # Presence alone is useful when a provider changed field types. No unknown
     # string, URL, cookie, body fragment or error message is forwarded.
     present = value.get("present", {})
@@ -1050,6 +1068,7 @@ def inspect_venues(
     port: int, *, at: datetime | None = None, source_evidence: bool = False
 ) -> list[dict]:
     reports = []
+    failures = []
     local = at or datetime.now(ZoneInfo("Asia/Shanghai"))
     for venue, days, timeout in (("dsh", 5 if local.hour >= 12 else 4, 150), ("baoti", 2, 240)):
         today = local.date()
@@ -1065,7 +1084,19 @@ def inspect_venues(
         except OperationFailure as exc:
             exc.venue = venue
             exc.inspections = reports
-            raise
+            if not source_evidence:
+                raise
+            failures.append(exc)
+    if failures:
+        # Diagnostic preflight checks each independent venue once. A failure
+        # still blocks activation, even when the other venue was verified.
+        failure = failures[-1]
+        failure.inspections = reports
+        failure.source_diagnostic = {
+            **(failure.source_diagnostic or {}),
+            "failedVenues": [item.venue for item in failures],
+        }
+        raise failure
     return reports
 
 
