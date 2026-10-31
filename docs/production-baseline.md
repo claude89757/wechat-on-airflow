@@ -16,6 +16,28 @@ collaborator policy acceptance require protected workflow evidence. No synthetic
 notifications, phone sessions or production administrator commands are permitted
 in automated smoke checks. Do not infer deployment from committed endpoint names.
 
+## Authorized Baoan verification diagnosis on 2026-10-31
+
+The user explicitly authorized normal verification interaction. [PR #278](https://github.com/claude89757/wechat-on-airflow/pull/278)
+added a default-off, isolated-preflight-only, single native slider gesture.
+Exact-main `4d4ec984f69ac50242b2b592930f129b0196f24f` passed
+[CI 41186252105](https://github.com/claude89757/wechat-on-airflow/actions/runs/41186252105).
+The authorized [Pi run 41186625223](https://github.com/claude89757/wechat-on-airflow/actions/runs/41186625223)
+verified all five Dashah dates and again reported a Baoan challenge, but retained
+`verificationAttempted=false` and `verificationOutcome=not_needed`. The initial
+implementation only offered the gesture on the first product's initial load.
+The control flow therefore places this challenge after that initial check,
+during a later date/product transition; the exact transition was not retained.
+No gesture was attempted. The follow-up permits the same single authorization
+at the first encountered challenge during date/product waits and retains the
+requested product and wait phase on failure. It does not introduce retries.
+
+Both venues use the same Pi candidate/browser launch configuration. The scraper
+currently erases its dedicated profile before each venue scrape. Whether this
+session reset contributes to the provider's different behavior remains unproven;
+a challenge is the observed blocker, not a proven explanation of its root cause.
+No production apply or synthetic notification has occurred.
+
 ## Baoan access verification confirmed on 2026-10-31
 
 Independent [Pi preflight 41184233295](https://github.com/claude89757/wechat-on-airflow/actions/runs/41184233295)

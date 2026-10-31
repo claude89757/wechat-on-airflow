@@ -1023,6 +1023,23 @@ def test_verification_audit_is_allowlisted():
     assert "verificationOutcome" not in unknown
 
 
+def test_browser_environment_survives_report_filter_without_raw_capabilities():
+    payload = observation()
+    payload["diagnostics"] = {
+        "browserVersion": "137.0.7151.119",
+        "driverVersion": "137.0.7151.119",
+        "driverMajorMatchesBrowser": True,
+        "userAgentVersionMatchesBrowser": True,
+        "profileResetBeforeScrape": True,
+        "userDataDir": "private-profile",
+    }
+    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
+    assert report["browserVersion"] == "137.0.7151.119"
+    assert "private" not in json.dumps(report)
+    assert "browserVersion" not in INSTALL.safe_source_diagnostic({"browserVersion": "private"})
+
+
 @pytest.mark.parametrize("baoti_fails", [False, True])
 def test_preflight_inspects_baoti_after_dsh_failure_without_accepting_partial_success(
     monkeypatch, baoti_fails
