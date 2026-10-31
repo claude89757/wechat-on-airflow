@@ -16,6 +16,19 @@ Verify deployment, three natural free-court cycles and expiry of the old
 five-minute queued-intent window before declaring the old recipient path
 inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
+## Pi MCP OAuth Policy On 2026-10-31
+
+The owner approved managed OAuth for Codex-like agents instead of manually
+copying Access service-token headers. The candidate protected OAuth-only
+operation enables owner-only Cloudflare login on the existing application,
+with 15-minute access tokens and a seven-day refresh grant. It preserves the
+dedicated machine token/policy, application audience, DNS, Tunnel and installed
+runtime. The owner identity is resolved only inside the protected runner;
+other account members are not phone operators. Managed OAuth remains Beta.
+Passing discovery and machine-auth probes is not evidence of a completed owner
+OAuth login; that final client action must be recorded separately. No phone
+sessions or notifications may be created for OAuth acceptance.
+
 ## Pi MCP Domain Policy On 2026-10-31
 
 The owner requested `https://appium-mcp.zacks.vision/mcp` as the canonical

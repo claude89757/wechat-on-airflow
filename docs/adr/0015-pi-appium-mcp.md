@@ -15,8 +15,16 @@ application-scoped Access Service Auth policy. A dedicated 90-day service token
 is the initial unattended-agent credential. The connector validates Access JWTs
 with the new app's audience. Origin traffic stays on loopback. Configure Access
 before DNS publication and verify both anonymous denial and authenticated MCP.
-Interactive connectors that cannot send custom headers need a separate OAuth
-design; a service token is not a universal MCP OAuth replacement.
+For interactive cloud agents, enable Cloudflare Access Managed OAuth on the same
+application rather than distributing service-token headers. Add only the pinned
+owner's email selector, resolved privately from their Cloudflare user ID, with
+the existing Cloudflare login-method requirement. No account-wide or Everyone
+policy is allowed. Keep the machine policy for protected health automation.
+Use PKCE S256/DCR, loopback and documented ChatGPT callbacks, 15-minute access
+tokens and a seven-day refresh grant. The origin continues to receive the signed
+Access assertion validated by cloudflared; no new Worker or phone daemon is needed.
+This uses Cloudflare's Beta Managed OAuth feature and requires a compatible
+client and initial owner login; it is not reuse of the management plugin's token.
 
 Wrap actual upstream tool callbacks, including their failure paths. Share the
 existing per-device flock for the full MCP session, reject foreign sessions,

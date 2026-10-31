@@ -27,6 +27,75 @@ RESOURCE_NAME = "Pi Appium MCP"
 ZONE_ID = "8b0b6ef700b6a826539e597a3e1ec2b2"
 PREVIOUS_ZONE_ID = "741a41032993004661579d76e63668bf"
 SOURCE = Path(__file__).resolve().parents[1] / "pi_host/appium_mcp"
+OWNER_USER_ID = "4f82fb39465f8effc6486128697946f3"
+CLOUDFLARE_IDP_ID = "5fbaa521-5f28-43bc-a656-009215fa1b95"
+TEAM_DOMAIN = "zacks-vision-ops.cloudflareaccess.com"
+OWNER_POLICY_NAME = "Owner cloud agent OAuth"
+OAUTH_CONFIGURATION = {
+    "enabled": True,
+    "dynamic_client_registration": {
+        "enabled": True,
+        "allow_any_on_localhost": True,
+        "allow_any_on_loopback": True,
+        "allowed_uris": [
+            "https://chatgpt.com/connector/oauth/*",
+            "https://chatgpt.com/connector_platform_oauth_redirect",
+        ],
+    },
+    "grant": {"access_token_lifetime": "15m", "session_duration": "168h"},
+}
+
+
+def owner_identity():
+    # Resolve PII only inside the protected runner; never return it in reports.
+    try:
+        user = cf("GET", "/user")
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (401, 403):
+            raise
+        user = {}
+    if user.get("id") != OWNER_USER_ID:
+        members = cf("GET", f"/accounts/{os.environ['CLOUDFLARE_ACCOUNT_ID']}/members?per_page=50")
+        matches = [
+            item["user"]
+            for item in members
+            if item.get("status") == "accepted" and item.get("user", {}).get("id") == OWNER_USER_ID
+        ]
+        if len(members) >= 50 or len(matches) != 1:
+            raise RuntimeError("owner_identity_unavailable")
+        user = matches[0]
+    email = user.get("email")
+    if not isinstance(email, str) or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        raise RuntimeError("owner_identity_unavailable")
+    return email
+
+
+def owner_policy(email):
+    return {
+        "name": OWNER_POLICY_NAME,
+        "decision": "allow",
+        "precedence": 2,
+        "include": [{"email": {"email": email}}],
+        "exclude": [],
+        "require": [{"login_method": {"id": CLOUDFLARE_IDP_ID}}],
+    }
+
+
+def validate_access_policies(policies, credentials):
+    machine = [policy for policy in policies if policy.get("decision") == "non_identity"]
+    if (
+        len(machine) != 1
+        or machine[0].get("include") != [{"service_token": {"token_id": credentials["token_id"]}}]
+        or machine[0].get("exclude")
+        or machine[0].get("require")
+    ):
+        raise RuntimeError("access_ownership_mismatch")
+    others = [policy for policy in policies if policy is not machine[0]]
+    if others and (
+        len(others) != 1
+        or any(others[0].get(key) != value for key, value in owner_policy(owner_identity()).items())
+    ):
+        raise RuntimeError("access_ownership_mismatch")
 
 
 class RemoteOperationError(RuntimeError):
@@ -300,6 +369,7 @@ def public_health(credentials, *, hostname=HOSTNAME):
     for headers in (
         {},
         {"CF-Access-Client-Id": "invalid.access", "CF-Access-Client-Secret": "invalid"},
+        {"Authorization": "Bearer invalid"},
     ):
         request = urllib.request.Request(f"https://{hostname}/mcp", headers=headers)
         try:
@@ -327,6 +397,7 @@ def public_health(credentials, *, hostname=HOSTNAME):
     return {
         "anonymousDenied": True,
         "invalidCredentialDenied": True,
+        "invalidBearerDenied": True,
         "authenticatedMcpVerified": True,
     }
 
@@ -385,6 +456,19 @@ def access_body(app, policies, hostnames):
         "cors_headers",
         "skip_interstitial",
         "tags",
+        "oauth_configuration",
+        "allow_iframe",
+        "custom_deny_message",
+        "custom_deny_url",
+        "custom_non_identity_deny_url",
+        "custom_pages",
+        "eager_redirect_cookie_setting",
+        "logo_url",
+        "mfa_config",
+        "path_cookie_attribute",
+        "read_service_tokens_from_header",
+        "scim_config",
+        "use_clientless_isolation_app_launcher_url",
     )
     body = {key: copy.deepcopy(app[key]) for key in fields if app.get(key) is not None}
     body.update(
@@ -393,7 +477,21 @@ def access_body(app, policies, hostnames):
         policies=[
             {
                 key: copy.deepcopy(policy[key])
-                for key in ("id", "name", "decision", "include", "exclude", "require", "precedence")
+                for key in (
+                    "id",
+                    "name",
+                    "decision",
+                    "include",
+                    "exclude",
+                    "require",
+                    "precedence",
+                    "session_duration",
+                    "purpose_justification_required",
+                    "purpose_justification_prompt",
+                    "approval_required",
+                    "approval_groups",
+                    "isolation_required",
+                )
                 if key in policy
             }
             for policy in policies
@@ -422,13 +520,9 @@ def domain_snapshot(credentials):
             item not in [{"type": "public", "uri": name} for name in allowed]
             for item in destinations
         )
-        or len(policies) != 1
-        or policies[0].get("decision") != "non_identity"
-        or policies[0].get("include") != [{"service_token": {"token_id": credentials["token_id"]}}]
-        or policies[0].get("exclude")
-        or policies[0].get("require")
     ):
         raise RuntimeError("access_ownership_mismatch")
+    validate_access_policies(policies, credentials)
     apps = cf("GET", prefix + "/access/apps?per_page=100")
     if len(apps) >= 100 or any(
         other.get("id") != credentials["app_id"]
@@ -578,6 +672,192 @@ def migrate_domain(credentials, *, apply):
         raise DomainMigrationFailure(restored, stage, cause) from None
 
 
+class OAuthConfigurationFailure(DomainMigrationFailure):
+    def __init__(self, rollback_verified, stage, cause):
+        super().__init__(rollback_verified, stage, cause)
+        self.args = ("oauth_configuration_failed",)
+
+
+def oauth_ready(app, policies):
+    oauth = app.get("oauth_configuration") or {}
+    return (
+        oauth.get("enabled") is True
+        and oauth.get("dynamic_client_registration")
+        == OAUTH_CONFIGURATION["dynamic_client_registration"]
+        and oauth.get("grant") == OAUTH_CONFIGURATION["grant"]
+        and app.get("allowed_idps") == [CLOUDFLARE_IDP_ID]
+        and app.get("auto_redirect_to_identity") is True
+        and len(policies) == 2
+    )
+
+
+def oauth_discovery():
+    opener = urllib.request.build_opener(NoRedirect)
+    url = f"https://{HOSTNAME}/mcp"
+    try:
+        with opener.open(
+            urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=20
+        ):
+            raise RuntimeError("oauth_challenge_missing")
+    except urllib.error.HTTPError as exc:
+        challenge = exc.headers.get("WWW-Authenticate", "")
+        if exc.code != 401:
+            raise RuntimeError("oauth_challenge_missing") from None
+    match = re.search(r'\bresource_metadata="([^"]+)"', challenge)
+    if not match or not challenge.lower().startswith("bearer "):
+        raise RuntimeError("oauth_challenge_missing")
+
+    def trusted_url(value, hosts):
+        parsed = urllib.parse.urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc not in hosts
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+        ):
+            raise RuntimeError("oauth_metadata_untrusted")
+        return value
+
+    def metadata(value, hosts):
+        request = urllib.request.Request(
+            trusted_url(value, hosts), headers={"Accept": "application/json"}
+        )
+        with opener.open(request, timeout=20) as response:
+            raw = response.read(65537)
+        if len(raw) > 65536:
+            raise RuntimeError("oauth_metadata_invalid")
+        document = json.loads(raw)
+        if not isinstance(document, dict):
+            raise RuntimeError("oauth_metadata_invalid")
+        return document
+
+    resource_url = trusted_url(match[1], {HOSTNAME})
+    if not urllib.parse.urlsplit(resource_url).path.startswith(
+        "/.well-known/oauth-protected-resource"
+    ):
+        raise RuntimeError("oauth_metadata_untrusted")
+    resource = metadata(resource_url, {HOSTNAME})
+    issuers = resource.get("authorization_servers", [])
+    if resource.get("resource") not in (url, f"https://{HOSTNAME}") or len(issuers) != 1:
+        raise RuntimeError("oauth_resource_mismatch")
+    issuer = trusted_url(issuers[0], {HOSTNAME, TEAM_DOMAIN})
+    parsed = urllib.parse.urlsplit(issuer)
+    discovery = urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            "/.well-known/oauth-authorization-server" + parsed.path.rstrip("/"),
+            "",
+            "",
+        )
+    )
+    server = metadata(discovery, {HOSTNAME, TEAM_DOMAIN})
+    if server.get("issuer") != issuer:
+        raise RuntimeError("oauth_issuer_mismatch")
+    for key in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
+        trusted_url(server.get(key, ""), {HOSTNAME, TEAM_DOMAIN})
+    if (
+        "S256" not in server.get("code_challenge_methods_supported", [])
+        or "code" not in server.get("response_types_supported", [])
+        or not {"authorization_code", "refresh_token"}
+        <= set(server.get("grant_types_supported", []))
+    ):
+        raise RuntimeError("oauth_protocol_incomplete")
+    return {"oauthDiscoveryVerified": True, "pkceS256Advertised": True}
+
+
+def verify_oauth_discovery():
+    for attempt in range(6):
+        try:
+            return oauth_discovery()
+        except Exception:
+            if attempt == 5:
+                raise
+            time.sleep(5)
+
+
+def configure_oauth(credentials, *, apply):
+    state = domain_snapshot(credentials)
+    app, policies = state["app"], state["policies"]
+    if (
+        app["domain"] != HOSTNAME
+        or app["destinations"] != [{"type": "public", "uri": HOSTNAME}]
+        or state["old_dns"]
+        or not state["new_dns"]
+        or [rule.get("hostname") for rule in state["config"]["ingress"][:-1]] != [HOSTNAME]
+    ):
+        raise RuntimeError("oauth_requires_completed_domain_cutover")
+    email = owner_identity()
+    idps = cf("GET", f"/accounts/{os.environ['CLOUDFLARE_ACCOUNT_ID']}/access/identity_providers")
+    if not any(
+        item.get("id") == CLOUDFLARE_IDP_ID and item.get("type") == "cloudflare" for item in idps
+    ):
+        raise RuntimeError("owner_identity_provider_unavailable")
+    verify_public(credentials, HOSTNAME)
+    complete = oauth_ready(app, policies)
+    report = {
+        "ok": True,
+        "applied": False,
+        "oauthReady": complete,
+        "ownerIdentityVerified": True,
+        "credentialsRotated": False,
+        "publicUrl": f"https://{HOSTNAME}/mcp",
+        "oauthLoginVerified": False,
+    }
+    if complete:
+        report.update(verify_oauth_discovery())
+    if not apply or complete:
+        return report
+    stage = "enable_owner_oauth"
+    try:
+        body = access_body(app, policies, [HOSTNAME])
+        if len(policies) == 1:
+            body["policies"].append(owner_policy(email))
+        body.update(
+            oauth_configuration=copy.deepcopy(OAUTH_CONFIGURATION),
+            allowed_idps=[CLOUDFLARE_IDP_ID],
+            auto_redirect_to_identity=True,
+        )
+        cf("PUT", state["app_path"], body)
+        stage = "verify_owner_oauth"
+        final = domain_snapshot(credentials)
+        if (
+            not oauth_ready(final["app"], final["policies"])
+            or final["app"]["aud"] != app["aud"]
+            or final["config"] != state["config"]
+            or final["new_dns"] != state["new_dns"]
+            or not {policy["id"] for policy in policies}
+            <= {policy["id"] for policy in final["policies"]}
+        ):
+            raise RuntimeError("oauth_acceptance_failed")
+        report.update(verify_oauth_discovery())
+        report.update(verify_public(credentials, HOSTNAME))
+        return {**report, "applied": True, "oauthReady": True}
+    except Exception as cause:
+        restored = False
+        try:
+            body = access_body(app, policies, [HOSTNAME])
+            body.setdefault("oauth_configuration", {"enabled": False})
+            body.setdefault("allowed_idps", [])
+            body.setdefault("auto_redirect_to_identity", False)
+            cf("PUT", state["app_path"], body)
+            final = domain_snapshot(credentials)
+            expected_oauth = app.get("oauth_configuration") or {"enabled": False}
+            if (
+                final["app"]["aud"] != app["aud"]
+                or final["app"].get("oauth_configuration") != expected_oauth
+                or {policy["id"] for policy in final["policies"]}
+                != {policy["id"] for policy in policies}
+            ):
+                raise RuntimeError("oauth_restore_failed")
+            verify_public(credentials, HOSTNAME)
+            restored = True
+        except Exception:
+            pass
+        raise OAuthConfigurationFailure(restored, stage, cause) from None
+
+
 def runtime_starts(client):
     code = "import json,subprocess; units=['wechat-sender.service','zacks-agent.service','cloudflared-dsh.service','pi-appium-mcp.service','cloudflared-appium-mcp.service']; print(json.dumps({unit:subprocess.check_output(['systemctl','show',unit,'--property=ExecMainStartTimestampMonotonic','--value'],text=True).strip() for unit in units}))"
     return json.loads(remote(client, "python3 -c " + shlex.quote(code)))
@@ -595,6 +875,8 @@ def main():
         operation = os.environ["OPERATION"]
         runtime_commit = os.environ.get("RUNTIME_COMMIT") or commit
         domain_operation = operation in {"domain_preflight", "domain_apply"}
+        oauth_operation = operation in {"oauth_preflight", "oauth_apply"}
+        edge_operation = domain_operation or oauth_operation
         if not re.fullmatch(r"[0-9a-f]{40}", commit) or operation not in {
             "preflight",
             "apply",
@@ -603,14 +885,16 @@ def main():
             "rollback",
             "domain_preflight",
             "domain_apply",
+            "oauth_preflight",
+            "oauth_apply",
         }:
             raise ValueError("invalid_operation")
         if not re.fullmatch(r"[0-9a-f]{40}", runtime_commit) or (
-            domain_operation and not os.environ.get("RUNTIME_COMMIT")
+            edge_operation and not os.environ.get("RUNTIME_COMMIT")
         ):
             raise ValueError("exact_runtime_commit_required")
-        if os.environ.get("RUNTIME_COMMIT") and not (domain_operation or operation == "health"):
-            raise ValueError("runtime_override_requires_readonly_or_domain_operation")
+        if os.environ.get("RUNTIME_COMMIT") and not (edge_operation or operation == "health"):
+            raise ValueError("runtime_override_requires_readonly_or_edge_operation")
         if operation in {"preflight", "apply"}:
             phase = "cloudflare_permissions"
             prefix = f"/accounts/{os.environ['CLOUDFLARE_ACCOUNT_ID']}"
@@ -644,27 +928,26 @@ def main():
             if operation in {"preflight", "apply"}:
                 for name in ("source.tar.gz", "cache.tar.gz", "node.tar.xz"):
                     sftp.put(str(Path("/tmp/pi-mcp-release") / name), staging + "/" + name)
-        host_operation = "health" if domain_operation else operation
+        host_operation = "health" if edge_operation else operation
         command = f"sudo -n python3 {shlex.quote(installer)} {host_operation} --commit {runtime_commit} --staging {shlex.quote(staging)}"
         phase = "pi_" + operation
         report = json.loads(remote(client, command))
         if not report.get("ok"):
             raise RuntimeError("pi_verification_failed")
-        if domain_operation:
-            phase = "cloudflare_domain"
+        if edge_operation:
+            phase = "cloudflare_oauth" if oauth_operation else "cloudflare_domain"
             if report.get("activePhoneSessions") != 0:
-                raise RuntimeError("domain_cutover_requires_idle_control")
+                raise RuntimeError("edge_change_requires_idle_control")
             starts = runtime_starts(client)
-            report.update(
-                migrate_domain(read_credentials(client), apply=operation == "domain_apply")
-            )
+            configure = configure_oauth if oauth_operation else migrate_domain
+            report.update(configure(read_credentials(client), apply=operation.endswith("_apply")))
             report.update(
                 runtimeCommit=runtime_commit,
                 controlPlaneCommit=commit,
                 hostRuntimeUnchanged=starts == runtime_starts(client),
             )
             if not report["hostRuntimeUnchanged"]:
-                raise RuntimeError("runtime_changed_during_domain_operation")
+                raise RuntimeError("runtime_changed_during_edge_operation")
         elif operation == "apply":
             application_applied = True
             phase = "cloudflare_provision"
@@ -680,7 +963,12 @@ def main():
                     time.sleep(5)
         elif operation == "health":
             phase = "public_auth_acceptance"
-            report.update(public_health(read_credentials(client)))
+            credentials = read_credentials(client)
+            report.update(public_health(credentials))
+            oauth_report = configure_oauth(credentials, apply=False)
+            if not oauth_report["oauthReady"]:
+                raise RuntimeError("oauth_not_ready")
+            report.update(oauth_report)
             report.update(
                 runtimeCommit=runtime_commit,
                 controlPlaneCommit=commit,
@@ -716,14 +1004,24 @@ def main():
                     "httpStatus": exc.code if isinstance(exc, urllib.error.HTTPError) else None,
                     "rollbackVerified": rollback_verified,
                     "domainRollbackVerified": exc.rollback_verified
-                    if isinstance(exc, DomainMigrationFailure)
+                    if type(exc) is DomainMigrationFailure
                     else None,
-                    "domainStage": exc.stage if isinstance(exc, DomainMigrationFailure) else None,
+                    "domainStage": exc.stage if type(exc) is DomainMigrationFailure else None,
                     "domainCauseClass": exc.cause_class
-                    if isinstance(exc, DomainMigrationFailure)
+                    if type(exc) is DomainMigrationFailure
                     else None,
                     "domainHttpStatus": exc.http_status
-                    if isinstance(exc, DomainMigrationFailure)
+                    if type(exc) is DomainMigrationFailure
+                    else None,
+                    "oauthRollbackVerified": exc.rollback_verified
+                    if isinstance(exc, OAuthConfigurationFailure)
+                    else None,
+                    "oauthStage": exc.stage if isinstance(exc, OAuthConfigurationFailure) else None,
+                    "oauthCauseClass": exc.cause_class
+                    if isinstance(exc, OAuthConfigurationFailure)
+                    else None,
+                    "oauthHttpStatus": exc.http_status
+                    if isinstance(exc, OAuthConfigurationFailure)
                     else None,
                     "connector": exc.connector if isinstance(exc, RemoteOperationError) else None,
                     "externalTestSends": 0,

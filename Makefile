@@ -6,7 +6,7 @@ COMPOSE_BIN ?= $(shell if docker compose version >/dev/null 2>&1; then echo "doc
 LOCAL_SECRET_DIR := $(abspath .local/secrets)
 COMPOSE := AIRFLOW_SECRET_DIR=$(LOCAL_SECRET_DIR) $(COMPOSE_BIN)
 
-.PHONY: setup local-secrets webapp-setup webapp-check pi-mcp-setup pi-mcp-check pi-mcp-deploy pi-mcp-domain pi-mcp-health format lint typecheck test test-dags compose-config sender-config \
+.PHONY: setup local-secrets webapp-setup webapp-check pi-mcp-setup pi-mcp-check pi-mcp-deploy pi-mcp-domain pi-mcp-oauth pi-mcp-health format lint typecheck test test-dags compose-config sender-config \
 	smoke verify deploy deploy-recovery deploy-check production-health rollback-check db-cleanup-check \
 	phone-diagnose wechat-delivery-diagnose wechat-delivery-probe wechat-quiesce airflow-resume pi-device-ssh-sync image sender-image sender-deploy sender-health sender-diagnose sender-screenshot sender-recover \
 	webapp-deploy webapp-health pi-ydmap-deploy pi-ydmap-health pi-ydmap-inspect
@@ -73,6 +73,9 @@ pi-mcp-health:
 
 pi-mcp-domain:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py pi_mcp domain --runtime-commit $(RUNTIME_COMMIT) $(DEPLOY_ARGS)
+
+pi-mcp-oauth:
+	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py pi_mcp oauth --runtime-commit $(RUNTIME_COMMIT) $(DEPLOY_ARGS)
 
 pi-ydmap-deploy:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py pi_ydmap deploy $(DEPLOY_ARGS)

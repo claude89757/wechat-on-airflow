@@ -93,8 +93,13 @@ managed_services:
     tunnel_unit: cloudflared-appium-mcp.service
     public_base_url: https://appium-mcp.zacks.vision/mcp
     domain_operations_preserve_runtime_commit: true
+    oauth_operations_preserve_runtime_commit: true
     origin_base_url: http://127.0.0.1:3333/mcp
-    authentication: cloudflare_access_dedicated_service_token
+    authentication: cloudflare_access_owner_managed_oauth_and_dedicated_service_token
+    oauth_owner_identity: pinned_cloudflare_user_id_resolved_inside_protected_runner
+    oauth_access_token_minutes: 15
+    oauth_grant_hours: 168
+    oauth_user_login_required_for_acceptance: true
     connector_access_jwt_required: true
     token_lifetime_hours: 2160
     node: 22.23.4
