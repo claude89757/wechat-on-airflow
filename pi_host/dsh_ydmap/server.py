@@ -403,7 +403,9 @@ const name = ['salesItemName', 'itemName', 'name'].map(key => item[key])
   .find(value => typeof value === 'string' && value.trim())?.trim();
 if (!name) return null;
 const matches = [...document.querySelectorAll('button,li,a,span,div')].filter(el => {
-  if ((el.innerText || '').trim().split('\n')[0] !== name) return false;
+  // A multi-product wrapper starts with the first product's name too. Its
+  // centre can hit another tab; require the complete visible label instead.
+  if ((el.innerText || '').trim() !== name) return false;
   const rect = el.getBoundingClientRect();
   const style = getComputedStyle(el);
   return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 &&

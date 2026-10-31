@@ -1,5 +1,31 @@
 # Production Baseline
 
+## Baoan product-tab click defect confirmed on 2026-10-31
+
+[Cold wind/rain Pi comparison 41193935434](https://github.com/claude89757/wechat-on-airflow/actions/runs/41193935434)
+used `ec669e5f403b7e52059c4e9ec9c3f8695712a753`, after
+[CI 41193468462](https://github.com/claude89757/wechat-on-airflow/actions/runs/41193468462).
+It progressed beyond the first wind/rain group, then failed `product_id_mismatch`:
+requested outdoor `111317`, actual selected/source indoor `103224`, phase
+`product_navigation`, 32 cells, no challenge text or mask, no gesture attempted.
+The partial scrape was discarded. Both venues failed the overall gate; this
+is not complete wind/rain or production acceptance.
+
+An ordinary local Chrome comparison loaded the outdoor page, then displayed
+wind/rain courts 1–3 through a normal tab click without verification. This is an
+uncontrolled environment comparison and does not identify the Pi WAF trigger.
+It does establish that the wind/rain product is currently usable elsewhere.
+
+Rendered DOM inspection reproduced the wrong-target defect. The outdoor slider
+wrapper contains all four product labels, begins with the outdoor label, and
+has one child. The actual outdoor LI also has one child. The scraper compared
+only the first text line and sorted only by child count, so the earlier 464-pixel
+wrapper won over the 116-pixel LI. Clicking its centre selected the indoor tab.
+Matching the complete rendered catalog label leaves only the actual LI in this
+observed DOM. The regression fixture includes the leading wrapper with the same
+child count and rejects wrapper-only matches. Access verification remains a
+separate unresolved blocker until the corrected candidate passes real checks.
+
 ## Baoan passive network evidence on 2026-10-31
 
 [Pi preflight 41192484593](https://github.com/claude89757/wechat-on-airflow/actions/runs/41192484593)
