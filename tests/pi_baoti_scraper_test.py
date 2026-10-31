@@ -67,18 +67,20 @@ class Clock:
 
 
 class FakeElement:
-    def __init__(self, driver: FakeDriver, target: str) -> None:
+    def __init__(self, driver: FakeDriver, target: str, *, product: bool = False) -> None:
         self.driver = driver
         self.target = target
+        self.product = product
 
     def click(self) -> None:
-        self.driver.clicked.append(self.target)
+        (self.driver.products if self.product else self.driver.clicked).append(self.target)
 
 
 class FakeDriver:
     def __init__(self) -> None:
         self.visited: list[str] = []
         self.clicked: list[str] = []
+        self.products: list[str] = []
 
     def get(self, url: str) -> None:
         self.visited.append(url)
@@ -87,6 +89,8 @@ class FakeDriver:
         pass
 
     def execute_script(self, script: str, argument: str) -> FakeElement:
+        if script == server.FIND_PRODUCT_JS:
+            return FakeElement(self, argument, product=True)
         if script != server.FIND_DATE_JS:
             raise AssertionError("unexpected browser script")
         return FakeElement(self, argument)
@@ -257,9 +261,8 @@ class PiBaotiScraperTest(unittest.TestCase):
                 self.assertEqual(group["selected_date"], day["date"])
                 self.assertTrue(set(group["court_names"]).issubset(day["court_names"]))
         self.assertEqual(self.driver.clicked, ["11-02", "11-01"] * 3)
-        self.assertEqual(
-            self.driver.visited, [item[2] for item in server.VENUE_GROUPS["baoti"][1:]]
-        )
+        self.assertEqual(self.driver.visited, [])
+        self.assertEqual(self.driver.products, ["103224", "111319"])
         server._stop.assert_called_once()
 
     def test_dsh_preserves_names_and_single_group(self) -> None:
@@ -300,8 +303,33 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertTrue(result["captcha"])
         self.assertEqual(result["error"], "captcha")
         self.assertEqual(result["days"], [])
-        self.assertEqual(len(self.driver.visited), 1)
+        self.assertEqual(self.driver.visited, [])
+        self.assertEqual(self.driver.products, ["103224"])
         server._stop.assert_called_once()
+
+    def test_product_switch_requires_both_new_source_arrays_even_after_remount(self) -> None:
+        previous = snapshot(TODAY, 3)
+        current = snapshot(TODAY, 1, key="indoor")
+        identity = {**OUTDOOR_IDENTITY, "sales_item_id": "103224", "label": "室内"}
+        self.assertIsNone(server._snapshot_issue(current, previous=previous, **identity))
+        for stale_key in ("platforms", "orders"):
+            stale = {**current, "dataVersion": dict(current["dataVersion"])}
+            stale["dataVersion"][stale_key] = previous["dataVersion"][stale_key]
+            self.assertEqual(
+                server._snapshot_issue(stale, previous=previous, **identity), "source_not_refreshed"
+            )
+
+    def test_missing_product_tab_never_falls_back_to_full_navigation(self) -> None:
+        self.install_payloads(self.group_payloads())
+        original = self.driver.execute_script
+        self.driver.execute_script = lambda script, arg: (
+            None if script == server.FIND_PRODUCT_JS else original(script, arg)
+        )
+        result = server.scrape_available_slots("baoti", 2)
+        self.assertEqual(result["error"], "product_tab_not_found")
+        self.assertEqual(result["days"], [])
+        self.assertEqual(result["diagnostics"]["requestedProduct"], "103224")
+        self.assertEqual(self.driver.visited, [])
 
     def test_mid_group_date_failure_discards_all_partial_days(self) -> None:
         initial = snapshot(key="indoor")
