@@ -1,5 +1,27 @@
 # Production Baseline
 
+## Baoan pacing did not restore access on 2026-10-31
+
+[Pi preflight 41196917740](https://github.com/claude89757/wechat-on-airflow/actions/runs/41196917740)
+used `009c3bc93c30742d78404e625261ea7833377093`, after
+[CI 41196727411](https://github.com/claude89757/wechat-on-airflow/actions/runs/41196727411).
+Dashah verified all five dates. Baoan again failed at the third product's calendar
+request despite 30-second product spacing: calendar HTML observed, six normal
+order JSON responses and six config JSON responses. The page was visible and
+focused (`documentHidden=0`, `documentFocused=1`), with Vue/app roots present.
+The browser console recorded one HTTP 404; the resource is not attributable from
+this summary and is not a proven verification-SDK failure. No known slider/frame
+appeared after three seconds. No gesture or production apply occurred.
+
+Thirty-second spacing is insufficient by itself; this is not a proven short-window
+quota. The remaining controlled session-lifecycle comparison preserves only the
+scraper's dedicated Chromium profile instead of deleting it before every scrape.
+It narrows directory permissions to 0700, rejects symlinks/shared directories and
+continues to discard each isolated candidate's directory at exit. Chromium owns
+its site state; no personal profile, cookie or credential is copied/exported.
+Source/date freshness checks remain mandatory, so preserving browser state does
+not authorize stale observations. This is a repair candidate, not proof of access.
+
 ## Baoan pacing comparison inconclusive on 2026-10-31
 
 [Normal-order paced Pi preflight 41195644144](https://github.com/claude89757/wechat-on-airflow/actions/runs/41195644144)

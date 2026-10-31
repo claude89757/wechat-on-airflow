@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import threading
@@ -419,9 +418,14 @@ return matches[0] || null;
 
 
 def _cleanup_stale_browser() -> None:
-    # Candidate deployment must never erase a shared/home directory via a typo.
+    # Never reuse or chmod a shared/home profile via a typo or final symlink.
+    temporary_root = Path("/tmp").resolve()
     resolved = PROFILE.resolve()
-    if resolved == Path("/tmp") or not resolved.is_relative_to("/tmp"):
+    if (
+        PROFILE.is_symlink()
+        or resolved == temporary_root
+        or not resolved.is_relative_to(temporary_root)
+    ):
         raise ValueError("YDMAP_PROFILE must be a dedicated directory below /tmp")
     subprocess.run(
         ["pkill", "-f", "--", f"--remote-debugging-port={DEBUG_PORT}([[:space:]]|$)"],
@@ -430,9 +434,10 @@ def _cleanup_stale_browser() -> None:
         stderr=subprocess.DEVNULL,
     )
     time.sleep(1)
-    if PROFILE.exists():
-        shutil.rmtree(PROFILE, ignore_errors=True)
-    PROFILE.mkdir(parents=True, exist_ok=True)
+    # Let Chromium retain its own site state/cache across inspections. This is
+    # the service's dedicated profile, never a copied personal browser profile.
+    PROFILE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    PROFILE.chmod(0o700)
 
 
 def _start_chromium(url: str) -> subprocess.Popen[Any]:
@@ -1183,7 +1188,7 @@ def _browser_environment(driver: webdriver.Remote) -> dict[str, Any]:
     result: dict[str, Any] = {
         "browserVersion": browser,
         "userAgentVersionMatchesBrowser": bool(configured and configured[1] == browser),
-        "profileResetBeforeScrape": True,
+        "profileResetBeforeScrape": False,
     }
     chrome = capabilities.get("chrome")
     driver_value = chrome.get("chromedriverVersion") if isinstance(chrome, dict) else None

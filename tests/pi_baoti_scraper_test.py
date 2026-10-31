@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import sys
+import tempfile
 import types
 import unittest
 from datetime import UTC, date, datetime, timedelta
@@ -375,7 +376,7 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertTrue(report["userAgentVersionMatchesBrowser"])
         self.assertFalse(report["driverMajorMatchesBrowser"])
         self.assertEqual(report["driverVersion"], "138.0.1.2")
-        self.assertTrue(report["profileResetBeforeScrape"])
+        self.assertFalse(report["profileResetBeforeScrape"])
         self.assertNotIn("private", str(report))
         driver.capabilities["browserVersion"] = "private-token"
         self.assertEqual(server._browser_environment(driver), {})
@@ -905,6 +906,37 @@ class PiDriverLifecycleTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "dedicated directory"):
                     server._cleanup_stale_browser()
                 run.assert_not_called()
+
+    def test_cleanup_preserves_dedicated_session_and_private_permissions(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
+            profile = Path(directory) / "profile"
+            profile.mkdir(mode=0o755)
+            marker = profile / "Cookies"
+            marker.write_bytes(b"offline-test-session")
+            with (
+                patch.object(server, "PROFILE", profile),
+                patch.object(server.subprocess, "run"),
+                patch.object(server.time, "sleep"),
+            ):
+                server._cleanup_stale_browser()
+                server._cleanup_stale_browser()
+            self.assertEqual(marker.read_bytes(), b"offline-test-session")
+            self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
+
+    def test_cleanup_rejects_profile_symlink_without_touching_target(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
+            target = Path(directory) / "target"
+            target.mkdir(mode=0o755)
+            link = Path(directory) / "profile"
+            link.symlink_to(target)
+            with (
+                patch.object(server, "PROFILE", link),
+                patch.object(server.subprocess, "run") as run,
+            ):
+                with self.assertRaisesRegex(ValueError, "dedicated directory"):
+                    server._cleanup_stale_browser()
+                run.assert_not_called()
+            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
 
 
 if __name__ == "__main__":
