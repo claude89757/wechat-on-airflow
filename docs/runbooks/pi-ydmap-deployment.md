@@ -99,6 +99,14 @@ This unquiesced gesture diagnostic keeps an isolated temporary profile and
 discards it at exit. No cookies are exported, and this diagnostic does not
 establish durable production access.
 
+The Pi screenshot from preflight `41211132530` shows a rendered image-puzzle
+slider. This is unsupported by the ordinary slider helper above. Zero known
+handles must not be reported as an unloaded SDK. A visible puzzle needs the
+operator's current service-owned browser session; coordinates from a closed or
+expired challenge must not be replayed. If verification keeps recurring, seek
+upstream-approved stable access before accepting unattended polling. Neither a
+single passed cycle nor retained browser state establishes that stability.
+
 Manual preflight may set `capture_browser_ui=true` to capture the owned public
 candidate page after a failed source-readiness check, including a missing schedule
 without a verification mask. It never operates on

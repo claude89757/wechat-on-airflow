@@ -1,5 +1,32 @@
 # Production Baseline
 
+## Rendered puzzle challenge confirmed on the Pi on 2026-10-31
+
+[Controlled same-profile repeat 41211132530](https://github.com/claude89757/wechat-on-airflow/actions/runs/41211132530)
+used the same `c72b3278b628a0d5638ee220289e1a423ef99ff7` and retained service
+profile as the first attempt. One complete Dashah/Baoan cycle passed. In the
+second cycle Dashah verified all five dates, while Baoan's third product
+(`111319`) encountered access verification. Both DAG pause flags were restored;
+no Pi activation or notification occurred.
+
+The explicit one-day PNG artifact was downloaded and visually inspected. It
+shows a fully rendered image puzzle, slider and instruction to complete the
+puzzle. There are no missing-image indicators. Thus zero known semantic/legacy
+handles does not establish that the verification SDK failed to load. The helper
+only supports an ordinary semantic slider with a rightward/end-of-track
+instruction; it cannot recognize or solve this puzzle. No gesture was attempted.
+Profile continuity alone did not prevent recurrence, and the exact upstream
+WAF triggering rule remains unknown. Do not reuse coordinates from an expired
+challenge or treat one passed inspection as stable unattended access.
+
+[Read-only business health 41211415368](https://github.com/claude89757/wechat-on-airflow/actions/runs/41211415368)
+against the already-upgraded `bd8ee98381cca5f0a4c8d0a674590012d76adc57` confirmed
+a fresh healthy production Dashah observation and no Baoan observation. Host and
+edge identities matched that commit; Sender remained on its earlier identity.
+Delivery switches were disabled, both consumers lacked fresh heartbeats, and
+acceptance was incomplete. PostgreSQL migration reconciliation still passed.
+This is a partial rollout requiring roll-forward, not a completed release.
+
 ## First service-profile preflight on 2026-10-31
 
 [Pi preflight 41210794526](https://github.com/claude89757/wechat-on-airflow/actions/runs/41210794526)
@@ -15,7 +42,8 @@ no Pi apply or notification occurred. The first manual capture covered only
 verification failures, so this unready page produced no image. Manual opt-in
 capture now also covers non-verification source-readiness failures with the same
 privacy, size and retention restrictions. Service-profile continuity remains an
-unproven access-stability hypothesis pending the controlled same-profile repeat.
+unproven access-stability hypothesis; the controlled repeat above subsequently
+reproduced verification after one complete successful cycle.
 
 ## Partial 0.9.0 rollout and browser-state continuity on 2026-10-31
 
