@@ -66,7 +66,7 @@ export class Requests {
 export function executeCommand(command, seconds) {
   return new Promise(resolve => {
     let output = "", truncated = false, timedOut = false, done = false;
-    const child = spawn("/bin/bash", ["-lc", command], { cwd: "/", detached: true,
+    const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", command], { cwd: "/", detached: true,
       env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/root", LANG: "C.UTF-8" },
       stdio: ["ignore", "pipe", "pipe"] });
     const collect = chunk => {
