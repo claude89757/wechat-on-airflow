@@ -170,6 +170,11 @@ SOURCE_FAILURES = {
     "ConnectionError",
 }
 SOURCE_FIELDS = {
+    "browserVersion",
+    "driverVersion",
+    "driverMajorMatchesBrowser",
+    "userAgentVersionMatchesBrowser",
+    "profileResetBeforeScrape",
     "verificationAttempted",
     "verificationOutcome",
     "verificationControl",
@@ -382,6 +387,9 @@ def safe_source_diagnostic(value: object) -> dict:
         result["productNameField"] = value["productNameField"]
     for key in (
         "verificationAttempted",
+        "driverMajorMatchesBrowser",
+        "userAgentVersionMatchesBrowser",
+        "profileResetBeforeScrape",
         "productInCatalog",
         "challengeText",
         "challengeMaskVisible",
@@ -390,6 +398,10 @@ def safe_source_diagnostic(value: object) -> dict:
     ):
         if type(value.get(key)) is bool:
             result[key] = value[key]
+    for key in ("browserVersion", "driverVersion"):
+        version = value.get(key)
+        if isinstance(version, str) and re.fullmatch(r"\d{1,4}(?:\.\d{1,6}){1,3}", version):
+            result[key] = version
     outcome = value.get("verificationOutcome")
     if isinstance(outcome, str) and outcome in {
         "not_needed",
@@ -1043,7 +1055,16 @@ def inspect_evidence(
     report = {"venue": venue, "verified": True, "days": report_days}
     if source_evidence:
         diagnostic = safe_source_diagnostic(payload.get("diagnostics"))
-        for key in ("verificationAttempted", "verificationOutcome", "verificationControl"):
+        for key in (
+            "verificationAttempted",
+            "verificationOutcome",
+            "verificationControl",
+            "browserVersion",
+            "driverVersion",
+            "driverMajorMatchesBrowser",
+            "userAgentVersionMatchesBrowser",
+            "profileResetBeforeScrape",
+        ):
             if key in diagnostic:
                 report[key] = diagnostic[key]
         truncated, unresolved = limit_source_evidence([report])
@@ -1074,6 +1095,11 @@ def safe_inspections(value: object, *, source_evidence: bool = False) -> list[di
                         "verificationAttempted",
                         "verificationOutcome",
                         "verificationControl",
+                        "browserVersion",
+                        "driverVersion",
+                        "driverMajorMatchesBrowser",
+                        "userAgentVersionMatchesBrowser",
+                        "profileResetBeforeScrape",
                     )
                     if key in report
                 },

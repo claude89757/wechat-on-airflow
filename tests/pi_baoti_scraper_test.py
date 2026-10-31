@@ -186,6 +186,26 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(result["error"], "captcha")
         self.assertEqual(self.driver.visited, [])
 
+    def test_browser_environment_reports_versions_without_private_capabilities(self) -> None:
+        driver = types.SimpleNamespace(
+            capabilities={
+                "browserVersion": "137.0.7151.119",
+                "chrome": {
+                    "chromedriverVersion": "138.0.1.2 (private-build)",
+                    "userDataDir": "private-profile",
+                },
+                "secret": "private-cookie",
+            }
+        )
+        report = server._browser_environment(driver)
+        self.assertTrue(report["userAgentVersionMatchesBrowser"])
+        self.assertFalse(report["driverMajorMatchesBrowser"])
+        self.assertEqual(report["driverVersion"], "138.0.1.2")
+        self.assertTrue(report["profileResetBeforeScrape"])
+        self.assertNotIn("private", str(report))
+        driver.capabilities["browserVersion"] = "private-token"
+        self.assertEqual(server._browser_environment(driver), {})
+
     def group_payloads(self, *, venue="baoti", key="outdoor", available=True):
         return [
             snapshot(TODAY, 1, venue=venue, key=key, available=available),

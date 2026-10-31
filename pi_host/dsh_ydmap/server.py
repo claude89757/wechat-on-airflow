@@ -948,6 +948,29 @@ def _prefixed_court_name(label: str, court: str) -> str:
     return f"{label}{name}"
 
 
+def _browser_environment(driver: webdriver.Remote) -> dict[str, Any]:
+    capabilities = getattr(driver, "capabilities", {})
+    if not isinstance(capabilities, dict):
+        return {}
+    browser = capabilities.get("browserVersion")
+    if not isinstance(browser, str) or not re.fullmatch(r"\d{1,4}(?:\.\d{1,6}){1,3}", browser):
+        return {}
+    configured = re.search(r"Chrome/([\d.]+)", UA)
+    result: dict[str, Any] = {
+        "browserVersion": browser,
+        "userAgentVersionMatchesBrowser": bool(configured and configured[1] == browser),
+        "profileResetBeforeScrape": True,
+    }
+    chrome = capabilities.get("chrome")
+    driver_value = chrome.get("chromedriverVersion") if isinstance(chrome, dict) else None
+    if isinstance(driver_value, str):
+        version = driver_value.split(" ", 1)[0]
+        if re.fullmatch(r"\d{1,4}(?:\.\d{1,6}){1,3}", version):
+            result["driverVersion"] = version
+            result["driverMajorMatchesBrowser"] = version.split(".")[0] == browser.split(".")[0]
+    return result
+
+
 def _stop_with_error(
     *,
     error: str,
@@ -1011,7 +1034,12 @@ def _days_payload(
 
 
 def _scrape_available_slots(
-    venue: str, days: int, *, source_evidence: bool, verification: dict[str, Any] | None = None
+    venue: str,
+    days: int,
+    *,
+    source_evidence: bool,
+    verification: dict[str, Any] | None = None,
+    runtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     groups = VENUE_GROUPS.get(venue)
     if not groups:
@@ -1040,6 +1068,8 @@ def _scrape_available_slots(
         time.sleep(_remaining(deadline, 4))
         phase = "browser_attach"
         driver = _attach(timeout=_remaining(deadline, 30))
+        if runtime is not None:
+            runtime.update(_browser_environment(driver))
         for index, (key, label, url) in enumerate(groups):
             requested_product = parse_qs(urlparse(url).query)["salesItemId"][0]
             phase = "product_navigation"
@@ -1210,9 +1240,12 @@ def scrape_available_slots(
     if verification_once and VERIFICATION_AVAILABLE and source_evidence and venue == "baoti":
         VERIFICATION_AVAILABLE = False
         verification = {"attempted": False, "outcome": "not_needed"}
+    runtime: dict[str, Any] = {}
     result = _scrape_available_slots(
-        venue, days, source_evidence=source_evidence, verification=verification
+        venue, days, source_evidence=source_evidence, verification=verification, runtime=runtime
     )
+    if runtime:
+        result.setdefault("diagnostics", {}).update(runtime)
     if verification is not None:
         result.setdefault("diagnostics", {}).update(
             verificationAttempted=verification["attempted"],
