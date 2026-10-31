@@ -18,6 +18,10 @@ It never copies a personal profile or exports cookies. Unquiesced diagnostic
 candidates keep their isolated temporary profiles. Candidate process cleanup
 does not delete the service profile. Closing the owned browser tab allows normal
 profile flushing before bounded process termination.
+If temporary storage is cleared at boot, the service marks only a newly created
+profile root with the installer's private ownership marker. Existing roots
+receive no marker; the installer continues to reject unmarked directories. Losing the
+profile also loses its site session; access must be verified again after that.
 Baoan product activations are separated by at least 30 seconds from the previous
 product's verified readiness. Date checks consume that interval; only the remaining
 time is waited. This bounds bursts to the product calendar endpoint while retaining
@@ -99,8 +103,17 @@ This unquiesced gesture diagnostic keeps an isolated temporary profile and
 discards it at exit. No cookies are exported, and this diagnostic does not
 establish durable production access.
 
+The Pi screenshot from preflight `41211132530` shows a rendered image-puzzle
+slider. This is unsupported by the ordinary slider helper above. Zero known
+handles must not be reported as an unloaded SDK. A visible puzzle needs the
+operator's current service-owned browser session; coordinates from a closed or
+expired challenge must not be replayed. If verification keeps recurring, seek
+upstream-approved stable access before accepting unattended polling. Neither a
+single passed cycle nor retained browser state establishes that stability.
+
 Manual preflight may set `capture_browser_ui=true` to capture the owned public
-candidate page after a detected verification challenge. It never operates on
+candidate page after a failed source-readiness check, including a missing schedule
+without a verification mask. It never operates on
 the live service or performs a gesture. Contact/IP text, populated login inputs
 and login-QR instructions suppress capture. The PNG is bounded to 256 KiB,
 validated by type/dimensions/hash, saved privately on the Actions runner and

@@ -34,6 +34,7 @@ BAOTI_GROUP_ITEMS = (
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
 PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
+PROFILE_MARKER = b"pi-ydmap-service-profile-v2\n"
 DEBUG_PORT = int(os.environ.get("YDMAP_DEBUG_PORT", "9224"))
 SCHEMA_VERSION = 2
 SCRAPE_TIMEOUT = 210
@@ -407,7 +408,18 @@ def _cleanup_stale_browser(profile: Path | None = None) -> None:
     time.sleep(1)
     # Let Chromium retain its own site state/cache across inspections. This is
     # the service's dedicated profile, never a copied personal browser profile.
-    PROFILE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        PROFILE.mkdir(parents=True, mode=0o700)
+    except FileExistsError:
+        pass
+    else:
+        # /tmp can be cleared at boot. A root created by this service must
+        # remain recognizable to the next guarded installer without adopting
+        # or overwriting an existing unmarked directory.
+        marker = PROFILE / ".pi-ydmap-profile"
+        with marker.open("xb") as output:
+            marker.chmod(0o600)
+            output.write(PROFILE_MARKER)
     PROFILE.chmod(0o700)
     profile.mkdir(parents=True, exist_ok=True, mode=0o700)
     profile.chmod(0o700)
@@ -1383,7 +1395,7 @@ def _scrape_available_slots(
                 **identity,
             )
             if not payload.get("ready"):
-                if source_evidence and payload.get("captcha") is True:
+                if source_evidence:
                     payload["diagnostic_ui"] = _capture_failure_ui(driver, venue)
                 return _stop_with_error(
                     error=payload.get("error") or "schedule_not_ready",
@@ -1437,7 +1449,7 @@ def _scrape_available_slots(
                     **identity,
                 )
                 if not payload.get("ready"):
-                    if source_evidence and payload.get("captcha") is True:
+                    if source_evidence:
                         payload["diagnostic_ui"] = _capture_failure_ui(driver, venue)
                     return _stop_with_error(
                         error=payload.get("error") or "schedule_not_ready",

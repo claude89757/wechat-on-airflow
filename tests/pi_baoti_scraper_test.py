@@ -457,6 +457,21 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(result["error"], "schedule_not_ready")
         self.assertEqual(result["accessDiagnostics"], {"typeErrors": 1})
 
+    def test_missing_schedule_without_challenge_is_available_to_opt_in_ui_diagnostic(self):
+        for diagnostic in (False, True):
+            with (
+                self.subTest(diagnostic=diagnostic),
+                patch.object(
+                    server, "_wait_for_schedule", return_value={"ready": False, "captcha": False}
+                ),
+                patch.object(server, "_capture_failure_ui", return_value=None) as capture,
+            ):
+                result = server.scrape_available_slots("dsh", 2, source_evidence=diagnostic)
+                self.assertEqual(capture.call_count, int(diagnostic))
+                self.assertEqual(result["error"], "schedule_not_ready")
+                self.assertFalse(result["captcha"])
+                self.assertEqual(result["days"], [])
+
     def test_baoti_complete_verified_groups_and_shanghai_dates(self) -> None:
         self.install_payloads(
             sum((self.group_payloads(key=key) for key in ("outdoor", "indoor", "windrain")), [])
@@ -1042,6 +1057,27 @@ class PiDriverLifecycleTest(unittest.TestCase):
                 server._cleanup_stale_browser()
             self.assertEqual(marker.read_bytes(), b"offline-test-session")
             self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
+
+    def test_service_recreates_marked_root_after_temporary_storage_loss(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
+            profile = Path(directory) / "new-service-profile"
+            product = profile / "baoti-windrain"
+            with (
+                patch.object(server, "PROFILE", profile),
+                patch.object(server.subprocess, "run"),
+                patch.object(server.time, "sleep"),
+            ):
+                server._cleanup_stale_browser(product)
+                marker = profile / ".pi-ydmap-profile"
+                self.assertEqual(marker.read_bytes(), b"pi-ydmap-service-profile-v2\n")
+                self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+                cache = product / "Cookies"
+                cache.write_bytes(b"offline-test-session")
+                marker_before = marker.stat().st_mtime_ns
+                server._cleanup_stale_browser(product)
+                self.assertEqual(marker.stat().st_mtime_ns, marker_before)
+                self.assertEqual(cache.read_bytes(), b"offline-test-session")
+                self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
 
     def test_product_profile_cannot_escape_service_directory(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
