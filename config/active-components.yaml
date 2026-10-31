@@ -1012,7 +1012,8 @@ active_services:
     runtime_owner: pi_device_host
     external_services: [cloudflare_access, cloudflare_tunnel, appium, adb]
     invariants:
-      - loopback_origin_and_machine_authenticated_public_mcp
+      - loopback_origin_and_owner_oauth_or_dedicated_machine_authenticated_public_mcp
+      - owner_only_cloudflare_login_and_bounded_oauth_refresh_grant
       - whole_session_shared_device_flock
       - explicit_owned_session_ids_only
       - no_foreign_session_override

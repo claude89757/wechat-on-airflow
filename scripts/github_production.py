@@ -122,8 +122,8 @@ def main() -> None:
         operation = "apply" if args.apply else "dry_run"
     if args.component == "pi_mcp" and operation == "deploy":
         operation = "apply" if args.apply else "preflight"
-    if args.component == "pi_mcp" and operation == "domain":
-        operation = "domain_apply" if args.apply else "domain_preflight"
+    if args.component == "pi_mcp" and operation in {"domain", "oauth"}:
+        operation = operation + ("_apply" if args.apply else "_preflight")
     allowed = {
         "pi_mcp": {
             "preflight",
@@ -133,6 +133,8 @@ def main() -> None:
             "rollback",
             "domain_preflight",
             "domain_apply",
+            "oauth_preflight",
+            "oauth_apply",
         },
         "airflow": {
             "health",
@@ -168,13 +170,13 @@ def main() -> None:
         raise OpsError("--confirm-real-send is only valid for wechat_delivery_probe")
     if args.target_membership and operation != "wechat_delivery_probe":
         raise OpsError("--target-membership is only valid for wechat_delivery_probe")
-    if operation in {"domain_preflight", "domain_apply"} and not args.runtime_commit:
-        raise OpsError("domain operations require --runtime-commit")
+    edge_operations = {"domain_preflight", "domain_apply", "oauth_preflight", "oauth_apply"}
+    if operation in edge_operations and not args.runtime_commit:
+        raise OpsError("edge operations require --runtime-commit")
     if args.runtime_commit and (
-        args.component != "pi_mcp"
-        or operation not in {"health", "domain_preflight", "domain_apply"}
+        args.component != "pi_mcp" or operation not in {"health", *edge_operations}
     ):
-        raise OpsError("runtime override is only valid for Pi MCP health/domain operations")
+        raise OpsError("runtime override is only valid for Pi MCP health/edge operations")
     runtime = (
         run(["git", "rev-parse", "--verify", f"{args.runtime_commit}^{{commit}}"]).stdout.strip()
         if args.runtime_commit

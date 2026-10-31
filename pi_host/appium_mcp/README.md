@@ -3,7 +3,8 @@
 An isolated deployment of `appium-mcp` 1.99.1, using the existing Pi Appium
 servers and the shared `/run/wechat-device` ownership contract. The service
 binds to `127.0.0.1:3333/mcp`. Public traffic goes through a dedicated Cloudflare
-Tunnel and an Access application allowing one dedicated machine service token.
+Tunnel and an Access application allowing owner-only managed OAuth and one
+dedicated machine service token for protected automation.
 The connector also validates the Access JWT audience. Appium itself is not
 published by this service.
 
@@ -20,7 +21,36 @@ Connect a Streamable HTTP MCP client to:
 https://appium-mcp.zacks.vision/mcp
 ```
 
-Configure these headers from the client's secret store:
+Select OAuth in the client's remote MCP configuration, enter the URL, and
+complete the Cloudflare login/consent prompt. Only the pinned owner's identity
+through the existing Cloudflare login provider is allowed; being another member
+of the Cloudflare account does not grant phone access. This is a separate,
+application-scoped authorization, not reuse of the Cloudflare management plugin's
+token. Existing Cloudflare browser login can simplify the first login.
+
+For a Codex CLI version supporting remote MCP OAuth:
+
+```text
+codex mcp add pi-appium --url https://appium-mcp.zacks.vision/mcp
+codex mcp login pi-appium
+```
+
+No custom authentication headers or manually copied tokens are needed. Access
+tokens expire after 15 minutes; capable clients refresh silently for a grant of
+up to seven days. Grant expiry requires another interactive login. A headless
+agent must have an initial authorization flow and protected token storage; this
+is not permanent unattended access. Managed OAuth is currently a Cloudflare Beta.
+Clients must support OAuth discovery, resource indicators, DCR, PKCE S256 and
+refresh tokens. Supported redirects are loopback/localhost (Codex desktop/CLI)
+and the documented ChatGPT connector callbacks, not arbitrary HTTPS domains.
+Use the callback displayed by the actual client; do not disable callback checks
+for an unsupported platform.
+
+### Protected machine automation
+
+Existing GitHub health checks retain the dedicated service token. Only an
+administrator integrating a non-OAuth trusted client needs these headers,
+supplied from that client's secret store:
 
 ```text
 CF-Access-Client-Id: <dedicated-client-id>
@@ -28,9 +58,10 @@ CF-Access-Client-Secret: <dedicated-client-secret>
 ```
 
 The dedicated token does not authorize other Access applications. Never put
-its values in source, tool arguments, chat, build artifacts, or logs. OAuth is
-a future alternative for interactive clients that cannot set custom headers;
-the service-token deployment is for a trusted autonomous agent.
+its values in source, tool arguments, chat, build artifacts, or logs. Enabling
+OAuth does not rotate, export or replace this token.
+
+### Phone control
 
 1. Call `phone_devices` to obtain configured aliases and online status.
 2. Call `appium_session_management` with `action=create` and `device=phone_1`.
@@ -153,6 +184,40 @@ make pi-mcp-domain RUNTIME_COMMIT=<runtime-sha> DEPLOY_ARGS="--target-commit <op
 make pi-mcp-domain RUNTIME_COMMIT=<runtime-sha> DEPLOY_ARGS="--apply --target-commit <operations-sha>"
 make pi-mcp-health TARGET_COMMIT=<operations-sha> RUNTIME_COMMIT=<runtime-sha>
 ```
+
+### OAuth-only changes
+
+Use protected `oauth_preflight` / `oauth_apply`, preserving the exact installed
+runtime as for domain-only changes:
+
+```text
+make pi-mcp-oauth RUNTIME_COMMIT=<runtime-sha> DEPLOY_ARGS="--target-commit <operations-sha>"
+make pi-mcp-oauth RUNTIME_COMMIT=<runtime-sha> DEPLOY_ARGS="--apply --target-commit <operations-sha>"
+make pi-mcp-health TARGET_COMMIT=<operations-sha> RUNTIME_COMMIT=<runtime-sha>
+```
+
+The runner resolves the pinned Cloudflare user ID through `/user` or accepted
+account membership without logging identity data. The deployment token needs
+User Details Read for that owner or Account Settings Read for membership lookup,
+in addition to existing Access permissions. Missing permission fails preflight
+before any configuration write. Do not fall back to Everyone, account-wide
+membership, a different email, or a different login method.
+
+Apply preserves the application audience, dedicated service policy/token,
+Tunnel and DNS. It adds exactly one owner Allow policy with the pinned Cloudflare
+login-method requirement and bounded OAuth/DCR settings. Failure restores and
+verifies the captured application/policies. Host service start identities must
+remain unchanged. Acceptance checks anonymous, invalid machine credentials and
+invalid Bearer denial, owner policy, discovery, PKCE advertisement and the existing
+authenticated read-only MCP probe. These do not prove a user completed OAuth:
+reports explicitly retain `oauthLoginVerified: false` until a real client login
+and read-only MCP call have been separately verified. No synthetic notification
+or phone session is necessary. Only the owner's client stores its resulting
+OAuth tokens; never place them in CI logs or artifacts.
+
+References: [Cloudflare managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/),
+[Codex MCP](https://learn.chatgpt.com/docs/extend/mcp),
+[ChatGPT OAuth callbacks](https://developers.openai.com/plugins/build/auth#redirect-url).
 
 ### Application Lifecycle
 

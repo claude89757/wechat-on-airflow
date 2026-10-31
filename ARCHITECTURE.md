@@ -135,8 +135,12 @@ the final device-side idempotency boundary.
 
 An independent trusted-agent control endpoint is specified in
 [ADR 0015](docs/adr/0015-pi-appium-mcp.md). It uses dedicated Cloudflare
-Access machine credentials and a separate Tunnel to a loopback-only Pi MCP
-process. It shares whole-phone locks with the Sender and device agent; it is
+Access owner-only managed OAuth for interactive agents, a dedicated machine
+credential for protected automation, and a separate Tunnel to a loopback-only
+Pi MCP process. OAuth uses the existing Cloudflare login provider, bounded
+refresh grants and restricted callbacks, not a reused management token or an
+account-wide phone-control policy. The connector validates the Access assertion
+for both paths. It shares whole-phone locks with the Sender and device agent; it is
 not part of the venue delivery pipeline and cannot attach to their Appium
 sessions. Existing Appium 2 services are reused, not upgraded. This boundary
 does not secure legacy public Appium routes automatically; those require a

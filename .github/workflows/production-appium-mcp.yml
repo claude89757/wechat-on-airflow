@@ -9,10 +9,10 @@ on:
         type: string
       operation:
         type: choice
-        options: [preflight, apply, health, withdraw, rollback, domain_preflight, domain_apply]
+        options: [preflight, apply, health, withdraw, rollback, domain_preflight, domain_apply, oauth_preflight, oauth_apply]
         default: preflight
       runtime_commit:
-        description: Existing full runtime SHA for domain-only operations or health
+        description: Existing full runtime SHA for edge-only operations or health
         type: string
         default: ''
       request_id:
@@ -77,7 +77,7 @@ jobs:
       - name: Install SSH dependency
         run: python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
       - name: Install public health probe dependencies
-        if: inputs.operation == 'health' || inputs.operation == 'domain_preflight' || inputs.operation == 'domain_apply'
+        if: inputs.operation == 'health' || startsWith(inputs.operation, 'domain_') || startsWith(inputs.operation, 'oauth_')
         working-directory: pi_host/appium_mcp
         run: npm ci --ignore-scripts --omit=optional --no-audit --no-fund
       - name: Run protected Pi operation
