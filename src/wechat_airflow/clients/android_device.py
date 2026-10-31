@@ -10,6 +10,8 @@ import time
 
 import paramiko
 
+from wechat_airflow.clients.cloudflare import CloudflareProxy, ssh_proxy
+
 LOGGER = logging.getLogger(__name__)
 SSH_TIMEOUT_SECONDS = 30
 
@@ -67,13 +69,18 @@ def exec_cmd_by_ssh_with_status(
     password: str,
     host_key_sha256: str,
     cmd: str,
+    *,
+    transport: str = "direct",
 ) -> tuple[str | None, str | None, int | None]:
     """Execute one bounded command on the Android host."""
     ssh: paramiko.SSHClient | None = None
+    proxy: CloudflareProxy | None = None
     try:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(host_key_sha256))
+        proxy = ssh_proxy(host, transport)
         ssh.connect(
+            sock=proxy,
             hostname=host,
             port=port,
             username=username,
@@ -96,8 +103,12 @@ def exec_cmd_by_ssh_with_status(
         LOGGER.exception("android_host_ssh_failed host=%s port=%s", host, port)
         return None, str(exc), None
     finally:
-        if ssh is not None:
-            ssh.close()
+        try:
+            if ssh is not None:
+                ssh.close()
+        finally:
+            if proxy is not None:
+                proxy.close()
 
 
 def exec_cmd_by_ssh(
@@ -107,6 +118,8 @@ def exec_cmd_by_ssh(
     password: str,
     host_key_sha256: str,
     cmd: str,
+    *,
+    transport: str = "direct",
 ) -> tuple[str | None, str | None]:
     output, error, _ = exec_cmd_by_ssh_with_status(
         host,
@@ -115,6 +128,7 @@ def exec_cmd_by_ssh(
         password,
         host_key_sha256,
         cmd,
+        transport=transport,
     )
     return output, error
 
@@ -141,6 +155,8 @@ def get_device_id_by_adb(
     username: str,
     password: str,
     host_key_sha256: str,
+    *,
+    transport: str = "direct",
 ) -> list[str]:
     """Return online adb device serials from the remote Android host."""
     output, _ = exec_cmd_by_ssh(
@@ -150,6 +166,7 @@ def get_device_id_by_adb(
         password,
         host_key_sha256,
         build_login_shell_adb_command("devices"),
+        transport=transport,
     )
     if not output:
         return []
@@ -175,6 +192,8 @@ def reboot_device_via_ssh_adb(
     device_serial: str,
     host_key_sha256: str,
     port: int = 22,
+    *,
+    transport: str = "direct",
 ) -> bool:
     """Request an Android reboot through adb on the remote host."""
     output, error, exit_status = exec_cmd_by_ssh_with_status(
@@ -184,6 +203,7 @@ def reboot_device_via_ssh_adb(
         password,
         host_key_sha256,
         build_login_shell_adb_command(f"-s {device_serial} reboot"),
+        transport=transport,
     )
     if exit_status != 0:
         LOGGER.error(
@@ -210,6 +230,8 @@ def is_device_online_via_ssh_adb(
     device_serial: str,
     host_key_sha256: str,
     port: int = 22,
+    *,
+    transport: str = "direct",
 ) -> bool:
     output, error, exit_status = exec_cmd_by_ssh_with_status(
         device_ip,
@@ -218,6 +240,7 @@ def is_device_online_via_ssh_adb(
         password,
         host_key_sha256,
         build_login_shell_adb_command("devices"),
+        transport=transport,
     )
     if exit_status != 0 or output is None:
         LOGGER.warning(
@@ -239,6 +262,8 @@ def wait_for_device_boot_completed(
     port: int = 22,
     timeout: int = 300,
     interval: int = 10,
+    *,
+    transport: str = "direct",
 ) -> bool:
     """Wait until adb reports the target online and Android reports boot complete."""
     deadline = time.monotonic() + timeout
@@ -254,6 +279,7 @@ def wait_for_device_boot_completed(
             device_serial,
             host_key_sha256,
             port=port,
+            transport=transport,
         ):
             time.sleep(interval)
             continue
@@ -265,6 +291,7 @@ def wait_for_device_boot_completed(
             password,
             host_key_sha256,
             boot_command,
+            transport=transport,
         )
         if exit_status == 0 and output is not None and is_boot_completed_output(output):
             LOGGER.info("android_boot_completed device=%s", device_serial)
