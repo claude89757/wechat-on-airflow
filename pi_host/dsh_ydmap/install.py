@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import math
 import os
 import pwd
 import re
@@ -33,6 +34,82 @@ OTHER_UNITS = (
 )
 TEST_NAMES = ("pi_baoti_scraper_test.py", "pi_ydmap_identity_test.py")
 MAX_BYTES = 1_000_000
+MAX_SOURCE_EVIDENCE_BYTES = 128 * 1024
+RENDERER_METHODS = {
+    "textFun",
+    "isNoBook",
+    "classObj",
+    "closeMsg",
+    "sellerMessage",
+    "isTicketDisabled",
+}
+SOURCE_CLASSES = {
+    "col-inprocess",
+    "col-completed",
+    "col-locked",
+    "col-scheduled",
+    "orderNoBook",
+    "expired",
+    "noOpen",
+    "disabled",
+    "not-open",
+    "col-fight-ing",
+    "col-fight-request",
+    "col-fight-respond",
+    "fight-request",
+    "fight-request-ing",
+    "fight-respond",
+    "col-max-ball",
+    "col-ball",
+    "selected",
+}
+SOURCE_LITERAL_ALLOWLIST = SOURCE_CLASSES | {
+    "",
+    " ",
+    "/",
+    "-",
+    ":",
+    "(",
+    ")",
+    "元",
+    "分钟",
+    "免费",
+    "预订中",
+    "已预订",
+    "已过期",
+    "已占用",
+    "约战中",
+    "已约战",
+    "已应战",
+    "未开放",
+    "不可预约",
+    "已售罄",
+    "剩余",
+    "可约",
+    "undefined",
+    "object",
+    "function",
+    "string",
+    "number",
+    "boolean",
+    "length",
+    "row",
+    "price",
+    "platformInfo",
+    "venueName",
+    "orderInfo",
+    "className",
+    "onlineBooking",
+    "salesItemId",
+    "open",
+    "closed",
+    "enabled",
+    "disabled",
+    "[redacted]",
+    "[redacted template]",
+    "[redacted regex]",
+}
+SOURCE_STRING = re.compile(r'"(?:[^"\\\r\n]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"')
 PUBLIC_TEXT = re.compile(r"[\w\u3400-\u9fff ·.()（）-]{1,120}")
 MARKER = "# Managed Pi YDMap release\n"
 DAG_IDS = ("大沙河国际网球中心巡检", "宝安网球中心巡检")
@@ -170,6 +247,322 @@ def safe_source_diagnostic(value: object) -> dict:
             if type(versions.get(key)) is int and 0 <= versions[key] <= 1_000_000
         }
     return result
+
+
+def _bounded_int(value: object, maximum: int = 1_000_000) -> bool:
+    return type(value) is int and 0 <= value <= maximum
+
+
+def _public_clock(value: object, *, end: bool = False) -> bool:
+    return isinstance(value, str) and (
+        bool(re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value)) or (end and value == "24:00")
+    )
+
+
+def _safe_renderer_source(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        if len(value.encode("utf-8")) > 4096:
+            return False
+        for literal in SOURCE_STRING.findall(value):
+            decoded = json.loads(literal)
+            if decoded not in SOURCE_LITERAL_ALLOWLIST and not re.fullmatch(r"\d{1,3}", decoded):
+                return False
+    except (ValueError, UnicodeError):
+        return False
+    outside = SOURCE_STRING.sub("", value)
+    return not (
+        any(marker in outside for marker in ("'", '"', "`", "//", "/*", "*/"))
+        or re.search(
+            r"[\x00-\x08\x0b\x0c\x0e-\x1f]|[0-9]{7,}|[A-Za-z_$][A-Za-z0-9_$]{64,}", outside
+        )
+        or any(
+            len(number) > 6
+            for number in re.findall(
+                r"(?<![\w$])(?:0[xX][0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)", outside
+            )
+        )
+    )
+
+
+def safe_source_evidence(value: object, *, cell_count: int) -> dict | None:
+    try:
+        return _parse_source_evidence(value, cell_count=cell_count)
+    except (TypeError, ValueError, UnicodeError, OverflowError):
+        return None
+
+
+def _parse_source_evidence(value: object, *, cell_count: int) -> dict | None:
+    """Keep diagnostic facts only; this never certifies booking classification."""
+    if (
+        not isinstance(value, dict)
+        or type(value.get("schema_version")) is not int
+        or value["schema_version"] != 1
+        or value.get("bookability_verified") is not False
+    ):
+        return None
+    counts = ("source_cell_count", "matched_cell_count", "unmatched_cell_count")
+    flags = ("coverage_complete", "component_scan_truncated", "source_truncated")
+    if any(not _bounded_int(value.get(key), 100000) for key in counts) or any(
+        type(value.get(key)) is not bool for key in flags
+    ):
+        return None
+    if (
+        value["source_cell_count"] != cell_count
+        or value["matched_cell_count"] + value["unmatched_cell_count"] != cell_count
+        or (
+            value["coverage_complete"]
+            and (value["unmatched_cell_count"] or value["component_scan_truncated"])
+        )
+    ):
+        return None
+    components, methods, samples = (value.get(key) for key in ("components", "methods", "samples"))
+    if (
+        not isinstance(components, list)
+        or len(components) > 16
+        or not isinstance(methods, list)
+        or len(methods) > 24
+        or not isinstance(samples, list)
+        or len(samples) > 2
+    ):
+        return None
+    safe_components, indices = [], set()
+    for component in components:
+        if (
+            not isinstance(component, dict)
+            or not _bounded_int(component.get("index"), 15)
+            or component["index"] in indices
+            or not _bounded_int(component.get("matched_cell_count"), cell_count)
+        ):
+            return None
+        name = component.get("name")
+        present = component.get("methods")
+        if name is not None and (
+            not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", name)
+        ):
+            return None
+        if not isinstance(present, dict) or any(
+            type(present.get(key)) is not bool for key in RENDERER_METHODS
+        ):
+            return None
+        indices.add(component["index"])
+        safe_components.append(
+            {
+                "index": component["index"],
+                "name": name,
+                "matched_cell_count": component["matched_cell_count"],
+                "methods": {key: present[key] for key in sorted(RENDERER_METHODS)},
+            }
+        )
+    safe_methods = []
+    for method in methods:
+        if (
+            not isinstance(method, dict)
+            or method.get("name") not in RENDERER_METHODS
+            or method.get("kind") not in {"method", "computed"}
+        ):
+            return None
+        refs, source, sha = (method.get(key) for key in ("component_indices", "source", "sha256"))
+        if (
+            not isinstance(refs, list)
+            or not 1 <= len(refs) <= 16
+            or any(type(ref) is not int or ref not in indices for ref in refs)
+            or len(set(refs)) != len(refs)
+        ):
+            return None
+        if (
+            not isinstance(sha, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", sha)
+            or not _safe_renderer_source(source)
+        ):
+            return None
+        if (
+            any(type(method.get(key)) is not bool for key in ("truncated", "redacted", "reused"))
+            or not _bounded_int(method.get("original_bytes"))
+            or not _bounded_int(method.get("emitted_bytes"), 4096)
+        ):
+            return None
+        if method["emitted_bytes"] != len(source.encode("utf-8")):
+            return None
+        if method["truncated"] and not value["source_truncated"]:
+            return None
+        if method["reused"]:
+            if source or method["emitted_bytes"]:
+                return None
+        elif (not source and not method["truncated"]) or hashlib.sha256(
+            source.encode("utf-8")
+        ).hexdigest() != sha:
+            return None
+        safe_methods.append(
+            {
+                "component_indices": refs,
+                "name": method["name"],
+                "kind": method["kind"],
+                "sha256": sha,
+                "source": source,
+                **{
+                    key: method[key]
+                    for key in (
+                        "original_bytes",
+                        "emitted_bytes",
+                        "truncated",
+                        "redacted",
+                        "reused",
+                    )
+                },
+            }
+        )
+    safe_samples = []
+    sample_flags = (
+        "included",
+        "expired",
+        "order_no_book",
+        "has_order",
+        "has_price",
+        "online_booking_redacted",
+    )
+    for sample in samples:
+        if not isinstance(sample, dict) or any(
+            type(sample.get(key)) is not bool for key in sample_flags
+        ):
+            return None
+        court, start, end, classes = (
+            sample.get(key) for key in ("court", "start", "end", "known_classes")
+        )
+        if (
+            not isinstance(court, str)
+            or not PUBLIC_TEXT.fullmatch(court)
+            or not _public_clock(start)
+            or not _public_clock(end, end=True)
+            or start >= end
+        ):
+            return None
+        if (
+            not isinstance(classes, list)
+            or len(classes) > len(SOURCE_CLASSES)
+            or any(not isinstance(item, str) or item not in SOURCE_CLASSES for item in classes)
+            or len(set(classes)) != len(classes)
+        ):
+            return None
+        online = sample.get("online_booking")
+        online_ok = online is None or type(online) is bool
+        if type(online) in (int, float):
+            online_ok = math.isfinite(online) and abs(online) <= 1000
+        elif isinstance(online, str):
+            online_ok = online.lower() in {"open", "closed", "enabled", "disabled"} and online in {
+                online.lower(),
+                online.upper(),
+                online.title(),
+            }
+            online_ok = (
+                online_ok
+                or online in {"开放", "关闭", "开启", "不开放"}
+                or bool(re.fullmatch(r"-?\d{1,3}(?:\.\d{1,3})?", online))
+            )
+        if not online_ok:
+            return None
+        safe_samples.append(
+            {
+                "court": court,
+                "start": start,
+                "end": end,
+                "known_classes": classes,
+                "online_booking": online,
+                **{key: sample[key] for key in sample_flags},
+            }
+        )
+    return {
+        "schema_version": 1,
+        "bookability_verified": False,
+        **{key: value[key] for key in (*counts, *flags)},
+        "components": safe_components,
+        "methods": safe_methods,
+        "samples": safe_samples,
+    }
+
+
+def limit_source_evidence(inspections: list[dict]) -> tuple[bool, bool]:
+    """Bound optional diagnostics without changing any verified identity record."""
+    budget = MAX_SOURCE_EVIDENCE_BYTES
+    truncated = any(report.get("sourceEvidenceTruncated") is True for report in inspections)
+    rejected = any(report.get("sourceEvidenceRejected") is True for report in inspections)
+    entries = []
+    for report in inspections:
+        for day in report["days"]:
+            for group in day["groups"]:
+                if "source_evidence" not in group:
+                    continue
+                evidence = group["source_evidence"]
+                truncated = (
+                    truncated
+                    or evidence["source_truncated"]
+                    or evidence["component_scan_truncated"]
+                )
+                size = len(json.dumps(evidence, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+                if size > budget:
+                    del group["source_evidence"]
+                    truncated = True
+                    continue
+                budget -= size
+                entries.append(group)
+    # Source may appear in a later date because the scraper refreshes tomorrow
+    # before today. Resolve references after reading the whole bounded result.
+    changed = True
+    while changed:
+        changed = False
+        available = {
+            (method["name"], method["sha256"])
+            for group in entries
+            if "source_evidence" in group
+            for method in group["source_evidence"]["methods"]
+            if not method["reused"]
+        }
+        for group in entries:
+            evidence = group.get("source_evidence")
+            if evidence is not None and any(
+                method["reused"] and (method["name"], method["sha256"]) not in available
+                for method in evidence["methods"]
+            ):
+                del group["source_evidence"]
+                rejected = True
+                changed = True
+    return truncated, rejected
+
+
+def encode_report(report: dict, *, source_evidence: bool = False) -> str:
+    """Validate both success/failure evidence and enforce the whole JSON budget."""
+    bounded = dict(report)
+    if not source_evidence:
+        bounded.pop("sourceEvidenceTruncated", None)
+        bounded.pop("sourceEvidenceRejected", None)
+    if "inspections" in bounded:
+        bounded["inspections"] = safe_inspections(
+            bounded["inspections"], source_evidence=source_evidence
+        )
+        if source_evidence:
+            truncated, rejected = limit_source_evidence(bounded["inspections"])
+            bounded["sourceEvidenceTruncated"] = (
+                truncated or bounded.get("sourceEvidenceTruncated") is True
+            )
+            bounded["sourceEvidenceRejected"] = (
+                rejected or bounded.get("sourceEvidenceRejected") is True
+            )
+    encoded = json.dumps(bounded, ensure_ascii=False, sort_keys=True)
+    if len(encoded.encode("utf-8")) + 1 >= MAX_BYTES:
+        encoded = json.dumps(
+            {
+                "ok": False,
+                "operationComplete": bounded.get("operationComplete") is True,
+                "failure": "report_too_large",
+                "applied": bounded.get("applied") is True,
+                "rollbackVerified": bounded.get("rollbackVerified") is True,
+                "externalTestSends": 0,
+                "sourceEvidenceTruncated": True,
+            },
+            sort_keys=True,
+        )
+    return encoded
 
 
 @contextlib.contextmanager
@@ -358,7 +751,9 @@ def validate_slots(courts: object, known_names: set[str]) -> tuple[int, int]:
     return len(courts), total
 
 
-def inspect_evidence(payload: dict, venue: str, expected_dates: list[str]) -> dict:
+def inspect_evidence(
+    payload: dict, venue: str, expected_dates: list[str], *, source_evidence: bool = False
+) -> dict:
     if (
         payload.get("ok") is not True
         or payload.get("captcha") is not False
@@ -378,6 +773,7 @@ def inspect_evidence(payload: dict, venue: str, expected_dates: list[str]) -> di
     if [day.get("date") for day in days if isinstance(day, dict)] != expected_dates:
         raise OperationFailure("date_identity_mismatch")
     report_days = []
+    rejected_source = False
     for day in days:
         groups = day.get("groups")
         if not isinstance(groups, list) or len(groups) != len(expected_products):
@@ -438,6 +834,12 @@ def inspect_evidence(payload: dict, venue: str, expected_dates: list[str]) -> di
                 "data_version": {key: versions[key] for key in ("platforms", "orders")},
                 "freshness": freshness,
             }
+            if source_evidence and "source_evidence" in group:
+                optional = safe_source_evidence(group["source_evidence"], cell_count=count)
+                if optional is None:
+                    rejected_source = True
+                else:
+                    entry["source_evidence"] = optional
             known_names.update(entry["court_names"])
             safe_groups.append(entry)
         courts = day.get("courts")
@@ -450,10 +852,15 @@ def inspect_evidence(payload: dict, venue: str, expected_dates: list[str]) -> di
                 "slotCount": slot_count,
             }
         )
-    return {"venue": venue, "verified": True, "days": report_days}
+    report = {"venue": venue, "verified": True, "days": report_days}
+    if source_evidence:
+        truncated, unresolved = limit_source_evidence([report])
+        report["sourceEvidenceTruncated"] = truncated
+        report["sourceEvidenceRejected"] = rejected_source or unresolved
+    return report
 
 
-def safe_inspections(value: object) -> list[dict]:
+def safe_inspections(value: object, *, source_evidence: bool = False) -> list[dict]:
     if not isinstance(value, list) or len(value) > 2:
         return []
     result = []
@@ -477,7 +884,12 @@ def safe_inspections(value: object) -> list[dict]:
                     {"date": day["date"], "groups": day["groups"], "courts": {}} for day in days
                 ],
             }
-            safe = inspect_evidence(raw, report["venue"], [day["date"] for day in days])
+            safe = inspect_evidence(
+                raw, report["venue"], [day["date"] for day in days], source_evidence=source_evidence
+            )
+            if source_evidence:
+                for key in ("sourceEvidenceTruncated", "sourceEvidenceRejected"):
+                    safe[key] = safe.get(key) is True or report.get(key) is True
             for source, target in zip(days, safe["days"], strict=True):
                 for key, maximum in (("availableCourtCount", 100), ("slotCount", 100000)):
                     count = source.get(key)
@@ -490,15 +902,22 @@ def safe_inspections(value: object) -> list[dict]:
     return result
 
 
-def inspect_venues(port: int, *, at: datetime | None = None) -> list[dict]:
+def inspect_venues(
+    port: int, *, at: datetime | None = None, source_evidence: bool = False
+) -> list[dict]:
     reports = []
     local = at or datetime.now(ZoneInfo("Asia/Shanghai"))
     for venue, days, timeout in (("dsh", 5 if local.hour >= 12 else 4, 150), ("baoti", 2, 240)):
         today = local.date()
         expected = [(today + timedelta(days=offset)).isoformat() for offset in range(days)]
         try:
-            payload = request_json(port, f"/inspect?venue={venue}&days={days}", timeout=timeout)
-            reports.append(inspect_evidence(payload, venue, expected))
+            path = f"/inspect?venue={venue}&days={days}"
+            if source_evidence:
+                path += "&evidence=source-v1"
+            payload = request_json(port, path, timeout=timeout)
+            reports.append(
+                inspect_evidence(payload, venue, expected, source_evidence=source_evidence)
+            )
         except OperationFailure as exc:
             exc.venue = venue
             exc.inspections = reports
@@ -849,7 +1268,11 @@ def operate(args) -> dict:
         candidate = prepare_candidate(args.staging, args.commit, args.source_sha256, account)
         with isolated_candidate(candidate, account, args.commit) as port:
             health = verify_health(request_json(port, "/healthz"), args.commit, args.source_sha256)
-            evidence = inspect_venues(port)
+            evidence = (
+                inspect_venues(port, source_evidence=True)
+                if args.operation == "preflight"
+                else inspect_venues(port)
+            )
         if before != other_service_identities():
             raise OperationFailure("unrelated_service_changed")
         report = {
@@ -896,15 +1319,15 @@ def main() -> int:
         if args.operation in {"preflight", "apply"} and not args.staging:
             raise OperationFailure("staging_required")
         args.drain_proof = json.load(sys.stdin) if args.operation == "apply" else None
-        print(
-            json.dumps(
-                {**operate(args), "operationComplete": True}, ensure_ascii=False, sort_keys=True
-            )
+        encoded = encode_report(
+            {**operate(args), "operationComplete": True},
+            source_evidence=args.operation == "preflight",
         )
-        return 0
+        print(encoded)
+        return 0 if json.loads(encoded).get("ok") is True else 1
     except Exception as exc:
         print(
-            json.dumps(
+            encode_report(
                 {
                     "ok": False,
                     "operationComplete": True,
@@ -928,7 +1351,7 @@ def main() -> int:
                     else {},
                     "externalTestSends": 0,
                 },
-                ensure_ascii=False,
+                source_evidence=args.operation == "preflight",
             )
         )
         return 1

@@ -60,6 +60,7 @@ FAILURES = {
     "operation_deadline",
     "operation_interrupted",
     "source_identity_mismatch",
+    "report_too_large",
 }
 
 HOST_GUARD_LAUNCH = r"""
@@ -260,7 +261,14 @@ class PinnedHostKey(paramiko.MissingHostKeyPolicy):
             raise paramiko.SSHException("host_key_mismatch")
 
 
-def remote(client, command: str, *, payload: dict | None = None, timeout: int = 900) -> dict:
+def remote(
+    client,
+    command: str,
+    *,
+    payload: dict | None = None,
+    timeout: int = 900,
+    source_evidence: bool = False,
+) -> dict:
     stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
     if payload is not None:
         stdin.write(json.dumps(payload, ensure_ascii=False))
@@ -296,20 +304,24 @@ def remote(client, command: str, *, payload: dict | None = None, timeout: int = 
             and all(type(value) is bool for value in diagnostic.values())
             else None
         )
-        return {
+        report = {
             "ok": False,
             "failure": report.get("failure")
             if report.get("failure") in FAILURES
             else "operation_failed",
             "rollbackVerified": report.get("rollbackVerified") is True,
             "venue": report.get("venue") if report.get("venue") in {"dsh", "baoti"} else None,
-            "inspections": CONTRACT.safe_inspections(report.get("inspections", [])),
+            "inspections": CONTRACT.safe_inspections(
+                report.get("inspections", []), source_evidence=source_evidence
+            ),
+            "sourceEvidenceTruncated": report.get("sourceEvidenceTruncated") is True,
+            "sourceEvidenceRejected": report.get("sourceEvidenceRejected") is True,
             "serviceDiagnostic": safe_diagnostic,
             "sourceFailure": CONTRACT.safe_source_failure(report.get("sourceFailure")),
             "sourceDiagnostic": CONTRACT.safe_source_diagnostic(report.get("sourceDiagnostic")),
             "externalTestSends": 0,
         }
-    return report
+    return json.loads(CONTRACT.encode_report(report, source_evidence=source_evidence))
 
 
 def verify_checkout(commit: str) -> str:
@@ -389,10 +401,11 @@ def main() -> int:
         report = (
             apply_with_guard(client, command, commit)
             if operation == "apply"
-            else remote(client, command, timeout=1100)
+            else remote(client, command, timeout=1100, source_evidence=operation == "preflight")
         )
-        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-        return 0 if report.get("ok") is True else 1
+        encoded = CONTRACT.encode_report(report, source_evidence=operation == "preflight")
+        print(encoded)
+        return 0 if json.loads(encoded).get("ok") is True else 1
     except Exception as exc:
         print(
             json.dumps(

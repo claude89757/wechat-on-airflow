@@ -13,6 +13,10 @@ and operational changes.
 - Add protected exact-commit Pi scraper preflight, deployment, health and
   inspection operations. Validate an isolated candidate against real Dashah
   and Bao'an pages before activation, with source identity and rollback checks.
+- Collect bounded, read-only booking-renderer definitions and public cell
+  samples only during candidate preflight. Record coverage and redaction
+  explicitly; source identity or diagnostic collection alone does not certify
+  bookability.
 
 ### Fixed
 
@@ -27,6 +31,8 @@ and operational changes.
 - Handle midnight interval endings and booking dates across New Year.
 - Serialize Dashah and Bao'an tasks in a single-slot Airflow pool so simultaneous
   schedules cannot compete for the shared Chromium scraper.
+- Start the keyboard-dismiss regression gesture on settled, noninteractive
+  footer padding so it tests the intended gesture instead of an input click.
 
 ### Operations
 
