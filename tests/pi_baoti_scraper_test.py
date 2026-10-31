@@ -219,23 +219,18 @@ class Clock:
 
 
 class FakeElement:
-    def __init__(self, driver: FakeDriver, target: str, *, product: bool = False) -> None:
+    def __init__(self, driver: FakeDriver, target: str) -> None:
         self.driver = driver
         self.target = target
-        self.product = product
 
     def click(self) -> None:
-        (self.driver.products if self.product else self.driver.clicked).append(self.target)
-        if self.product:
-            self.driver.product_click_times.append(server.time.monotonic())
+        self.driver.clicked.append(self.target)
 
 
 class FakeDriver:
     def __init__(self) -> None:
         self.visited: list[str] = []
         self.clicked: list[str] = []
-        self.products: list[str] = []
-        self.product_click_times: list[float] = []
 
     def get(self, url: str) -> None:
         self.visited.append(url)
@@ -244,8 +239,6 @@ class FakeDriver:
         pass
 
     def execute_script(self, script: str, argument: str) -> FakeElement:
-        if script == server.FIND_PRODUCT_JS:
-            return FakeElement(self, argument, product=True)
         if script != server.FIND_DATE_JS:
             raise AssertionError("unexpected browser script")
         return FakeElement(self, argument)
@@ -306,15 +299,25 @@ class PiBaotiScraperTest(unittest.TestCase):
     def setUp(self) -> None:
         self.clock = Clock()
         self.driver = FakeDriver()
+        self.browser_starts: list[tuple[str, Path, float]] = []
+        self.browser_events: list[str] = []
+
+        def start(url, *, profile):
+            self.browser_events.append("start")
+            self.browser_starts.append((url, profile, self.clock.value))
+            return object()
+
         contexts = [
             patch.object(server, "datetime", FixedDatetime),
             patch.object(server.time, "monotonic", self.clock.monotonic),
             patch.object(server.time, "sleep", self.clock.sleep),
             patch.object(server, "_cleanup_stale_browser"),
-            patch.object(server, "_start_chromium", return_value=object()),
+            patch.object(server, "_start_chromium", side_effect=start),
             patch.object(server, "_wait_devtools"),
             patch.object(server, "_attach", return_value=self.driver),
-            patch.object(server, "_stop"),
+            patch.object(
+                server, "_stop", side_effect=lambda *_: self.browser_events.append("stop")
+            ),
         ]
         for context in contexts:
             context.start()
@@ -354,6 +357,10 @@ class PiBaotiScraperTest(unittest.TestCase):
                 self.install_payloads([{"captcha": True, "ready": False}])
                 result = server.scrape_available_slots("baoti", 2, source_evidence=evidence)
                 self.assertTrue(server._start_chromium.call_args.args[0].endswith("=" + product))
+                self.assertEqual(
+                    server._start_chromium.call_args.kwargs["profile"].name,
+                    "baoti-outdoor" if not evidence else "baoti-windrain",
+                )
                 self.assertEqual(result["diagnostics"]["requestedProduct"], product)
                 self.assertEqual(result["diagnostics"]["failurePhase"], "initial_schedule")
                 self.assertEqual(result["days"], [])
@@ -373,7 +380,7 @@ class PiBaotiScraperTest(unittest.TestCase):
             }
         )
         report = server._browser_environment(driver)
-        self.assertTrue(report["userAgentVersionMatchesBrowser"])
+        self.assertFalse(report["userAgentOverrideEnabled"])
         self.assertFalse(report["driverMajorMatchesBrowser"])
         self.assertEqual(report["driverVersion"], "138.0.1.2")
         self.assertFalse(report["profileResetBeforeScrape"])
@@ -441,12 +448,19 @@ class PiBaotiScraperTest(unittest.TestCase):
                 self.assertTrue(set(group["court_names"]).issubset(day["court_names"]))
         self.assertEqual(self.driver.clicked, ["11-02", "11-01"] * 3)
         self.assertEqual(self.driver.visited, [])
-        self.assertEqual(self.driver.products, ["103224", "111319"])
-        self.assertGreaterEqual(self.driver.product_click_times[0], 130)
-        self.assertGreaterEqual(
-            self.driver.product_click_times[1] - self.driver.product_click_times[0], 30
+        self.assertEqual(
+            [url.rsplit("=", 1)[-1] for url, _, _ in self.browser_starts],
+            ["111317", "103224", "111319"],
         )
-        server._stop.assert_called_once()
+        self.assertEqual(
+            [profile.name for _, profile, _ in self.browser_starts],
+            ["baoti-outdoor", "baoti-indoor", "baoti-windrain"],
+        )
+        self.assertGreaterEqual(self.browser_starts[1][2] - self.browser_starts[0][2], 30)
+        self.assertGreaterEqual(self.browser_starts[2][2] - self.browser_starts[1][2], 30)
+        self.assertEqual(server._attach.call_count, 3)
+        self.assertEqual(server._stop.call_count, 3)
+        self.assertEqual(self.browser_events, ["start", "stop"] * 3)
 
     def test_dsh_preserves_names_and_single_group(self) -> None:
         self.install_payloads(self.group_payloads(venue="dsh"))
@@ -488,8 +502,8 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(result["error"], "captcha")
         self.assertEqual(result["days"], [])
         self.assertEqual(self.driver.visited, [])
-        self.assertEqual(self.driver.products, ["103224"])
-        server._stop.assert_called_once()
+        self.assertEqual(len(self.browser_starts), 2)
+        self.assertEqual(server._stop.call_count, 2)
 
     def test_product_switch_requires_both_new_source_arrays_even_after_remount(self) -> None:
         previous = snapshot(TODAY, 3)
@@ -503,17 +517,24 @@ class PiBaotiScraperTest(unittest.TestCase):
                 server._snapshot_issue(stale, previous=previous, **identity), "source_not_refreshed"
             )
 
-    def test_missing_product_tab_never_falls_back_to_full_navigation(self) -> None:
+    def test_next_product_browser_failure_discards_partial_data(self) -> None:
         self.install_payloads(self.group_payloads())
-        original = self.driver.execute_script
-        self.driver.execute_script = lambda script, arg: (
-            None if script == server.FIND_PRODUCT_JS else original(script, arg)
-        )
+        original = server._start_chromium.side_effect
+
+        def start(url, *, profile):
+            if url.endswith("=103224"):
+                raise TimeoutError("private-detail")
+            return original(url, profile=profile)
+
+        server._start_chromium.side_effect = start
         result = server.scrape_available_slots("baoti", 2)
-        self.assertEqual(result["error"], "product_tab_not_found")
+        self.assertEqual(result["error"], "TimeoutError")
         self.assertEqual(result["days"], [])
         self.assertEqual(result["diagnostics"]["requestedProduct"], "103224")
         self.assertEqual(self.driver.visited, [])
+        self.assertEqual(server._stop.call_count, 1)
+        self.assertEqual(server._start_chromium.call_count, 2)
+        self.assertNotIn("private-detail", str(result))
 
     def test_mid_group_date_failure_discards_all_partial_days(self) -> None:
         initial = snapshot(key="indoor")
@@ -833,6 +854,14 @@ class PiBaotiScraperTest(unittest.TestCase):
 
 
 class PiDriverLifecycleTest(unittest.TestCase):
+    def test_native_browser_launch_uses_fixed_profile_and_no_user_agent_override(self) -> None:
+        profile = Path("/tmp/service-profile/baoti-outdoor")
+        with patch.object(server.subprocess, "Popen") as popen:
+            server._start_chromium(server._baoti_group_url("111317"), profile=profile)
+        command = popen.call_args.args[0]
+        self.assertIn("--user-data-dir=" + str(profile), command)
+        self.assertFalse(any(argument.startswith("--user-agent=") for argument in command))
+
     def test_source_sanitizer_removes_nested_private_literals_and_comments(self) -> None:
         code = """function textFun(e) {
           const a = `private-template ${/}/.test(e) ? `nested-private ${e}` : "private-string"}`;
@@ -922,6 +951,36 @@ class PiDriverLifecycleTest(unittest.TestCase):
                 server._cleanup_stale_browser()
             self.assertEqual(marker.read_bytes(), b"offline-test-session")
             self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
+
+    def test_product_profile_cannot_escape_service_directory(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
+            base = Path(directory) / "service"
+            other = Path(directory) / "other"
+            other.mkdir(mode=0o755)
+            with (
+                patch.object(server, "PROFILE", base),
+                patch.object(server.subprocess, "run") as run,
+            ):
+                with self.assertRaisesRegex(ValueError, "dedicated directory"):
+                    server._cleanup_stale_browser(other)
+                run.assert_not_called()
+            self.assertEqual(other.stat().st_mode & 0o777, 0o755)
+
+    def test_product_profile_rejects_cross_product_symlink(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:
+            base = Path(directory)
+            target = base / "baoti-indoor"
+            target.mkdir(mode=0o755)
+            link = base / "baoti-outdoor"
+            link.symlink_to(target)
+            with (
+                patch.object(server, "PROFILE", base),
+                patch.object(server.subprocess, "run") as run,
+            ):
+                with self.assertRaisesRegex(ValueError, "dedicated directory"):
+                    server._cleanup_stale_browser(link)
+                run.assert_not_called()
+            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
 
     def test_cleanup_rejects_profile_symlink_without_touching_target(self) -> None:
         with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-ydmap-test-") as directory:

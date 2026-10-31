@@ -1030,12 +1030,14 @@ def test_browser_environment_survives_report_filter_without_raw_capabilities():
         "driverVersion": "137.0.7151.119",
         "driverMajorMatchesBrowser": True,
         "userAgentVersionMatchesBrowser": True,
+        "userAgentOverrideEnabled": False,
         "profileResetBeforeScrape": True,
         "userDataDir": "private-profile",
     }
     report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
     assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
     assert report["browserVersion"] == "137.0.7151.119"
+    assert report["userAgentOverrideEnabled"] is False
     assert "private" not in json.dumps(report)
     assert "browserVersion" not in INSTALL.safe_source_diagnostic({"browserVersion": "private"})
 

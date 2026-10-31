@@ -1,6 +1,14 @@
 # Pi YDMap scraper deployment
 
 The Bao'an and Dashah watchers require the same private Pi scraping service.
+Chromium uses its native user agent; the launcher does not hard-code a browser
+version or architecture. Each source product opens its own supported booking URL in a fresh browser/driver
+with a fixed private profile below the service directory (`dsh-main`,
+`baoti-outdoor`, `baoti-indoor`, `baoti-windrain`). Profiles stay with the same
+product across polls. The previous browser closes before the next starts, using
+the same reserved debug port serially. Collection does not click product tabs or
+reuse cross-product Vue/browser state. All products/dates still form one atomic
+venue observation; a failure discards all partial data.
 Baoan product activations are separated by at least 30 seconds from the previous
 product's verified readiness. Date checks consume that interval; only the remaining
 time is waited. This bounds bursts to the product calendar endpoint while retaining
@@ -58,7 +66,7 @@ receive no interaction. It does not remove masks, alter browser trust, inject
 events/tokens, call provider callbacks or retry a failed gesture. Reports retain
 only fixed control/outcome codes and whether a gesture was attempted. A passed
 gesture is not venue acceptance: all date/product/source checks still apply.
-Candidate browser state is retained across that candidate's venue inspections and discarded when the candidate exits; no cookies are
+Each candidate product's browser state is retained within its fixed profile and discarded when the candidate exits; no cookies are
 exported, and this diagnostic does not establish durable production access.
 
 Preflight stages the exact server and mock tests below

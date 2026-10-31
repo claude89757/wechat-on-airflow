@@ -1,5 +1,31 @@
 # Production Baseline
 
+## Shared session comparison did not restore Baoan on 2026-10-31
+
+[Retained-session Pi preflight 41198130676](https://github.com/claude89757/wechat-on-airflow/actions/runs/41198130676)
+used `470347ea52e9fe265ef09c383262c8e6736fc38b`, after
+[CI 41197937129](https://github.com/claude89757/wechat-on-airflow/actions/runs/41197937129).
+Dashah verified all five dates with `profileResetBeforeScrape=false`. Baoan again
+failed at wind/rain, the third product, with calendar HTML and six normal order
+JSON responses. The page was visible/focused and no known verification control
+appeared. Retaining the shared profile therefore did not restore the tested
+first Baoan inspection. No apply or synthetic notification occurred.
+
+The follow-up treats each product as a separate source: native initial URL,
+fixed private per-product profile, fresh browser/driver, then explicit fresh date
+selections. Browsers run serially and every earlier browser closes before the
+next starts. Product state is retained in its own fixed directory across polls;
+no profile rotation or external state import is introduced. All products/dates
+must still pass before the venue observation is returned. This uses the same
+single-product collection shape as Dashah and removes cross-product tab selection;
+The launcher also removes the hard-coded user agent (including its architecture
+and version), so browser identity comes from Chromium itself. The old
+`userAgentVersionMatchesBrowser` field is no longer inferred from that constant;
+`userAgentOverrideEnabled=false` records the actual launcher policy. These changes
+restore the native browser flow; their individual causal contributions remain
+unproven until controlled evidence is available. Real access restoration remains
+unproven until the new candidate passes.
+
 ## Baoan pacing did not restore access on 2026-10-31
 
 [Pi preflight 41196917740](https://github.com/claude89757/wechat-on-airflow/actions/runs/41196917740)
