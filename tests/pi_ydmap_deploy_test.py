@@ -1098,6 +1098,10 @@ def test_workflow_gates_and_release_order_cover_pi_before_airflow():
 def test_access_diagnostics_are_bounded_numeric_and_survive_repeated_sanitization():
     raw = {
         "accessDiagnostics": {
+            "documentHidden": 1,
+            "scriptReferences": 3,
+            "consoleHttp403Errors": 1,
+            "mimeTypeErrors": 1,
             "legacyHandles": 1,
             "semanticHandles": 0,
             "frames": 2,
@@ -1114,6 +1118,10 @@ def test_access_diagnostics_are_bounded_numeric_and_survive_repeated_sanitizatio
     }
     safe = INSTALL.safe_source_diagnostic(raw)
     assert safe["accessDiagnostics"] == {
+        "documentHidden": 1,
+        "scriptReferences": 3,
+        "consoleHttp403Errors": 1,
+        "mimeTypeErrors": 1,
         "legacyHandles": 1,
         "semanticHandles": 0,
         "frames": 2,
@@ -1157,3 +1165,25 @@ def test_product_order_probe_cannot_mark_candidate_verified_or_activate(monkeypa
             )
         )
     assert calls == [{"first_product": "windrain"}]
+
+
+def test_per_venue_failure_diagnostics_are_bounded_and_idempotent():
+    nested = {
+        "accessDiagnostics": {"typeErrors": 1, "private": "never-export"},
+        "failedVenueDiagnostics": {"baoti": {"sourceDiagnostic": {"private": "never-export"}}},
+    }
+    safe = INSTALL.safe_source_diagnostic(
+        {
+            "failedVenueDiagnostics": {
+                "dsh": {"sourceFailure": "schedule_not_ready", "sourceDiagnostic": nested},
+                "baoti": {"sourceFailure": "captcha", "sourceDiagnostic": nested},
+                "private": {"sourceFailure": "never-export"},
+            }
+        }
+    )
+    assert set(safe["failedVenueDiagnostics"]) == {"dsh", "baoti"}
+    for item in safe["failedVenueDiagnostics"].values():
+        assert item["sourceDiagnostic"]["accessDiagnostics"] == {"typeErrors": 1}
+        assert "failedVenueDiagnostics" not in item["sourceDiagnostic"]
+    assert "never-export" not in json.dumps(safe)
+    assert INSTALL.safe_source_diagnostic(safe) == safe

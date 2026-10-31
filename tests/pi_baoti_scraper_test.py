@@ -58,6 +58,59 @@ class FixedDatetime(datetime):
 
 
 class AccessDiagnosticsTest(unittest.TestCase):
+    def test_initial_resource_and_execution_errors_export_only_categories(self):
+        driver = Mock(spec=["execute_script", "execute"])
+        driver.execute_script.return_value = {"vueRootPresent": 0, "scriptReferences": 3}
+        entries = [
+            {
+                "message": json.dumps(
+                    {
+                        "message": {
+                            "method": "Network.responseReceived",
+                            "params": {
+                                "type": kind,
+                                "response": {
+                                    "url": "https://private.test/" + path,
+                                    "mimeType": "text/html",
+                                    "status": status,
+                                },
+                            },
+                        }
+                    }
+                )
+            }
+            for kind, path, status in (
+                ("Document", "start", 503),
+                ("Script", "main.js", 403),
+                ("Image", "favicon.ico", 404),
+            )
+        ]
+        driver.execute.side_effect = [
+            {"value": entries},
+            {
+                "value": [
+                    {
+                        "message": "TypeError SyntaxError MIME type; status of 403; net::ERR_CERT_INVALID; private-token"
+                    }
+                ]
+            },
+        ]
+        result = server._access_diagnostics(driver)
+        self.assertEqual(result["httpErrors"], 3)
+        self.assertEqual(result["documentHttpErrors"], 1)
+        self.assertEqual(result["faviconHttpErrors"], 1)
+        for key in (
+            "scriptHtmlResponses",
+            "scriptHttpErrors",
+            "typeErrors",
+            "syntaxErrors",
+            "mimeTypeErrors",
+            "consoleHttp403Errors",
+            "consoleTlsErrors",
+        ):
+            self.assertEqual(result[key], 1)
+        self.assertNotIn("private", json.dumps(result))
+
     def test_empty_logs_and_unavailable_logging_remain_distinct(self):
         driver = Mock(spec=["execute_script", "execute"])
         driver.execute_script.return_value = {}
@@ -358,6 +411,14 @@ class PiBaotiScraperTest(unittest.TestCase):
             previous=snapshot(),
             **OUTDOOR_IDENTITY,
         )
+
+    def test_initial_schedule_timeout_keeps_passive_diagnostics_without_challenge(self):
+        self.install_payloads([{"ready": False, "captcha": False}])
+        with patch.object(server, "_access_diagnostics", return_value={"typeErrors": 1}) as probe:
+            result = self.wait_for_tomorrow()
+        probe.assert_called_once_with(self.driver)
+        self.assertEqual(result["error"], "schedule_not_ready")
+        self.assertEqual(result["accessDiagnostics"], {"typeErrors": 1})
 
     def test_baoti_complete_verified_groups_and_shanghai_dates(self) -> None:
         self.install_payloads(
