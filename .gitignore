@@ -22,6 +22,7 @@ coverage.xml
 htmlcov/
 raw.txt
 /pi_host/appium_mcp/node_modules/
+/pi_host/remote_ops/node_modules/
 
 /database/postgresql/
 /database/redis/

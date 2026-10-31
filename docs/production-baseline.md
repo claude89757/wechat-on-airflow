@@ -23,6 +23,26 @@ The follow-up uses the normal visible product controls instead of reopening
 Baoan URLs, with replacement of both source arrays required across products.
 This is a navigation repair to be tested, not evidence that provider access
 or production availability has been restored. No apply or synthetic send occurred.
+An anonymous public bootstrap read returned Dashah `healthy=false` with
+`lastInspectionAt=2026-10-31T09:21:51.688694Z`. This is a fresh unhealthy
+business observation despite earlier successful DAG health checks; it does not
+identify the upstream failure cause or prove that the condition is permanent.
+
+## Remote Administration Expansion On 2026-10-31
+
+The owner confirmed successful phone OAuth connection, then authorized full
+Pi/VPS administration, Cloudflare frontend administration and explicit
+collaborator grants. Live Cloudflare domain readback maps both frontend
+hostnames to `zacks-tennis-alerts`; public health reported `runtime=airflow-host`
+and business commit `9cca72d73eb05c502446bd1d947c4307d7f73f35` at inspection.
+This observation is not a replacement for exact-SHA production acceptance.
+
+The new [operations runbook](runbooks/remote-operations-mcp.md) defines independent
+Pi/VPS administrator applications, browser-confirmed privileged operations,
+author-managed groups and official Cloudflare API MCP. Runtime activation and
+collaborator policy acceptance require protected workflow evidence. No synthetic
+notifications, phone sessions or production administrator commands are permitted
+in automated smoke checks. Do not infer deployment from committed endpoint names.
 
 ## Authorized Baoan verification diagnosis on 2026-10-31
 

@@ -70,6 +70,23 @@ images:
   wechat_sender_base: python@sha256:804ddf3251a60bbf9c92e73b7566c40428d54d0e79d3428194edf40da6521286
   host_core: same_exact_airflow_application_image
 managed_services:
+  remote_operations_mcp:
+    runtime: independent_systemd_per_host
+    deployment_owner: github_actions
+    workflow: production-remote-ops-mcp.yml
+    service: zacks-ops-mcp.service
+    connector: cloudflared-ops-mcp.service
+    endpoints:
+      pi: https://pi-mcp.zacks.vision/mcp
+      vps: https://vps-mcp.zacks.vision/mcp
+      cloudflare: https://mcp.cloudflare.com/mcp
+    origin: http://127.0.0.1:3340/mcp
+    authentication: cloudflare_managed_oauth_and_signed_access_assertion
+    membership_owner: cloudflare_access_groups_managed_by_author
+    execution_privilege: root_after_same_identity_browser_confirmation
+    approval_expiry_seconds: 300
+    maximum_command_seconds: 120
+    test_executes_production_commands: false
   pi_ydmap_scraper:
     runtime: systemd
     deployment_owner: github_actions
@@ -95,7 +112,7 @@ managed_services:
     domain_operations_preserve_runtime_commit: true
     oauth_operations_preserve_runtime_commit: true
     origin_base_url: http://127.0.0.1:3333/mcp
-    authentication: cloudflare_access_owner_managed_oauth_and_dedicated_service_token
+    authentication: cloudflare_access_owner_and_explicit_operator_group_managed_oauth
     oauth_owner_identity: pinned_cloudflare_user_id_resolved_inside_protected_runner
     oauth_access_token_minutes: 15
     oauth_grant_hours: 168
