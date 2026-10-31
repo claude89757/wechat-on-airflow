@@ -17,7 +17,7 @@ service startup, during health checks, or while listing tools/devices.
 Connect a Streamable HTTP MCP client to:
 
 ```text
-https://appium-mcp.claude89757.cc/mcp
+https://appium-mcp.zacks.vision/mcp
 ```
 
 Configure these headers from the client's secret store:
@@ -134,7 +134,29 @@ must transfer them through an approved secret store, not chat or Git. Give each
 additional agent its own token and app-scoped policy. Tokens expire after 90
 days; renewing or rotating them is a separate owner-approved operation.
 
-Apply refreshes only the dedicated connector unit while retaining its existing
+### Domain-only changes
+
+The canonical hostname is `appium-mcp.zacks.vision`. The previous
+`appium-mcp.claude89757.cc` hostname is retired after new-host acceptance.
+The protected operation reuses the same Access application, audience, dedicated
+service token and Tunnel. It first protects and routes both hostnames, validates
+the new URL, then retires only the owned old DNS record and ingress. Failure
+restores the captured configuration and verifies the previous working endpoint.
+No phone sessions are created, no credentials are rotated and no host units are
+restarted. A busy phone controller aborts preflight before Cloudflare writes.
+
+Use separate exact identities for the reviewed operations code and the unchanged
+installed runtime. Both must pass their exact CI gate:
+
+```text
+make pi-mcp-domain RUNTIME_COMMIT=<runtime-sha> DEPLOY_ARGS="--target-commit <operations-sha>"
+make pi-mcp-domain RUNTIME_COMMIT=<runtime-sha> DEPLOY_ARGS="--apply --target-commit <operations-sha>"
+make pi-mcp-health TARGET_COMMIT=<operations-sha> RUNTIME_COMMIT=<runtime-sha>
+```
+
+### Application Lifecycle
+
+Application apply refreshes only the dedicated connector unit while retaining its existing
 credentials. It waits for cloudflared's loopback-only `127.0.0.1:49393/ready`
 before checking Cloudflare status and publishing DNS. Preflight checks the
 required flags and the service identity's ability to execute cloudflared.
