@@ -1,5 +1,21 @@
 # Production Baseline
 
+## Remote Administration Expansion On 2026-10-31
+
+The owner confirmed successful phone OAuth connection, then authorized full
+Pi/VPS administration, Cloudflare frontend administration and explicit
+collaborator grants. Live Cloudflare domain readback maps both frontend
+hostnames to `zacks-tennis-alerts`; public health reported `runtime=airflow-host`
+and business commit `9cca72d73eb05c502446bd1d947c4307d7f73f35` at inspection.
+This observation is not a replacement for exact-SHA production acceptance.
+
+The new [operations runbook](runbooks/remote-operations-mcp.md) defines independent
+Pi/VPS administrator applications, browser-confirmed privileged operations,
+author-managed groups and official Cloudflare API MCP. Runtime activation and
+collaborator policy acceptance require protected workflow evidence. No synthetic
+notifications, phone sessions or production administrator commands are permitted
+in automated smoke checks. Do not infer deployment from committed endpoint names.
+
 ## Baoan access verification confirmed on 2026-10-31
 
 Independent [Pi preflight 41184233295](https://github.com/claude89757/wechat-on-airflow/actions/runs/41184233295)

@@ -133,6 +133,15 @@ the final device-side idempotency boundary.
 
 ## Cloudflare boundary
 
+The owner-authorized [remote operations plane](docs/runbooks/remote-operations-mcp.md)
+adds separate Pi/VPS MCP applications and explicit operator groups. Privileged
+shell operations require same-user browser confirmation of the exact command,
+with audit hashes and no automatic replay. This is trusted-admin access, not a
+shell sandbox. Repository releases remain protected GitHub-only. Cloudflare
+frontend management uses the official API MCP with each collaborator's own
+account permissions; management tokens are not copied into Pi/VPS hosts.
+Operator membership remains in Cloudflare and is never overwritten by deploys.
+
 An independent trusted-agent control endpoint is specified in
 [ADR 0015](docs/adr/0015-pi-appium-mcp.md). It uses dedicated Cloudflare
 Access owner-only managed OAuth for interactive agents, a dedicated machine

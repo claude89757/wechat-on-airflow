@@ -1,5 +1,20 @@
 # Agent Guide
 
+## Owner-Authorized MCP Administration
+
+On 2026-10-31 the owner requested administrator-capable Pi/VPS MCP channels,
+Cloudflare frontend administration and separately authorized collaborators.
+See `docs/runbooks/remote-operations-mcp.md`. This exception to GitHub-only
+routine operations covers individually human-confirmed host administration,
+not repository releases. A human must review and approve each exact shell
+operation in their authenticated browser. Agents must never automate that
+approval, obtain its cookies, or approve their own requests. Connecting grants
+no permission to send real notifications or perform destructive operations.
+Never request credentials or paste raw secrets into commands/results.
+Production installation, upgrades and releases remain protected GitHub workflows.
+Existing delivery ownership, database and device-lock rules remain in force.
+
+
 This repository is operated primarily by coding agents. Treat repository
 content and production read-only checks as the source of truth. Do not rely on
 chat history for operational knowledge.
