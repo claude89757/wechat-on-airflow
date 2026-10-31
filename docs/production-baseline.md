@@ -1,5 +1,58 @@
 # Production Baseline
 
+## Baoan YDMap Production Acceptance Blocked On 2026-10-31
+
+The external Baoan contribution [PR #262](https://github.com/claude89757/wechat-on-airflow/pull/262)
+was integrated through [PR #263](https://github.com/claude89757/wechat-on-airflow/pull/263),
+with follow-ups [#265](https://github.com/claude89757/wechat-on-airflow/pull/265)
+and [#267](https://github.com/claude89757/wechat-on-airflow/pull/267). The resulting main commit
+`302d90a3a0b8f1f07b31c5a4b71039b1c641b8c2` passed its complete
+[exact-main push CI 41178652599](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178652599).
+The original PR is closed as superseded, with its contributor attribution retained in the integrated commit.
+Merged code and passing CI do not establish production availability acceptance.
+
+The first protected [Pi preflight 41177429612](https://github.com/claude89757/wechat-on-airflow/actions/runs/41177429612),
+against `9758330d9fcdc462c442a513479b8814c94b37a5`, returned generic
+`operation_failed` with no inspections. Its original exception class was not retained.
+Code review and a local executable-lookup reproduction found that the isolated
+candidate's restricted PATH omitted `/usr/sbin`, while its launcher used bare
+`runuser`. PR #267 switched both launch sites to the checked absolute executable
+and retained bounded, allowlisted exception/stage diagnostics. The local reproduction
+supports this cause; the first production report did not itself record `FileNotFoundError`.
+
+The second protected [Pi preflight 41179031523](https://github.com/claude89757/wechat-on-airflow/actions/runs/41179031523),
+against `302d90a3a0b8f1f07b31c5a4b71039b1c641b8c2`, passed the exact-main/CI gate
+and reached candidate venue inspection. It stopped on Dashah (`dsh`) with
+`failure=access_verification`, `sourceFailure=captcha`, page host `wxsports.ydmap.cn`,
+zero cells and `inspections=[]`. Baoan was not reached. No validated renderer source
+or bookability evidence was obtained; neither empty availability nor Baoan access
+success can be inferred. Presence flags only indicate diagnostic keys existed.
+
+No Pi YDMap apply, Baoan production release, `0.9.0` release tag or test notification
+was performed. The post-attempt protected
+[health run 41179265173](https://github.com/claude89757/wechat-on-airflow/actions/runs/41179265173)
+passed at 2026-10-31 07:07 UTC against expected and deployed
+`c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5` (release `0.8.7`). It reported healthy
+services, 29 existing DAGs, zero import errors and no recent failed DAG runs. The
+paid Dashah DAG's latest three scheduled runs succeeded. These runtime checks do
+not supply the missing candidate source or Baoan bookability evidence.
+
+A separate read-only [Host Core observation diagnosis 41179428118](https://github.com/claude89757/wechat-on-airflow/actions/runs/41179428118)
+used that Airflow SHA as its expected identity and stopped at
+`local host-core deployment identity mismatch`. It emitted no business report,
+actual Host Core SHA, venue observation or scope timestamps. The failed identity
+expectation does not establish a new production fault or a common component
+version. Verify actual component identities before the next coupled release;
+do not treat this attempt as evidence of healthy persisted observations.
+
+Provider requests and apply remain stopped at this access-verification blocker.
+Resume only after legitimate provider access is available, through the existing
+exact-main CI and protected-environment gates, isolated candidate preflight for both venues and actual
+source/bookability review. A subsequent apply must retain the bounded scoped DAG
+pause/drain/restore, rollback, installed-version and live-inspection checks; downstream
+release, natural-cycle acceptance and tagging retain their existing full gates.
+Do not bypass access verification or automatically repeat the blocked requests.
+
 ## 2026-10-31: Dedicated Free-Court Group Restored, Shared Groups Paused
 
 Per the user's latest request, new Dashah free-court messages now target
@@ -16,10 +69,72 @@ Verify deployment, three natural free-court cycles and expiry of the old
 five-minute queued-intent window before declaring the old recipient path
 inactive. Retain historical outbox and dedupe state; send no synthetic alerts.
 
+## Pi MCP OAuth Acceptance On 2026-10-31
+
+The canonical MCP endpoint `https://appium-mcp.zacks.vision/mcp` now supports
+owner-only Cloudflare Managed OAuth. Operations commit
+`dfa1cabf41606a7c53d7488dc9df1bae4dcbf49c` passed
+[exact-main CI 41178012459](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178012459),
+[protected preflight 41178608944](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178608944)
+and [protected apply 41178679434](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178679434).
+The installed Pi runtime remains `837f7efe35ae5a7042584509c0859879407e5903`.
+All five monitored host service start identities remained unchanged, and no
+credential was rotated. There are still 18 tools, one configured/online phone
+and zero active phone sessions; a second phone is not established by this work.
+
+Live Access configuration has exactly the dedicated machine policy plus the
+pinned owner's Allow policy through the existing Cloudflare login provider.
+Other account members are not phone operators. Access tokens last 15 minutes,
+with a seven-day refresh grant. DCR permits loopback/localhost and the documented
+ChatGPT callback paths only. The sole new WAF rule matches the exact MCP hostname
+and skips `bic` only, retaining Access, unrelated hostnames and other WAF checks.
+The application audience, Tunnel, DNS and existing machine credentials are unchanged.
+
+[Post-apply health 41178756304](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178756304)
+and [idempotent preflight 41178811262](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178811262),
+followed by [health 41178967478](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178967478),
+passed: RFC 9728 discovery, PKCE S256 advertisement, anonymous/invalid machine
+and invalid Bearer denial, authenticated read-only MCP and unchanged host runtime.
+The repeated preflight made no configuration writes. A separate standard MCP SDK
+probe, without authentication headers, successfully registered a public OAuth
+client and prepared a resource-bound PKCE authorization request. It stopped
+before login: zero user tokens, phone sessions or external test notifications
+were acquired/created/sent. The first real client still requires the owner to
+complete Cloudflare login/consent; no end-to-end user OAuth login is claimed.
+
+[Post-change Airflow health 41178931979](https://github.com/claude89757/wechat-on-airflow/actions/runs/41178931979)
+passed against the unchanged `c3fb88ccdef7a381643f6df5e3dac4ccc63e06e5`
+business release. This MCP control-plane change does not deploy the separate
+venue/YDMap work concurrently merged into the repository.
+
+Managed OAuth remains a Cloudflare Beta. Existing connector DNS-refresh timeout
+categories remain observable with readiness true and zero restarts; this release
+does not claim to fix them. Existing 23 moderate npm runtime audit advisories and
+the separate legacy public raw Appium surface are unchanged.
+
 ## Pi MCP OAuth Policy On 2026-10-31
 
+The first OAuth-only attempt at operations commit
+`bf33e578750db53727d9a029ca2a55f509524752` passed
+[exact-main CI](https://github.com/claude89757/wechat-on-airflow/actions/runs/41175526455)
+and [read-only preflight](https://github.com/claude89757/wechat-on-airflow/actions/runs/41176146352).
+[Apply 41176227450](https://github.com/claude89757/wechat-on-airflow/actions/runs/41176227450)
+was not accepted. Zone HTTP/security analytics identified nine `/mcp` 403s from
+Browser Integrity Check during the attempt, including the OAuth discovery
+retries; no discovery endpoint was reached. Audit records confirm that the
+requested owner-only OAuth settings were stored and then disabled again.
+The original machine-only policy was restored and independently verified through
+[protected previous-operations health 41176381601](https://github.com/claude89757/wechat-on-airflow/actions/runs/41176381601).
+The automatic rollback flag was
+false because Cloudflare added inactive default DCR fields to disabled OAuth;
+that structural comparison did not prove an authorization restore failure.
+The follow-up requires an exact-host, BIC-only skip rule, semantic disabled-OAuth
+restore checks and fixed non-secret failure reasons. No service was restarted,
+phone session created or test notification sent. That attempt did not establish
+OAuth acceptance; the successful follow-up is recorded above.
+
 The owner approved managed OAuth for Codex-like agents instead of manually
-copying Access service-token headers. The candidate protected OAuth-only
+copying Access service-token headers. The protected OAuth-only
 operation enables owner-only Cloudflare login on the existing application,
 with 15-minute access tokens and a seven-day refresh grant. It preserves the
 dedicated machine token/policy, application audience, DNS, Tunnel and installed

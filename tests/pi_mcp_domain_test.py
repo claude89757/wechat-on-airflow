@@ -74,11 +74,16 @@ def cloudflare(monkeypatch):
         "fail_public": False,
         "fail_finalize": False,
         "fail_discovery": False,
+        "bic": None,
     }
 
     def api(method, path, body=None):
         state["calls"].append((method, path, copy.deepcopy(body)))
         if method == "GET":
+            if path.endswith("/rulesets/phases/http_request_firewall_custom/entrypoint"):
+                if state["bic"] is None:
+                    raise urllib.error.HTTPError(path, 404, "not found", {}, None)
+                return copy.deepcopy(state["bic"])
             if path == "/user":
                 return {"id": DEPLOY.OWNER_USER_ID, "email": "owner@example.invalid"}
             if path.endswith("/access/identity_providers"):
@@ -103,10 +108,35 @@ def cloudflare(monkeypatch):
             if state["fail_finalize"] and body["domain"] == DEPLOY.HOSTNAME:
                 raise RuntimeError("fake-private-secret")
             state["app"].update(copy.deepcopy(body))
+            if body.get("oauth_configuration", {}).get("enabled") is False:
+                state["app"]["oauth_configuration"].setdefault(
+                    "dynamic_client_registration",
+                    {
+                        "enabled": True,
+                        "allow_any_on_localhost": True,
+                        "allow_any_on_loopback": True,
+                    },
+                )
             state["policies"] = state["app"].pop("policies")
             for policy in state["policies"]:
                 policy.setdefault("id", "owner-policy-test")
             return copy.deepcopy(state["app"])
+        if method == "POST" and path.endswith("/rulesets"):
+            state["bic"] = {"id": "test-ruleset", **copy.deepcopy(body)}
+            state["bic"]["rules"][0]["id"] = "test-bic-rule"
+            return copy.deepcopy(state["bic"])
+        if method == "POST" and path.endswith("/rulesets/test-ruleset/rules"):
+            state["bic"]["rules"].append({"id": "test-bic-rule", **copy.deepcopy(body)})
+            return copy.deepcopy(state["bic"])
+        if method == "DELETE" and path.endswith("/rulesets/test-ruleset/rules/test-bic-rule"):
+            state["bic"]["rules"] = [
+                rule for rule in state["bic"]["rules"] if rule["id"] != "test-bic-rule"
+            ]
+            return {}
+        if method == "DELETE" and path.endswith("/rulesets/test-ruleset"):
+            assert not state["bic"]["rules"]
+            state["bic"] = None
+            return {}
         if method == "PUT" and path.endswith("/configurations"):
             state["config"] = copy.deepcopy(body["config"])
             return {}
@@ -141,6 +171,7 @@ def cloudflare(monkeypatch):
         state["calls"].append(("DISCOVERY", DEPLOY.HOSTNAME, None))
         if state["fail_discovery"]:
             raise RuntimeError("fake-private-secret")
+        assert any(rule.get("ref") == DEPLOY.BIC_RULE["ref"] for rule in state["bic"]["rules"])
         return {"oauthDiscoveryVerified": True, "pkceS256Advertised": True}
 
     monkeypatch.setattr(DEPLOY, "verify_oauth_discovery", discovery)
@@ -267,7 +298,10 @@ def test_oauth_preserves_runtime_routes_machine_policy_and_audience(cloudflare):
     assert state["app"]["allowed_idps"] == [DEPLOY.CLOUDFLARE_IDP_ID]
     assert state["app"]["oauth_configuration"] == DEPLOY.OAUTH_CONFIGURATION
     writes = [call for call in state["calls"] if call[0] not in {"GET", "PROBE", "DISCOVERY"}]
-    assert len(writes) == 1 and writes[0][:2] == (
+    assert len(writes) == 2
+    assert writes[0][0] == "POST" and writes[0][1].endswith("/rulesets")
+    assert writes[0][2]["rules"] == [DEPLOY.BIC_RULE]
+    assert writes[1][:2] == (
         "PUT",
         "/accounts/test-account/access/apps/test-app",
     )
@@ -288,7 +322,9 @@ def test_oauth_failed_acceptance_restores_exact_policy_set(cloudflare):
     assert "fake-private-secret" not in str(caught.value)
     assert state["policies"] == original["policies"]
     assert state["config"] == original["config"]
-    assert state["app"]["oauth_configuration"] == {"enabled": False}
+    assert not state["app"]["oauth_configuration"]["enabled"]
+    assert state["app"]["oauth_configuration"]["dynamic_client_registration"]["enabled"]
+    assert state["bic"] is None
 
 
 @pytest.mark.parametrize(
@@ -341,10 +377,25 @@ def test_domain_keeps_owner_oauth_settings(cloudflare):
     assert len(state["policies"]) == 2
 
 
-@pytest.mark.parametrize("failure", [None, "resource", "issuer", "pkce", "endpoint", "challenge"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        "resource",
+        "issuer",
+        "pkce",
+        "endpoint",
+        "challenge",
+        "legacy",
+        "alternate_path",
+        "as_pointer",
+    ],
+)
 def test_oauth_discovery_validates_challenge_resource_issuer_and_pkce(monkeypatch, failure):
     origin = f"https://{DEPLOY.HOSTNAME}"
     resource_url = origin + "/.well-known/oauth-protected-resource"
+    if failure == "alternate_path":
+        resource_url = origin + "/cdn-cgi/access/resource"
     issuer = f"https://{DEPLOY.TEAM_DOMAIN}/cdn-cgi/access/oauth"
     resource = {"resource": origin, "authorization_servers": [issuer]}
     server = {
@@ -365,6 +416,8 @@ def test_oauth_discovery_validates_challenge_resource_issuer_and_pkce(monkeypatc
     if failure == "endpoint":
         server["token_endpoint"] = "https://foreign.invalid/token"
     challenge = f'Bearer resource_metadata="{resource_url}"'
+    if failure == "legacy":
+        challenge = 'Bearer realm="Access"'
     if failure == "challenge":
         challenge = 'Bearer resource_metadata="http://127.0.0.1/private"'
 
@@ -376,7 +429,12 @@ def test_oauth_discovery_validates_challenge_resource_issuer_and_pkce(monkeypatc
                 headers["WWW-Authenticate"] = challenge
                 raise urllib.error.HTTPError(request.full_url, 401, "unauthorized", headers, None)
             if request.full_url == resource_url:
-                return io.BytesIO(json.dumps(resource).encode())
+                return io.BytesIO(
+                    json.dumps(server if failure == "as_pointer" else resource).encode()
+                )
+            if failure == "legacy":
+                assert request.full_url == origin + "/.well-known/oauth-authorization-server"
+                return io.BytesIO(json.dumps(server).encode())
             assert (
                 request.full_url
                 == f"https://{DEPLOY.TEAM_DOMAIN}/.well-known/oauth-authorization-server/cdn-cgi/access/oauth"
@@ -384,11 +442,94 @@ def test_oauth_discovery_validates_challenge_resource_issuer_and_pkce(monkeypatc
             return io.BytesIO(json.dumps(server).encode())
 
     monkeypatch.setattr(DEPLOY.urllib.request, "build_opener", lambda _: Opener())
-    if failure:
+    if failure not in {None, "legacy", "alternate_path", "as_pointer"}:
         with pytest.raises(RuntimeError, match="oauth_"):
             DEPLOY.oauth_discovery()
     else:
         assert DEPLOY.oauth_discovery()["oauthDiscoveryVerified"]
+
+
+def test_bic_exception_skips_only_browser_integrity_for_the_dedicated_hostname():
+    assert DEPLOY.BIC_RULE["expression"] == f'(http.host eq "{DEPLOY.HOSTNAME}")'
+    assert DEPLOY.BIC_RULE["action_parameters"] == {"products": ["bic"]}
+    assert DEPLOY.BIC_RULE["logging"] == {"enabled": True}
+    assert DEPLOY.BIC_RULE["enabled"] is True
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"expression": '(http.host contains "zacks.vision")'},
+        {"action_parameters": {"products": ["bic", "waf"]}},
+        {"action_parameters": {"products": ["bic"], "ruleset": "current"}},
+        {"enabled": False},
+    ],
+)
+def test_foreign_or_broadened_bic_rule_is_not_overwritten(cloudflare, change):
+    credentials, state = cloudflare
+    canonical_domain(state)
+    state["bic"] = {
+        "id": "test-ruleset",
+        "kind": "zone",
+        "phase": "http_request_firewall_custom",
+        "rules": [{"id": "test-bic-rule", **DEPLOY.BIC_RULE, **change}],
+    }
+    with pytest.raises(RuntimeError, match="bic_ownership_mismatch"):
+        DEPLOY.configure_oauth(credentials, apply=True)
+    assert all(method == "GET" for method, _, _ in state["calls"])
+
+
+def test_bic_rollback_preserves_unrelated_rules(cloudflare):
+    credentials, state = cloudflare
+    canonical_domain(state)
+    unrelated = {"id": "keep-rule", "ref": "keep-rule", "action": "block"}
+    state["bic"] = {
+        "id": "test-ruleset",
+        "kind": "zone",
+        "phase": "http_request_firewall_custom",
+        "rules": [unrelated],
+    }
+    state["fail_discovery"] = True
+    with pytest.raises(DEPLOY.OAuthConfigurationFailure) as caught:
+        DEPLOY.configure_oauth(credentials, apply=True)
+    assert caught.value.rollback_verified
+    assert state["bic"]["rules"] == [unrelated]
+    assert not any(
+        method == "DELETE" and path.endswith("/rulesets/test-ruleset")
+        for method, path, _ in state["calls"]
+    )
+
+
+def test_bic_rollback_never_deletes_a_concurrently_populated_ruleset(cloudflare):
+    _, state = cloudflare
+    marker = DEPLOY.enable_bic_exception(DEPLOY.bic_snapshot())
+    unrelated = {"id": "concurrent", "ref": "concurrent", "action": "block"}
+    state["bic"]["rules"].append(unrelated)
+    DEPLOY.restore_bic_exception(marker)
+    assert state["bic"]["rules"] == [unrelated]
+
+
+def test_disabled_oauth_defaults_are_semantically_restored_without_weakening_enabled_checks():
+    assert DEPLOY.oauth_restored(
+        {"enabled": False, "dynamic_client_registration": {"enabled": True}}, None
+    )
+    assert not DEPLOY.oauth_restored({"enabled": True}, None)
+    assert not DEPLOY.oauth_restored({}, None)
+    assert not DEPLOY.oauth_restored({"enabled": True}, DEPLOY.OAUTH_CONFIGURATION)
+    assert DEPLOY.oauth_restored(DEPLOY.OAUTH_CONFIGURATION, DEPLOY.OAUTH_CONFIGURATION)
+
+
+def test_oauth_failure_reports_only_fixed_nonsecret_reasons():
+    assert (
+        DEPLOY.OAuthConfigurationFailure(
+            False, "probe", RuntimeError("oauth_challenge_missing")
+        ).reason
+        == "oauth_challenge_missing"
+    )
+    assert (
+        DEPLOY.OAuthConfigurationFailure(False, "probe", RuntimeError("fake-private-secret")).reason
+        is None
+    )
 
 
 def test_oauth_contract_is_owner_only_bounded_and_does_not_allow_arbitrary_https_callbacks():

@@ -26,6 +26,12 @@ Access assertion validated by cloudflared; no new Worker or phone daemon is need
 This uses Cloudflare's Beta Managed OAuth feature and requires a compatible
 client and initial owner login; it is not reuse of the management plugin's token.
 
+Browser Integrity Check is incompatible with some legitimate programmatic
+clients. Skip that product alone on the exact dedicated MCP hostname using an
+owned custom rule; keep Access and all other WAF/custom rules intact. Do not
+disable BIC zone-wide or disguise probes as browser user agents. Preserve
+unrelated rules and reverse only the rule created by this operation on failure.
+
 Wrap actual upstream tool callbacks, including their failure paths. Share the
 existing per-device flock for the full MCP session, reject foreign sessions,
 require explicit owned session IDs, keep phone routes/capabilities operator-only,
