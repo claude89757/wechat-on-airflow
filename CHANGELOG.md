@@ -5,6 +5,13 @@ and operational changes.
 
 ## [Unreleased]
 
+### Added
+
+- Productize the existing subscription window as ideal-time presets
+  (weekday evening, weekday noon, weekend morning, weekend afternoon, or custom).
+  Email stays overlap-filtered; WeChat group delivery stays venue-level. No new
+  subscription column in this phase.
+
 ## [0.10.0] - 2026-11-02
 
 ### Added

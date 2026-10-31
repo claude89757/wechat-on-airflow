@@ -145,6 +145,11 @@ html body .studio-mobile-nav { display: none; }
 html body .bottom-sheet .sheet-primary { background: #174d40; box-shadow: none; border-radius: 10px; }
 html body .bottom-sheet .sheet-title { color: #203e31; }
 html body .bottom-sheet .subscription-summary { background: #eef3e7; border: 1px solid #d1dfc7; color: #365635; }
+html body .bottom-sheet .ideal-window-presets { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+html body .bottom-sheet .ideal-window-presets button { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; padding: 9px 8px; min-height: 52px; border: 1px solid #dce3d6; background: #fafbf8; border-radius: 8px; font-size: 12px; color: #566c52; text-align: left; }
+html body .bottom-sheet .ideal-window-presets button[aria-pressed="true"] { border-color: #60815a; background: #edf3e5; color: #285732; }
+html body .bottom-sheet .ideal-window-presets small { font-size: 9px; opacity: .8; }
+html body .bottom-sheet .ideal-window-retarget { border-color: #d1dfc7; color: #285732; background: #fafbf8; }
 html body .bottom-sheet .studio-time-presets { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; margin: 0 0 12px; }
 html body .bottom-sheet .studio-time-presets button { display: flex; flex-direction: column; gap: 3px; align-items: center; padding: 9px 5px; min-height: 48px; border: 1px solid #dce3d6; background: #fafbf8; border-radius: 8px; font-size: 12px; color: #566c52; }
 html body .bottom-sheet .studio-time-presets button[aria-pressed="true"] { border-color: #60815a; background: #edf3e5; color: #285732; }
