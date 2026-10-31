@@ -64,6 +64,11 @@ pi-mcp-check:
 
 pi-mcp-setup:
 	cd pi_host/appium_mcp && npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+	cd pi_host/remote_ops && npm ci --ignore-scripts --no-audit --no-fund
+
+remote-ops-check:
+	cd pi_host/remote_ops && npm test
+	cd pi_host/remote_ops && npm audit --omit=dev --audit-level=high
 
 pi-mcp-deploy:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py pi_mcp deploy $(DEPLOY_ARGS)
@@ -86,7 +91,7 @@ pi-ydmap-health:
 pi-ydmap-inspect:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py pi_ydmap inspect --target-commit $(TARGET_COMMIT)
 
-verify: lint typecheck test webapp-check pi-mcp-check compose-config smoke test-dags
+verify: lint typecheck test webapp-check pi-mcp-check remote-ops-check compose-config smoke test-dags
 
 deploy:
 	PYTHONPATH=scripts $(BIN)/python scripts/github_production.py airflow deploy $(DEPLOY_ARGS)

@@ -104,6 +104,27 @@ def validate_access_policies(policies, credentials):
     ):
         raise RuntimeError("access_ownership_mismatch")
     others = [policy for policy in policies if policy is not machine[0]]
+    collaborators = [p for p in others if p.get("name") == "Zacks phone operators"]
+    if collaborators:
+        groups = cf(
+            "GET", f"/accounts/{os.environ['CLOUDFLARE_ACCOUNT_ID']}/access/groups?per_page=100"
+        )
+        matches = [g for g in groups if g.get("name") == "Zacks phone operators"]
+        if len(groups) >= 100 or len(matches) != 1 or len(collaborators) != 1:
+            raise RuntimeError("access_ownership_mismatch")
+        expected = {
+            "name": "Zacks phone operators",
+            "decision": "allow",
+            "precedence": 3,
+            "include": [{"group": {"id": matches[0]["id"]}}],
+            "exclude": [],
+            "require": [{"login_method": {"id": CLOUDFLARE_IDP_ID}}],
+        }
+        if any(collaborators[0].get(key) != value for key, value in expected.items()):
+            raise RuntimeError("access_ownership_mismatch")
+        others = [p for p in others if p not in collaborators]
+        if not others:
+            raise RuntimeError("access_ownership_mismatch")
     if others and (
         len(others) != 1
         or any(others[0].get(key) != value for key, value in owner_policy(owner_identity()).items())
@@ -795,7 +816,13 @@ def oauth_ready(app, policies):
         and oauth.get("grant") == OAUTH_CONFIGURATION["grant"]
         and app.get("allowed_idps") == [CLOUDFLARE_IDP_ID]
         and app.get("auto_redirect_to_identity") is True
-        and len(policies) == 2
+        and (
+            len(policies) == 2
+            or (
+                len(policies) == 3
+                and any(p.get("name") == "Zacks phone operators" for p in policies)
+            )
+        )
     )
 
 

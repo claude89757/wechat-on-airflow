@@ -1,0 +1,96 @@
+name: Production Remote Operations MCP
+run-name: production/remote_ops/${{ inputs.target }}/${{ inputs.operation }}
+on:
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Exact reviewed main commit with successful CI
+        required: true
+        type: string
+      target:
+        type: choice
+        options: [pi, vps, phone]
+        required: true
+      operation:
+        type: choice
+        options: [preflight, apply, health, withdraw]
+        default: preflight
+        required: true
+permissions:
+  contents: read
+  checks: read
+concurrency:
+  group: production-remote-ops-mcp
+  cancel-in-progress: false
+jobs:
+  operate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Require exact main commit and CI
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$TARGET_COMMIT"
+          git fetch --quiet origin main
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+          PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit "$TARGET_COMMIT" --wait-seconds 0 --format json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: inputs.operation == 'apply' && inputs.target != 'phone'
+        with:
+          node-version: '22.23.4'
+      - name: Stage locked runtime and verified Node binaries
+        if: inputs.operation == 'apply' && inputs.target != 'phone'
+        working-directory: pi_host/remote_ops
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+          npm audit --omit=dev --audit-level=high
+          mkdir -p /tmp/remote-ops-release
+          tar -czf /tmp/remote-ops-release/source.tar.gz server.mjs control.mjs package.json package-lock.json node_modules
+          for arch in x64 arm64 armv7l; do
+            curl --fail --retry 3 --max-time 180 -o "/tmp/remote-ops-release/node-$arch.tar.xz" "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-$arch.tar.xz"
+          done
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from install import HASHES
+          for arch, expected in HASHES.items():
+              assert hashlib.sha256(Path(f"/tmp/remote-ops-release/node-{arch}.tar.xz").read_bytes()).hexdigest() == expected
+          PY
+      - name: Install SSH and existing MCP health dependencies
+        run: |
+          python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
+          cd pi_host/appium_mcp
+          npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+      - name: Execute protected operation
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          OPS_TARGET: ${{ inputs.target }}
+          OPERATION: ${{ inputs.operation }}
+          PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
+          PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
+          PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
+          PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
+          AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+          AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+          AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+          AIRFLOW_SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          AIRFLOW_SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python scripts/deploy_remote_ops_mcp.py

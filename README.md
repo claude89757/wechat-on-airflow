@@ -4,6 +4,8 @@
 
 [中文](./README.md) · [English](./README.en.md)
 
+远程运维：[MCP 接入与协作者授权](docs/runbooks/remote-operations-mcp.md) · [GitHub 运维入口](https://github.com/claude89757/wechat-on-airflow/issues/39) · [MCP 部署与检查](https://github.com/claude89757/wechat-on-airflow/actions/workflows/production-remote-ops-mcp.yml)
+
 [![CI](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml/badge.svg)](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
 [![Airflow 3.3](https://img.shields.io/badge/Airflow-3.3.0-017CEE)](https://airflow.apache.org/)
