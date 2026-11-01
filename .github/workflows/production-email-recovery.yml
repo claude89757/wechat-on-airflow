@@ -1,0 +1,166 @@
+name: Production Email Recovery
+run-name: production/email/${{ inputs.operation }}/${{ inputs.expected_runtime_commit }}
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: preflight, resume, or status for the existing email runtime
+        required: true
+        type: string
+      operations_commit:
+        description: Exact current main SHA containing the verified recovery operation
+        required: true
+        type: string
+      expected_runtime_commit:
+        description: Exact existing Host Core and email-consumer SHA; never deployed by this workflow
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Protected email-only incident operation
+        required: true
+        type: choice
+        options:
+          - preflight
+          - resume
+          - status
+      operations_commit:
+        description: Exact current main SHA containing the verified recovery operation
+        required: true
+        type: string
+      expected_runtime_commit:
+        description: Exact existing Host Core and email-consumer SHA
+        required: true
+        type: string
+
+permissions:
+  checks: read
+  contents: read
+
+concurrency:
+  group: production-host-core
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: >-
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 39 &&
+       github.event.comment.user.login == github.repository_owner) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.actor == github.repository_owner)
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      OPERATION: ${{ inputs.operation }}
+      OPERATIONS_COMMIT: ${{ inputs.operations_commit }}
+      RUNTIME_COMMIT: ${{ inputs.expected_runtime_commit }}
+      AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
+      AIRFLOW_SSH_PORT: ${{ secrets.AIRFLOW_SSH_PORT }}
+      AIRFLOW_SSH_USER: ${{ secrets.AIRFLOW_SSH_USER }}
+      AIRFLOW_REPOSITORY_PATH: ${{ secrets.AIRFLOW_REPOSITORY_PATH }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.operations_commit }}
+          fetch-depth: 0
+
+      - name: Validate exact operations and existing-runtime commits
+        run: |
+          set -euo pipefail
+          [[ "$OPERATION" =~ ^(preflight|resume|status)$ ]]
+          [[ "$OPERATIONS_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RUNTIME_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$OPERATIONS_COMMIT"
+          git fetch --quiet origin main
+          test "$(git rev-parse origin/main)" = "$OPERATIONS_COMMIT"
+          git merge-base --is-ancestor "$RUNTIME_COMMIT" origin/main
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install runner operations dependencies
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.3
+
+      - name: Require successful CI for both exact commits
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for commit in "$OPERATIONS_COMMIT" "$RUNTIME_COMMIT"; do
+            PYTHONPATH=scripts python scripts/github_release_gate.py \
+              --target-commit "$commit" \
+              --required-check verify \
+              --wait-seconds 1800 \
+              --missing-check-wait-seconds 0 \
+              --main-head-missing-check-wait-seconds 90 \
+              --poll-seconds 10 \
+              --format json
+          done
+
+      - name: Configure production SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AIRFLOW_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 0600 ~/.ssh/known_hosts
+
+      - name: Execute protected email operation
+        id: recovery
+        run: |
+          set -euo pipefail
+          # A CI wait must not let an obsolete operations revision mutate production.
+          git fetch --quiet origin main
+          test "$(git rev-parse origin/main)" = "$OPERATIONS_COMMIT"
+          PYTHONPATH=scripts python scripts/recover_email_delivery.py \
+            --operation "$OPERATION" \
+            --operations-commit "$OPERATIONS_COMMIT" \
+            --expected-runtime-commit "$RUNTIME_COMMIT" \
+            --format json | tee /tmp/email-recovery.json
+
+      - name: Record independent post-resume status
+        if: inputs.operation == 'resume' && steps.recovery.outcome == 'success'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python scripts/recover_email_delivery.py \
+            --operation status \
+            --operations-commit "$OPERATIONS_COMMIT" \
+            --expected-runtime-commit "$RUNTIME_COMMIT" \
+            --format json | tee /tmp/email-recovery-status.json
+
+      - name: Publish bounded recovery evidence
+        if: always() && (steps.recovery.outcome == 'success' || steps.recovery.outcome == 'failure')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: email-recovery-${{ inputs.operation }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/email-recovery.json
+            /tmp/email-recovery-status.json
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Publish recovery scope
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+        run: |
+          {
+            echo '### Existing email runtime recovery'
+            printf -- '- Operation: `%s`\n' "$OPERATION"
+            printf -- '- Operations commit: `%s`\n' "$OPERATIONS_COMMIT"
+            printf -- '- Existing runtime commit: `%s`\n' "$RUNTIME_COMMIT"
+            printf -- '- Result: `%s`\n' "$RESULT"
+            echo '- Scope: existing email consumer and fenced email ownership only.'
+            echo '- Recovery requires disabled WeChat and preserves group routing and runtime identities.'
+            echo '- Delivery evidence: natural SES submission/delivery counts only; no synthetic sends.'
+            echo '- This operation does not complete or weaken full release acceptance.'
+          } >> "$GITHUB_STEP_SUMMARY"

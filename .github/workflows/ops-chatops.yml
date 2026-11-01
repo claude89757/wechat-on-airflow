@@ -30,6 +30,7 @@ jobs:
       mode: ${{ steps.command.outputs.mode }}
       version: ${{ steps.command.outputs.version }}
       target_commit: ${{ steps.command.outputs.target_commit }}
+      runtime_commit: ${{ steps.command.outputs.runtime_commit }}
       scope: ${{ steps.command.outputs.scope }}
       include_sender: ${{ steps.command.outputs.include_sender }}
       target_selector: ${{ steps.command.outputs.target_selector }}
@@ -57,6 +58,7 @@ jobs:
               "mode": "",
               "version": "",
               "target_commit": "",
+              "runtime_commit": "",
               "scope": "auto",
               "include_sender": "false",
               "target_selector": "all",
@@ -113,6 +115,15 @@ jobs:
               outputs["action"] = "pi_ydmap"
               outputs["mode"] = tokens[1].removeprefix("pi-ydmap-")
               outputs["target_commit"] = tokens[2].lower()
+          elif len(tokens) >= 2 and tokens[0] == "/ops" and tokens[1] in {
+              "email-preflight", "email-resume", "email-status"
+          }:
+              if len(tokens) != 4 or not all(sha.fullmatch(value) for value in tokens[2:]):
+                  fail("email recovery requires full operations and existing-runtime SHAs")
+              outputs["action"] = "email_recovery"
+              outputs["mode"] = tokens[1].removeprefix("email-")
+              outputs["target_commit"] = tokens[2].lower()
+              outputs["runtime_commit"] = tokens[3].lower()
           elif tokens[:2] == ["/ops", "airflow-health"]:
               if len(tokens) != 3 or not sha.fullmatch(tokens[2]):
                   fail("Airflow health requires a full 40-character SHA")
@@ -175,6 +186,9 @@ jobs:
           - \`/release apply <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release tag <version> <40-char-sha>\`
           - \`/ops airflow-health <40-char-sha>\`
+          - \`/ops email-preflight <40-char-operations-sha> <40-char-existing-runtime-sha>\`
+          - \`/ops email-resume <40-char-operations-sha> <40-char-existing-runtime-sha>\`
+          - \`/ops email-status <40-char-operations-sha> <40-char-existing-runtime-sha>\`
           - \`/ops pi-ydmap-preflight <40-char-sha>\`
           - \`/ops pi-ydmap-apply <40-char-sha>\`
           - \`/ops pi-ydmap-health <40-char-sha>\`
@@ -218,6 +232,16 @@ jobs:
     with:
       version: ${{ needs.route.outputs.version }}
       target_commit: ${{ needs.route.outputs.target_commit }}
+    secrets: inherit
+
+  email_recovery:
+    if: needs.route.outputs.action == 'email_recovery'
+    needs: route
+    uses: ./.github/workflows/production-email-recovery.yml
+    with:
+      operation: ${{ needs.route.outputs.mode }}
+      operations_commit: ${{ needs.route.outputs.target_commit }}
+      expected_runtime_commit: ${{ needs.route.outputs.runtime_commit }}
     secrets: inherit
 
   airflow_health:
@@ -343,6 +367,7 @@ jobs:
       - release
       - ship
       - tag
+      - email_recovery
       - airflow_health
       - pi_ydmap
       - crland_inspection_diagnose
@@ -361,6 +386,7 @@ jobs:
           MODE: ${{ needs.route.outputs.mode }}
           VERSION: ${{ needs.route.outputs.version }}
           TARGET_COMMIT: ${{ needs.route.outputs.target_commit }}
+          RUNTIME_COMMIT: ${{ needs.route.outputs.runtime_commit }}
           REQUESTED_SCOPE: ${{ needs.route.outputs.scope }}
           RELEASE_RESULT: ${{ needs.release.result }}
           RELEASE_RESOLVED_SCOPE: ${{ needs.release.outputs.resolved_scope }}
@@ -375,6 +401,7 @@ jobs:
           SHIP_SENDER: ${{ needs.ship.outputs.deploy_sender }}
           SHIP_PI_YDMAP: ${{ needs.ship.outputs.deploy_pi_ydmap }}
           TAG_RESULT: ${{ needs.tag.result }}
+          EMAIL_RECOVERY_RESULT: ${{ needs.email_recovery.result }}
           AIRFLOW_HEALTH_RESULT: ${{ needs.airflow_health.result }}
           PI_YDMAP_RESULT: ${{ needs.pi_ydmap.result }}
           CRLAND_DIAG_RESULT: ${{ needs.crland_inspection_diagnose.result }}
@@ -409,6 +436,14 @@ jobs:
             tag)
               result="$TAG_RESULT"
               label="tag $VERSION"
+              resolved="n/a"
+              webapp=""
+              airflow=""
+              sender=""
+              ;;
+            email_recovery)
+              result="$EMAIL_RECOVERY_RESULT"
+              label="email $MODE (existing runtime $RUNTIME_COMMIT)"
               resolved="n/a"
               webapp=""
               airflow=""

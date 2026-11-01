@@ -1,3 +1,6 @@
+import os
+import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -8,6 +11,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 TARGET = "abcdef0123456789abcdef0123456789abcdef01"
+RUNTIME = "0123456789abcdef0123456789abcdef01234567"
 READ_ONLY_COMMANDS = (
     ("airflow-health", "airflow_health", "health"),
     ("crland-inspection-diagnose", "crland_inspection_diagnose", "crland_inspection_diagnose"),
@@ -195,3 +199,180 @@ def test_read_only_operations_keep_production_environment_and_exact_main_commit_
         assert "--confirm-real-send" not in block
     assert "PYTHONPATH=src python scripts/production_health.py" in source
     assert "PYTHONPATH=scripts python scripts/diagnose_crland_inspections.py" in source
+
+
+@pytest.mark.parametrize("operation", ["preflight", "resume", "status"])
+def test_email_recovery_routes_two_distinct_exact_commits(tmp_path, operation):
+    result, outputs = parse_command(
+        tmp_path, f"/ops email-{operation} {TARGET.upper()} {RUNTIME.upper()}"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert outputs["action"] == "email_recovery"
+    assert outputs["mode"] == operation
+    assert outputs["target_commit"] == TARGET
+    assert outputs["runtime_commit"] == RUNTIME
+    assert outputs["include_sender"] == "false"
+    jobs = load_workflow("ops-chatops.yml")["jobs"]
+    route = jobs["email_recovery"]
+    assert route["if"] == "needs.route.outputs.action == 'email_recovery'"
+    assert route["needs"] == "route"
+    assert route["uses"] == "./.github/workflows/production-email-recovery.yml"
+    assert route["with"] == {
+        "operation": "${{ needs.route.outputs.mode }}",
+        "operations_commit": "${{ needs.route.outputs.target_commit }}",
+        "expected_runtime_commit": "${{ needs.route.outputs.runtime_commit }}",
+    }
+    assert route["secrets"] == "inherit"
+    assert "email_recovery" in jobs["report"]["needs"]
+    report = jobs["report"]["steps"][0]
+    assert report["env"]["EMAIL_RECOVERY_RESULT"] == "${{ needs.email_recovery.result }}"
+    assert report["env"]["RUNTIME_COMMIT"] == "${{ needs.route.outputs.runtime_commit }}"
+    assert 'label="email $MODE (existing runtime $RUNTIME_COMMIT)"' in report["run"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "/ops email-resume",
+        f"/ops email-resume {TARGET}",
+        f"/ops email-resume HEAD {RUNTIME}",
+        f"/ops email-preflight {TARGET} main",
+        f"/ops email-status {TARGET} {'f' * 39}",
+        f"/ops email-resume {TARGET} {RUNTIME} --force",
+        f"/ops email-resume {TARGET} {RUNTIME} sender=true",
+        f"/ops email-resume {TARGET} {RUNTIME}\n/release apply {TARGET}",
+        f"/ops email-exec {TARGET} {RUNTIME}",
+    ],
+)
+def test_email_recovery_rejects_aliases_missing_identity_and_extra_actions(tmp_path, body):
+    result, outputs = parse_command(tmp_path, body)
+
+    assert result.returncode != 0
+    assert outputs == {}
+
+
+def test_email_recovery_requires_owner_environment_ci_and_existing_runtime_identity():
+    workflow = load_workflow("production-email-recovery.yml")
+    assert workflow["permissions"] == {"checks": "read", "contents": "read"}
+    assert workflow["concurrency"] == {
+        "group": "production-host-core",
+        "cancel-in-progress": "false",
+    }
+    assert set(workflow["on"]) == {"workflow_call", "workflow_dispatch"}
+    for trigger in workflow["on"].values():
+        assert set(trigger["inputs"]) == {
+            "operation",
+            "operations_commit",
+            "expected_runtime_commit",
+        }
+        assert all(value["required"] == "true" for value in trigger["inputs"].values())
+
+    job = workflow["jobs"]["recover"]
+    assert job["environment"] == "production"
+    guard = job["if"]
+    assert "github.event.issue.number == 39 &&" in guard
+    assert "github.event.comment.user.login == github.repository_owner" in guard
+    assert "github.event_name == 'workflow_dispatch' &&" in guard
+    assert "github.actor == github.repository_owner" in guard
+    assert set(job["env"]) == {
+        "OPERATION",
+        "OPERATIONS_COMMIT",
+        "RUNTIME_COMMIT",
+        "AIRFLOW_SSH_HOST",
+        "AIRFLOW_SSH_PORT",
+        "AIRFLOW_SSH_USER",
+        "AIRFLOW_REPOSITORY_PATH",
+    }
+    steps = {step["name"]: step for step in job["steps"] if "name" in step}
+    names = list(steps)
+    ci = steps["Require successful CI for both exact commits"]["run"]
+    assert 'for commit in "$OPERATIONS_COMMIT" "$RUNTIME_COMMIT"; do' in ci
+    assert '--target-commit "$commit"' in ci
+    assert "--required-check verify" in ci
+    assert "--missing-check-wait-seconds 0" in ci
+    assert names.index("Require successful CI for both exact commits") < names.index(
+        "Configure production SSH identity"
+    )
+    execute = steps["Execute protected email operation"]["run"]
+    assert 'test "$(git rev-parse origin/main)" = "$OPERATIONS_COMMIT"' in execute
+    assert '--operation "$OPERATION"' in execute
+    assert '--operations-commit "$OPERATIONS_COMMIT"' in execute
+    assert '--expected-runtime-commit "$RUNTIME_COMMIT"' in execute
+    status = steps["Record independent post-resume status"]
+    assert status["if"] == "inputs.operation == 'resume' && steps.recovery.outcome == 'success'"
+    assert "--operation status" in status["run"]
+    assert "--confirm-real-send" not in execute + status["run"]
+    assert "activate-workers" not in execute + status["run"]
+    artifacts = steps["Publish bounded recovery evidence"]["with"]
+    assert artifacts["path"].splitlines() == [
+        "/tmp/email-recovery.json",
+        "/tmp/email-recovery-status.json",
+    ]
+
+
+@pytest.mark.parametrize("scenario", ["valid", "stale_operations", "unrelated_runtime"])
+def test_email_recovery_commit_validation_rejects_drift_before_ssh(tmp_path, scenario):
+    """Exercise the workflow's actual shell gate against isolated Git histories."""
+    git = shutil.which("git")
+    assert git
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git_run(*arguments):
+        return subprocess.run(
+            [git, *arguments],
+            cwd=repository,
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        ).stdout.strip()
+
+    git_run("init", "--quiet")
+    git_run("config", "user.name", "Workflow guard test")
+    git_run("config", "user.email", "workflow-test@example.invalid")
+    git_run("commit", "--allow-empty", "--quiet", "-m", "existing runtime")
+    runtime = git_run("rev-parse", "HEAD")
+    git_run("commit", "--allow-empty", "--quiet", "-m", "verified operations")
+    operations = git_run("rev-parse", "HEAD")
+    git_run("update-ref", "refs/remotes/origin/main", operations)
+    if scenario == "stale_operations":
+        operations = runtime
+        git_run("checkout", "--quiet", "--detach", operations)
+    elif scenario == "unrelated_runtime":
+        git_run("checkout", "--quiet", "--orphan", "unrelated")
+        git_run("commit", "--allow-empty", "--quiet", "-m", "unrelated runtime")
+        runtime = git_run("rev-parse", "HEAD")
+        git_run("checkout", "--quiet", "--detach", operations)
+
+    # Network fetch alone is replaced; all identity/ancestry checks use real Git.
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    shim = binaries / "git"
+    shim.write_text(
+        f'#!/bin/sh\nif [ "$1" = fetch ]; then exit 0; fi\nexec {shlex.quote(git)} "$@"\n'
+    )
+    shim.chmod(0o755)
+    workflow = load_workflow("production-email-recovery.yml")
+    step = next(
+        item
+        for item in workflow["jobs"]["recover"]["steps"]
+        if item.get("name") == "Validate exact operations and existing-runtime commits"
+    )
+    result = subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=repository,
+        env={
+            **os.environ,
+            "PATH": str(binaries) + os.pathsep + os.environ.get("PATH", ""),
+            "OPERATION": "resume",
+            "OPERATIONS_COMMIT": operations,
+            "RUNTIME_COMMIT": runtime,
+        },
+        check=False,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert (result.returncode == 0) == (scenario == "valid"), result.stderr
