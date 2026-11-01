@@ -213,6 +213,82 @@ def test_read_only_preflight_requires_verified_migration_schema_and_active_owner
     assert not any(sql.startswith("UPDATE") for sql in engine.statements)
 
 
+def runtime_images(wechat_status="exited", wechat_image="old-image", wechat_commit="c" * 40):
+    return {
+        "zacks-api": {"commit": OLD, "image": "live", "status": "running"},
+        "zacks-notification-worker": {"commit": OLD, "image": "live", "status": "running"},
+        "zacks-wechat-worker": {
+            "commit": wechat_commit,
+            "image": wechat_image,
+            "status": wechat_status,
+        },
+    }
+
+
+def test_stopped_wechat_may_keep_an_older_image():
+    MODULE._require_recovery_runtime_images(runtime_images(), OLD)
+
+
+def test_running_wechat_must_match_the_live_api_image():
+    with pytest.raises(RuntimeError, match="images differ"):
+        MODULE._require_recovery_runtime_images(runtime_images(wechat_status="running"), OLD)
+
+
+def test_email_worker_must_match_the_live_api_image():
+    current = runtime_images()
+    current["zacks-notification-worker"]["image"] = "other"
+    with pytest.raises(RuntimeError, match="images differ"):
+        MODULE._require_recovery_runtime_images(current, OLD)
+
+
+def test_recovery_failure_publishes_a_fixed_guard_and_hides_transport_text():
+    assert (
+        MODULE._public_recovery_reason(RuntimeError("active_mail_heartbeat_missing"))
+        == "active_mail_heartbeat_missing"
+    )
+    assert (
+        MODULE._public_recovery_reason(
+            RuntimeError("recovery Host Core images differ from the expected runtime")
+        )
+        == "recovery Host Core images differ from the expected runtime"
+    )
+    assert MODULE._public_recovery_reason(RuntimeError("password=secret host=db.internal")) is None
+
+
+def test_probe_failure_keeps_only_the_bounded_reason(monkeypatch):
+    def fake_run(_command, **_kwargs):
+        return SimpleNamespace(
+            returncode=1,
+            stdout=(
+                '{"ok": false, "errorClass": "ValueError", '
+                '"reason": "active_mail_heartbeat_missing"}\n'
+            ),
+        )
+
+    monkeypatch.setattr(MODULE, "run", fake_run)
+    with pytest.raises(RuntimeError, match="^active_mail_heartbeat_missing$"):
+        MODULE._recovery_probe(
+            {"runtimeCommit": OLD, "updatedAt": STAMP.isoformat()},
+            {"zacks-api": {"id": "abc"}},
+        )
+
+
+def test_probe_failure_drops_an_unbounded_reason(monkeypatch):
+    def fake_run(_command, **_kwargs):
+        return SimpleNamespace(
+            returncode=1,
+            stdout='{"ok": false, "errorClass": "OperationalError", "reason": "password=secret"}\n',
+        )
+
+    monkeypatch.setattr(MODULE, "run", fake_run)
+    with pytest.raises(RuntimeError, match="recovery database identity") as caught:
+        MODULE._recovery_probe(
+            {"runtimeCommit": OLD, "updatedAt": STAMP.isoformat()},
+            {"zacks-api": {"id": "abc"}},
+        )
+    assert "secret" not in str(caught.value)
+
+
 def snapshot():
     return {
         "containers": {"zacks-api": {"id": "fixed", "image": "image", "commit": OLD}},
