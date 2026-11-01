@@ -16,10 +16,12 @@ def test_one_control_plane_and_no_one_time_production_scheduler():
     assert "operation: pause" in ship
 
 
-def test_business_acceptance_precedes_immutable_version_release():
+def test_worker_activation_precedes_immutable_version_release():
     ship = read(".github/workflows/production-ship.yml")
-    assert "needs: [deploy, acceptance]" in ship
-    assert "needs.acceptance.result == 'success'" in ship
+    assert "needs: [deploy, natural_cycles]" in ship
+    assert "needs.natural_cycles.result == 'success'" in ship
+    assert "needs: [deploy, acceptance]" not in ship
+    assert "needs.acceptance.result == 'success'" not in ship
     assert (
         ship.index("  host_core_cutover:")
         < ship.index("  deploy:")

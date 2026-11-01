@@ -163,8 +163,9 @@ def test_recovery_ship_preserves_full_deployment_and_acceptance_dependencies():
     assert jobs["natural_cycles"]["with"]["operation"] == "activate-workers"
     assert jobs["acceptance"]["needs"] == "natural_cycles"
     assert jobs["acceptance"]["with"]["operation"] == "acceptance"
-    assert "acceptance" in jobs["safe_pause_on_failure"]["needs"]
-    assert "needs.acceptance.outputs.acceptance_status == 'accepted'" in jobs["tag"]["if"]
+    assert "acceptance" not in jobs["safe_pause_on_failure"]["needs"]
+    assert "acceptance_status" not in jobs["tag"]["if"]
+    assert jobs["tag"]["needs"] == ["deploy", "natural_cycles"]
 
 
 @pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])
