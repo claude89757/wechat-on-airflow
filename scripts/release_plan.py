@@ -404,6 +404,15 @@ def write_github_output(path: Path, plan: Plan) -> None:
         ).lower(),
         "control_plane_changed": str(plan.control_plane_changed).lower(),
         "changed_count": str(len(plan.changed_files)),
+        "ci_images": str(
+            bool(plan.unknown_files)
+            or any(
+                path.startswith(("docker/", "dags/"))
+                or path in {"pyproject.toml", "docker-compose.yml", "docker-compose.sender.yml"}
+                or path.endswith(("requirements.txt", "requirements.lock"))
+                for path in plan.changed_files
+            )
+        ).lower(),
         "ci_python": str(
             bool({"airflow", "sender"} & set(plan.ci_components))
             or plan.control_plane_changed

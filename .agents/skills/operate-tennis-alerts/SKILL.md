@@ -5,6 +5,13 @@ description: Operate this repository's Shenzhen tennis alert platform across Air
 
 # Operate Tennis Alerts
 
+The owner accepts interruptions. Follow the minimal lifecycle in
+`docs/runbooks/fast-verification.md`: scoped local tests, fast PR checks, one main
+release gate and protected SHA-based updates. Shared Python changes require
+lint/typecheck/Python tests, not unrelated image builds. Prefer interruptible
+Airflow updates; never clear durable business outboxes or bypass authentication.
+These rules supersede blanket full-verify and uninterrupted-service requirements.
+
 For verification scope follow `docs/runbooks/fast-verification.md`. Focused local
 checks replace blanket full verification for documentation, frontend and MCP-only
 work; shared or release-control changes still require `make verify`. The exact

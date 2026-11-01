@@ -24,6 +24,12 @@ inspection, not end-to-end notification acceptance or a database probe.
 
 ## Releases
 
+For routine repairs prefer the protected component workflow with an exact SHA;
+no new semantic version is needed. The owner accepts short interruptions:
+Airflow uses `deploy_recovery`, not a long natural-drain wait. Keep database
+records, notification deduplication and single-consumer fences intact. Formal
+ship/tag is optional bookkeeping for routine repairs, not a prerequisite.
+
 Use [scoped verification](fast-verification.md) to avoid unrelated local and CI
 checks. Daily full regression is separate from the normal exact-SHA gate.
 
