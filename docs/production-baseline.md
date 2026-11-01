@@ -12,8 +12,29 @@ dedicated group. Baoan retirement, subscription eligibility, current-availabilit
 validation, expiration and durable deduplication are unchanged. No historical
 queue replay or synthetic notification is part of this repair.
 
-Deployment and natural delivery evidence for this routing repair must be recorded
-separately; the health evidence below predates it and does not prove restoration.
+[PR #309](https://github.com/claude89757/wechat-on-airflow/pull/309) deployed
+Airflow producer commit `4d356d3d932171045bde38969e5a8d262dc281f2` through
+[protected recovery 41311773337](https://github.com/claude89757/wechat-on-airflow/actions/runs/41311773337),
+after exact-SHA CI and read-only preflight. Host Core, Sender, edge and Pi remain
+on `7fb7c720e98b1c78300b671fd5b3b99cc4c2eaab`; no consumer/Sender contract
+changed and their matching identities were retained.
+
+[Post-deploy routing diagnosis](https://github.com/claude89757/wechat-on-airflow/actions/runs/41312231260)
+confirmed general targets 2, sports-center memberships 3, dedicated free-court
+targets 1 and paused shared targets 0. These are route membership counts, not
+distinct group totals. [Read-only delivery evidence](https://github.com/claude89757/wechat-on-airflow/actions/runs/41312316669)
+at `2026-11-01T13:40:00.514130Z` showed natural WeChat sends rising from 4 to 10
+in the 24-hour window: six additional sends after deployment. It does not prove
+a separate receipt for every group. Both delivery gates remained enabled and
+all 30 active stored observation scopes were fresh and healthy.
+
+The deployment post-check retained `observation_pending=true` for interrupted
+DAG history; runtime readiness and exact Airflow identity passed. The separate
+[device inventory](https://github.com/claude89757/wechat-on-airflow/actions/runs/41312135528)
+confirmed the API, Sender, pinned tunnel and scraper healthy but its overall
+result failed on pending natural cycles and a legacy unfiltered unhealthy-venue
+count that includes retired Baoan. This is not full all-cycle acceptance. No
+synthetic notification, historical replay or deduplication reset was performed.
 
 ## Notification recovery and Baoan retirement deployed on 2026-11-01
 
