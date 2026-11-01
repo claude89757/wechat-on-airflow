@@ -1,5 +1,50 @@
 # Production Baseline
 
+## Notification recovery and Baoan retirement deployed on 2026-11-01
+
+The current business runtime is
+`7fb7c720e98b1c78300b671fd5b3b99cc4c2eaab`: Host Core, public edge,
+Airflow, Sender and Pi YDMap scraper. This supersedes the pending-deployment
+status below; independent operations MCP runtimes have separate identities.
+
+WeChat remained disabled after the earlier email-only recovery. Recovery also
+incorrectly required one scheduler container, although production intentionally
+runs two. PR #305 validates both scheduler replicas while retaining single-owner
+consumer checks. The stale Pi scraper lacked the current protocol metadata;
+updating it completed Baoan retirement and restored Dashah source health.
+
+Protected evidence:
+
+- [Host Core recovery](https://github.com/claude89757/wechat-on-airflow/actions/runs/41278874821)
+  and [Sender apply](https://github.com/claude89757/wechat-on-airflow/actions/runs/41279133608).
+- [Interrupted Airflow recovery](https://github.com/claude89757/wechat-on-airflow/actions/runs/41280037988)
+  deployed the target successfully; its old post-check failed only on interrupted
+  historical runs, not service identity or readiness.
+- [Worker activation](https://github.com/claude89757/wechat-on-airflow/actions/runs/41280345326)
+  enabled WeChat at `2026-11-01T06:20:42.457388Z`.
+- [Pi apply](https://github.com/claude89757/wechat-on-airflow/actions/runs/41281102003),
+  [independent health](https://github.com/claude89757/wechat-on-airflow/actions/runs/41281163599)
+  and [live source inspection](https://github.com/claude89757/wechat-on-airflow/actions/runs/41281212494)
+  passed. Protocol 2 advertises only `dsh`, with the exact runtime commit.
+- [Business health](https://github.com/claude89757/wechat-on-airflow/actions/runs/41281137965)
+  passed all checks at `2026-11-01T06:31:24.984550Z`: 26 active venues,
+  natural DAG cycles, observation scopes, consumer heartbeats, delivery gates,
+  Sender readiness, queue health and exact identities. Baoan remains one retired
+  historical venue; PICKLE POP Baoan remains active.
+
+The recovery window recorded 25 naturally delivered emails and zero new WeChat
+sent records. Infrastructure health is verified; a new natural WeChat receipt
+is still required for end-to-end delivery acceptance. No synthetic notifications
+were sent and historical uncertain deliveries were not replayed.
+
+PR #306 reduced PR checks to about 10 seconds and the observed scoped main
+verification to 92 seconds. Updates may interrupt active inspections, as the
+owner explicitly authorized. Recent interrupted-run history no longer makes a
+healthy deployment fail; standalone business health remains strict. PR #307
+allows exact deployed-ancestor health checks without redeployment after a
+documentation or CI-only merge. Authentication, exact-SHA release gates,
+single-owner delivery and deduplication remain enforced.
+
 ## Owner-approved Baoan withdrawal prepared on 2026-11-01; deployment pending
 
 The owner requested restoration of both email and WeChat and withdrawal of the
