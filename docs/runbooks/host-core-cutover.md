@@ -86,8 +86,10 @@ read-only checks in the existing API container. It checks the schema
 fingerprint, prior activation and complete migration reconciliation, the exact
 control timestamp and gates, a fresh active email-owner heartbeat, API/edge
 identity, the existing routing, and the IDs/image digests/runtime revisions of
-all eight application containers. Email must have one running consumer and
-WeChat must remain stopped. The protected baseline contains no recipient,
+all eight application containers. Email must have one running consumer on the
+same image as the API. WeChat must remain stopped. Its stopped container may
+still be an older image: it is not a delivery owner, and recovery replaces it.
+The protected baseline contains no recipient,
 message, credential or raw configuration values and is saved before checkout.
 
 Preparation builds the new exact image and creates a protected business-schema

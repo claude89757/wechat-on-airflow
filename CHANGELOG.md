@@ -5,6 +5,13 @@ and operational changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Let a recovery upgrade replace a stopped WeChat consumer that is still on an
+  older image. The live API and email worker must still match, and no WeChat
+  consumer may be running. A failed recovery check now reports its fixed guard
+  name instead of only `RuntimeError`.
+
 ### Changed
 
 - Keep required CI on lint, types, unit tests and the web unit check. Browser

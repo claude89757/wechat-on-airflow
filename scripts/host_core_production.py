@@ -86,8 +86,13 @@ def probe(options):
 try:
     print(json.dumps(probe(json.loads(sys.argv[1])), sort_keys=True))
 except Exception as error:
-    # Database/transport exceptions may contain credentials. Publish the type only.
-    print(json.dumps({"ok": False, "errorClass": type(error).__name__}))
+    # Database/transport exceptions may contain credentials. Publish a reason
+    # only when it is one of the fixed guard codes above.
+    payload = {"ok": False, "errorClass": type(error).__name__}
+    reason = str(error)
+    if reason.isidentifier() and reason.islower() and len(reason) <= 80:
+        payload["reason"] = reason
+    print(json.dumps(payload))
     raise SystemExit(1) from None
 """
 
@@ -415,6 +420,22 @@ def recovery_arguments(runtime_commit, updated_at, delivery_enabled, wechat_enab
     return {"runtimeCommit": runtime_commit, "updatedAt": updated_at, "baselineFile": str(path)}
 
 
+def _require_recovery_runtime_images(containers, expected):
+    """The stopped WeChat consumer is not a delivery owner and may still be old.
+
+    Recovery replaces that container after the fence. Requiring its image to
+    already match the live API blocks the only path that can start it again.
+    A running WeChat consumer, and the live API and email worker, must match.
+    """
+    api = containers["zacks-api"]
+    for service in ("zacks-api", "zacks-notification-worker", "zacks-wechat-worker"):
+        current = containers[service]
+        if service == "zacks-wechat-worker" and current["status"] in {"exited", "created"}:
+            continue
+        if current["commit"] != expected or current["image"] != api["image"]:
+            raise RuntimeError("recovery Host Core images differ from the expected runtime")
+
+
 def _recovery_containers(expected):
     containers = {}
     for service in RECOVERY_COMPONENTS:
@@ -449,13 +470,7 @@ def _recovery_containers(expected):
             module = "worker" if service == "zacks-notification-worker" else "wechat_worker"
             if raw["Config"].get("Cmd") != ["python", "-m", "wechat_airflow.host_core." + module]:
                 raise RuntimeError("recovery consumer command differs from the canonical worker")
-    api = containers["zacks-api"]
-    for service in ("zacks-api", "zacks-notification-worker", "zacks-wechat-worker"):
-        if (
-            containers[service]["commit"] != expected
-            or containers[service]["image"] != api["image"]
-        ):
-            raise RuntimeError("recovery Host Core images differ from the expected runtime")
+    _require_recovery_runtime_images(containers, expected)
     # A second Compose project must not silently become a second delivery owner.
     running_mail = run(
         [
@@ -500,6 +515,9 @@ def _recovery_probe(options, containers, operation="snapshot", target_commit=Non
     )
     result = _last_json(completed.stdout or "")
     if completed.returncode or result.get("ok") is not True:
+        reason = result.get("reason")
+        if isinstance(reason, str) and _public_recovery_reason(RuntimeError(reason)) == reason:
+            raise RuntimeError(reason)
         raise RuntimeError("recovery database identity, checkpoint, gate or heartbeat guard failed")
     return result
 
@@ -1284,21 +1302,53 @@ def main():
     return 75 if status == "pending" else (0 if success else 1)
 
 
+def _public_recovery_reason(error):
+    """Return a fixed guard name. Never forward database or transport text."""
+    message = str(error)
+    if message.isidentifier() and message.islower() and len(message) <= 80:
+        return message
+    if message in {
+        "recovery Host Core images differ from the expected runtime",
+        "recovery consumer command differs from the canonical worker",
+        "recovery image revision does not match its container",
+        "recovery container ownership or runtime identity invalid",
+        "recovery container state changed",
+        "recovery requires one existing container per component",
+        "recovery requires a single running email container",
+        "recovery requires all WeChat consumers stopped",
+        "recovery refuses a modified production worktree",
+        "recovery upgrade requires a repaired new commit",
+        "recovery requires the matching stateless production edge",
+        "recovery database identity, checkpoint, gate or heartbeat guard failed",
+        "local host-core health check failed",
+        "local host-core deployment identity mismatch",
+        "local host-core readiness check failed",
+        "public host-core health check failed",
+        "public host-core deployment identity mismatch",
+        "public API is not routed to the Airflow-host runtime",
+        "existing tunnel configuration differs; explicit repair required",
+        "existing observation route differs; explicit repair required",
+        "existing subscription gate differs; explicit repair required",
+        "target commit must be a full SHA",
+    }:
+        return message
+    return None
+
+
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as error:
         if "--recovery-runtime-commit" not in sys.argv:
             raise
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "success": False,
-                    "errorClass": type(error).__name__,
-                    "replaySafe": False,
-                }
-            ),
-            flush=True,
-        )
+        payload = {
+            "ok": False,
+            "success": False,
+            "errorClass": type(error).__name__,
+            "replaySafe": False,
+        }
+        reason = _public_recovery_reason(error)
+        if reason is not None:
+            payload["reason"] = reason
+        print(json.dumps(payload), flush=True)
         raise SystemExit(1) from None
