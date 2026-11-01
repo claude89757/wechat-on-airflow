@@ -24,6 +24,9 @@ inspection, not end-to-end notification acceptance or a database probe.
 
 ## Releases
 
+Use [scoped verification](fast-verification.md) to avoid unrelated local and CI
+checks. Daily full regression is separate from the normal exact-SHA gate.
+
 MCP runtime components are `remote_ops` (Pi and VPS) and `pi_mcp` (phone bridge).
 They are included in the normal component plan and cannot be omitted by a manual
 scope. A business `all` scope includes detected MCP changes, but does not force

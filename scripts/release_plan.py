@@ -404,6 +404,12 @@ def write_github_output(path: Path, plan: Plan) -> None:
         ).lower(),
         "control_plane_changed": str(plan.control_plane_changed).lower(),
         "changed_count": str(len(plan.changed_files)),
+        "ci_python": str(
+            bool({"airflow", "sender"} & set(plan.ci_components))
+            or plan.control_plane_changed
+            or bool(plan.unknown_files)
+            or any(path.endswith(".py") or path.startswith("tests/") for path in plan.changed_files)
+        ).lower(),
     }
     with path.open("a", encoding="utf-8") as handle:
         for key, value in values.items():

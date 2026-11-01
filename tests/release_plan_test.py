@@ -5,8 +5,60 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/release_plan.py"
+
+
+def test_ci_keeps_full_regression_and_scoped_database() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers["schedule"]
+    job = workflow["jobs"]["verify"]
+    assert "services" not in job
+    assert "full-regression" in job["name"]
+    steps = {step.get("name"): step for step in job["steps"]}
+    for name in (
+        "Start isolated test database only for Python checks",
+        "Install development dependencies",
+        "Lint",
+        "Type check",
+        "Unit and workflow contract tests",
+    ):
+        assert steps[name]["if"] == "steps.plan.outputs.ci_python == 'true'"
+    assert "echo 'ci_python=true'" in steps["Detect changed component surfaces"]["run"]
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("README.md", "false"),
+        ("webapp/src/app.ts", "false"),
+        ("pi_host/remote_ops/server.mjs", "false"),
+        ("src/wechat_airflow/host_core/api.py", "true"),
+        ("tests/example_test.py", "true"),
+        ("scripts/release_plan.py", "true"),
+        ("unknown.conf", "true"),
+    ],
+)
+def test_python_gate_is_conservative(tmp_path: Path, path: str, expected: str) -> None:
+    repo, base = init_repo(tmp_path)
+    target = commit_change(repo, path, "changed\n", "change")
+    output = tmp_path / "outputs"
+    run_plan(
+        repo,
+        "--base-commit",
+        base,
+        "--target-commit",
+        target,
+        "--include-sender",
+        "--github-output",
+        str(output),
+    )
+    assert f"ci_python={expected}" in output.read_text().splitlines()
 
 
 def git(repo: Path, *args: str) -> str:
