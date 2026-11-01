@@ -436,15 +436,27 @@ def _require_recovery_runtime_images(containers, expected):
             raise RuntimeError("recovery Host Core images differ from the expected runtime")
 
 
+def _recovery_instances():
+    instances = []
+    for service in RECOVERY_COMPONENTS:
+        identifiers = sorted(
+            run(COMPOSE + ["ps", "--all", "--quiet", service], capture=True).stdout.splitlines()
+        )
+        expected_count = 2 if service == "airflow-scheduler" else 1
+        if (
+            len(identifiers) != expected_count
+            or len(set(identifiers)) != expected_count
+            or any(not re.fullmatch(r"[0-9a-f]{12,64}", item) for item in identifiers)
+        ):
+            raise RuntimeError("recovery_container_replica_count_mismatch")
+        instances.extend((service, identifier) for identifier in identifiers)
+    return instances
+
+
 def _recovery_containers(expected):
     containers = {}
-    for service in RECOVERY_COMPONENTS:
-        identifiers = run(
-            COMPOSE + ["ps", "--all", "--quiet", service], capture=True
-        ).stdout.splitlines()
-        if len(identifiers) != 1 or not re.fullmatch(r"[0-9a-f]{12,64}", identifiers[0]):
-            raise RuntimeError("recovery requires one existing container per component")
-        raw = json.loads(run(["docker", "inspect", identifiers[0]], capture=True).stdout)[0]
+    for service, identifier in _recovery_instances():
+        raw = json.loads(run(["docker", "inspect", identifier], capture=True).stdout)[0]
         labels = raw["Config"].get("Labels") or {}
         environment = dict(value.split("=", 1) for value in raw["Config"]["Env"] if "=" in value)
         commit = environment.get("DEPLOYMENT_COMMIT", "")
@@ -460,7 +472,8 @@ def _recovery_containers(expected):
         ]
         if (image["Config"].get("Labels") or {}).get("org.opencontainers.image.revision") != commit:
             raise RuntimeError("recovery image revision does not match its container")
-        containers[service] = {
+        key = service + ":" + identifier if service == "airflow-scheduler" else service
+        containers[key] = {
             "id": raw["Id"],
             "image": raw["Image"],
             "commit": commit,

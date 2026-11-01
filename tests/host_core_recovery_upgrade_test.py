@@ -34,6 +34,41 @@ NEW = "a" * 40
 STAMP = datetime(2026, 11, 1, 2, 55, tzinfo=UTC)
 
 
+def test_recovery_inventory_keeps_both_scheduler_replicas(monkeypatch):
+    def run(command, **kwargs):
+        ids = ["a" * 64, "b" * 64] if command[-1] == "airflow-scheduler" else ["c" * 64]
+        return SimpleNamespace(stdout="\n".join(reversed(ids)))
+
+    monkeypatch.setattr(MODULE, "run", run)
+    instances = MODULE._recovery_instances()
+    assert len(instances) == len(MODULE.RECOVERY_COMPONENTS) + 1
+    assert [identifier for service, identifier in instances if service == "airflow-scheduler"] == [
+        "a" * 64,
+        "b" * 64,
+    ]
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    assert compose["services"]["airflow-scheduler"]["deploy"]["replicas"] == 2
+
+
+@pytest.mark.parametrize(
+    "service,count",
+    [
+        ("airflow-scheduler", 1),
+        ("airflow-scheduler", 3),
+        ("zacks-wechat-worker", 2),
+        ("zacks-notification-worker", 2),
+    ],
+)
+def test_recovery_rejects_unexpected_replicas(monkeypatch, service, count):
+    def run(command, **kwargs):
+        size = count if command[-1] == service else (2 if command[-1] == "airflow-scheduler" else 1)
+        return SimpleNamespace(stdout="\n".join(format(i + 1, "064x") for i in range(size)))
+
+    monkeypatch.setattr(MODULE, "run", run)
+    with pytest.raises(RuntimeError, match="replica_count_mismatch"):
+        MODULE._recovery_instances()
+
+
 def proof():
     return {
         "reconciliation": {
