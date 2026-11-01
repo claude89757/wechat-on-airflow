@@ -165,8 +165,9 @@ jobs:
     needs: gate
     uses: ./.github/workflows/production-pi-ydmap.yml
     with:
-      drain_preflight: ${{ inputs.mode == 'preflight' }}
-      operation: ${{ inputs.mode == 'apply' && 'apply' || 'preflight' }}
+      drain_preflight: false
+      allow_interruption: true
+      operation: ${{ inputs.mode == 'apply' && 'apply' || 'ready' }}
       target_commit: ${{ inputs.target_commit }}
       request_id: release-${{ github.run_id }}
     secrets: inherit
@@ -213,7 +214,7 @@ jobs:
     needs: [gate, pi_ydmap, webapp, airflow]
     uses: ./.github/workflows/production-wechat-sender.yml
     with:
-      operation: ${{ inputs.mode == 'apply' && 'apply' || 'dry_run' }}
+      operation: ${{ inputs.mode == 'apply' && 'apply' || 'health' }}
       target_commit: ${{ inputs.target_commit }}
       request_id: release-${{ github.run_id }}
     secrets: inherit

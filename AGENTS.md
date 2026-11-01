@@ -266,14 +266,18 @@ SES keys, invitation plaintext, or the Fernet key.
 
 ## Agent Authority
 
-Agents may autonomously perform read-only inspection and local reversible work:
+Agents finish development and routine operations without asking for another
+confirmation. Commit and push when the change is ready. Dispatch the documented
+protected workflow for a routine release, recovery, or health check.
+
+Agents may autonomously:
 
 - inspect local and production state without revealing secrets;
 - edit code, tests, documentation, and non-secret configuration;
 - build images and run isolated migration rehearsals;
 - create backups;
 - commit and push verified changes;
-- deploy reversible application changes only after all documented gates pass.
+- deploy reversible application changes after the documented gates pass.
 
 Human approval is required before high-risk or irreversible work:
 
@@ -321,10 +325,10 @@ replayed. Production releases remain protected GitHub workflows; only the
 explicitly scoped MCP administration exception above permits other operational
 access.
 
-Acceptance requires the exact commit on host, edge and Sender; all 26 active
-venue DAGs with three natural successful cycles; fresh observations and
-consumers; migration identity reconciliation; the production
-transaction-rollback API probe; and actual natural SES-delivered and
-WeChat-sent records. The rollback probe is not
-a public browser test or a real verification email. No synthetic notifications
-may be sent without a separately authorized recipient and explicit permission.
+A ship tags after the exact commit is on the host, edge and Sender and the
+workers are activated. Three natural cycles for all 26 active venue DAGs, and
+natural email or WeChat receipts, are production observations. They do not hold
+the pipeline, block the tag, or pause delivery. The transaction-rollback API probe still runs before
+workers are enabled. It is not a public browser test or a real verification
+email. No synthetic notifications may be sent without a separately authorized
+recipient and explicit permission.

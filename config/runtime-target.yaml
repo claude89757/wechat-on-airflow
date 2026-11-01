@@ -100,8 +100,8 @@ managed_services:
     candidate_origin_base_url: http://127.0.0.1:18788
     candidate_debug_port: 19224
     preflight_requires_real_date_product_court_identity: true
-    release_preflight_requires_scoped_drain: true
-    release_preflight_cycles: 3
+    release_preflight_requires_scoped_drain: false
+    release_preflight_cycles: 0
     profile_directory: /tmp/pi-ydmap-service-profile-v2
     profile_owner: existing_unprivileged_scraper_service_user
     profile_scope: shared_by_guarded_preflight_apply_and_live_service

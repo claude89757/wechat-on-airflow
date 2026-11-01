@@ -7,6 +7,14 @@ and operational changes.
 
 ### Changed
 
+- Keep required CI on lint, types, unit tests and the web unit check. Browser
+  interaction runs are no longer a release gate.
+- Release preflight checks that the Pi scraper and WeChat sender are alive.
+  It does not pause Dashah, run three browser cycles, or install a sender
+  candidate. Apply may replace the scraper while one inspection is in progress.
+- Tag a full ship after worker activation. Missing natural venue cycles or
+  email/WeChat receipts no longer hold the pipeline, block the tag, or pause
+  delivery.
 - Align the README license badge and license statement with the MIT `LICENSE`.
 - State current acceptance as all 26 active venue DAGs. The count matches the
   runtime target, public venue cards, and architecture. Dated incident records

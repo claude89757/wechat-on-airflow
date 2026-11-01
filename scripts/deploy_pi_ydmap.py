@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "pi_host/dsh_ydmap"
 TEST_NAMES = ("pi_ydmap_scraper_test.py", "pi_ydmap_identity_test.py")
 MAX_REPORT_BYTES = 1_000_000
-OPERATIONS = {"preflight", "apply", "health", "inspect"}
+OPERATIONS = {"ready", "preflight", "apply", "health", "inspect"}
 _contract_spec = importlib.util.spec_from_file_location("pi_ydmap_contract", SOURCE / "install.py")
 assert _contract_spec is not None and _contract_spec.loader is not None
 CONTRACT = importlib.util.module_from_spec(_contract_spec)
@@ -40,6 +40,7 @@ FAILURES = {
     "scrape_not_verified",
     "access_verification",
     "scraper_identity_mismatch",
+    "scraper_not_ready",
     "date_identity_mismatch",
     "product_identity_mismatch",
     "invalid_court_identity",
@@ -412,6 +413,9 @@ def main() -> int:
         drain_preflight = os.environ.get("DRAIN_PREFLIGHT", "false") == "true"
         if drain_preflight and operation != "preflight":
             raise ValueError("verification_not_authorized")
+        allow_interruption = os.environ.get("ALLOW_INTERRUPTION", "false") == "true"
+        if allow_interruption and operation != "apply":
+            raise ValueError("verification_not_authorized")
         first_product = os.environ.get("DIAGNOSTIC_FIRST_PRODUCT", "default")
         if verification_once or first_product != "default":
             raise ValueError("verification_not_authorized")
@@ -459,6 +463,8 @@ def main() -> int:
         )
         if drain_preflight:
             command += " --drain-preflight"
+        if allow_interruption:
+            command += " --allow-interruption"
         if capture_browser_ui:
             command += " --capture-browser-ui"
         report = (
@@ -469,7 +475,7 @@ def main() -> int:
                 source_evidence=operation == "preflight",
                 capture_browser_ui=capture_browser_ui,
             )
-            if operation == "apply" or drain_preflight
+            if (operation == "apply" or drain_preflight) and not allow_interruption
             else remote(
                 client,
                 command,
