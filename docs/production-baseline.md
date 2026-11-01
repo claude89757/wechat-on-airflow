@@ -1,5 +1,109 @@
 # Production Baseline
 
+## Owner-approved Baoan withdrawal prepared on 2026-11-01; deployment pending
+
+The owner requested restoration of both email and WeChat and withdrawal of the
+previous day's Baoan integration. The actual merged feature was
+[PR #263](https://github.com/claude89757/wechat-on-airflow/pull/263),
+`f9fc735128262737e827b49b0368ca73ad02fb59`, merged at
+`2026-10-31T05:59:00Z`; contributor PR #262 was closed without merging.
+The targeted withdrawal removes `baoti` from the active DAG, API and public
+subscription catalog and records its explicit retirement. The other 26 venue
+identities and polling schedules remain unchanged, including the distinct
+PICKLE POP Baoan venue (`ppba`).
+
+Historical Baoan subscriptions, observations, outboxes, deduplication state and
+Airflow run records are retained. Active venue health excludes only this
+approved retired venue; unknown catalog drift still fails. The durable seed
+catalog and schema fingerprint remain identical to the existing Host Core
+runtime, so this change does not introduce database DDL or replay a migration.
+Existing email/WeChat records for a retired venue cannot be newly dispatched.
+Independent OAuth/MCP, notification recovery, and shared collector safety fixes
+are retained. Group routing is unchanged.
+
+This section records the approved implementation scope, not a successful
+production rollback or restored WeChat delivery. Exact-commit protected
+preflight/apply, component identity checks, all 26 venues' required natural
+cycles and real natural delivery receipts remain outstanding. The following
+email-only recovery evidence remains historical and is not full acceptance.
+
+## Email consumer resumed; natural delivery verification pending on 2026-11-01
+
+The failed [0.9.0 ship 41205840288](https://github.com/claude89757/wechat-on-airflow/actions/runs/41205840288)
+had upgraded Host Core before Pi apply failed and the protected safety stop
+paused delivery. Existing venue observations continued while the email
+consumer remained stopped. This established a paused notification runtime;
+no SES provider outage was established.
+
+[PR #297](https://github.com/claude89757/wechat-on-airflow/pull/297) added the
+protected email-only recovery procedure. The operations commit was
+`2e4dbe6376e3a310db77064818652de72e0c9211`, with
+[exact-commit CI 41266646251](https://github.com/claude89757/wechat-on-airflow/actions/runs/41266646251).
+The existing Host Core and email runtime remained
+`bd8ee98381cca5f0a4c8d0a674590012d76adc57`. Recovery preserved existing
+container and image identities; it did not deploy another application or edge
+runtime.
+
+[Protected recovery 41267040437](https://github.com/claude89757/wechat-on-airflow/actions/runs/41267040437)
+started only the existing email container, verified a new heartbeat while
+delivery was still paused, and enabled its PostgreSQL delivery fence at
+`2026-11-01T02:55:08.601801+00:00` (10:55:08 Asia/Shanghai).
+The [independent post-resume status](https://github.com/claude89757/wechat-on-airflow/actions/runs/41267040437/job/124731907761)
+at `2026-11-01T02:56:10.667338+00:00` confirmed `deliveryEnabled=true`,
+`phase=active`, and an active-owner consumer heartbeat at
+`2026-11-01T02:55:55.767075+00:00`. There were 26 fresh healthy venue
+observations; Baoan (`baoti`) remained unhealthy.
+
+The 190 old pending subscription reminders expired through the worker's normal
+expiry policy. Historical expired records increased from 194 to 384, and
+`oldActiveBacklog` reached zero. No administrative queue clearing, deduplication
+reset or manual replay occurred.
+
+[Read-only email status 41267649427](https://github.com/claude89757/wechat-on-airflow/actions/runs/41267649427/job/124733724680)
+at `2026-11-01T03:04:23.495214Z`, 9 minutes 14 seconds after recovery, confirmed
+the consumer remained healthy and active, with an owner heartbeat at
+`2026-11-01T03:04:00.526537Z`. `deliveryEnabled=true`, `phase=active`, and the
+control timestamp was unchanged at `2026-11-01T02:55:08.601801Z`. The report
+still showed 26 fresh healthy venues, Baoan unhealthy, zero old active email
+backlog and 384 expired reminders; other historical email counts were unchanged.
+No newly queued eligible email or natural submission/delivery receipt was
+observed. Counts since recovery remained:
+
+| Channel | Submitted | Provider-delivered | Failed | Unknown |
+| --- | ---: | ---: | ---: | ---: |
+| Subscription email | 0 | 0 | 0 | 0 |
+| System email | 0 | 0 | 0 | 0 |
+
+The email consumer and ownership switch were stable through this nine-minute
+observation, but natural provider delivery remains unverified. Continue with
+read-only `email-status` observations;
+do not create a test notification or change subscription/deduplication state to
+manufacture a receipt. No synthetic notification was sent during recovery.
+
+[Read-only Airflow health 41267301618](https://github.com/claude89757/wechat-on-airflow/actions/runs/41267301618/job/124732686688)
+at `2026-11-01T02:59:46Z` found the existing Airflow image lacked Baoan (`baoti`)
+DAG source and registration; other venue checks had recent natural successes.
+Sender readiness returned HTTP 200, but the WeChat consumer remained stopped.
+
+[Business health 41267447926](https://github.com/claude89757/wechat-on-airflow/actions/runs/41267447926/job/124733116086),
+generated at `2026-11-01T03:01:30Z` with job output completed at
+`2026-11-01T03:02:48.8036628Z`, confirmed a healthy email worker with no new
+unknown submissions, terminal failures or stalled backlog in either mail queue.
+Host, edge and email retained
+`bd8ee98381cca5f0a4c8d0a674590012d76adc57`. Sender was ready, with Appium,
+device and durable idempotency checks passing, but its actual commit was
+`9cca72d73eb05c502446bd1d947c4307d7f73f35` (`exactSenderCommit=false`).
+`wechatDeliveryEnabled=false` and `zacks-wechat-worker=false`; four historical
+pending WeChat records remained. Sender readiness is not evidence of restored
+WeChat delivery.
+
+Group routing was not changed. Baoan/Pi collection, WeChat delivery and the
+incomplete multi-component rollout remain separate outstanding work.
+This is email-consumer recovery, not successful
+all-27-venue acceptance, WeChat recovery, or completion of the 0.9.0 release.
+No release tag or acceptance state was created. See the
+[email recovery runbook](runbooks/email-delivery-recovery.md).
+
 ## Rendered puzzle challenge confirmed on the Pi on 2026-10-31
 
 [Controlled same-profile repeat 41211132530](https://github.com/claude89757/wechat-on-airflow/actions/runs/41211132530)

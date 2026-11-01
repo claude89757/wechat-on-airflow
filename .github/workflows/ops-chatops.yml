@@ -31,6 +31,10 @@ jobs:
       version: ${{ steps.command.outputs.version }}
       target_commit: ${{ steps.command.outputs.target_commit }}
       runtime_commit: ${{ steps.command.outputs.runtime_commit }}
+      recovery_runtime_commit: ${{ steps.command.outputs.recovery_runtime_commit }}
+      recovery_control_updated_at: ${{ steps.command.outputs.recovery_control_updated_at }}
+      recovery_delivery_enabled: ${{ steps.command.outputs.recovery_delivery_enabled }}
+      recovery_wechat_enabled: ${{ steps.command.outputs.recovery_wechat_enabled }}
       scope: ${{ steps.command.outputs.scope }}
       include_sender: ${{ steps.command.outputs.include_sender }}
       target_selector: ${{ steps.command.outputs.target_selector }}
@@ -46,6 +50,7 @@ jobs:
           import os
           import re
           import shlex
+          from datetime import datetime
           from pathlib import Path
 
           body = os.environ["BODY"].strip()
@@ -59,6 +64,10 @@ jobs:
               "version": "",
               "target_commit": "",
               "runtime_commit": "",
+              "recovery_runtime_commit": "",
+              "recovery_control_updated_at": "",
+              "recovery_delivery_enabled": "false",
+              "recovery_wechat_enabled": "false",
               "scope": "auto",
               "include_sender": "false",
               "target_selector": "all",
@@ -99,6 +108,29 @@ jobs:
                   outputs["version"] = tokens[2]
                   outputs["target_commit"] = tokens[3].lower()
                   parse_options(tokens[4:])
+              elif command == "recover":
+                  if (len(tokens) != 8 or not version.fullmatch(tokens[2])
+                      or not all(sha.fullmatch(value) for value in tokens[3:5])):
+                      fail("release recovery requires version, target SHA, runtime SHA, UTC timestamp, scope=all and sender=true")
+                  if tokens[2] == "0.7.0" or tokens[3].lower() == tokens[4].lower():
+                      fail("release recovery requires a new already-migrated runtime target")
+                  stamp = tokens[5]
+                  if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)", stamp):
+                      fail("recovery requires the exact UTC control timestamp")
+                  try:
+                      datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                  except ValueError:
+                      fail("invalid recovery control timestamp")
+                  parse_options(tokens[6:])
+                  if outputs["scope"] != "all" or outputs["include_sender"] != "true":
+                      fail("recovery requires scope=all and explicit sender=true")
+                  outputs["action"] = "ship"
+                  outputs["mode"] = "recovery"
+                  outputs["version"] = tokens[2]
+                  outputs["target_commit"] = tokens[3].lower()
+                  outputs["recovery_runtime_commit"] = tokens[4].lower()
+                  outputs["recovery_control_updated_at"] = stamp
+                  outputs["recovery_delivery_enabled"] = "true"
               elif command == "tag":
                   if len(tokens) != 4 or not version.fullmatch(tokens[2]) or not sha.fullmatch(tokens[3]):
                       fail("release tag requires a semantic version and full 40-character SHA")
@@ -182,6 +214,7 @@ jobs:
 
           Supported forms:
           - \`/release ship <version> <40-char-sha> [scope=auto|all|webapp|airflow|sender|pi_ydmap|control] [sender=true|false]\`
+          - \`/release recover <version> <40-char-target-sha> <40-char-runtime-sha> <UTC-control-timestamp> scope=all sender=true\`
           - \`/release preflight <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release apply <40-char-sha> [scope=...] [sender=true|false]\`
           - \`/release tag <version> <40-char-sha>\`
@@ -223,6 +256,10 @@ jobs:
       target_commit: ${{ needs.route.outputs.target_commit }}
       scope: ${{ needs.route.outputs.scope }}
       include_sender: ${{ needs.route.outputs.include_sender == 'true' }}
+      recovery_runtime_commit: ${{ needs.route.outputs.recovery_runtime_commit }}
+      recovery_control_updated_at: ${{ needs.route.outputs.recovery_control_updated_at }}
+      recovery_delivery_enabled: ${{ needs.route.outputs.recovery_delivery_enabled == 'true' }}
+      recovery_wechat_enabled: ${{ needs.route.outputs.recovery_wechat_enabled == 'true' }}
     secrets: inherit
 
   tag:
@@ -427,6 +464,7 @@ jobs:
             ship)
               result="$SHIP_RESULT"
               label="ship $VERSION"
+              if [ "$MODE" = recovery ]; then label="recovery ship $VERSION"; fi
               resolved="$SHIP_RESOLVED_SCOPE"
               webapp="$SHIP_WEBAPP"
               airflow="$SHIP_AIRFLOW"

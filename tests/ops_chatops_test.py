@@ -98,6 +98,73 @@ def test_existing_release_commands_keep_their_routes(tmp_path, body, action, mod
     assert outputs["action"] == action
     assert outputs["mode"] == mode
     assert outputs["target_commit"] == TARGET
+    assert outputs["recovery_runtime_commit"] == ""
+    assert outputs["recovery_delivery_enabled"] == "false"
+
+
+def test_recovery_route_requires_recorded_runtime_and_control_timestamp(tmp_path):
+    timestamp = "2026-11-01T02:55:08.601801+00:00"
+    result, outputs = parse_command(
+        tmp_path,
+        f"/release recover 0.9.1 {TARGET.upper()} {RUNTIME.upper()} {timestamp} scope=all sender=true",
+    )
+    assert result.returncode == 0, result.stderr
+    assert outputs["action"] == "ship"
+    assert outputs["mode"] == "recovery"
+    assert outputs["target_commit"] == TARGET
+    assert outputs["recovery_runtime_commit"] == RUNTIME
+    assert outputs["recovery_control_updated_at"] == timestamp
+    assert outputs["recovery_delivery_enabled"] == "true"
+    assert outputs["recovery_wechat_enabled"] == "false"
+    assert outputs["include_sender"] == "true"
+    route = load_workflow("ops-chatops.yml")["jobs"]["ship"]
+    assert route["uses"] == "./.github/workflows/production-ship.yml"
+    for field in ("recovery_runtime_commit", "recovery_control_updated_at"):
+        assert route["with"][field] == "${{ needs.route.outputs." + field + " }}"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f"/release recover 0.9.1 {TARGET} {RUNTIME} scope=all sender=true",
+        f"/release recover 0.9.1 {TARGET} {RUNTIME} 2026-11-01 scope=all sender=true",
+        f"/release recover 0.9.1 {TARGET} {RUNTIME} 2026-02-31T02:55:08Z scope=all sender=true",
+        f"/release recover 0.9.1 {TARGET} {RUNTIME} 2026-11-01T10:55:08+08:00 scope=all sender=true",
+        f"/release recover 0.9.1 {TARGET} {RUNTIME} 2026-11-01T02:55:08Z scope=auto sender=true",
+        f"/release recover 0.9.1 {TARGET} {RUNTIME} 2026-11-01T02:55:08Z scope=all sender=false",
+        f"/release recover 0.9.1 {TARGET} {TARGET} 2026-11-01T02:55:08Z scope=all sender=true",
+        f"/release recover 0.7.0 {TARGET} {RUNTIME} 2026-11-01T02:55:08Z scope=all sender=true",
+        f"/release recover 0.9.1 {TARGET} main 2026-11-01T02:55:08Z scope=all sender=true",
+        f"/release recover 0.9.1 {TARGET} {RUNTIME} 2026-11-01T02:55:08Z scope=all sender=true force=true",
+    ],
+)
+def test_recovery_route_rejects_missing_fences_and_unsafe_scope(tmp_path, body):
+    result, outputs = parse_command(tmp_path, body)
+    assert result.returncode != 0
+    assert outputs == {}
+
+
+def test_recovery_ship_preserves_full_deployment_and_acceptance_dependencies():
+    workflow = load_workflow("production-ship.yml")
+    jobs = workflow["jobs"]
+    contract = jobs["contract"]["steps"][-1]
+    assert "--recovery-runtime-commit" in contract["run"]
+    assert "--recovery-control-updated-at" in contract["run"]
+    assert jobs["host_core_cutover"]["needs"] == "preflight"
+    assert "'recovery-upgrade'" in jobs["host_core_cutover"]["with"]["operation"]
+    for field in (
+        "recovery_runtime_commit",
+        "recovery_control_updated_at",
+        "recovery_delivery_enabled",
+        "recovery_wechat_enabled",
+    ):
+        assert jobs["host_core_cutover"]["with"][field] == "${{ inputs." + field + " }}"
+    assert jobs["natural_cycles"]["needs"] == "deploy"
+    assert jobs["natural_cycles"]["with"]["operation"] == "activate-workers"
+    assert jobs["acceptance"]["needs"] == "natural_cycles"
+    assert jobs["acceptance"]["with"]["operation"] == "acceptance"
+    assert "acceptance" in jobs["safe_pause_on_failure"]["needs"]
+    assert "needs.acceptance.outputs.acceptance_status == 'accepted'" in jobs["tag"]["if"]
 
 
 @pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])

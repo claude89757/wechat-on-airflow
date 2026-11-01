@@ -13,6 +13,7 @@ from sqlalchemy.engine import Connection
 from .database import transaction
 from .domain import (
     SHANGHAI,
+    VENUES,
     VenueObservation,
     format_slot_line,
     observation_fingerprint,
@@ -57,6 +58,8 @@ def _active_subscriptions(connection: Connection, venue_id: str) -> list[Mapping
 
 
 def active_subscription_for_venue(venue_id: str) -> bool:
+    if venue_id not in VENUES:
+        return False
     with transaction() as connection:
         return bool(
             connection.execute(

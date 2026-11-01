@@ -1,301 +1,132 @@
 # Pi YDMap scraper deployment
 
-The Bao'an and Dashah watchers require the same private Pi scraping service.
-Chromium uses its native user agent; the launcher does not hard-code a browser
-version or architecture. Each source product opens its own supported booking URL in a fresh browser/driver
-with a fixed private profile below the service directory (`dsh-main`,
-`baoti-outdoor`, `baoti-indoor`, `baoti-windrain`). Profiles stay with the same
-product across polls. The previous browser closes before the next starts, using
-the same reserved debug port serially. Collection does not click product tabs or
-reuse cross-product Vue/browser state. All products/dates still form one atomic
-venue observation; a failure discards all partial data.
-Guarded preflight, apply candidates and the live unit now share the dedicated
-`/tmp/pi-ydmap-service-profile-v2` root. It is separate from the legacy root that
-the old scraper deletes. The installer creates only a new private directory or
-accepts the existing service-owned 0700 directory with its 0600 ownership marker;
-foreign owners, symlinks, unmarked directories and broad permissions fail closed.
-It never copies a personal profile or exports cookies. Unquiesced diagnostic
-candidates keep their isolated temporary profiles. Candidate process cleanup
-does not delete the service profile. Closing the owned browser tab allows normal
-profile flushing before bounded process termination.
-If temporary storage is cleared at boot, the service marks only a newly created
-profile root with the installer's private ownership marker. Existing roots
-receive no marker; the installer continues to reject unmarked directories. Losing the
-profile also loses its site session; access must be verified again after that.
-Baoan product activations are separated by at least 30 seconds from the previous
-product's verified readiness. Date checks consume that interval; only the remaining
-time is waited. This bounds bursts to the product calendar endpoint while retaining
-all three products, two dates, the scrape deadline and two-minute DAG cadence.
-A verification response still fails immediately and is not retried. Dashah's
-single-product timing is unchanged. The exact provider quota is not known.
-Changing `pi_host/dsh_ydmap/` is a runtime change: the release planner selects
-`pi_ydmap`, and `production-release.yml` verifies/deploys it before Web/Airflow.
-The existing Appium MCP, Sender, phone agent and tunnels are separate services.
+The private Pi scraper serves only the Dashah venue. The owner withdrew the
+Baoan feature from PR #263 on 2026-11-01 after its upstream access verification
+blocked the partial release. Baoan is no longer a registered scraper source,
+inspection target or DAG drain target. Its old browser profiles and historical
+observations are preserved; rollback does not delete them.
+
+The protected Pi deployment path remains available for Dashah. Changing
+pi_host/dsh_ydmap/ is still a runtime change: the release planner selects
+pi_ydmap, and production-release.yml deploys it before Web/Airflow. The Appium
+MCP, Sender, phone agent and tunnels remain separate services.
 
 ## Protected entry point
 
-Run `production-pi-ydmap.yml` on `main` with a full `target_commit`, a unique
-`request_id`, and one operation: `preflight`, `apply`, `health`, or `inspect`.
-The workflow checks main ancestry and successful `CI / verify` for that exact
-commit. It obtains existing `PI_DEVICE_SSH_*` credentials only from the protected
-`production` Environment, checks the configured SHA256 host-key pin, and uses
-SFTP plus a bounded remote installer. It exposes no public scraper endpoint and
-does not copy secrets into files or artifacts.
+Run production-pi-ydmap.yml on main with a full target_commit, a unique request_id
+and one operation: preflight, apply, health or inspect. The workflow requires
+main ancestry and successful CI / verify for that exact commit. Existing
+PI_DEVICE_SSH_* credentials come only from the protected production Environment.
+The runner checks the configured SHA256 host-key pin, then uses SFTP and a
+bounded remote installer. The scraper has no public endpoint.
 
-For example, an authorized GitHub CLI session can dispatch:
+The owner-only Issue #39 router supports:
 
-```text
-gh workflow run production-pi-ydmap.yml --ref main -f operation=preflight -f target_commit=<full-sha> -f request_id=baoti-preflight
-gh workflow run production-pi-ydmap.yml --ref main -f operation=apply -f target_commit=<full-sha> -f request_id=baoti-apply
-gh workflow run production-pi-ydmap.yml --ref main -f operation=inspect -f target_commit=<full-sha> -f request_id=baoti-acceptance
-```
+    /ops pi-ydmap-preflight <full-sha>
+    /ops pi-ydmap-apply <full-sha>
+    /ops pi-ydmap-health <full-sha>
+    /ops pi-ydmap-inspect <full-sha>
 
-These are GitHub workflow dispatches, not workstation SSH commands. The
-owner-only issue-39 router also supports `/ops pi-ydmap-preflight <full-sha>`,
-`/ops pi-ydmap-apply <full-sha>`, `/ops pi-ydmap-health <full-sha>`, and
-`/ops pi-ydmap-inspect <full-sha>`.
+These commands dispatch protected GitHub workflows. Do not use workstation SSH,
+copy credentials into artifacts, or run a candidate outside the documented guard.
+
+Baoan product-order diagnostics and the one-shot verification interaction were
+removed. Legacy requests for either option fail before host access. Scraper
+requests for Baoan or a verification gesture are rejected before a browser starts.
+An upstream access challenge remains a failed inspection; the service performs
+no automatic verification interaction.
 
 ## Candidate and activation
 
-Normal manual and reusable release preflight default to `drain_preflight=true`
-to reserve the same single-browser capacity as the production YDMap task pool.
-Separate ports/profiles do not isolate Pi CPU, desktop focus or upstream traffic.
-Preflight uses the existing scoped Airflow
-guard: wait for Dashah/Baoan work to finish, save/pause only those DAGs, run the
-isolated candidate, then restore and verify the original pause flags, including
-after a reported candidate failure. No live scraper source, unit or listener is
-replaced. Both runner and installer reject this flag for other operations; the
-installer requires the same target-bound expiring drain proof as apply. Loss of
-the operation channel retains the existing lease fence rather than resuming
-while an unknown candidate may still run. The release explicitly enables this
-guard for preflight and disables the preflight-only flag for apply, which has
-its own mandatory guard. This comparison runs three read-only candidate cycles
-on the same profiles, with starts at least 120 seconds apart, stopping at the
-first failed cycle. It cannot be combined with the product-order or authorized
-gesture probes. Reports retain the last successful cycle's inspection on success
-and the completed-cycle count on failure. These are candidate checks, not natural
-production cycles; a pass alone does not prove resource contention or stability.
+Manual and reusable release preflight default to drain_preflight=true. Separate
+ports and profiles do not isolate Pi CPU, desktop focus or upstream traffic.
+The scoped Airflow guard waits for Dashah work to finish, saves and pauses only
+the Dashah DAG, then restores and verifies its original pause flag after the
+operation, including after a reported candidate failure. Retired Baoan and
+unrelated DAGs are outside this guard.
 
-Manual diagnostic preflight may explicitly set `drain_preflight=false` with
-`diagnostic_first_product=windrain` for a cold-start
-comparison. The clean candidate environment starts Baoan at wind/rain and keeps
-the other products/dates in the inspection. Live/apply operations reject this
-option. Even successful reads end in `diagnostic_only`, never candidate acceptance
-or activation. Reusable release workflows always retain the default product order.
+Guarded preflight and apply require the same target-bound, expiring drain proof.
+Both active tasks and active DAG runs must be zero. The lease is checked again
+after waiting for the live scraper to become idle and before activation.
+If the operation channel is lost and candidate completion is unknown, the guard
+retains its fence until the lease permits safe restoration.
 
-
-After explicit operator authorization for a normal verification interaction,
-manual workflow dispatch may set `confirm_verification_once=true` with
-`operation=preflight` and `drain_preflight=false`. This is not enabled by reusable release workflows or by
-the live service. The runner rejects this flag for apply/health/inspect. Only
-the isolated candidate receives the authorization, consumed once for Baoan's
-first encountered verification challenge, including date/product transitions,
-during that candidate's lifetime. It is not limited to initial page load.
-
-The candidate inspects the rendered challenge UI for a single visible,
-unobstructed accessible slider and an instruction to drag right. It then uses
-one native WebDriver pointer drag. Unsupported, ambiguous or obscured controls
-receive no interaction. It does not remove masks, alter browser trust, inject
-events/tokens, call provider callbacks or retry a failed gesture. Reports retain
-only fixed control/outcome codes and whether a gesture was attempted. A passed
-gesture is not venue acceptance: all date/product/source checks still apply.
-This unquiesced gesture diagnostic keeps an isolated temporary profile and
-discards it at exit. No cookies are exported, and this diagnostic does not
-establish durable production access.
-
-The Pi screenshot from preflight `41211132530` shows a rendered image-puzzle
-slider. This is unsupported by the ordinary slider helper above. Zero known
-handles must not be reported as an unloaded SDK. A visible puzzle needs the
-operator's current service-owned browser session; coordinates from a closed or
-expired challenge must not be replayed. If verification keeps recurring, seek
-upstream-approved stable access before accepting unattended polling. Neither a
-single passed cycle nor retained browser state establishes that stability.
-
-Manual preflight may set `capture_browser_ui=true` to capture the owned public
-candidate page after a failed source-readiness check, including a missing schedule
-without a verification mask. It never operates on
-the live service or performs a gesture. Contact/IP text, populated login inputs
-and login-QR instructions suppress capture. The PNG is bounded to 256 KiB,
-validated by type/dimensions/hash, saved privately on the Actions runner and
-uploaded as a one-day diagnostic artifact. Encoded image bytes never enter
-workflow logs; cookies and browser profile files never leave the Pi. The flag is
-default-off, unavailable through the reusable release inputs, and rejected for
-apply/health/inspect. Missing capture is not evidence of an absent widget.
-
-Preflight stages the exact server and mock tests below
-`/opt/pi-ydmap-scraper/releases/`. It verifies the source SHA256, Python syntax,
-and a nonzero number of passing mock tests as the existing unprivileged service
-user. An isolated candidate uses HTTP port `18788`, Chromium debug port `19224`,
-and a unique temporary process directory. Guarded candidates use the fixed
-service profile; unquiesced diagnostics use a temporary profile. The live service
-retains port `8788` and debug port `9224`, and uses that same dedicated v2 profile.
-The scraper retains this
-private 0700 profile across inspections; it only stops stale browser processes,
-rejecting shared/outside-temp directories and final symlinks. It never imports a
-personal profile or exports cookies. Candidate preflight never changes
-the live service or its systemd override.
+Preflight stages the exact source and offline regressions below
+/opt/pi-ydmap-scraper/releases/. It verifies the source SHA256, Python syntax and
+a nonzero count of passing mock tests as the existing unprivileged service user.
+The candidate uses HTTP port 18788 and debug port 19224. The live service retains
+HTTP port 8788 and debug port 9224.
 
 The candidate must report protocol version 2, the exact deployment commit and
-source hash. Read-only browser inspections independently verify the released
-Dashah horizon (four dates before 12:00 Asia/Shanghai, five from 12:00) and both
-Bao'an dates, including all three Bao'an products. Reports include source/selected
-dates, product IDs/names, court names, cell counts and source-array freshness; they do
-not expose cookies, authentication material or full browser logs. A captcha,
-unverified date/product, missing group, or failed legacy-venue regression blocks
-activation. No booking or notification is generated by these inspections.
-Diagnostic preflight inspects each venue once even if the first inspection fails.
-Any failure still rejects the candidate; successful venue evidence and the list
-of failed venues are retained. `failedVenueDiagnostics` retains each venue's
-bounded failure code and diagnostics, alongside the legacy last-failure fields.
-Nested failures are not recursively exported.
-Apply and live inspection retain their fail-fast behavior.
+source hash, and exactly one supported venue: dsh. Each inspection independently
+verifies the released Dashah horizon: four dates before noon in Asia/Shanghai,
+five from noon onward. Selected date, query date, source arrays, product identity,
+court inventory and provider bookability must agree. Empty availability is valid
+only when the complete dated court inventory is verified.
 
-### Optional source and renderer diagnostics
+Guarded preflight runs three read-only candidate cycles on the same service
+profile, with starts at least 120 seconds apart. It stops at the first failure
+and retains bounded evidence and the completed-cycle count. These are candidate
+checks; natural production cycles remain a separate acceptance requirement.
 
-Only protected `preflight` adds `evidence=source-v1` to the isolated candidate's
-read-only inspections. Normal watchers, `health`, `inspect`, the apply candidate,
-and the real-port activation checks do not request this optional data. Protocol
-version 2 remains unchanged.
+Apply performs the candidate checks before atomically changing only the dedicated
+scraper release link and managed systemd override. It then checks exact live
+identity and a real Dashah inspection. A failure restores the previous link and
+override and verifies the original service/protocol/commit/source identity.
+Appium, Sender, phone-agent and tunnel identities must remain unchanged.
+No notification is generated by these checks.
 
-For each final fresh group/date snapshot, `groups[].source_evidence` can describe
-how many source cells matched renderer components, bounded public cell samples,
-and sanitized source from seven known methods: `isAvailableStatic`, `textFun`,
-`isNoBook`, `classObj`, `closeMsg`, `sellerMessage`, and `isTicketDisabled`.
-Methods and computed getters are never invoked for diagnostics; normal cell
-classification uses the read-only `isAvailableStatic` predicate. Unknown literals, comments,
-templates, regex bodies, URLs and token-like values are removed or redacted;
-no order details, account data, cookies or request/response bodies are exported.
+## Browser state and diagnostics
 
-The server limits each method to 4 KiB and emitted source to 24 KiB per inspection.
-Hashes describe the sanitized UTF-8 source, not the original function; repeated
-source may reference the same hash in a later serialized date. The installer
-and runner independently validate source text, hashes, byte counts, booleans,
-method names and field shapes. They retain at most 128 KiB of source diagnostics
-across the report. `sourceEvidenceTruncated` identifies omitted or incomplete
-diagnostics; `sourceEvidenceRejected` identifies invalid diagnostic records or
-unresolved references. Ordinary verified date/product/court evidence remains
-available when optional diagnostics are omitted. JSON reports are always smaller
-than 1,000,000 bytes; oversized reports fail with `report_too_large` rather than
-printing partial JSON.
+Chromium uses its native user agent and the supported Dashah booking URL. It
+opens a fresh browser/driver on the fixed private dsh-main profile for each poll.
+The previous owned browser closes before another starts. A complete observation
+is atomic: any failed date or identity check discards all partial availability.
 
-Operation reports use multiline JSON under that same whole-report UTF-8 budget.
-This prevents log readers from omitting a large single report line. For older
-reports absent from `gh run view --log`, download raw job logs with
-`gh api repos/<owner>/<repo>/actions/jobs/<job_id>/logs`, or the run's raw log ZIP,
-then parse the already sanitized JSON locally. Do not print raw workflow logs.
+Guarded candidates and the live service use /tmp/pi-ydmap-service-profile-v2.
+The installer accepts only a service-owned 0700 directory with its private 0600
+ownership marker, or creates a new marked directory. Foreign owners, symlinks,
+unmarked existing directories and broad permissions fail closed. Existing
+profiles are not copied, exported or erased. Candidate process cleanup removes
+only its own temporary process directory.
 
-`verified: true` describes source identity and freshness. It does not certify
-the classification of every booking cell. The diagnostic schema deliberately
-requires `bookability_verified: false`: inspect the current renderer rules and
-representative included/excluded cells before concluding that availability is
-correct. Incomplete component coverage or redacted/truncated source cannot serve
-as proof of unexamined behavior. Failed scrapes retain atomic `days=[]`; only
-earlier successful, validated venue evidence can survive a later venue failure.
+If temporary storage is cleared at boot, the service marks only a newly created
+profile root. Losing that profile loses its site session; upstream access must
+be verified again. Preserving a profile does not establish that unattended
+provider access will remain available.
 
-Apply first establishes a scoped guard through the existing production Airflow
-SSH key and pinned known-hosts file. The guard finds the current API container,
-waits up to 600 seconds for only Dashah and Bao'an (if it exists) to have no active
-tasks or queued/running runs, then records and pauses those DAGs. Waiting before
-pausing allows scheduled/retrying work to finish. A scheduling race restores the
-saved flags and retries within the same deadline. It never cancels or deletes runs.
-Two consecutive empty observations while paused generate an expiring proof.
-Only an explicit acknowledgement that the Pi installer has completed releases
-the guard early. Disconnect, EOF, a signal, or unknown Pi completion keeps the
-pause for the full 1620-second fence; the proof expires 90 seconds earlier.
-The guard then restores the exact original flags and reads them back.
-The runner reports `airflowPauseRestored`; failure to verify restoration fails
-the deployment. A previously paused DAG stays paused, and an absent Bao'an DAG
-is neither created nor changed. The workflow shares Airflow's concurrency group.
+Unquiesced diagnostic preflight can use an isolated temporary profile.
+The default-off capture_browser_ui option captures only a bounded public candidate
+page after a source-readiness failure. Login/QR instructions, populated login
+inputs and contact/IP text suppress capture. The PNG is validated, stored
+privately on the Actions runner and retained as a one-day diagnostic artifact.
+Image bytes, cookies and profile files never enter workflow logs.
 
-With that measured guard active, apply repeats candidate verification. It checks that no unrelated service
-restarted, waits for the live scraper to have no active HTTP connection, and
-restarts only `dsh-ydmap-scraper.service` with a managed drop-in pointing to the
-versioned candidate. The original unit and original source remain intact. The
-old symlink and managed drop-in are recorded in the candidate's root-only
-`rollback.json` before any change. Immediately after waiting for the old listener
-to become idle, activation requires at least 750 seconds of remaining proof:
-540 seconds bounds activation plus real-port inspections, 150 seconds bounds
-rollback, and 60 seconds remains as a margin. The Pi rejects a clock more than
-30 seconds behind the proof issuer. Health and both venue inspections run again
-through the real systemd service on port 8788 inside that rollback boundary.
-Failure restores the prior symlink/drop-in, restarts only this unit, and verifies
-the prior service identity; the attempted deployment still fails.
+Passive source diagnostics export only bounded public identity fields, numeric
+failure categories, sanitized source snippets and hashes. They do not invoke
+renderer methods, alter browser trust, remove access masks, replay requests or
+prove bookability on their own. The extractor requires the provider's read-only
+isAvailableStatic predicate to return a boolean and requires orderInfo to be null.
+Missing predicates, non-boolean results and non-court products fail closed.
 
-Failures retain only allowlisted `sourceFailure` and `sourceDiagnostic` fields,
-including public product/date/court identities and field-presence flags. Earlier
-successful venue inspections remain in the bounded report when a later venue
-fails. A missing product-name field, date mismatch, rate limit or verification
-challenge therefore remains diagnosable without exposing browser bodies or secrets.
-Challenge and schedule-timeout reports include bounded numeric `accessDiagnostics`: visible challenge
-roots/children, semantic and legacy handle counts, frames and accessible frames,
-verification script references, a three-second read-only rendering comparison,
-order-response MIME classifications/status, and
-network/console failure categories, application-root presence, HTTP failures,
-script MIME errors and fixed JavaScript error categories. These are passive observations; unknown fields,
-text, URLs, headers, request/response bodies and raw logs never cross the host
-boundary. Network logging starts when WebDriver attaches; absent events cannot
-rule out earlier loading failures. Log entry counts and unavailable flags
-distinguish an empty log from a failed read. Generic Remote sessions use the
-Chromium log wire command directly because their Python class lacks `get_log`. A legacy handle count is diagnostic only and
-does not itself authorize or execute a gesture.
-Challenge reports also retain boolean text/mask detection, document completion
-and schedule-component presence. They never include page text or cookies.
-Browser exceptions retain allowlisted exception/sentinel codes, a fixed operation
-phase and the requested public product ID. Selenium messages and stack traces
-are never exported. An absent `sourceFailure` is not proof of a provider challenge.
-Browser diagnostics retain only public Chromium/ChromeDriver version numbers,
-major-version compatibility, whether the configured UA version matches Chromium,
-and the profile-reset policy. Raw capabilities, profile paths and cookies are
-not exported. A mismatch is diagnostic evidence, not proof of a WAF root cause.
-Initial navigation retains the deployed scraper's four-second warm-up before
-attaching Selenium, within the same total timeout. This restores the original
-startup order; it is not evidence that provider access verification is resolved.
-
-The local WebDriver transport uses a per-connection `ClientConfig` with a
-30-second HTTP timeout, longer than the 20-second page-load and eight-second
-script limits. NEW_SESSION retains its startup watchdog. A separate deadline
-watchdog stops only the current scrape's driver at the pre-existing deadline,
-leaving the 30-second cleanup reserve; cleanup commands use five seconds.
-Driver timeout/transport errors request only bounded passive UI/log diagnostics,
-with five seconds per diagnostic command, under that same watchdog. They never
-repeat the failed source request or click. A local `ReadTimeoutError` is not
-itself evidence of an upstream CAPTCHA or successful booking-data retrieval.
-
-The legacy scraper has no atomic drain API; the automatic Airflow guard handles
-the first replacement as well as subsequent deployments. Zero active socket
-checks are an additional guard. New servers also expose their scrape-busy state.
-Do not stop unrelated services to
-make a candidate pass, remove access verification, or change browser trust.
+WebDriver has a per-connection 30-second HTTP timeout, beyond its 20-second
+page-load and eight-second script limits. Startup and full-scrape watchdogs
+remain bounded, with a 30-second cleanup reserve and five-second cleanup commands.
+A transport timeout does not trigger another source request and is not evidence
+of a provider challenge.
 
 ## Acceptance
 
-Each Baoan product opens its native URL in its fixed private browser profile.
-The source catalog, selected product, query product and court group must agree.
-Both source arrays must be replaced after each date selection within that
-product. Missing dates or stale arrays fail the complete observation.
+1. Record the prior component identities and current production health.
+2. Require the protected Dashah candidate preflight and retain its bounded report.
+3. Apply the exact reviewed scraper before the affected Airflow client deployment.
+4. Require health and inspect for the same SHA, then three natural successful
+   Dashah DAG cycles and fresh correctly attributed observations.
+5. Preserve group routing, deduplication and natural delivery policies. Shared
+   Zacks groups remain paused until the owner explicitly changes that policy.
+6. Record exact identities and any remaining upstream access limitation.
 
-The extractor requires the schedule component's read-only `isAvailableStatic`
-predicate to return a boolean and requires `orderInfo == null`. A list of CSS
-blocked states alone misses missing prices, closed online booking, unreleased
-dates and merged/free-range cells. The successful October browser investigation
-recorded this predicate in `booking-schedule-venue.3ea7d08e.js`; historical source
-and offline regressions are not proof of the current provider implementation.
-Missing predicates, non-boolean results and non-court products fail closed.
-Optional renderer diagnostics still do not call renderer methods or establish
-`bookability_verified`; inspect the live predicate and representative cells
-before release. This change does not resolve the access-verification blocker.
-
-1. Record the prior component identities and normal production health.
-2. Require the protected candidate preflight to pass; retain its bounded report.
-3. Apply the scraper before enabling the new Airflow DAG and updating its clients.
-4. Require `health` and `inspect` for the same SHA, plus three natural successful
-   cycles of both venue DAGs and fresh correctly attributed observations.
-5. Preserve existing notification routing and natural delivery policies. Shared
-   Zacks groups remain paused until the user explicitly changes that policy.
-6. Record exact deployed identities and any remaining upstream access limitation.
-
-Health confirms the service/protocol/source identity. It is not proof of valid
-dates/products or successful delivery. `inspect` checks the upstream source data
-without writing observations; natural DAG/host-core acceptance supplies that
-separate evidence. Do not publish or claim Bao'an availability while any of
-these gates is missing.
+Health establishes service/protocol/source identity. The inspect operation
+validates real upstream data without writing observations. Natural DAG and
+Host Core acceptance establish fresh business observations and actual delivery.
+A candidate pass alone does not establish complete release acceptance.

@@ -33,10 +33,10 @@ def test_acceptance_checks_records_not_sleep_or_successful_restart():
     health = read("src/wechat_airflow/host_core/health.py")
     controller = read("scripts/host_core_production.py")
     assert "required = 3 if is_venue else 1" in health
-    assert "len(venue_components) == 27" in health
-    assert '"all27VenueObservations"' in health
-    assert '"all27VenueObservations"' in controller
-    assert '"all26VenueObservations"' not in controller
+    assert "len(venue_components) == 26" in health
+    assert '"all26VenueObservations"' in health
+    assert '"all26VenueObservations"' in controller
+    assert '"all27VenueObservations"' not in controller
     assert "naturalEmailProviderDelivered" in health
     assert "naturalWeChatDelivered" in health
     assert "migrationReconciled" in health

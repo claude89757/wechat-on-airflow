@@ -16,12 +16,12 @@ import unittest
 from pathlib import Path
 
 _fixture_spec = importlib.util.spec_from_file_location(
-    "pi_ydmap_scraper_fixtures", Path(__file__).with_name("pi_baoti_scraper_test.py")
+    "pi_ydmap_scraper_fixtures", Path(__file__).with_name("pi_ydmap_scraper_test.py")
 )
 assert _fixture_spec is not None and _fixture_spec.loader is not None
 _fixtures = importlib.util.module_from_spec(_fixture_spec)
 _fixture_spec.loader.exec_module(_fixtures)
-OUTDOOR_IDENTITY = _fixtures.OUTDOOR_IDENTITY
+DSH_IDENTITY = _fixtures.DSH_IDENTITY
 server = _fixtures.server
 
 NODE = shutil.which("node")
@@ -32,10 +32,10 @@ HARNESS = r"""
 const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
 const today = Date.parse('2026-11-01T00:00:00+08:00');
 const tomorrow = today + 86400000;
-const product = {salesItemId: 111317, itemName: '室外网球场'};
+const product = {salesItemId: 100000, itemName: '网球场'};
 if (input.noName) delete product.itemName;
 const parent = {
-  curDate: today, salesId: 104036, salesItemId: 111317,
+  curDate: today, salesId: 100220, salesItemId: 100000,
   serverData: {
     itemDataList: [product],
     dateDataList: [{day: today}, {day: tomorrow}],
@@ -44,15 +44,15 @@ const parent = {
 function cell(cls, extra = {}) {
   return {
     startTimeText: '18:00', endTimeText: '19:00', className: cls,
-    platformInfo: {venueName: '室外场1号', onlineBooking: 1}, priceBean: {price: 0}, ...extra,
+    platformInfo: {venueName: '1号风雨场', onlineBooking: 1}, priceBean: {price: 0}, ...extra,
   };
 }
 const rows = input.cells || [cell('')];
 const table = {
   $options: {name: 'ScheduleTable'}, $children: [], $parent: parent,
-  params: {dateTime: today, salesId: 104036, salesItem: product},
+  params: {dateTime: today, salesId: 100220, salesItem: product},
   tableLoadingCounter: 0, tableLoadingFlag: 1,
-  serverData: {sportPlatformList: [{venueName: '室外场1号'}], orderInfoList: []},
+  serverData: {sportPlatformList: [{venueName: '1号风雨场'}], orderInfoList: []},
   rows: [rows],
   isTicket: false,
   // Source rule recorded in the successful October browser inspection.
@@ -113,7 +113,7 @@ globalThis.getComputedStyle = el => ({
   display: 'block', visibility: 'visible', opacity: '1', contentVisibility: 'visible', ...el.style,
 });
 globalThis.window = {};
-globalThis.location = {hostname: 'bawtt.ydmap.cn'};
+globalThis.location = {hostname: 'wxsports.ydmap.cn'};
 globalThis.document = {
   readyState: 'complete',
   body: {innerText: input.body || ''},
@@ -127,7 +127,7 @@ if (input.changeDate) {
   table.params.dateTime = tomorrow;
   table.tableLoadingFlag = 2;
   results.push(extract(input.evidence === true));
-  table.serverData.sportPlatformList = [{venueName: '室外场1号'}];
+  table.serverData.sportPlatformList = [{venueName: '1号风雨场'}];
   table.serverData.orderInfoList = [];
   results.push(extract(input.evidence === true));
 }
@@ -138,48 +138,6 @@ process.stdout.write(JSON.stringify(results));
 
 @unittest.skipUnless(NODE, "Node is optional on Pi; Python protocol/date tests still run")
 class PiYdmapIdentityTest(unittest.TestCase):
-    def test_verification_control_requires_visible_unambiguous_normal_slider(self) -> None:
-        harness = r"""
-const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
-global.location = {hostname: input.wrongHost ? 'other.example' : 'bawtt.ydmap.cn'};
-global.innerWidth = 1280;
-global.getComputedStyle = () => ({visibility: 'visible', display: 'block'});
-const track = {innerText: input.unknownText ? 'private' : '请按住滑块，拖动到最右边',
-  getBoundingClientRect: () => ({top: 100, bottom: 140, right: input.badSize ? 900 : 400})};
-const handle = {parentElement: track, getClientRects: () => input.hidden ? [] : [{}],
-  getBoundingClientRect: () => ({left: 100, top: 100, bottom: 140, height: 40, width: 40}),
-  contains: () => false};
-const root = {getClientRects: () => [{}], querySelectorAll: () =>
-  input.noControl ? [] : input.ambiguous ? [handle, {...handle}] : [handle]};
-global.document = {querySelectorAll: () => input.noRoot ? [] : [root],
-  elementFromPoint: () => input.obstructed ? {} : handle};
-const result = new Function(input.script)();
-console.log(JSON.stringify({status: result.status, distance: result.distance}));
-"""
-        for flags, status in (
-            ({}, "ready"),
-            ({"wrongHost": True}, "wrong_host"),
-            ({"noRoot": True}, "root_missing"),
-            ({"noControl": True}, "controls_missing"),
-            ({"hidden": True}, "controls_missing"),
-            ({"ambiguous": True}, "ambiguous_controls"),
-            ({"unknownText": True}, "instruction_unrecognized"),
-            ({"badSize": True}, "geometry_invalid"),
-            ({"obstructed": True}, "control_obstructed"),
-        ):
-            with self.subTest(flags=flags):
-                result = subprocess.run(
-                    [NODE, "-e", harness],
-                    input=json.dumps({**flags, "script": server.VERIFICATION_CONTROL_JS}),
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                )
-                parsed = json.loads(result.stdout)
-                self.assertEqual(parsed["status"], status)
-                if status == "ready":
-                    self.assertEqual(parsed["distance"], 258)
-
     def extract(self, **fixture):
         result = subprocess.run(
             [NODE, "-e", HARNESS],
@@ -191,7 +149,7 @@ console.log(JSON.stringify({status: result.status, distance: result.distance}));
         )
         return json.loads(result.stdout)
 
-    def evidence(self, *, budget=None, label="室外", **fixture):
+    def evidence(self, *, budget=None, label="", **fixture):
         raw = self.extract(evidence=True, renderer=True, **fixture)[0]
         self.assertEqual(raw["fixtureFunctionCalls"], 0)
         return server._source_evidence(
@@ -310,14 +268,14 @@ console.log(JSON.stringify({status: result.status, distance: result.distance}));
         self.assertTrue(data["scheduleComponentPresent"])
 
     def test_hidden_waf_mask_and_product_slider_are_not_challenges(self) -> None:
-        data = self.extract(mask="hidden", body="室外网球场 11-01 11-02")[0]
+        data = self.extract(mask="hidden", body="网球场 11-01 11-02")[0]
         self.assertFalse(data["captcha"])
         self.assertTrue(data["ready"])
 
     def test_provider_rate_limit_is_not_empty_availability(self) -> None:
         data = self.extract(body='{"code":999998,"message":"您访问的频次过快，请休息一会儿!"}')[0]
         self.assertEqual(data["accessError"], "rate_limited")
-        self.assertEqual(server._snapshot_issue(data, **OUTDOOR_IDENTITY), "rate_limited")
+        self.assertEqual(server._snapshot_issue(data, **DSH_IDENTITY), "rate_limited")
 
     def test_date_selection_alone_does_not_change_loaded_source_identity(self) -> None:
         initial, stale, fresh = self.extract(changeDate=True)
@@ -326,32 +284,32 @@ console.log(JSON.stringify({status: result.status, distance: result.distance}));
         self.assertEqual(stale["dataVersion"], initial["dataVersion"])
         self.assertEqual(
             server._snapshot_issue(
-                stale, expected_date="2026-11-02", previous=initial, **OUTDOOR_IDENTITY
+                stale, expected_date="2026-11-02", previous=initial, **DSH_IDENTITY
             ),
             "source_not_refreshed",
         )
         self.assertEqual(fresh["signature"], initial["signature"])
         self.assertIsNone(
             server._snapshot_issue(
-                fresh, expected_date="2026-11-02", previous=initial, **OUTDOOR_IDENTITY
+                fresh, expected_date="2026-11-02", previous=initial, **DSH_IDENTITY
             )
         )
 
     def test_product_name_and_id_are_read_from_selected_source_object(self) -> None:
         data = self.extract()[0]
-        self.assertEqual(data["productName"], "室外网球场")
+        self.assertEqual(data["productName"], "网球场")
         self.assertEqual(data["productNameField"], "itemName")
-        self.assertEqual(data["sourceProduct"], "111317")
+        self.assertEqual(data["sourceProduct"], "100000")
         self.assertTrue(data["productInCatalog"])
-        self.assertIsNone(server._snapshot_issue(data, **OUTDOOR_IDENTITY))
+        self.assertIsNone(server._snapshot_issue(data, **DSH_IDENTITY))
 
     def test_missing_product_name_or_source_arrays_cannot_be_inferred(self) -> None:
         self.assertEqual(
-            server._snapshot_issue(self.extract(noName=True)[0], **OUTDOOR_IDENTITY),
+            server._snapshot_issue(self.extract(noName=True)[0], **DSH_IDENTITY),
             "product_name_unverified",
         )
         self.assertEqual(
-            server._snapshot_issue(self.extract(noSource=True)[0], **OUTDOOR_IDENTITY),
+            server._snapshot_issue(self.extract(noSource=True)[0], **DSH_IDENTITY),
             "source_identity_unavailable",
         )
 
@@ -375,13 +333,13 @@ console.log(JSON.stringify({status: result.status, distance: result.distance}));
                     "startTimeText": "18:00",
                     "endTimeText": "19:00",
                     "className": "",
-                    "platformInfo": {"venueName": f"室外场{index + 1}号", "onlineBooking": 1},
+                    "platformInfo": {"venueName": f"{index + 1}号风雨场", "onlineBooking": 1},
                     "priceBean": {"price": 0},
                     **extra,
                 }
             )
         data = self.extract(cells=cells)[0]
-        self.assertEqual(data["courts"], {"室外场1号": [["18:00", "19:00"]]})
+        self.assertEqual(data["courts"], {"1号风雨场": [["18:00", "19:00"]]})
         self.assertEqual(data["cellCount"], len(cells))
         self.assertEqual(len(data["courtNames"]), len(cells))
 
@@ -390,13 +348,13 @@ console.log(JSON.stringify({status: result.status, distance: result.distance}));
             "startTimeText": "18:00",
             "endTimeText": "19:00",
             "className": "",
-            "platformInfo": {"venueName": "室外场1号", "onlineBooking": 1},
+            "platformInfo": {"venueName": "1号风雨场", "onlineBooking": 1},
             "priceBean": {"price": 0},
         }
         self.assertTrue(self.extract(cells=[base])[0]["courts"])
         for extra in (
             {"priceBean": None},
-            {"platformInfo": {"venueName": "室外场1号", "onlineBooking": 0}},
+            {"platformInfo": {"venueName": "1号风雨场", "onlineBooking": 0}},
             {"freeRange": True},
             {"rowspan": 2},
             {"colspan": 2},
@@ -406,7 +364,7 @@ console.log(JSON.stringify({status: result.status, distance: result.distance}));
             with self.subTest(extra=extra):
                 data = self.extract(cells=[{**base, **extra}])[0]
                 self.assertEqual(data["courts"], {})
-                self.assertEqual(data["courtNames"], ["室外场1号"])
+                self.assertEqual(data["courtNames"], ["1号风雨场"])
                 self.assertEqual(data["cellCount"], 1)
         self.assertEqual(self.extract(cells=[base], notOpen=True)[0]["courts"], {})
 

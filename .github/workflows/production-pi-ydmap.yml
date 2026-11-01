@@ -32,17 +32,6 @@ on:
         type: boolean
         required: false
         default: true
-      diagnostic_first_product:
-        description: Diagnostic-only cold start product; non-default results cannot authorize activation
-        type: choice
-        options: [default, windrain]
-        default: default
-        required: false
-      confirm_verification_once:
-        description: Explicitly authorize one normal Baoan verification gesture in isolated preflight
-        type: boolean
-        required: false
-        default: false
       target_commit:
         description: Exact reviewed main commit with successful CI
         required: true
@@ -106,8 +95,6 @@ jobs:
         env:
           DRAIN_PREFLIGHT: ${{ inputs.operation == 'preflight' && inputs.drain_preflight }}
           CAPTURE_BROWSER_UI: ${{ inputs.capture_browser_ui || false }}
-          CONFIRM_VERIFICATION_ONCE: ${{ inputs.confirm_verification_once || false }}
-          DIAGNOSTIC_FIRST_PRODUCT: ${{ inputs.diagnostic_first_product || 'default' }}
           TARGET_COMMIT: ${{ inputs.target_commit }}
           OPERATION: ${{ inputs.operation }}
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}

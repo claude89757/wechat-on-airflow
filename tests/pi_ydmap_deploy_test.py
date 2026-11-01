@@ -151,16 +151,16 @@ def test_candidate_shutdown_preserves_the_guarded_service_profile(monkeypatch, t
     assert (profile / "public-cache").read_bytes() == b"keep"
 
 
-def test_capture_survives_a_later_independent_venue_failure(monkeypatch):
-    first = INSTALL.OperationFailure("access_verification")
-    first.diagnostic_ui = public_ui()
-    second = INSTALL.OperationFailure("scrape_not_verified")
-    request = Mock(side_effect=[first, second])
+def test_capture_survives_dashah_source_failure(monkeypatch):
+    failure = INSTALL.OperationFailure("access_verification")
+    failure.diagnostic_ui = public_ui()
+    request = Mock(side_effect=failure)
     monkeypatch.setattr(INSTALL, "request_json", request)
     with pytest.raises(INSTALL.OperationFailure) as caught:
         INSTALL.inspect_venues(18788, source_evidence=True)
-    assert caught.value.venue == "baoti"
+    assert caught.value.venue == "dsh"
     assert caught.value.diagnostic_ui["venue"] == "dsh"
+    assert request.call_count == 1
 
 
 def health():
@@ -170,7 +170,7 @@ def health():
         "protocolVersion": 2,
         "deploymentCommit": COMMIT,
         "sourceSha256": HASH,
-        "venues": ["dsh", "baoti"],
+        "venues": ["dsh"],
         "busy": False,
     }
 
@@ -180,35 +180,26 @@ def observation():
         "ok": True,
         "captcha": False,
         "schema_version": 2,
-        "venue": "baoti",
+        "venue": "dsh",
         "days": [
             {
                 "date": "2026-11-01",
                 "courts": {},
                 "groups": [
                     {
-                        "key": key,
-                        "sales_item_id": product,
+                        "key": "",
+                        "sales_item_id": "100000",
                         "source_date": "2026-11-01",
                         "selected_date": "2026-11-01",
                         "court_names": ["1号场"],
                         "cell_count": 24,
-                        "product_name": {
-                            "outdoor": "室外网球场",
-                            "indoor": "室内网球场",
-                            "windrain": "风雨网球场",
-                        }[key],
-                        "source_host": "bawtt.ydmap.cn",
-                        "source_sales_id": "104036",
+                        "product_name": "网球场",
+                        "source_host": "wxsports.ydmap.cn",
+                        "source_sales_id": "100220",
                         "load_generation": 3,
                         "data_version": {"platforms": 5, "orders": 6},
                         "freshness": "both_source_arrays_replaced_after_date_selection",
                     }
-                    for key, product in (
-                        ("outdoor", "111317"),
-                        ("indoor", "103224"),
-                        ("windrain", "111319"),
-                    )
                 ],
             }
         ],
@@ -293,7 +284,7 @@ def observation_with_source():
         ("protocolVersion", 1),
         ("deploymentCommit", "c" * 40),
         ("sourceSha256", "d" * 64),
-        ("venues", ["dsh"]),
+        ("venues", ["baoti", "dsh"]),
     ],
 )
 def test_health_requires_all_runtime_identity_fields(field, value):
@@ -302,11 +293,22 @@ def test_health_requires_all_runtime_identity_fields(field, value):
         INSTALL.verify_health(payload, COMMIT, HASH)
 
 
+def test_retired_source_cannot_be_verified_or_included_in_drain_proof():
+    assert INSTALL.DAG_IDS == GUARD.DAG_IDS == ("大沙河国际网球中心巡检",)
+    assert INSTALL.PRODUCTS == {"dsh": {"": ("100000", "")}}
+    with pytest.raises(INSTALL.OperationFailure, match="scrape_not_verified"):
+        INSTALL.inspect_evidence({**observation(), "venue": "baoti"}, "baoti", ["2026-11-01"])
+    proof = drain_proof()
+    proof["dags"].append({"dag_id": "宝安网球中心巡检", "paused": True, "was_paused": True})
+    with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
+        INSTALL.validate_drain_proof(proof, COMMIT)
+
+
 def test_inspection_requires_independent_date_product_and_court_evidence():
     valid = observation()
-    report = INSTALL.inspect_evidence(valid, "baoti", ["2026-11-01"])
+    report = INSTALL.inspect_evidence(valid, "dsh", ["2026-11-01"])
     assert report["verified"] is True
-    assert len(report["days"][0]["groups"]) == 3
+    assert len(report["days"][0]["groups"]) == 1
     mutations = []
     missing = copy.deepcopy(valid)
     missing["days"][0]["groups"].pop()
@@ -317,7 +319,7 @@ def test_inspection_requires_independent_date_product_and_court_evidence():
     empty_cells = copy.deepcopy(valid)
     empty_cells["days"][0]["groups"][0]["cell_count"] = 0
     mutations.append(empty_cells)
-    wrong_venue = {**valid, "venue": "dsh"}
+    wrong_venue = {**valid, "venue": "baoti"}
     mutations.append(wrong_venue)
     legacy = copy.deepcopy(valid)
     legacy.pop("schema_version")
@@ -326,14 +328,11 @@ def test_inspection_requires_independent_date_product_and_court_evidence():
     secret_name["days"][0]["groups"][0]["court_names"] = ["https://private.test?token=secret"]
     mutations.append(secret_name)
     mismatched_product = copy.deepcopy(valid)
-    mismatched_product["days"][0]["groups"][0]["product_name"] = "室内网球场"
+    mismatched_product["days"][0]["groups"][0]["product_name"] = ""
     mutations.append(mismatched_product)
-    swapped = copy.deepcopy(valid)
-    (
-        swapped["days"][0]["groups"][0]["sales_item_id"],
-        swapped["days"][0]["groups"][1]["sales_item_id"],
-    ) = "103224", "111317"
-    mutations.append(swapped)
+    wrong_product = copy.deepcopy(valid)
+    wrong_product["days"][0]["groups"][0]["sales_item_id"] = "111317"
+    mutations.append(wrong_product)
     for field, value in (
         ("freshness", "unverified"),
         ("load_generation", 0),
@@ -353,7 +352,7 @@ def test_inspection_requires_independent_date_product_and_court_evidence():
         mutations.append(invalid_slots)
     for payload in mutations:
         with pytest.raises(INSTALL.OperationFailure):
-            INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"])
+            INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"])
 
 
 def test_candidate_failure_never_replaces_or_stops_live_service(monkeypatch, tmp_path):
@@ -554,7 +553,7 @@ def test_dag_guard_restores_exact_flags_after_success_disconnect_or_timeout(
 ):
     flags = {GUARD.DAG_IDS[0]: False, "unrelated": False}
     if with_baoti:
-        flags[GUARD.DAG_IDS[1]] = True
+        flags["宝安网球中心巡检"] = True
     original = dict(flags)
     clock = [0.0]
     counts = iter(((1, 1), (0, 0), (0, 0)))
@@ -627,7 +626,7 @@ def test_drain_timeout_restores_and_never_issues_an_apply_proof():
 
 
 def test_remote_failure_retains_verified_public_inspection_evidence():
-    summary = INSTALL.inspect_evidence(observation(), "baoti", ["2026-11-01"])
+    summary = INSTALL.inspect_evidence(observation(), "dsh", ["2026-11-01"])
     channel = SimpleNamespace(
         shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
     )
@@ -674,7 +673,7 @@ def test_failed_activation_restores_only_its_original_service_override(
     failed = INSTALL.OperationFailure(
         "installed_health_failed" if phase == "health" else "access_verification"
     )
-    failed.venue = "baoti"
+    failed.venue = "dsh"
     failed.source_failure = "rate_limited"
     monkeypatch.setattr(INSTALL, "wait_health", lambda *a: health())
     monkeypatch.setattr(INSTALL, "inspect_venues", lambda *a: [])
@@ -852,7 +851,7 @@ def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, d
     result = INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, hour, minute, tzinfo=ZoneInfo("Asia/Shanghai"))
     )
-    assert requests == [f"/inspect?venue=dsh&days={days}", "/inspect?venue=baoti&days=2"]
+    assert requests == [f"/inspect?venue=dsh&days={days}"]
     assert len(result[0]["dates"]) == days
 
 
@@ -868,7 +867,7 @@ def test_remote_failure_does_not_forward_raw_errors_or_upstream_data():
                 "operationComplete": True,
                 "failure": "secret-value",
                 "private": "secret-value",
-                "venue": "baoti",
+                "venue": "dsh",
             }
         ).encode()
     )
@@ -878,7 +877,7 @@ def test_remote_failure_does_not_forward_raw_errors_or_upstream_data():
     )
     report = DEPLOY.remote(client, "fake-command")
     assert report["failure"] == "operation_failed"
-    assert report["venue"] == "baoti"
+    assert report["venue"] == "dsh"
     assert "secret-value" not in json.dumps(report)
 
 
@@ -889,9 +888,9 @@ def test_source_evidence_is_opt_in_and_strips_unknown_sensitive_fields():
     optional["components"][0]["user"] = "private-value"
     optional["methods"][0]["headers"] = "private-value"
     optional["samples"][0]["orderInfo"] = {"phone": "private-value"}
-    ordinary = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"])
+    ordinary = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"])
     assert "source_evidence" not in json.dumps(ordinary)
-    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
     retained = report["days"][0]["groups"][0]["source_evidence"]
     assert retained == renderer_evidence()
     assert retained["bookability_verified"] is False
@@ -901,7 +900,7 @@ def test_source_evidence_is_opt_in_and_strips_unknown_sensitive_fields():
 
 
 def test_actual_scraper_source_sanitizer_matches_report_contract():
-    server = load("pi_ydmap_source_report_contract", "tests/pi_baoti_scraper_test.py").server
+    server = load("pi_ydmap_source_report_contract", "tests/pi_ydmap_scraper_test.py").server
     assert set(server.SOURCE_CLASSES) == INSTALL.SOURCE_CLASSES
     assert set(server.SOURCE_LITERAL_ALLOWLIST).issubset(INSTALL.SOURCE_LITERAL_ALLOWLIST)
     raw = renderer_evidence()
@@ -911,19 +910,25 @@ def test_actual_scraper_source_sanitizer_matches_report_contract():
     raw["methods"][0]["original_bytes"] = len(raw["methods"][0]["source"].encode())
     raw["samples"][0]["court"] = "1号场"
     budget = {"remaining": server.SOURCE_TOTAL_BYTES, "seen": set()}
-    canonical = server._source_evidence(raw, "室内", budget)
-    reused = server._source_evidence(raw, "室外", budget)
+    canonical = server._source_evidence(raw, "", budget)
+    reused = server._source_evidence(raw, "", budget)
     assert reused["methods"][0]["reused"] is True
     payload = observation()
     payload["days"][0]["groups"][0]["source_evidence"] = reused
-    payload["days"][0]["groups"][1]["source_evidence"] = canonical
-    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    later = copy.deepcopy(payload["days"][0])
+    later["date"] = "2026-11-02"
+    later["groups"][0].update(source_date="2026-11-02", selected_date="2026-11-02")
+    later["groups"][0]["source_evidence"] = canonical
+    payload["days"].append(later)
+    report = INSTALL.inspect_evidence(
+        payload, "dsh", ["2026-11-01", "2026-11-02"], source_evidence=True
+    )
     assert report["sourceEvidenceRejected"] is False
     assert report["sourceEvidenceTruncated"] is False
     assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
     encoded = INSTALL.encode_report({"ok": True, "inspections": [report]}, source_evidence=True)
     assert json.loads(encoded)["inspections"] == [report]
-    retained = report["days"][0]["groups"][1]["source_evidence"]
+    retained = report["days"][1]["groups"][0]["source_evidence"]
     assert retained["methods"][0]["redacted"] is True
     assert "private" not in json.dumps(retained)
 
@@ -944,7 +949,7 @@ def test_actual_scraper_source_sanitizer_matches_report_contract():
 def test_invalid_source_method_metadata_is_rejected_without_losing_identity(field, value):
     payload = observation_with_source()
     payload["days"][0]["groups"][0]["source_evidence"]["methods"][0][field] = value
-    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
     assert report["verified"] is True and report["sourceEvidenceRejected"] is True
     assert "source_evidence" not in report["days"][0]["groups"][0]
 
@@ -968,7 +973,7 @@ def test_source_hash_is_not_a_substitute_for_sanitization(source):
         original_bytes=len(source.encode()),
         redacted=True,
     )
-    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
     assert report["sourceEvidenceRejected"] is True
     assert "private-cookie-value" not in json.dumps(report)
 
@@ -993,24 +998,27 @@ def test_source_evidence_requires_false_bookability_and_bounded_public_samples()
     assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
 
 
-def test_forward_source_reuse_is_resolved_and_unknown_hash_is_rejected():
+def test_forward_source_reuse_across_dates_is_resolved_and_unknown_hash_is_rejected():
     payload = observation_with_source()
-    groups = payload["days"][0]["groups"]
-    groups[1]["source_evidence"] = copy.deepcopy(groups[0]["source_evidence"])
-    method = groups[0]["source_evidence"]["methods"][0]
+    later = copy.deepcopy(payload["days"][0])
+    later["date"] = "2026-11-02"
+    later["groups"][0].update(source_date="2026-11-02", selected_date="2026-11-02")
+    payload["days"].append(later)
+    method = payload["days"][0]["groups"][0]["source_evidence"]["methods"][0]
     method.update(source="", emitted_bytes=0, reused=True)
-    valid = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    dates = ["2026-11-01", "2026-11-02"]
+    valid = INSTALL.inspect_evidence(payload, "dsh", dates, source_evidence=True)
     assert valid["sourceEvidenceRejected"] is False
     assert valid["days"][0]["groups"][0]["source_evidence"]["methods"][0]["reused"] is True
     method["sha256"] = "f" * 64
-    invalid = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    invalid = INSTALL.inspect_evidence(payload, "dsh", dates, source_evidence=True)
     assert invalid["sourceEvidenceRejected"] is True
     assert "source_evidence" not in invalid["days"][0]["groups"][0]
 
 
 def test_optional_evidence_budget_preserves_identity_and_flags_roundtrip(monkeypatch):
     report = INSTALL.inspect_evidence(
-        observation_with_source(), "baoti", ["2026-11-01"], source_evidence=True
+        observation_with_source(), "dsh", ["2026-11-01"], source_evidence=True
     )
     monkeypatch.setattr(INSTALL, "MAX_SOURCE_EVIDENCE_BYTES", 1)
     encoded = INSTALL.encode_report(
@@ -1045,7 +1053,7 @@ def test_large_report_preserves_json_without_an_oversized_log_line():
 @pytest.mark.parametrize("status", [0, 1])
 def test_remote_source_evidence_roundtrip_for_success_and_prior_success_on_failure(status):
     summary = INSTALL.inspect_evidence(
-        observation_with_source(), "baoti", ["2026-11-01"], source_evidence=True
+        observation_with_source(), "dsh", ["2026-11-01"], source_evidence=True
     )
     payload = {
         "ok": status == 0,
@@ -1119,7 +1127,7 @@ def test_only_preflight_requests_source_evidence(monkeypatch, tmp_path, operatio
     )
 
 
-def test_preflight_query_is_explicit_for_both_venues(monkeypatch):
+def test_preflight_query_inspects_only_dashah(monkeypatch):
     paths = []
     monkeypatch.setattr(
         INSTALL, "request_json", lambda port, path, **kwargs: paths.append(path) or {}
@@ -1128,17 +1136,10 @@ def test_preflight_query_is_explicit_for_both_venues(monkeypatch):
     INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, 12, tzinfo=ZoneInfo("Asia/Shanghai")), source_evidence=True
     )
-    assert paths == [
-        "/inspect?venue=dsh&days=5&evidence=source-v1",
-        "/inspect?venue=baoti&days=2&evidence=source-v1",
-    ]
-    paths.clear()
-    INSTALL.inspect_venues(18788, source_evidence=True, verification_once=True)
-    assert "verification=" not in paths[0]
-    assert paths[1].endswith("&evidence=source-v1&verification=once")
+    assert paths == ["/inspect?venue=dsh&days=5&evidence=source-v1"]
 
 
-@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+@pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])
 def test_verification_cannot_enter_live_operations(operation):
     with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
         INSTALL.operate(SimpleNamespace(operation=operation, verification_once=True))
@@ -1173,7 +1174,7 @@ def test_browser_environment_survives_report_filter_without_raw_capabilities():
         "profileResetBeforeScrape": True,
         "userDataDir": "private-profile",
     }
-    report = INSTALL.inspect_evidence(payload, "baoti", ["2026-11-01"], source_evidence=True)
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
     assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
     assert report["browserVersion"] == "137.0.7151.119"
     assert report["userAgentOverrideEnabled"] is False
@@ -1181,35 +1182,23 @@ def test_browser_environment_survives_report_filter_without_raw_capabilities():
     assert "browserVersion" not in INSTALL.safe_source_diagnostic({"browserVersion": "private"})
 
 
-@pytest.mark.parametrize("baoti_fails", [False, True])
-def test_preflight_inspects_baoti_after_dsh_failure_without_accepting_partial_success(
-    monkeypatch, baoti_fails
-):
+def test_preflight_fails_closed_after_dashah_failure_without_requesting_retired_venue(monkeypatch):
     paths = []
 
     def request(port, path, **kwargs):
         paths.append(path)
-        if "venue=dsh" in path or baoti_fails:
-            failure = INSTALL.OperationFailure("scrape_not_verified")
-            failure.source_failure = (
-                "RuntimeError" if "venue=baoti" in path else "schedule_not_ready"
-            )
-            raise failure
-        return {}
+        failure = INSTALL.OperationFailure("scrape_not_verified")
+        failure.source_failure = "schedule_not_ready"
+        raise failure
 
     monkeypatch.setattr(INSTALL, "request_json", request)
-    monkeypatch.setattr(
-        INSTALL, "inspect_evidence", lambda payload, venue, dates, **kwargs: {"venue": venue}
-    )
     with pytest.raises(INSTALL.OperationFailure) as caught:
         INSTALL.inspect_venues(18788, source_evidence=True)
-    assert len(paths) == 2
+    assert len(paths) == 1 and paths[0].startswith("/inspect?venue=dsh&")
     failure = caught.value
-    assert failure.venue == ("baoti" if baoti_fails else "dsh")
-    assert failure.inspections == ([] if baoti_fails else [{"venue": "baoti"}])
-    expected = ["dsh", "baoti"] if baoti_fails else ["dsh"]
-    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == expected
-    assert "failedVenues" not in INSTALL.safe_source_diagnostic({"failedVenues": ["private"]})
+    assert failure.venue == "dsh" and failure.inspections == []
+    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == ["dsh"]
+    assert "failedVenues" not in INSTALL.safe_source_diagnostic({"failedVenues": ["baoti"]})
 
 
 def test_apply_inspection_still_stops_after_first_failure(monkeypatch):
@@ -1241,6 +1230,8 @@ def test_normal_release_preflight_reserves_shared_browser_capacity():
     triggers = workflow[True]  # PyYAML's YAML 1.1 treats the Actions 'on' key as true.
     for entry in ("workflow_call", "workflow_dispatch"):
         assert triggers[entry]["inputs"]["drain_preflight"]["default"] is True
+        assert "confirm_verification_once" not in triggers[entry]["inputs"]
+        assert "diagnostic_first_product" not in triggers[entry]["inputs"]
     steps = workflow["jobs"]["operate"]["steps"]
     operation = next(
         step for step in steps if step.get("name") == "Run protected scraper operation"
@@ -1306,32 +1297,12 @@ def test_product_order_probe_is_rejected_before_live_operations(operation):
         INSTALL.operate(SimpleNamespace(operation=operation, first_product="windrain"))
 
 
-def test_product_order_probe_cannot_mark_candidate_verified_or_activate(monkeypatch, tmp_path):
-    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
-    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
-    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *a: tmp_path)
-    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
-    monkeypatch.setattr(INSTALL, "inspect_venues", lambda *a, **k: [])
-    calls = []
-
-    @contextmanager
-    def candidate(*args, **kwargs):
-        calls.append(kwargs)
-        yield 18788
-
-    monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
-    monkeypatch.setattr(INSTALL, "activate", lambda *a: pytest.fail("must not activate"))
-    with pytest.raises(INSTALL.OperationFailure, match="diagnostic_only"):
-        INSTALL.operate(
-            SimpleNamespace(
-                operation="preflight",
-                first_product="windrain",
-                commit=COMMIT,
-                source_sha256=HASH,
-                staging=tmp_path,
-            )
-        )
-    assert calls == [{"first_product": "windrain"}]
+def test_retired_product_order_probe_is_rejected_before_any_host_access(monkeypatch):
+    monkeypatch.setattr(
+        INSTALL, "other_service_identities", lambda: pytest.fail("host access forbidden")
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation="preflight", first_product="windrain"))
 
 
 @pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
@@ -1465,7 +1436,7 @@ def test_quiesced_cycles_require_the_normal_unattended_flow(option):
         INSTALL.operate(SimpleNamespace(operation="preflight", drain_preflight=True, **option))
 
 
-def test_per_venue_failure_diagnostics_are_bounded_and_idempotent():
+def test_retired_venue_diagnostics_are_excluded_and_dashah_evidence_is_bounded():
     nested = {
         "accessDiagnostics": {"typeErrors": 1, "private": "never-export"},
         "failedVenueDiagnostics": {"baoti": {"sourceDiagnostic": {"private": "never-export"}}},
@@ -1479,9 +1450,9 @@ def test_per_venue_failure_diagnostics_are_bounded_and_idempotent():
             }
         }
     )
-    assert set(safe["failedVenueDiagnostics"]) == {"dsh", "baoti"}
-    for item in safe["failedVenueDiagnostics"].values():
-        assert item["sourceDiagnostic"]["accessDiagnostics"] == {"typeErrors": 1}
-        assert "failedVenueDiagnostics" not in item["sourceDiagnostic"]
+    assert set(safe["failedVenueDiagnostics"]) == {"dsh"}
+    item = safe["failedVenueDiagnostics"]["dsh"]
+    assert item["sourceDiagnostic"]["accessDiagnostics"] == {"typeErrors": 1}
+    assert "failedVenueDiagnostics" not in item["sourceDiagnostic"]
     assert "never-export" not in json.dumps(safe)
     assert INSTALL.safe_source_diagnostic(safe) == safe

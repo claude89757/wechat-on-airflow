@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from .control import delivery_guard
 from .database import ensure_schema, transaction
-from .domain import format_digest, utc_now
+from .domain import VENUES, format_digest, utc_now
 from .service import runtime_heartbeat
 from .settings import HostCoreSettings, load_settings, load_tencent_email_settings
 from .tencent_ses import TencentSesError, get_email_status, normalize_status, send_template_email
@@ -210,6 +210,7 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
                     JOIN zacks.observed_slots slot ON slot.event_key = o.event_key
                     LEFT JOIN zacks.user_delivery_tiers tier ON tier.email = s.email
                     WHERE o.id = ANY(:ids) AND o.status = 'processing' AND o.lease_owner = :worker
+                      AND o.venue_id = ANY(:active_venues)
                       AND s.active AND s.active_until > :now
                       AND (NOT s.auto_renew OR (tier.tier = 'priority' AND tier.revoked_at IS NULL))
                       AND o.created_at > :now - interval '15 minutes'
@@ -217,7 +218,12 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
                       AND EXISTS(SELECT 1 FROM zacks.current_availability c
                           WHERE c.event_key = o.event_key AND c.last_seen_at > :now - interval '15 minutes')
                 """),
-                        {"ids": ids, "worker": worker, "now": now},
+                        {
+                            "ids": ids,
+                            "worker": worker,
+                            "now": now,
+                            "active_venues": sorted(VENUES),
+                        },
                     ).scalars()
                 )
             invalid = list(set(ids) - valid_ids)
