@@ -410,7 +410,7 @@ def bootstrap(request: Request) -> dict[str, Any]:
         else settings.standard_active_subscription_limit
     )
     try:
-        visible_venue_rows = active_venue_status(venue_rows)
+        visible_venue_rows = active_venue_status([dict(row) for row in venue_rows])
     except ValueError:
         raise HTTPException(status_code=503, detail="场馆目录暂不可用") from None
     venues = [

@@ -35,7 +35,11 @@ RETIRED_BAOTI_SCOPE = "baoti:check_tennis_courts"
 
 def _venue_retirement_policy(manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
     retirements = contract.get("retired_venues", {})
+    if not isinstance(retirements, dict):
+        raise ValueError("Venue retirement does not match the approved venue policy")
     retirement = retirements.get("baoti", {})
+    if not isinstance(retirement, dict):
+        raise ValueError("Venue retirement does not match the approved venue policy")
     if (
         set(retirements) != {"baoti"}
         or RETIRED_VENUES != {"baoti": "宝安网球中心"}
