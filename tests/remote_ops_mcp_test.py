@@ -161,6 +161,19 @@ def test_cloudflare_admin_credential_not_installed_on_hosts():
     assert "mcp.cloudflare.com/mcp" in (ROOT / "pi_host/remote_ops/server.mjs").read_text()
 
 
+def test_release_packages_and_checks_cold_key_dependency():
+    workflow = (ROOT / ".github/workflows/production-remote-ops-mcp.yml").read_text()
+    archive = next(line for line in workflow.splitlines() if "tar -czf" in line)
+    assert "access-keys.mjs" in archive
+    assert "check-keys.mjs" in archive
+    installer = (ROOT / "pi_host/remote_ops/install.py").read_text()
+    assert "key_health(candidate)" in installer
+    assert 'report.update(key_health(BASE / "current"))' in installer
+    probe = (ROOT / "pi_host/remote_ops/check-keys.mjs").read_text()
+    assert "i < 3" in probe
+    assert "createAccessKeys().reload()" in probe
+
+
 def test_phone_group_coexists_with_owner_and_machine(monkeypatch):
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test")
     monkeypatch.setattr(DEPLOY.phone, "owner_identity", lambda: "owner@example.test")

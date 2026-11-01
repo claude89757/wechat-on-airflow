@@ -19,6 +19,30 @@ Never distribute service-token headers, SSH credentials or management tokens.
 Complete login in the same browser instance; on `Invalid session`, request a
 fresh authorization rather than refreshing an old callback.
 
+### Authentication Dependency Failures
+
+On 2026-11-01, Pi's Node default public-key fetch repeatedly timed out at five
+seconds, while six explicit IPv4 HTTPS probes succeeded in about 1.3-1.7 seconds.
+The old catch-all handler mislabeled dependency failures as `403 request_rejected`.
+This is a reproduced failure path, not proof of the cause of every historical 403.
+
+Host MCP now fetches only the fixed Cloudflare public-key URL over IPv4 with
+normal TLS verification, a 64 KiB response limit and at most two six-second
+attempts. JWT signature, issuer, audience, expiry and algorithm validation remain
+mandatory. Keys are cached for ten minutes; expired caches are not a fallback
+during outages. Unknown-key rotation retains the verifier's refresh cooldown.
+Dependency failures return `503 authentication_dependency_unavailable` with
+`Retry-After`; invalid credentials remain denied. Failure records contain only
+a correlation ID, fixed category and status, never tokens or exception text.
+
+Protected host installation and independent health verify three fresh public-key
+resolvers, in addition to authenticated MCP calls and anonymous/invalid-token
+denial. This prevents a warm key cache from masking outbound network failures.
+Machine health does not certify a particular user's OAuth grant or human command
+approval. Never replay an uncertain administrator command automatically.
+Phone MCP uses its existing Tunnel Access validation, not this Node verifier;
+check its independent public health without creating sessions or notifications.
+
 Frontend Worker `zacks-tennis-alerts` serves `courts.zacks.vision` and
 `zacks.claude89757.cc`. The VPS hosts Airflow, PostgreSQL business services and
 notification consumers behind `airflow.claude89757.cc`. The Pi runs scraping

@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
 import { readFileSync, appendFileSync, realpathSync } from "node:fs";
 import { loadavg, freemem, totalmem, uptime } from "node:os";
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { jwtVerify } from "jose";
+import { randomUUID } from "node:crypto";
+import { createAccessKeys, KeysUnavailable } from "./access-keys.mjs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -12,7 +14,7 @@ export function createOpsServer(config, overrides = {}) {
 if (!/^https:\/\/(pi|vps)-mcp\.zacks\.vision$/.test(config.origin)
   || config.issuer !== "https://zacks-vision-ops.cloudflareaccess.com"
   || !/^[0-9a-f]{40}$/.test(config.commit) || !config.audience) throw Error("invalid_configuration");
-const keys = overrides.keys || createRemoteJWKSet(new URL(config.issuer + "/cdn-cgi/access/certs"));
+const keys = overrides.keys || createAccessKeys();
 const audit = overrides.audit || (event => appendFileSync("/var/log/zacks-ops-mcp/audit.jsonl",
   JSON.stringify({ time: new Date().toISOString(), ...event }) + "\n", { mode: 0o600 }));
 const requests = new Requests({ audit, execute: overrides.execute || executeCommand });
@@ -100,9 +102,20 @@ const http = createServer(async (req, res) => {
     res.on("close", () => { transport.close().catch(() => {}); server.close().catch(() => {}); });
     await server.connect(transport);
     await transport.handleRequest(req, res, JSON.parse(await body(req)));
-  } catch {
-    if (!res.headersSent) res.writeHead(403, { "content-type": "application/json", "cache-control": "no-store" });
-    if (!res.writableEnded) res.end(JSON.stringify({ error: "request_rejected" }));
+  } catch (error) {
+    const unavailable = error instanceof KeysUnavailable || ["ERR_JWKS_TIMEOUT", "ERR_JWKS_INVALID"].includes(error.code);
+    const malformed = error instanceof SyntaxError;
+    const status = unavailable ? 503 : malformed ? 400 : 403;
+    const reason = unavailable ? "authentication_dependency_unavailable" : malformed ? "invalid_json" : "request_rejected";
+    const requestId = randomUUID();
+    // Fixed categories only: never serialize exceptions, JWTs, headers or request bodies.
+    const category = ["ERR_JWT_EXPIRED", "ERR_JWT_CLAIM_VALIDATION_FAILED", "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+      "ERR_JWS_INVALID", "ERR_JWKS_NO_MATCHING_KEY", "ERR_JOSE_ALG_NOT_ALLOWED"].includes(error.code) ? error.code : reason;
+    const claim = ["aud", "iss", "exp", "iat"].includes(error.claim) ? error.claim : undefined;
+    try { audit({ event: "request_failed", requestId, status, reason, category, claim }); } catch {}
+    if (!res.headersSent) res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store",
+      "x-request-id": requestId, ...(unavailable ? { "retry-after": "5" } : {}) });
+    if (!res.writableEnded) res.end(JSON.stringify({ error: reason, requestId }));
   }
 });
 http.requestTimeout = 30000;
