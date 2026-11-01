@@ -2,6 +2,8 @@
 
 ## Connections
 
+Daily entry and fallback routing: [Agent Operations](agent-operations.md).
+
 These are configured destinations. Successful protected apply/health reports,
 not this table alone, establish whether a new endpoint is live.
 
@@ -65,6 +67,7 @@ Share only authorized destinations. Initial tests list tools and call
 ## Administrator Operations
 
 - `ops_status`: resource health and exact operations runtime identity.
+- `ops_diagnose`: allowlisted service/container states; no logs, secrets or changes.
 - `ops_request`: command, reason and timeout (maximum 120 seconds); returns a
   five-minute browser approval URL without executing anything.
 - `ops_result`: the requesting identity's bounded operation result.
@@ -117,6 +120,10 @@ operations MCP and connector, not Airflow, Sender, Appium or the other host.
 The withdrawn units stay disabled across reboots until an explicit apply.
 
 ## GitHub Window
+
+Prefer [Production MCP Lifecycle](https://github.com/claude89757/wechat-on-airflow/actions/workflows/production-mcp.yml)
+for routine MCP patches. One apply runs preflight, apply and independent health.
+The component workflows below remain recovery and implementation interfaces.
 
 Use [Production Remote Operations MCP](https://github.com/claude89757/wechat-on-airflow/actions/workflows/production-remote-ops-mcp.yml).
 Choose target `pi`, `vps` or `phone`, operation and an exact merged SHA with a

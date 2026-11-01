@@ -54,6 +54,12 @@ on:
       deploy_pi_ydmap:
         description: Whether private Pi scraper deployment was planned
         value: ${{ jobs.deploy.outputs.deploy_pi_ydmap }}
+      deploy_remote_ops:
+        description: Whether host MCP deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_remote_ops }}
+      deploy_pi_mcp:
+        description: Whether phone MCP deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_pi_mcp }}
   workflow_dispatch:
     inputs:
       version:
@@ -76,6 +82,8 @@ on:
           - airflow
           - sender
           - pi_ydmap
+          - remote_ops
+          - pi_mcp
           - control
       include_sender:
         description: Explicit approval for an in-scope sender deployment

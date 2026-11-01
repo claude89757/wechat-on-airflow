@@ -258,7 +258,10 @@ def test_domain_workflow_separates_runtime_and_operations_identity():
     gate = next(step for step in steps if step.get("name") == "Require exact main commit and CI")
     assert '--target-commit "$RUNTIME_COMMIT"' in gate["run"]
     stage = next(step for step in steps if step.get("name", "").startswith("Stage locked"))
-    assert stage["if"] == "inputs.operation == 'preflight' || inputs.operation == 'apply'"
+    assert (
+        stage["if"]
+        == "inputs.operation == 'preflight' || inputs.operation == 'apply' || inputs.operation == 'release'"
+    )
     assert workflow["jobs"]["operate"]["environment"] == "production"
 
 

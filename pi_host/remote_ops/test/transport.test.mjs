@@ -62,7 +62,7 @@ test("real HTTP MCP verifies JWT, isolates users and requires browser-only confi
       assert.equal((await fetch(origin + "/mcp", { method: "POST", headers: { "cf-access-jwt-assertion": assertion } })).status, 403);
     }
     await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length, 4);
+    assert.equal((await client.listTools()).tools.length, 5);
     const requested = await client.callTool({ name: "ops_request", arguments: { command: "printf isolated", reason: "test" } });
     const request = JSON.parse(requested.content[0].text);
     assert.equal(executions, 0);

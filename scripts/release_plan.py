@@ -12,7 +12,31 @@ from pathlib import Path
 
 SEMVER_TAG = re.compile(r"^(?:v)?\d+\.\d+\.\d+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-VALID_SCOPES = {"auto", "all", "webapp", "airflow", "sender", "pi_ydmap", "control"}
+VALID_SCOPES = {
+    "auto",
+    "all",
+    "webapp",
+    "airflow",
+    "sender",
+    "pi_ydmap",
+    "remote_ops",
+    "pi_mcp",
+    "control",
+}
+
+MCP_SURFACES = {
+    "remote_ops": (
+        "pi_host/remote_ops/",
+        "scripts/deploy_remote_ops_mcp.py",
+        ".github/workflows/production-remote-ops-mcp.yml",
+        "tests/remote_ops_mcp_test.py",
+    ),
+    "pi_mcp": (
+        "pi_host/appium_mcp/",
+        "scripts/deploy_pi_appium_mcp.py",
+        ".github/workflows/production-appium-mcp.yml",
+    ),
+}
 
 WEBAPP_RUNTIME_EXACT = {
     "webapp/index.html",
@@ -113,6 +137,8 @@ class Plan:
     deploy_airflow: bool
     deploy_sender: bool
     deploy_pi_ydmap: bool
+    deploy_remote_ops: bool
+    deploy_pi_mcp: bool
     sender_approval_required: bool
 
 
@@ -200,6 +226,21 @@ def classify_file(
     metadata = False
     unknown = False
 
+    for component, surfaces in MCP_SURFACES.items():
+        if any(path.startswith(item) if item.endswith("/") else path == item for item in surfaces):
+            ci.add(component)
+            control = path.startswith(("scripts/", ".github/"))
+            metadata = path.startswith("tests/") or "/test/" in path or path.endswith(".md")
+            if path.startswith("pi_host/") and not metadata:
+                runtime.add(component)
+            # The host deployment script shares phone Access helpers.
+            if component == "pi_mcp" and path == "scripts/deploy_pi_appium_mcp.py":
+                ci.add("remote_ops")
+            return runtime, ci, control, metadata, unknown
+
+    if path in {".github/workflows/production-mcp.yml", "scripts/mcp_lifecycle.py"}:
+        return runtime, {"remote_ops", "pi_mcp"}, True, False, False
+
     if path in {"pyproject.toml", "src/wechat_airflow/__init__.py"} and version_metadata_only(
         base, target, path
     ):
@@ -271,7 +312,7 @@ def resolve_scope(detected: set[str], requested: str) -> set[str]:
     if requested == "auto":
         return set(detected)
     if requested == "all":
-        return {"webapp", "airflow", "sender", "pi_ydmap"}
+        return {"webapp", "airflow", "sender", "pi_ydmap"} | detected
     if requested == "control":
         selected: set[str] = set()
     else:
@@ -314,7 +355,7 @@ def make_plan(base: str, target: str, scope: str, include_sender: bool) -> Plan:
     else:
         resolved = ",".join(
             component
-            for component in ("pi_ydmap", "webapp", "airflow", "sender")
+            for component in ("pi_ydmap", "webapp", "airflow", "sender", "remote_ops", "pi_mcp")
             if component in selected
         )
 
@@ -333,6 +374,8 @@ def make_plan(base: str, target: str, scope: str, include_sender: bool) -> Plan:
         deploy_airflow="airflow" in selected,
         deploy_sender="sender" in selected,
         deploy_pi_ydmap="pi_ydmap" in selected,
+        deploy_remote_ops="remote_ops" in selected,
+        deploy_pi_mcp="pi_mcp" in selected,
         sender_approval_required="sender" in runtime,
     )
 
@@ -346,12 +389,18 @@ def write_github_output(path: Path, plan: Plan) -> None:
         "deploy_airflow": str(plan.deploy_airflow).lower(),
         "deploy_sender": str(plan.deploy_sender).lower(),
         "deploy_pi_ydmap": str(plan.deploy_pi_ydmap).lower(),
+        "deploy_remote_ops": str(plan.deploy_remote_ops).lower(),
+        "deploy_pi_mcp": str(plan.deploy_pi_mcp).lower(),
         "ci_webapp": str("webapp" in plan.ci_components).lower(),
         "ci_airflow": str("airflow" in plan.ci_components).lower(),
         "ci_sender": str("sender" in plan.ci_components).lower(),
         "ci_pi_mcp": str(
-            plan.control_plane_changed
+            "pi_mcp" in plan.ci_components
+            or plan.control_plane_changed
             or any(path.startswith("pi_host/appium_mcp/") for path in plan.changed_files)
+        ).lower(),
+        "ci_remote_ops": str(
+            "remote_ops" in plan.ci_components or plan.control_plane_changed
         ).lower(),
         "control_plane_changed": str(plan.control_plane_changed).lower(),
         "changed_count": str(len(plan.changed_files)),

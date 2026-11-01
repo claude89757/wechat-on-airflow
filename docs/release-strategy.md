@@ -92,7 +92,10 @@ each component result instead of pretending every runtime was replaced.
 The required check remains named `verify` for release-gate compatibility. It
 always runs lint, type checking, unit tests, and workflow contracts, then runs
 only the Web, Airflow, or sender build suites relevant to the changed surface.
-Control-plane or unknown paths conservatively run all suites. New commits cancel
+Known MCP paths select their MCP suites without unrelated Web browser or
+Airflow/Sender image builds. MCP runtime changes are first-class `remote_ops`
+and `pi_mcp` deployment components; MCP tests/docs do not deploy a runtime.
+Generic control-plane or unknown paths conservatively run all suites. New commits cancel
 stale pull-request CI runs, while `main` runs are never cancelled because their
 exact merge SHA is a release candidate.
 
@@ -100,6 +103,13 @@ The common production gate is the only CI waiter. It fails immediately when an
 older target has no CI record, polls only existing queued/in-progress checks,
 and rejects unsuccessful checks. ChatOps does not perform a second 30-minute
 wait.
+
+Daily operations use agent conversation + MCP; see
+[Agent Operations](runbooks/agent-operations.md). GitHub remains the protected
+release authority, diagnostic fallback and durable evidence center. Independent
+MCP patches use `production-mcp.yml`; normal named releases include detected MCP
+components through the same reusable lifecycle. Apply includes preflight and
+independent health; standalone phase dispatch remains for incident recovery.
 
 ## Rollback
 

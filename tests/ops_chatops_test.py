@@ -226,7 +226,6 @@ def test_read_only_routes_keep_owner_issue_and_protected_workflow_boundaries():
         "checks": "read",
         "contents": "write",
         "issues": "write",
-        "pull-requests": "write",
     }
     for _, action, operation in READ_ONLY_COMMANDS:
         job = jobs[action]

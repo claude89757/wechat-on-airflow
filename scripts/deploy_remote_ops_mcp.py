@@ -317,6 +317,7 @@ def public_health(credentials, commit):
         "ops_request",
         "ops_result",
         "ops_github",
+        "ops_diagnose",
     }:
         raise RuntimeError("tools_mismatch")
     status = json.loads(
@@ -324,6 +325,11 @@ def public_health(credentials, commit):
     )
     if status.get("commit") != commit or not status.get("approvalRequired"):
         raise RuntimeError("runtime_identity_mismatch")
+    diagnosis = json.loads(
+        call("tools/call", {"name": "ops_diagnose", "arguments": {}})["content"][0]["text"]
+    )
+    if diagnosis.get("readOnly") is not True or diagnosis.get("target") != status.get("target"):
+        raise RuntimeError("diagnostics_contract_failed")
     phone.HOSTNAME = credentials["hostname"]
     discovery = phone.verify_oauth_discovery()
     return {
