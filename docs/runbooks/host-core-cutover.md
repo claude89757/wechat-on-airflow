@@ -114,8 +114,8 @@ transaction rollback probe, natural cycles for all 26 active venues, and real
 natural email and WeChat receipts. Baoan's approved feature rollback retires
 its business route and observations while preserving its historical database
 rows; the Pi candidate and acceptance contract are Dashah-only. The Pi gate is
-retained rather than skipped. Shared WeChat groups stay paused and the dedicated
-Dashah free group retains its existing routing.
+retained rather than skipped. The owner restored all configured shared WeChat
+groups on 2026-11-01; the dedicated Dashah free group retains its isolated route.
 
 There is a delivery interruption after the fence. The established cutover step
 resumes email once the new Host/edge are ready; WeChat becomes eligible only

@@ -1,5 +1,20 @@
 # Production Baseline
 
+## All configured WeChat routes restored by owner request on 2026-11-01
+
+PR #253 deliberately paused shared groups by filtering every recipient found in
+`SZ_TENNIS_CHATROOMS`. The earlier service recovery retained this routing rule,
+so it did not restore shared-group venue messages. The owner has now explicitly
+requested all originally configured groups. The central pause filter is removed;
+diagnostics and the separately approved real-send probe reflect active shared
+and sports-center recipients. The free-court watcher remains isolated to its
+dedicated group. Baoan retirement, subscription eligibility, current-availability
+validation, expiration and durable deduplication are unchanged. No historical
+queue replay or synthetic notification is part of this repair.
+
+Deployment and natural delivery evidence for this routing repair must be recorded
+separately; the health evidence below predates it and does not prove restoration.
+
 ## Notification recovery and Baoan retirement deployed on 2026-11-01
 
 The current business runtime is

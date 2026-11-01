@@ -81,16 +81,12 @@ if selector == "all":
     selector = ""
 
 configured = {}
-paused_general = set(chatrooms("SZ_TENNIS_CHATROOMS"))
 targets = []
 direct_receiver = ""
 if selector.startswith("direct:"):
     direct_receiver = selector.split(":", 1)[1].strip()
     if not direct_receiver:
         print(json.dumps({"ok": False, "error": "invalid_direct_receiver"}, sort_keys=True))
-        raise SystemExit(0)
-    if direct_receiver in paused_general:
-        print(json.dumps({"ok": False, "error": "target_paused"}, sort_keys=True))
         raise SystemExit(0)
     targets = [
         {
@@ -101,11 +97,8 @@ if selector.startswith("direct:"):
     ]
 else:
     configured = {
-        "general": [],
-        "tyzx": [
-            name for name in chatrooms("SZ_TYZX_TENNIS_CHATROOMS")
-            if name not in paused_general
-        ],
+        "general": chatrooms("SZ_TENNIS_CHATROOMS"),
+        "tyzx": chatrooms("SZ_TYZX_TENNIS_CHATROOMS"),
         "dsh_free": ["Zacks_大沙河限定免费"],
     }
     by_receiver = {}

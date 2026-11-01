@@ -74,13 +74,9 @@ def error_category(value):
     return "unknown"
 
 
-paused_general = set(chatrooms("SZ_TENNIS_CHATROOMS"))
 targets = {
-    "general": [],
-    "tyzx": [
-        name for name in chatrooms("SZ_TYZX_TENNIS_CHATROOMS")
-        if name not in paused_general
-    ],
+    "general": chatrooms("SZ_TENNIS_CHATROOMS"),
+    "tyzx": chatrooms("SZ_TYZX_TENNIS_CHATROOMS"),
     "dsh_free": ["Zacks_大沙河限定免费"],
 }
 positions = {}
@@ -143,7 +139,7 @@ print(
             "configured_target_counts": {
                 name: len(values) for name, values in targets.items()
             },
-            "paused_shared_target_count": len(paused_general),
+            "paused_shared_target_count": 0,
             "outbox_count": len(outbox) if isinstance(outbox, list) else None,
             "recent_failure_entries": recent_entries,
             "failures": failures,

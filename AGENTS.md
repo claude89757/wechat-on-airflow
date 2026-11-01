@@ -1,5 +1,14 @@
 # Agent Guide
 
+## WeChat Routing Restoration (2026-11-01)
+
+The owner explicitly restored all originally configured recipient groups.
+`SZ_TENNIS_CHATROOMS` is an active recipient list, not a pause list. Preserve
+independent sports-center recipients and the dedicated free-court route; do not
+redirect other venues into that group. Baoan remains retired. Do not replay old
+uncertain deliveries or reset deduplication to demonstrate restoration. Service
+health alone is not proof of natural message delivery.
+
 ## Scoped Development Checks
 
 The owner accepts short production interruptions (2026-11-01). Prefer protected
