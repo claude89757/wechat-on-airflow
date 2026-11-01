@@ -448,7 +448,7 @@ def main():
             publish(credentials)
         else:
             credentials = credential_read(client)
-            phone.remote(client, f"{prefix} health --commit {commit}")
+            print(phone.remote(client, f"{prefix} health --commit {commit}"))
         PHASE = "public_health"
         for attempt in range(6):
             try:

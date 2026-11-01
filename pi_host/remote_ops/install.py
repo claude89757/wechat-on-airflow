@@ -80,6 +80,16 @@ def health():
         return json.load(response)
 
 
+def key_health(candidate):
+    nodes = list(BASE.glob("node-*/bin/node"))
+    if len(nodes) != 1:
+        raise RuntimeError("node_runtime_ambiguous")
+    report = json.loads(run([str(nodes[0]), str(candidate / "check-keys.mjs")]))
+    if report.get("jwksVerified") is not True or report.get("coldFetches") != 3:
+        raise RuntimeError("jwks_unavailable")
+    return report
+
+
 def preflight():
     bits = run(["getconf", "LONG_BIT"]).strip()
     arch = (
@@ -126,6 +136,7 @@ def activate(args, value):
     candidate.mkdir(parents=True, exist_ok=True, mode=0o700)
     unpack(source, candidate)
     run([str(node / "bin/node"), "--check", str(candidate / "server.mjs")])
+    key_health(candidate)
     old_current = (BASE / "current").resolve() if (BASE / "current").is_symlink() else None
     old_config = (
         json.loads((CONFIG / "runtime.json").read_text())
@@ -289,6 +300,7 @@ def main():
         report = health()
         if report.get("commit") != args.commit:
             raise RuntimeError("runtime_identity_mismatch")
+        report.update(key_health(BASE / "current"))
     print(json.dumps(report))
 
 

@@ -63,6 +63,12 @@ production administrator-command approval were not exercised by these checks.
 This is historical evidence, not a current health guarantee or the release
 identity of Airflow, the frontend or the phone runtime. Recheck before operating.
 
+Host MCP health must include three cold public-key fetches as well as public
+authenticated tools. A warm-cache machine check alone cannot establish human
+OAuth reliability. See the runbook's authentication dependency incident: public
+key network failures return 503, not permission-denied 403. Never weaken JWT
+validation or replay administrator commands to recover from a dependency outage.
+
 - [Runbook](https://github.com/claude89757/wechat-on-airflow/blob/main/docs/runbooks/remote-operations-mcp.md)
 - [GitHub control window and acceptance evidence](https://github.com/claude89757/wechat-on-airflow/issues/39#issuecomment-6541602124)
 - [Protected operations workflow](https://github.com/claude89757/wechat-on-airflow/actions/workflows/production-remote-ops-mcp.yml)

@@ -60,7 +60,7 @@ jobs:
           npm test
           npm audit --omit=dev --audit-level=high
           mkdir -p /tmp/remote-ops-release
-          tar -czf /tmp/remote-ops-release/source.tar.gz server.mjs control.mjs package.json package-lock.json node_modules
+          tar -czf /tmp/remote-ops-release/source.tar.gz server.mjs control.mjs access-keys.mjs check-keys.mjs package.json package-lock.json node_modules
           for arch in x64 arm64 armv7l; do
             curl --fail --retry 3 --max-time 180 -o "/tmp/remote-ops-release/node-$arch.tar.xz" "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-$arch.tar.xz"
           done
