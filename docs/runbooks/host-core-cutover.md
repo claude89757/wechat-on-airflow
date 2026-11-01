@@ -38,12 +38,10 @@ database, SES, verification or invitation secrets to developer machines.
    exercises verification, creation/listing/deduplication/cancellation and auth,
    then rolls back every test record. No email/device service is called. Store
    only the privacy-safe result. This is NOT a browser or real-email probe.
-8. Enable the dedicated WeChat worker and start an acceptance window. Require
-   all 26 active venue DAGs to complete three natural cycles with fresh observations;
-   auxiliary services must have recent successful runs. Require exact component
-   identities, fresh worker heartbeats, no stalled queues, reconciled migration,
-   public health/bootstrap/security checks, and actual natural SES-delivered and
-   WeChat-sent evidence. Only then create an immutable release tag.
+8. Enable the dedicated WeChat worker after the API probe. Tag the release at
+   that point. Three natural venue cycles, fresh observations and natural
+   SES or WeChat receipts stay visible to production health and do not hold
+   the pipeline or the tag.
 
 The maintenance interval is explicit downtime for Web mutations, not a claim of
 zero-downtime migration. The full import duration depends on the snapshot size.
@@ -169,8 +167,9 @@ rehearse recovery in isolation; do not claim high availability from a single hos
 A change under `src/wechat_airflow/host_core/` requires `scope=all sender=true`
 and the protected **ship** lifecycle, not an Airflow-only apply. The lifecycle
 builds and checks the new Host Core image, fences delivery, updates all consumers,
-then requires exact identities, three natural venue cycles, API transaction
-rollback acceptance and natural email/WeChat evidence before tagging. A verified
+then requires exact identities and the API transaction rollback probe before
+activating workers and tagging. Natural venue cycles and email/WeChat receipts
+are observed in production and do not hold the tag. A verified
 existing migration checkpoint skips the D1 import. Never clear the checkpoint or
 reimport the archive to get a later release through its gate.
 

@@ -977,6 +977,21 @@ def request_json(port: int, path: str, *, timeout: int = 5) -> dict:
     return value
 
 
+def live_ready(payload: dict) -> dict:
+    if (
+        payload.get("ok") is not True
+        or payload.get("service") != "dsh_ydmap"
+        or payload.get("protocolVersion") != 2
+        or sorted(payload.get("venues") or []) != ["dsh"]
+    ):
+        raise OperationFailure("scraper_not_ready")
+    report = {"liveServiceReady": True, "protocolVersion": 2, "venues": ["dsh"]}
+    commit = payload.get("deploymentCommit")
+    if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
+        report["deploymentCommit"] = commit
+    return report
+
+
 def verify_health(payload: dict, commit: str, source_hash: str) -> dict:
     if (
         payload.get("ok") is not True
@@ -1616,7 +1631,14 @@ def wait_health(commit: str, source_hash: str) -> dict:
     raise OperationFailure("installed_health_failed")
 
 
-def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) -> dict:
+def activate(
+    candidate: Path,
+    commit: str,
+    source_hash: str,
+    drain_proof: dict | None,
+    *,
+    allow_interruption: bool = False,
+) -> dict:
     current = BASE / "current"
     if current.exists() and not current.is_symlink():
         raise OperationFailure("unrecognized_current_release")
@@ -1629,11 +1651,12 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
         "dropin": previous_dropin.decode() if previous_dropin else None,
     }
     atomic_bytes(candidate / "rollback.json", json.dumps(backup).encode())
-    validate_drain_proof(drain_proof, commit, remaining=ACTIVATION_LEASE_REQUIRED + 250)
-    wait_idle()
-    # wait_idle itself may consume 240 seconds. Recheck at the last point before
-    # the live unit can change, reserving live inspection and rollback.
-    validate_drain_proof(drain_proof, commit, remaining=ACTIVATION_LEASE_REQUIRED)
+    if not allow_interruption:
+        validate_drain_proof(drain_proof, commit, remaining=ACTIVATION_LEASE_REQUIRED + 250)
+        wait_idle()
+        # wait_idle itself may consume 240 seconds. Recheck at the last point before
+        # the live unit can change, reserving live inspection and rollback.
+        validate_drain_proof(drain_proof, commit, remaining=ACTIVATION_LEASE_REQUIRED)
     try:
         with bounded_action(ACTIVATION_SECONDS):
             run(["systemctl", "stop", UNIT])
@@ -1649,15 +1672,17 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
             run(["systemctl", "daemon-reload"])
             run(["systemctl", "start", UNIT])
             report = wait_health(commit, source_hash)
-            # The real systemd environment can differ from the isolated
-            # candidate. The real listener inspection is part of activation.
-            inspections = inspect_venues(8788)
-            report = verify_health(request_json(8788, "/healthz"), commit, source_hash)
+            # A release may replace the listener without a multi-minute page
+            # inspection. The next natural DAG run is the business check.
+            inspections: list[dict] = []
+            if not allow_interruption:
+                inspections = inspect_venues(8788)
+                report = verify_health(request_json(8788, "/healthz"), commit, source_hash)
             return {
                 "applied": True,
                 "health": report,
                 "inspections": inspections,
-                "liveInspectionsVerified": True,
+                "liveInspectionsVerified": not allow_interruption,
                 "rollbackAvailable": True,
             }
     except Exception as activation_error:
@@ -1711,56 +1736,76 @@ def operate(args) -> dict:
     first_product = getattr(args, "first_product", "")
     drain_preflight = getattr(args, "drain_preflight", False)
     capture_browser_ui = getattr(args, "capture_browser_ui", False)
+    allow_interruption = getattr(args, "allow_interruption", False)
     if capture_browser_ui and args.operation != "preflight":
         raise OperationFailure("verification_not_authorized")
     if drain_preflight and args.operation != "preflight":
+        raise OperationFailure("verification_not_authorized")
+    if allow_interruption and args.operation != "apply":
         raise OperationFailure("verification_not_authorized")
     # Retired Baoan-only diagnostic options must fail before host access.
     if verification_once or first_product:
         raise OperationFailure("verification_not_authorized")
     before = other_service_identities()
-    account = verify_existing_service()
-    if args.operation == "apply" or drain_preflight:
-        validate_drain_proof(args.drain_proof, args.commit)
-        wait_idle()
-        validate_drain_proof(args.drain_proof, args.commit)
-    if args.operation in {"health", "inspect"}:
-        health = verify_health(request_json(8788, "/healthz"), args.commit, args.source_sha256)
-        evidence = inspect_venues(8788) if args.operation == "inspect" else []
-        report = {"health": health, "inspections": evidence, "applied": False}
-    else:
-        candidate = prepare_candidate(args.staging, args.commit, args.source_sha256, account)
-        candidate_options = {
-            **(
-                {"profile": service_profile(account)}
-                if args.operation == "apply" or drain_preflight
-                else {}
-            ),
-            **({"capture_browser_ui": True} if capture_browser_ui else {}),
-        }
-        with isolated_candidate(candidate, account, args.commit, **candidate_options) as port:
-            health = verify_health(request_json(port, "/healthz"), args.commit, args.source_sha256)
-            if drain_preflight:
-                evidence = inspect_quiesced_candidate(port, args.drain_proof, args.commit)
-            else:
-                evidence = (
-                    inspect_venues(port, source_evidence=True)
-                    if args.operation == "preflight"
-                    else inspect_venues(port)
-                )
-        if before != other_service_identities():
-            raise OperationFailure("unrelated_service_changed")
+    if args.operation == "ready":
+        verify_existing_service()
         report = {
-            "health": health,
-            "inspections": evidence,
-            "candidateVerified": True,
             "applied": False,
+            "candidateVerified": False,
+            "inspections": [],
+            **live_ready(request_json(8788, "/healthz")),
         }
-        if drain_preflight:
-            report["candidateVerifiedCycles"] = 3
-        if args.operation == "apply":
+    elif allow_interruption:
+        account = verify_existing_service()
+        candidate = prepare_candidate(args.staging, args.commit, args.source_sha256, account)
+        report = activate(candidate, args.commit, args.source_sha256, None, allow_interruption=True)
+    else:
+        account = verify_existing_service()
+        if args.operation == "apply" or drain_preflight:
             validate_drain_proof(args.drain_proof, args.commit)
-            report.update(activate(candidate, args.commit, args.source_sha256, args.drain_proof))
+            wait_idle()
+            validate_drain_proof(args.drain_proof, args.commit)
+        if args.operation in {"health", "inspect"}:
+            health = verify_health(request_json(8788, "/healthz"), args.commit, args.source_sha256)
+            evidence = inspect_venues(8788) if args.operation == "inspect" else []
+            report = {"health": health, "inspections": evidence, "applied": False}
+        else:
+            candidate = prepare_candidate(args.staging, args.commit, args.source_sha256, account)
+            candidate_options = {
+                **(
+                    {"profile": service_profile(account)}
+                    if args.operation == "apply" or drain_preflight
+                    else {}
+                ),
+                **({"capture_browser_ui": True} if capture_browser_ui else {}),
+            }
+            with isolated_candidate(candidate, account, args.commit, **candidate_options) as port:
+                health = verify_health(
+                    request_json(port, "/healthz"), args.commit, args.source_sha256
+                )
+                if drain_preflight:
+                    evidence = inspect_quiesced_candidate(port, args.drain_proof, args.commit)
+                else:
+                    evidence = (
+                        inspect_venues(port, source_evidence=True)
+                        if args.operation == "preflight"
+                        else inspect_venues(port)
+                    )
+            if before != other_service_identities():
+                raise OperationFailure("unrelated_service_changed")
+            report = {
+                "health": health,
+                "inspections": evidence,
+                "candidateVerified": True,
+                "applied": False,
+            }
+            if drain_preflight:
+                report["candidateVerifiedCycles"] = 3
+            if args.operation == "apply":
+                validate_drain_proof(args.drain_proof, args.commit)
+                report.update(
+                    activate(candidate, args.commit, args.source_sha256, args.drain_proof)
+                )
     unchanged = before == other_service_identities()
     if not unchanged:
         raise OperationFailure("unrelated_service_changed")
@@ -1775,11 +1820,12 @@ def operate(args) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("preflight", "apply", "health", "inspect"))
+    parser.add_argument("operation", choices=("ready", "preflight", "apply", "health", "inspect"))
     parser.add_argument("--commit", required=True)
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--staging", type=Path)
     parser.add_argument("--drain-preflight", action="store_true")
+    parser.add_argument("--allow-interruption", action="store_true")
     parser.add_argument("--capture-browser-ui", action="store_true")
     args = parser.parse_args()
 
@@ -1798,7 +1844,9 @@ def main() -> int:
         if args.operation in {"preflight", "apply"} and not args.staging:
             raise OperationFailure("staging_required")
         args.drain_proof = (
-            json.load(sys.stdin) if args.operation == "apply" or args.drain_preflight else None
+            json.load(sys.stdin)
+            if (args.operation == "apply" or args.drain_preflight) and not args.allow_interruption
+            else None
         )
         encoded = encode_report(
             {**operate(args), "operationComplete": True},

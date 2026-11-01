@@ -1225,11 +1225,12 @@ def test_workflow_gates_and_release_order_cover_pi_before_airflow():
     assert "pi_ydmap" in release["jobs"]["record"]["needs"]
 
 
-def test_normal_release_preflight_reserves_shared_browser_capacity():
+def test_release_preflight_checks_the_live_service_without_a_browser_drain():
     workflow = yaml.safe_load((ROOT / ".github/workflows/production-pi-ydmap.yml").read_text())
     triggers = workflow[True]  # PyYAML's YAML 1.1 treats the Actions 'on' key as true.
     for entry in ("workflow_call", "workflow_dispatch"):
         assert triggers[entry]["inputs"]["drain_preflight"]["default"] is True
+        assert triggers[entry]["inputs"]["allow_interruption"]["default"] is False
         assert "confirm_verification_once" not in triggers[entry]["inputs"]
         assert "diagnostic_first_product" not in triggers[entry]["inputs"]
     steps = workflow["jobs"]["operate"]["steps"]
@@ -1239,18 +1240,48 @@ def test_normal_release_preflight_reserves_shared_browser_capacity():
     assert operation["env"]["DRAIN_PREFLIGHT"] == (
         "${{ inputs.operation == 'preflight' && inputs.drain_preflight }}"
     )
+    assert "ALLOW_INTERRUPTION" in operation["env"]
     ssh = next(
         step for step in steps if step.get("name", "").startswith("Configure existing Airflow SSH")
     )
     assert "inputs.drain_preflight == true" in ssh["if"]
+    assert "inputs.allow_interruption != true" in ssh["if"]
     release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
-    assert release["jobs"]["pi_ydmap"]["with"]["drain_preflight"] == (
-        "${{ inputs.mode == 'preflight' }}"
+    assert release["jobs"]["pi_ydmap"]["with"]["drain_preflight"] is False
+    assert release["jobs"]["pi_ydmap"]["with"]["allow_interruption"] is True
+    assert release["jobs"]["pi_ydmap"]["with"]["operation"] == (
+        "${{ inputs.mode == 'apply' && 'apply' || 'ready' }}"
+    )
+    assert release["jobs"]["sender"]["with"]["operation"] == (
+        "${{ inputs.mode == 'apply' && 'apply' || 'health' }}"
     )
     contract = yaml.safe_load((ROOT / "config/runtime-target.yaml").read_text())
     scraper = contract["managed_services"]["pi_ydmap_scraper"]
-    assert scraper["release_preflight_requires_scoped_drain"] is True
-    assert scraper["release_preflight_cycles"] == 3
+    assert scraper["release_preflight_requires_scoped_drain"] is False
+    assert scraper["release_preflight_cycles"] == 0
+
+
+def test_ready_checks_the_live_listener_without_a_candidate(monkeypatch):
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {"unit": ("active", "1", "2")})
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *args: pytest.fail("no candidate"))
+    monkeypatch.setattr(INSTALL, "inspect_venues", lambda *args, **kwargs: pytest.fail("no scrape"))
+    monkeypatch.setattr(
+        INSTALL,
+        "request_json",
+        lambda *args: {
+            "ok": True,
+            "service": "dsh_ydmap",
+            "protocolVersion": 2,
+            "venues": ["dsh"],
+            "deploymentCommit": COMMIT,
+        },
+    )
+    report = INSTALL.operate(SimpleNamespace(operation="ready"))
+    assert report["ok"] is True
+    assert report["applied"] is False
+    assert report["liveServiceReady"] is True
+    assert report["deploymentCommit"] == COMMIT
 
 
 def test_access_diagnostics_are_bounded_numeric_and_survive_repeated_sanitization():

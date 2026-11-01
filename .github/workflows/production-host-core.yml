@@ -389,7 +389,7 @@ jobs:
           if [ "$EVIDENCE_RESULT" != success ]; then status=failed; fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
           if [ "$status" = pending ]; then
-            echo 'Natural delivery acceptance pending; service remains active. No release/tag created. Re-run failed jobs on this same ship run to recheck without redeploying or resetting the acceptance window.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Business observation is pending. Delivery stays as activated; the ship does not wait for natural receipts.' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Publish summary
