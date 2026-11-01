@@ -5,6 +5,11 @@ description: Operate this repository's Shenzhen tennis alert platform across Air
 
 # Operate Tennis Alerts
 
+For verification scope follow `docs/runbooks/fast-verification.md`. Focused local
+checks replace blanket full verification for documentation, frontend and MCP-only
+work; shared or release-control changes still require `make verify`. The exact
+pushed CI gate and protected production authority remain mandatory.
+
 Treat the repository and read-only production evidence as operational memory.
 Carry work from diagnosis through verified production state when the request
 includes repair, maintenance, release, or deployment.
@@ -64,7 +69,7 @@ proven.
    ownership boundaries. Update contracts, runbooks, ADRs, and baseline facts
    when behavior or operations change.
 6. **Verify locally:** run focused credential-free checks while iterating, then
-   run `make verify`. Local checks are development evidence, not production
+   run the checks required by `docs/runbooks/fast-verification.md`. Local checks are development evidence, not production
    authority.
 7. **Publish code:** confirm the diff contains no secrets or generated noise,
    commit intentionally, push the exact commit, and require GitHub `CI / verify`
@@ -148,7 +153,7 @@ Do not declare completion until:
 
 - the worktree has no accidental changes;
 - tests cover the changed behavior;
-- `make verify` passes;
+- required scoped local checks pass (full `make verify` for shared changes);
 - the exact commit is pushed and CI passes;
 - each affected production component runs that commit;
 - post-deploy health and required natural cycles pass;

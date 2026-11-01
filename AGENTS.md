@@ -1,5 +1,13 @@
 # Agent Guide
 
+## Scoped Development Checks
+
+Follow `docs/runbooks/fast-verification.md` for local verification scope. Its
+focused-check policy supersedes blanket full-verify requirements below for
+documentation, frontend and MCP-only changes. Shared, unknown, dependency and
+release-control changes still require full verification. Exact-SHA GitHub CI,
+protected deployments and high-risk approval rules are unchanged.
+
 ## Primary Operations Entry
 
 Use agent conversation + MCP for daily inspection; GitHub remains the release,
@@ -201,7 +209,8 @@ make webapp-health
 make pi-device-ssh-sync
 ```
 
-`make verify` is the required local development gate before committing. The
+Local checks follow `docs/runbooks/fast-verification.md`; shared and release-control
+changes require `make verify` before committing. The
 authoritative release gate is the GitHub `CI / verify` check for the exact
 release commit; component-aware checks include Web/Worker, Airflow images,
 Compose, DagBag and MCP suites when their dependency surfaces change.
@@ -300,7 +309,7 @@ update a contract/runbook when an incident teaches a new operational fact.
 - Worktree contains no accidental or generated changes.
 - Active component and host-core contracts match production.
 - Tests cover changed behavior without real external delivery.
-- `make verify` passes.
+- Required scoped local verification passes (full `make verify` for shared changes).
 - Documentation and ADRs reflect the architecture and ownership boundary.
 - Changes are committed and pushed.
 - Exact-SHA CI succeeds.

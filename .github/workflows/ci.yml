@@ -5,31 +5,22 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '17 20 * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name == 'schedule' && 'regression' || 'verify' }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
+    name: ${{ github.event_name == 'schedule' && 'full-regression' || 'verify' }}
     # This is the required exact-SHA release check.
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: isolated-test-only
-          POSTGRES_DB: zacks_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d zacks_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       ZACKS_TEST_DATABASE_URL: postgresql+psycopg2://postgres:isolated-test-only@127.0.0.1:5432/zacks_test
     steps:
@@ -74,6 +65,24 @@ jobs:
             cat /tmp/ci-plan.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            for component in airflow sender webapp pi_mcp remote_ops; do
+              echo "ci_${component}=true" >> "$GITHUB_OUTPUT"
+            done
+            echo 'ci_python=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Start isolated test database only for Python checks
+        if: steps.plan.outputs.ci_python == 'true'
+        run: |
+          docker run -d --name ci-postgres -p 5432:5432 \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=isolated-test-only \
+            -e POSTGRES_DB=zacks_test \
+            postgres@sha256:051f7b7b3abdd564d5d1bd1e8c4b9c1b6e77087d1dd22020ede611c096a272e0
+          for attempt in {1..30}; do
+            if docker exec ci-postgres pg_isready -U postgres -d zacks_test; then exit 0; fi
+            sleep 1
+          done
+          exit 1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         if: steps.plan.outputs.ci_remote_ops == 'true'
         with:
@@ -99,16 +108,20 @@ jobs:
           npm run audit:runtime
           npm test
       - name: Install development dependencies
+        if: steps.plan.outputs.ci_python == 'true'
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
       - name: Lint
+        if: steps.plan.outputs.ci_python == 'true'
         run: |
           ruff check .
           ruff format --check --diff .
       - name: Type check
+        if: steps.plan.outputs.ci_python == 'true'
         run: mypy
       - name: Unit and workflow contract tests
+        if: steps.plan.outputs.ci_python == 'true'
         run: PYTHONPATH=src pytest -m 'not airflow'
       - name: Install Web application dependencies
         if: steps.plan.outputs.ci_webapp == 'true'
