@@ -2,18 +2,70 @@
 
 ## Owner-Authorized MCP Administration
 
-On 2026-10-31 the owner requested administrator-capable Pi/VPS MCP channels,
-Cloudflare frontend administration and separately authorized collaborators.
-See `docs/runbooks/remote-operations-mcp.md`. This exception to GitHub-only
-routine operations covers individually human-confirmed host administration,
-not repository releases. A human must review and approve each exact shell
-operation in their authenticated browser. Agents must never automate that
-approval, obtain its cookies, or approve their own requests. Connecting grants
-no permission to send real notifications or perform destructive operations.
-Never request credentials or paste raw secrets into commands/results.
-Production installation, upgrades and releases remain protected GitHub workflows.
-Existing delivery ownership, database and device-lock rules remain in force.
+The owner authorized administrator-capable remote MCP channels on 2026-10-31.
+Use these endpoints with **Streamable HTTP + OAuth**; each user completes their
+own Cloudflare login. Never distribute service-token headers, SSH credentials,
+browser cookies or Cloudflare management tokens to agents or collaborators.
 
+| Resource | MCP endpoint | Authorization |
+| --- | --- | --- |
+| Raspberry Pi | `https://pi-mcp.zacks.vision/mcp` | `Zacks Pi administrators` Access group |
+| VPS / Airflow backend | `https://vps-mcp.zacks.vision/mcp` | `Zacks VPS administrators` Access group |
+| Connected phones | `https://appium-mcp.zacks.vision/mcp` | Owner plus `Zacks phone operators` Access group |
+| Cloudflare frontend | `https://mcp.cloudflare.com/mcp` | Official OAuth and the user's account roles |
+
+The frontend Worker is `zacks-tennis-alerts`, serving `courts.zacks.vision` and
+`zacks.claude89757.cc`. The VPS hosts Airflow / host-core, PostgreSQL and
+notification consumers; it is not the frontend host. The Pi hosts scraping and
+device connectivity. These components have independent deployment identities.
+
+Agent workflow:
+
+1. List tools and call `ops_status` for a host, or `phone_devices` for phones.
+   Initial checks must not create phone sessions, execute shell commands or
+   send notifications. Recheck device availability; do not assume two phones
+   are configured or online.
+2. For a necessary host command, call `ops_request` with the exact command,
+   reason and timeout (maximum 120 seconds). This returns a five-minute approval
+   URL without executing the command.
+3. Give the URL to the requesting human. They must log in as the same identity,
+   review the exact command and explicitly approve it. Agents must never
+   automate approval, obtain approval cookies or approve their own requests.
+4. Use `ops_result` to retrieve the bounded result. Never blindly replay a lost,
+   expired or uncertain operation. Use `ops_github` for protected release links.
+
+Approved host commands have **root privileges**, not sandboxed access. Only
+trusted administrators belong in these groups. Do not request secrets or bulk
+raw configuration/log dumps; output redaction is not a confidentiality guarantee.
+Connecting does not authorize database deletion, secret rotation, real test
+notifications or bypassing device locks. Repository installation, upgrades and
+releases still require exact-SHA CI and protected GitHub workflows. This MCP
+exception covers individually human-confirmed administration, not deployments.
+
+The author manages each Access group's explicit members in Cloudflare. A
+collaborator also needs accepted Cloudflare account membership with minimal
+roles; membership alone does not grant host or phone access. Deployments must
+never overwrite group membership. Official Cloudflare API MCP permissions come
+from account roles and OAuth consent, not these Access groups. Revoke Access
+sessions / OAuth grants as well as group membership when removing access.
+
+Use `production-remote-ops-mcp.yml` with the exact reviewed main SHA and target
+`pi`, `vps` or `phone`: `preflight`, `apply`, then independent `health`.
+Host-only emergency `withdraw` disables and stops the affected operations MCP
+and its connector across reboots, not Airflow, Sender or Appium. Adding MCP
+authentication does not automatically close older public interfaces.
+
+Historical automated acceptance on 2026-10-31 verified Pi / VPS runtime
+`6c81e3a9e849ab830cc93aa1a03d5cf4f8921a5d`, OAuth discovery, PKCE, four host tools,
+authenticated calls and anonymous/invalid-token denial. Phone collaborator
+policy and business health checks also passed. Human OAuth authorization and
+production administrator-command approval were not exercised by these checks.
+This is historical evidence, not a current health guarantee or the release
+identity of Airflow, the frontend or the phone runtime. Recheck before operating.
+
+- [Runbook](https://github.com/claude89757/wechat-on-airflow/blob/main/docs/runbooks/remote-operations-mcp.md)
+- [GitHub control window and acceptance evidence](https://github.com/claude89757/wechat-on-airflow/issues/39#issuecomment-6541602124)
+- [Protected operations workflow](https://github.com/claude89757/wechat-on-airflow/actions/workflows/production-remote-ops-mcp.yml)
 
 This repository is operated primarily by coding agents. Treat repository
 content and production read-only checks as the source of truth. Do not rely on
@@ -153,8 +205,10 @@ D1 rollback records are outside this cleanup path.
 
 ## Production Access
 
-Production access is mediated by the protected GitHub `production`
-Environment. A workstation authenticates only with GitHub; GitHub Actions
+Production deployments and routine operations are mediated by the protected
+GitHub `production` Environment, except for the owner-authorized MCP
+administration above. Outside that exception, a workstation authenticates only
+with GitHub; GitHub Actions
 receives scoped SSH and Cloudflare deployment identities and invokes structured
 operations scripts. Runtime secrets stay in platform-native stores, root-owned
 host files, Airflow Variables/Connections, or systemd credentials and are never
@@ -238,7 +292,9 @@ approval. Never import a D1 snapshot after `activated_at` is set.
 
 Venue tasks enqueue WeChat intents; only `zacks-wechat-worker` calls the durable
 device Sender. Email and WeChat uncertain submission states are never blindly
-replayed. All production operations remain protected GitHub workflows.
+replayed. Production releases remain protected GitHub workflows; only the
+explicitly scoped MCP administration exception above permits other operational
+access.
 
 Acceptance requires the exact commit on host, edge and Sender; all 27 active
 venue DAGs with three natural successful cycles; fresh observations and
