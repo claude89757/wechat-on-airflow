@@ -20,6 +20,7 @@ def test_ci_keeps_full_regression_and_scoped_database() -> None:
     job = workflow["jobs"]["verify"]
     assert "services" not in job
     assert "full-regression" in job["name"]
+    assert "'pr-check'" in job["name"]
     steps = {step.get("name"): step for step in job["steps"]}
     for name in (
         "Start isolated test database only for Python checks",
@@ -30,6 +31,53 @@ def test_ci_keeps_full_regression_and_scoped_database() -> None:
     ):
         assert steps[name]["if"] == "steps.plan.outputs.ci_python == 'true'"
     assert "echo 'ci_python=true'" in steps["Detect changed component surfaces"]["run"]
+    assert '"$EVENT_NAME" == "pull_request"' in steps["Detect changed component surfaces"]["run"]
+    assert steps["Fast pull request checks"]["if"] == "github.event_name == 'pull_request'"
+    for name in ("Build Airflow image", "Build WeChat sender image", "Airflow 3 DAG imports"):
+        assert "ci_images" in steps[name]["if"]
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("scripts/example.py", "false"),
+        ("src/wechat_airflow/host_core/worker.py", "false"),
+        ("dags/example.py", "true"),
+        ("docker/sender/requirements.lock", "true"),
+        ("unknown.conf", "true"),
+    ],
+)
+def test_image_checks_follow_build_surfaces(tmp_path: Path, path: str, expected: str) -> None:
+    repo, base = init_repo(tmp_path)
+    target = commit_change(repo, path, "changed\n", "change")
+    output = tmp_path / "outputs"
+    run_plan(
+        repo,
+        "--base-commit",
+        base,
+        "--target-commit",
+        target,
+        "--include-sender",
+        "--github-output",
+        str(output),
+    )
+    assert f"ci_images={expected}" in output.read_text().splitlines()
+
+
+def test_default_release_allows_interruption():
+    import yaml
+
+    release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
+    assert "'deploy_recovery'" in release["jobs"]["airflow"]["with"]["operation"]
+    host = yaml.safe_load((ROOT / ".github/workflows/production-host-core.yml").read_text())
+    build = next(
+        step
+        for step in host["jobs"]["operate"]["steps"]
+        if step.get("name") == "Build exact edge artifact"
+    )
+    assert "inputs.operation" in build["if"]
+    assert "recovery-upgrade" in build["if"]
+    assert "activate-workers" not in build["if"]
 
 
 @pytest.mark.parametrize(

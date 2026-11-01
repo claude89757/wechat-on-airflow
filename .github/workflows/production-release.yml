@@ -196,7 +196,7 @@ jobs:
     needs: [gate, pi_ydmap, webapp]
     uses: ./.github/workflows/production-airflow.yml
     with:
-      operation: ${{ inputs.mode == 'apply' && 'deploy_apply' || 'deploy_preflight' }}
+      operation: ${{ inputs.mode == 'apply' && 'deploy_recovery' || 'deploy_preflight' }}
       target_commit: ${{ inputs.target_commit }}
       request_id: release-${{ github.run_id }}
       confirm_real_send: false

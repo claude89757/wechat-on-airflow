@@ -2,6 +2,16 @@
 
 ## Scoped Development Checks
 
+The owner accepts short production interruptions (2026-11-01). Prefer protected
+SHA-based component updates, interruptible Airflow recovery and immediate health
+checks over lengthy drains, mandatory version ceremonies or unrelated component
+deployments. Preserve authentication, single delivery ownership, durable dedupe,
+database history and explicit approval for destructive operations.
+PR checks are fast static checks; release authority is main's exact-SHA `verify`.
+For shared Python/control changes run local lint, typing and Python tests; image
+and all-component checks are required locally only when their surfaces change.
+This scoped rule supersedes blanket full `make verify` requirements below.
+
 Follow `docs/runbooks/fast-verification.md` for local verification scope. Its
 focused-check policy supersedes blanket full-verify requirements below for
 documentation, frontend and MCP-only changes. Shared, unknown, dependency and

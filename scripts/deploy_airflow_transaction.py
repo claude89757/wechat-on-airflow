@@ -98,10 +98,24 @@ def deploy_with_health(
 
     health = runner(health_command(target_commit), check=False)
     relay(health)
-    if health.returncode == 0:
+    health_payload = parse_payload(health.stdout or "")
+    issues = health_payload.get("issues")
+    history_pending = (
+        health.returncode == 1
+        and health_payload.get("ok") is False
+        and health_payload.get("deployed_commit") == target_commit
+        and isinstance(issues, list)
+        and bool(issues)
+        and all(
+            isinstance(issue, dict) and issue.get("component") == "recent_dag_runs"
+            for issue in issues
+        )
+    )
+    if health.returncode == 0 or history_pending:
         return (
             {
                 "ok": True,
+                "observation_pending": history_pending,
                 "target_commit": target_commit,
                 "previous_commit": previous_commit,
                 "deployment": command_summary(deployment),
