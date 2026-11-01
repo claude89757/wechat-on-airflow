@@ -46,6 +46,13 @@ Never deploy via MCP shell commands or approve one's own operation.
 
 ## Coordination And Audit
 
+Recovery inventory must preserve the two configured Airflow scheduler replicas.
+Each replica must pass identity, image and running-state checks and remain in the
+captured baseline. This does not relax the single email/WeChat consumer rule.
+An enabled email gate with a disabled WeChat gate is a partial recovery, not a
+healthy notification platform. Verify worker activation and natural WeChat
+receipts after aligning Host Core, Airflow and Sender versions.
+
 MCP command serialization applies only inside that MCP process. It is not a
 shared lock with GitHub deployment workers. Before requesting a mutation, check
 Actions for a running release on the same host; wait until it completes. Do not
