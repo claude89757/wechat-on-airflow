@@ -22,7 +22,7 @@ import paramiko
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "pi_host/dsh_ydmap"
-TEST_NAMES = ("pi_baoti_scraper_test.py", "pi_ydmap_identity_test.py")
+TEST_NAMES = ("pi_ydmap_scraper_test.py", "pi_ydmap_identity_test.py")
 MAX_REPORT_BYTES = 1_000_000
 OPERATIONS = {"preflight", "apply", "health", "inspect"}
 _contract_spec = importlib.util.spec_from_file_location("pi_ydmap_contract", SOURCE / "install.py")
@@ -337,7 +337,7 @@ def remote(
             if report.get("failure") in FAILURES
             else "operation_failed",
             "rollbackVerified": report.get("rollbackVerified") is True,
-            "venue": report.get("venue") if report.get("venue") in {"dsh", "baoti"} else None,
+            "venue": report.get("venue") if report.get("venue") == "dsh" else None,
             "inspections": CONTRACT.safe_inspections(
                 report.get("inspections", []), source_evidence=source_evidence
             ),
@@ -413,13 +413,7 @@ def main() -> int:
         if drain_preflight and operation != "preflight":
             raise ValueError("verification_not_authorized")
         first_product = os.environ.get("DIAGNOSTIC_FIRST_PRODUCT", "default")
-        if drain_preflight and (verification_once or first_product != "default"):
-            raise ValueError("verification_not_authorized")
-        if first_product not in {"default", "windrain"} or (
-            first_product != "default" and operation != "preflight"
-        ):
-            raise ValueError("verification_not_authorized")
-        if verification_once and operation != "preflight":
+        if verification_once or first_product != "default":
             raise ValueError("verification_not_authorized")
         source_hash = verify_checkout(commit)
         client.connect(
@@ -463,10 +457,6 @@ def main() -> int:
             + " --staging "
             + shlex.quote(staging)
         )
-        if verification_once:
-            command += " --verification-once"
-        if first_product == "windrain":
-            command += " --first-product windrain"
         if drain_preflight:
             command += " --drain-preflight"
         if capture_browser_ui:

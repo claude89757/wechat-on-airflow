@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from wechat_airflow.host_core.health import RETIRED_OBSERVATION_SCOPE, observation_scope_health
+from wechat_airflow.host_core.health import (
+    RETIRED_BAOTI_SCOPE,
+    RETIRED_OBSERVATION_SCOPE,
+    observation_scope_health,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 10, 27, 4, tzinfo=UTC)
@@ -32,9 +36,10 @@ def report(scopes):
     return observation_scope_health(scopes, manifest=manifest, contract=contract, now=NOW)
 
 
-def test_exact_retired_scope_is_visible_but_not_required_to_keep_polling():
+@pytest.mark.parametrize("retired_key", [RETIRED_OBSERVATION_SCOPE, RETIRED_BAOTI_SCOPE])
+def test_exact_retired_scope_is_visible_but_not_required_to_keep_polling(retired_key):
     retired = {
-        "observation_key": RETIRED_OBSERVATION_SCOPE,
+        "observation_key": retired_key,
         "healthy": False,
         "last_seen_at": NOW - timedelta(days=7),
     }
@@ -50,7 +55,7 @@ def test_exact_retired_scope_is_visible_but_not_required_to_keep_polling():
     assert result["retiredScopes"] == [
         {
             **retired,
-            "retirement": policy()[1]["retired_observation_scopes"][RETIRED_OBSERVATION_SCOPE],
+            "retirement": policy()[1]["retired_observation_scopes"][retired_key],
         }
     ]
     assert scopes == original
@@ -58,7 +63,12 @@ def test_exact_retired_scope_is_visible_but_not_required_to_keep_polling():
 
 @pytest.mark.parametrize(
     "observation_key",
-    ["szw:check_and_notify_day_0", "gba:check_and_notify_day_3", "unknown:task"],
+    [
+        "szw:check_and_notify_day_0",
+        "gba:check_and_notify_day_3",
+        "baoti:unapproved_scope",
+        "unknown:task",
+    ],
 )
 @pytest.mark.parametrize(
     "healthy,last_seen_at", [(False, NOW), (True, NOW - timedelta(minutes=11))]

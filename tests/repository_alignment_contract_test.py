@@ -50,10 +50,10 @@ def test_living_acceptance_copy_matches_the_active_venue_count() -> None:
     ]
     expected = runtime["managed_services"]["webapp"]["expected_venue_count"]
 
-    assert expected == 27
+    assert expected == 26
     assert len(venue_ids) == expected
     assert len(venue_ids) == len(set(venue_ids))
-    assert "宝安网球中心巡检" in venue_ids
+    assert "宝安网球中心巡检" not in venue_ids
 
     assert f"{expected} 个深圳场馆" in read("README.md")
     assert f"{expected} 场馆三次自然巡检" in read("README.md")
@@ -61,8 +61,8 @@ def test_living_acceptance_copy_matches_the_active_venue_count() -> None:
     assert f"all {expected} venues" in read("README.en.md")
     assert f"all {expected} active" in read("AGENTS.md")
     assert f"All {expected} venue DAGs" in read("ARCHITECTURE.md")
-    assert "26 venue DAGs" not in read("AGENTS.md")
-    assert "26 场馆" not in read("README.md")
+    assert "27 venue DAGs" not in read("AGENTS.md")
+    assert "27 场馆" not in read("README.md")
 
 
 def test_mypy_error_ignores_stay_inside_the_typed_backlog() -> None:

@@ -249,20 +249,14 @@ def snapshot(
     booking_date: date = TODAY,
     generation: int = 1,
     *,
-    venue: str = "baoti",
-    key: str = "outdoor",
+    venue: str = "dsh",
+    key: str = "",
     available: bool = True,
 ) -> dict[str, object]:
-    if venue == "dsh":
-        product_id, product_name, court_name = "100000", "网球场", "1号风雨场"
-        host, sales_id = "wxsports.ydmap.cn", "100220"
-    else:
-        product_id, product_name, court_name = {
-            "outdoor": ("111317", "室外网球场", "室外场1号"),
-            "indoor": ("103224", "室内网球场", "A号场"),
-            "windrain": ("111319", "风雨网球场", "风雨场1号"),
-        }[key]
-        host, sales_id = "bawtt.ydmap.cn", "104036"
+    if venue != "dsh" or key:
+        raise ValueError("unsupported fixture venue or product")
+    product_id, product_name, court_name = "100000", "网球场", "1号风雨场"
+    host, sales_id = "wxsports.ydmap.cn", "100220"
     return {
         "captcha": False,
         "accessError": None,
@@ -288,15 +282,15 @@ def snapshot(
     }
 
 
-OUTDOOR_IDENTITY = {
-    "host": "bawtt.ydmap.cn",
-    "sales_id": "104036",
-    "sales_item_id": "111317",
-    "label": "室外",
+DSH_IDENTITY = {
+    "host": "wxsports.ydmap.cn",
+    "sales_id": "100220",
+    "sales_item_id": "100000",
+    "label": "",
 }
 
 
-class PiBaotiScraperTest(unittest.TestCase):
+class PiYdmapScraperTest(unittest.TestCase):
     def setUp(self) -> None:
         self.clock = Clock()
         self.driver = FakeDriver()
@@ -344,30 +338,10 @@ class PiBaotiScraperTest(unittest.TestCase):
         server._attach.side_effect = (
             lambda **kwargs: attached_at.append(self.clock.value) or self.driver
         )
-        result = server.scrape_available_slots("baoti", 2)
+        result = server.scrape_available_slots("dsh", 2)
         self.assertEqual(attached_at, [104.0])
         self.assertEqual(result["error"], "captcha")
         self.assertEqual(self.driver.visited, [])
-
-    def test_first_product_probe_requires_source_evidence_and_keeps_normal_order(self) -> None:
-        for evidence, product in ((False, "111317"), (True, "111319")):
-            with (
-                self.subTest(evidence=evidence),
-                patch.dict(server.os.environ, {"YDMAP_DIAGNOSTIC_FIRST_PRODUCT": "windrain"}),
-            ):
-                self.install_payloads([{"captcha": True, "ready": False}])
-                result = server.scrape_available_slots("baoti", 2, source_evidence=evidence)
-                self.assertTrue(server._start_chromium.call_args.args[0].endswith("=" + product))
-                self.assertEqual(
-                    server._start_chromium.call_args.kwargs["profile"].name,
-                    "baoti-outdoor" if not evidence else "baoti-windrain",
-                )
-                self.assertEqual(result["diagnostics"]["requestedProduct"], product)
-                self.assertEqual(result["diagnostics"]["failurePhase"], "initial_schedule")
-                self.assertEqual(result["days"], [])
-        self.assertEqual(
-            [group[0] for group in server.VENUE_GROUPS["baoti"]], ["outdoor", "indoor", "windrain"]
-        )
 
     def test_browser_environment_reports_versions_without_private_capabilities(self) -> None:
         driver = types.SimpleNamespace(
@@ -389,7 +363,7 @@ class PiBaotiScraperTest(unittest.TestCase):
         driver.capabilities["browserVersion"] = "private-token"
         self.assertEqual(server._browser_environment(driver), {})
 
-    def group_payloads(self, *, venue="baoti", key="outdoor", available=True):
+    def group_payloads(self, *, venue="dsh", key="", available=True):
         return [
             snapshot(TODAY, 1, venue=venue, key=key, available=available),
             snapshot(TOMORROW, 2, venue=venue, key=key, available=available),
@@ -403,12 +377,12 @@ class PiBaotiScraperTest(unittest.TestCase):
             "_extract_day",
             side_effect=exception_type("bookability_predicate_invalid private-cookie-value"),
         ):
-            result = server.scrape_available_slots("baoti", 2)
+            result = server.scrape_available_slots("dsh", 2)
         self.assertEqual(result["error"], "bookability_predicate_invalid")
         self.assertEqual(result["days"], [])
         self.assertEqual(
             result["diagnostics"],
-            {"failurePhase": "initial_schedule", "requestedProduct": "111317"},
+            {"failurePhase": "initial_schedule", "requestedProduct": "100000"},
         )
         self.assertNotIn("private-cookie-value", str(result))
 
@@ -428,8 +402,8 @@ class PiBaotiScraperTest(unittest.TestCase):
             patch.object(server, "_stop_driver_service") as stop_service,
             patch.object(server, "_access_diagnostics", return_value={"browserLogUnavailable": 1}),
         ):
-            result = server.scrape_available_slots("baoti", 2)
-        self.assertEqual(timer_factory.call_args.args[0], 180)
+            result = server.scrape_available_slots("dsh", 2)
+        self.assertEqual(timer_factory.call_args.args[0], 105)
         timer.start.assert_called_once()
         timer.cancel.assert_called_once()
         stop_service.assert_called_once_with(service)
@@ -446,7 +420,7 @@ class PiBaotiScraperTest(unittest.TestCase):
             timeout=2,
             expected_date=TOMORROW.isoformat(),
             previous=snapshot(),
-            **OUTDOOR_IDENTITY,
+            **DSH_IDENTITY,
         )
 
     def test_initial_schedule_timeout_keeps_passive_diagnostics_without_challenge(self):
@@ -472,40 +446,6 @@ class PiBaotiScraperTest(unittest.TestCase):
                 self.assertFalse(result["captcha"])
                 self.assertEqual(result["days"], [])
 
-    def test_baoti_complete_verified_groups_and_shanghai_dates(self) -> None:
-        self.install_payloads(
-            sum((self.group_payloads(key=key) for key in ("outdoor", "indoor", "windrain")), [])
-        )
-        result = server.scrape_available_slots("baoti", 2)
-        self.assertTrue(result["ok"], result)
-        self.assertEqual(result["schema_version"], 2)
-        self.assertEqual(result["venue"], "baoti")
-        self.assertEqual(
-            [day["date"] for day in result["days"]], [TODAY.isoformat(), TOMORROW.isoformat()]
-        )
-        for day in result["days"]:
-            self.assertEqual(set(day["courts"]), {"室外场1号", "室内A号场", "风雨场1号"})
-            self.assertEqual(len(day["groups"]), 3)
-            for group in day["groups"]:
-                self.assertEqual(group["source_date"], day["date"])
-                self.assertEqual(group["selected_date"], day["date"])
-                self.assertTrue(set(group["court_names"]).issubset(day["court_names"]))
-        self.assertEqual(self.driver.clicked, ["11-02", "11-01"] * 3)
-        self.assertEqual(self.driver.visited, [])
-        self.assertEqual(
-            [url.rsplit("=", 1)[-1] for url, _, _ in self.browser_starts],
-            ["111317", "103224", "111319"],
-        )
-        self.assertEqual(
-            [profile.name for _, profile, _ in self.browser_starts],
-            ["baoti-outdoor", "baoti-indoor", "baoti-windrain"],
-        )
-        self.assertGreaterEqual(self.browser_starts[1][2] - self.browser_starts[0][2], 30)
-        self.assertGreaterEqual(self.browser_starts[2][2] - self.browser_starts[1][2], 30)
-        self.assertEqual(server._attach.call_count, 3)
-        self.assertEqual(server._stop.call_count, 3)
-        self.assertEqual(self.browser_events, ["start", "stop"] * 3)
-
     def test_dsh_preserves_names_and_single_group(self) -> None:
         self.install_payloads(self.group_payloads(venue="dsh"))
         result = server.scrape_available_slots("dsh", 2)
@@ -517,96 +457,80 @@ class PiBaotiScraperTest(unittest.TestCase):
             self.assertEqual([group["key"] for group in day["groups"]], [""])
 
     def test_empty_availability_is_valid_when_all_courts_are_loaded(self) -> None:
-        self.install_payloads(
-            sum(
-                (
-                    self.group_payloads(key=key, available=False)
-                    for key in ("outdoor", "indoor", "windrain")
-                ),
-                [],
-            )
-        )
-        result = server.scrape_available_slots("baoti", 2)
+        self.install_payloads(self.group_payloads(available=False))
+        result = server.scrape_available_slots("dsh", 2)
         self.assertTrue(result["ok"], result)
         for day in result["days"]:
             self.assertEqual(day["courts"], {})
-            self.assertEqual(len(day["court_names"]), 3)
+            self.assertEqual(day["court_names"], ["1号风雨场"])
 
     def test_unknown_venue_does_not_start_browser(self) -> None:
-        result = server.scrape_available_slots("nope", 2)
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"], "unknown_venue:nope")
+        for venue in ("nope", "baoti"):
+            with self.subTest(venue=venue):
+                result = server.scrape_available_slots(venue, 2)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["error"], "unknown_venue:" + venue)
         server._start_chromium.assert_not_called()
 
-    def test_mid_group_challenge_discards_all_partial_days(self) -> None:
-        self.install_payloads(self.group_payloads() + [{"captcha": True, "ready": False}])
-        result = server.scrape_available_slots("baoti", 2)
+    def test_retired_source_and_verification_inputs_cannot_start_browser(self) -> None:
+        with patch.dict(
+            server.os.environ,
+            {
+                "YDMAP_AUTHORIZED_VERIFICATION": "1",
+                "YDMAP_DIAGNOSTIC_FIRST_PRODUCT": "windrain",
+            },
+        ):
+            for query in ("venue=baoti", "venue=dsh&verification=once"):
+                with self.subTest(query=query):
+                    handler = server.Handler.__new__(server.Handler)
+                    handler.path = "/inspect?" + query
+                    responses = []
+                    handler._send_json = lambda status, body, target=responses: target.append(
+                        (status, body)
+                    )
+                    handler.do_GET()
+                    self.assertEqual(responses[0][0], 400)
+                    self.assertEqual(responses[0][1]["error"], "unsupported_inspection")
+        server._start_chromium.assert_not_called()
+
+    def test_mid_date_challenge_discards_all_partial_days(self) -> None:
+        self.install_payloads(
+            [snapshot(), snapshot(TOMORROW, 2), {"captcha": True, "ready": False}]
+        )
+        result = server.scrape_available_slots("dsh", 2)
         self.assertFalse(result["ok"])
         self.assertTrue(result["captcha"])
         self.assertEqual(result["error"], "captcha")
         self.assertEqual(result["days"], [])
         self.assertEqual(self.driver.visited, [])
-        self.assertEqual(len(self.browser_starts), 2)
-        self.assertEqual(server._stop.call_count, 2)
-
-    def test_product_switch_requires_both_new_source_arrays_even_after_remount(self) -> None:
-        previous = snapshot(TODAY, 3)
-        current = snapshot(TODAY, 1, key="indoor")
-        identity = {**OUTDOOR_IDENTITY, "sales_item_id": "103224", "label": "室内"}
-        self.assertIsNone(server._snapshot_issue(current, previous=previous, **identity))
-        for stale_key in ("platforms", "orders"):
-            stale = {**current, "dataVersion": dict(current["dataVersion"])}
-            stale["dataVersion"][stale_key] = previous["dataVersion"][stale_key]
-            self.assertEqual(
-                server._snapshot_issue(stale, previous=previous, **identity), "source_not_refreshed"
-            )
-
-    def test_next_product_browser_failure_discards_partial_data(self) -> None:
-        self.install_payloads(self.group_payloads())
-        original = server._start_chromium.side_effect
-
-        def start(url, *, profile):
-            if url.endswith("=103224"):
-                raise TimeoutError("private-detail")
-            return original(url, profile=profile)
-
-        server._start_chromium.side_effect = start
-        result = server.scrape_available_slots("baoti", 2)
-        self.assertEqual(result["error"], "TimeoutError")
-        self.assertEqual(result["days"], [])
-        self.assertEqual(result["diagnostics"]["requestedProduct"], "103224")
-        self.assertEqual(self.driver.visited, [])
+        self.assertEqual(len(self.browser_starts), 1)
         self.assertEqual(server._stop.call_count, 1)
-        self.assertEqual(server._start_chromium.call_count, 2)
-        self.assertNotIn("private-detail", str(result))
 
-    def test_mid_group_date_failure_discards_all_partial_days(self) -> None:
-        initial = snapshot(key="indoor")
-        stale = {**snapshot(TOMORROW, 1, key="indoor"), "signature": "different"}
-        self.install_payloads(self.group_payloads() + [initial, stale])
-        result = server.scrape_available_slots("baoti", 2)
+    def test_mid_date_failure_discards_all_partial_days(self) -> None:
+        stale = {**snapshot(TODAY, 2), "signature": "different"}
+        self.install_payloads([snapshot(), snapshot(TOMORROW, 2), stale])
+        result = server.scrape_available_slots("dsh", 2)
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "source_not_refreshed")
         self.assertEqual(result["days"], [])
 
-    def test_wrong_venue_product_or_group_cannot_be_relabelled(self) -> None:
+    def test_wrong_venue_or_product_cannot_be_relabelled(self) -> None:
         cases = [
-            ("pageHost", "wxsports.ydmap.cn", "venue_host_mismatch"),
-            ("sourceSalesId", "100220", "venue_id_mismatch"),
-            ("sourceProduct", "100000", "product_id_mismatch"),
-            ("productName", "室内网球场", "product_name_mismatch"),
+            ("pageHost", "bawtt.ydmap.cn", "venue_host_mismatch"),
+            ("sourceSalesId", "104036", "venue_id_mismatch"),
+            ("sourceProduct", "111317", "product_id_mismatch"),
             ("productInCatalog", False, "product_name_unverified"),
-            ("courtNames", ["室内A号场", "室外场1号"], "court_group_mismatch"),
+            ("productName", "", "product_name_unverified"),
         ]
         for key, value, error in cases:
             with self.subTest(key=key):
                 self.assertEqual(
-                    server._snapshot_issue({**snapshot(), key: value}, **OUTDOOR_IDENTITY), error
+                    server._snapshot_issue({**snapshot(), key: value}, **DSH_IDENTITY), error
                 )
 
     def test_unavailable_calendar_date_fails_without_selecting_another_day(self) -> None:
         self.install_payloads([{**snapshot(), "availableDates": [TODAY.isoformat()]}])
-        result = server.scrape_available_slots("baoti", 2)
+        result = server.scrape_available_slots("dsh", 2)
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "requested_date_unavailable")
         self.assertEqual(self.driver.clicked, [])
@@ -650,7 +574,7 @@ class PiBaotiScraperTest(unittest.TestCase):
                     {**snapshot(TOMORROW, 2), key: value},
                     expected_date=TOMORROW.isoformat(),
                     previous=snapshot(),
-                    **OUTDOOR_IDENTITY,
+                    **DSH_IDENTITY,
                 )
                 self.assertEqual(result, error)
 
@@ -658,7 +582,7 @@ class PiBaotiScraperTest(unittest.TestCase):
         for error in ("captcha", "rate_limited", "login_required"):
             with self.subTest(error=error):
                 self.install_payloads([{**snapshot(), "accessError": error}])
-                result = server._wait_for_schedule(self.driver, timeout=25, **OUTDOOR_IDENTITY)
+                result = server._wait_for_schedule(self.driver, timeout=25, **DSH_IDENTITY)
                 self.assertFalse(result["ready"])
                 self.assertEqual(result["error"], error)
                 self.assertEqual(self.extract.call_count, 1)
@@ -666,7 +590,7 @@ class PiBaotiScraperTest(unittest.TestCase):
     def test_total_deadline_caps_wait(self) -> None:
         self.install_payloads([{}])
         result = server._wait_for_schedule(
-            self.driver, timeout=45, deadline=self.clock.value + 2, **OUTDOOR_IDENTITY
+            self.driver, timeout=45, deadline=self.clock.value + 2, **DSH_IDENTITY
         )
         self.assertFalse(result["ready"])
         self.assertEqual(self.clock.value, 102.0)
@@ -687,7 +611,7 @@ class PiBaotiScraperTest(unittest.TestCase):
         self.assertEqual(body["protocolVersion"], 2)
         self.assertEqual(body["deploymentCommit"], "a" * 40)
         self.assertEqual(body["sourceSha256"], hashlib.sha256(SERVER_PATH.read_bytes()).hexdigest())
-        self.assertEqual(body["venues"], ["baoti", "dsh"])
+        self.assertEqual(body["venues"], ["dsh"])
         self.assertTrue(body["busy"])
 
     def test_optional_evidence_is_collected_only_after_validated_date_refresh(self) -> None:
@@ -746,134 +670,13 @@ class PiBaotiScraperTest(unittest.TestCase):
         ):
             with self.subTest(suffix=suffix):
                 handler = server.Handler.__new__(server.Handler)
-                handler.path = "/inspect?venue=baoti&days=2" + suffix
+                handler.path = "/inspect?venue=dsh&days=2" + suffix
                 handler._send_json = lambda *args: None
                 with patch.object(
                     server, "scrape_available_slots", return_value={"ok": True}
                 ) as scrape:
                     handler.do_GET()
-                    scrape.assert_called_once_with(
-                        "baoti", 2, source_evidence=expected, verification_once=False
-                    )
-
-    def test_verification_requires_all_gates_and_consumes_one_authorization(self) -> None:
-        with (
-            patch.object(server, "VERIFICATION_AVAILABLE", True),
-            patch.object(server, "_scrape_available_slots", return_value={"ok": False}) as inner,
-        ):
-            for venue, evidence, requested in (
-                ("baoti", True, False),
-                ("baoti", False, True),
-                ("dsh", True, True),
-            ):
-                server.scrape_available_slots(
-                    venue, 2, source_evidence=evidence, verification_once=requested
-                )
-                self.assertIsNone(inner.call_args.kwargs["verification"])
-                self.assertTrue(server.VERIFICATION_AVAILABLE)
-            result = server.scrape_available_slots(
-                "baoti", 2, source_evidence=True, verification_once=True
-            )
-            self.assertFalse(result["diagnostics"]["verificationAttempted"])
-            self.assertEqual(result["diagnostics"]["verificationOutcome"], "not_needed")
-            self.assertFalse(server.VERIFICATION_AVAILABLE)
-            server.scrape_available_slots("baoti", 2, source_evidence=True, verification_once=True)
-            self.assertIsNone(inner.call_args.kwargs["verification"])
-
-    def test_normal_verification_is_one_native_drag_and_no_retry(self) -> None:
-        handle = object()
-        driver = Mock()
-        driver.execute_script.return_value = {"status": "ready", "handle": handle, "distance": 200}
-        chain = Mock()
-        chain.click_and_hold.return_value = chain
-        chain.move_by_offset.return_value = chain
-        chain.release.return_value = chain
-        actions = Mock(return_value=chain)
-        module = types.ModuleType("selenium.webdriver.common.action_chains")
-        module.ActionChains = actions
-        state = {"attempted": False, "outcome": "not_needed"}
-        with patch.dict(sys.modules, {module.__name__: module}):
-            self.assertTrue(server._normal_verification_once(driver, state))
-        actions.assert_called_once_with(driver, duration=1000)
-        chain.click_and_hold.assert_called_once_with(handle)
-        chain.move_by_offset.assert_called_once_with(200, 0)
-        chain.release.assert_called_once_with()
-        chain.perform.assert_called_once_with()
-        self.assertEqual(state, {"attempted": True, "outcome": "not_passed", "control": "ready"})
-        driver.execute_script.return_value = None
-        self.assertFalse(server._normal_verification_once(driver, state))
-        self.assertEqual(state["outcome"], "unsupported_control")
-
-    def test_failed_verification_keeps_atomic_failure_and_audit(self) -> None:
-        self.install_payloads([{"captcha": True, "ready": False}])
-
-        def gesture(driver, state):
-            state.update(attempted=True, outcome="not_passed")
-            return True
-
-        with (
-            patch.object(server, "VERIFICATION_AVAILABLE", True),
-            patch.object(server, "_normal_verification_once", side_effect=gesture) as action,
-        ):
-            result = server.scrape_available_slots(
-                "baoti", 2, source_evidence=True, verification_once=True
-            )
-        action.assert_called_once()
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["days"], [])
-        self.assertTrue(result["captcha"])
-        self.assertTrue(result["diagnostics"]["verificationAttempted"])
-        self.assertEqual(result["diagnostics"]["verificationOutcome"], "not_passed")
-
-    def test_late_date_challenge_consumes_the_same_single_authorization(self) -> None:
-        self.install_payloads([snapshot(), {"captcha": True, "ready": False}])
-
-        def gesture(driver, state):
-            state.update(attempted=True, outcome="not_passed")
-            return True
-
-        with (
-            patch.object(server, "VERIFICATION_AVAILABLE", True),
-            patch.object(server, "_normal_verification_once", side_effect=gesture) as action,
-        ):
-            result = server.scrape_available_slots(
-                "baoti", 2, source_evidence=True, verification_once=True
-            )
-        action.assert_called_once()
-        self.assertEqual(result["days"], [])
-        self.assertEqual(result["error"], "captcha")
-        self.assertEqual(result["diagnostics"]["failurePhase"], "refreshed_schedule")
-        self.assertEqual(result["diagnostics"]["requestedProduct"], "111317")
-        self.assertTrue(result["diagnostics"]["verificationAttempted"])
-
-    def test_verification_recovery_requires_valid_source_and_never_repeats(self) -> None:
-        self.install_payloads([{"captcha": True}, snapshot(TOMORROW, 2)])
-        state = {"attempted": False, "outcome": "not_needed"}
-
-        def gesture(driver, state):
-            state.update(attempted=True, outcome="not_passed")
-            return True
-
-        with patch.object(server, "_normal_verification_once", side_effect=gesture) as action:
-            result = server._wait_for_schedule(
-                self.driver,
-                timeout=10,
-                expected_date=TOMORROW.isoformat(),
-                previous=snapshot(),
-                verification=state,
-                **OUTDOOR_IDENTITY,
-            )
-            self.assertTrue(result["ready"])
-            self.assertEqual(state["outcome"], "passed")
-            with patch.object(server, "_extract_day", return_value={"captcha": True}):
-                failed = server._wait_for_schedule(
-                    self.driver,
-                    timeout=10,
-                    verification=state,
-                    **OUTDOOR_IDENTITY,
-                )
-            self.assertFalse(failed["ready"])
-            action.assert_called_once()
+                    scrape.assert_called_once_with("dsh", 2, source_evidence=expected)
 
     def test_ordinary_watcher_results_never_include_source_evidence(self) -> None:
         self.install_payloads(self.group_payloads(venue="dsh"))
@@ -884,7 +687,7 @@ class PiBaotiScraperTest(unittest.TestCase):
 
     def test_busy_inspect_is_serialized_before_starting_a_second_browser(self) -> None:
         handler = server.Handler.__new__(server.Handler)
-        handler.path = "/inspect?venue=baoti&days=2"
+        handler.path = "/inspect?venue=dsh&days=2"
         responses = []
         handler._send_json = lambda status, body: responses.append((status, body))
         server.SCRAPE_LOCK.acquire()
@@ -923,9 +726,9 @@ class PiDriverLifecycleTest(unittest.TestCase):
             self.assertIsNone(server._capture_failure_ui(driver, "dsh"))
 
     def test_native_browser_launch_uses_fixed_profile_and_no_user_agent_override(self) -> None:
-        profile = Path("/tmp/service-profile/baoti-outdoor")
+        profile = Path("/tmp/service-profile/dsh-main")
         with patch.object(server.subprocess, "Popen") as popen:
-            server._start_chromium(server._baoti_group_url("111317"), profile=profile)
+            server._start_chromium(server.DSH_BOOKING_URL, profile=profile)
         command = popen.call_args.args[0]
         self.assertIn("--user-data-dir=" + str(profile), command)
         self.assertFalse(any(argument.startswith("--user-agent=") for argument in command))

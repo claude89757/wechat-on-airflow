@@ -27,7 +27,6 @@ VENUES: Final[dict[str, str]] = {
     "gba": "大湾区网球场",
     "dsh_free": "大沙河免费场",
     "dsh": "大沙河国际网球中心",
-    "baoti": "宝安网球中心",
     "sysh": "上越沙河",
     "tops": "TOPS 科技园",
     "fsb": "泛思博特福中福",
@@ -51,6 +50,25 @@ VENUES: Final[dict[str, str]] = {
     "tyzx": "深圳市体育中心",
     "jdwx": "金地威新",
 }
+
+# The owner withdrew the Baoan integration on 2026-11-01. Historical rows,
+# subscriptions and delivery identities remain durable; it is no longer an
+# observation producer or an eligible new subscription/delivery target.
+RETIRED_VENUES: Final[dict[str, str]] = {"baoti": "宝安网球中心"}
+DURABLE_VENUES: Final[dict[str, str]] = {**VENUES, **RETIRED_VENUES}
+
+
+def active_venue_status(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Exclude only approved retired rows; fail on missing or unknown catalog IDs."""
+    identifiers = [row["venue_id"] for row in rows]
+    if (
+        len(identifiers) != len(set(identifiers))
+        or set(identifiers) - DURABLE_VENUES.keys()
+        or VENUES.keys() - set(identifiers)
+    ):
+        raise ValueError("Venue catalog does not match the active and retired venue policy")
+    return [row for row in rows if row["venue_id"] in VENUES]
+
 
 STANDARD_TERMS: Final = tuple(f"{days}d" for days in range(7, 15))
 PRIORITY_TERMS: Final = (*STANDARD_TERMS, "30d", "90d", "180d", "long_term")

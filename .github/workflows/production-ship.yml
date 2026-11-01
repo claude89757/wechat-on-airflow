@@ -18,6 +18,26 @@ on:
         required: false
         default: false
         type: boolean
+      recovery_runtime_commit:
+        description: Existing runtime SHA for an email-active, WeChat-paused recovery
+        required: false
+        default: ''
+        type: string
+      recovery_control_updated_at:
+        description: Exact existing runtime_control timestamp from the reviewed baseline
+        required: false
+        default: ''
+        type: string
+      recovery_delivery_enabled:
+        description: Recorded existing email ownership must be enabled for recovery
+        required: false
+        default: false
+        type: boolean
+      recovery_wechat_enabled:
+        description: Recorded existing WeChat ownership must be disabled for recovery
+        required: false
+        default: false
+        type: boolean
     outputs:
       resolved_scope:
         description: Resolved component scope
@@ -63,6 +83,27 @@ on:
         default: false
         type: boolean
 
+      recovery_runtime_commit:
+        description: Existing runtime SHA for an email-active, WeChat-paused recovery
+        required: false
+        default: ''
+        type: string
+      recovery_control_updated_at:
+        description: Exact existing runtime_control timestamp from the reviewed baseline
+        required: false
+        default: ''
+        type: string
+      recovery_delivery_enabled:
+        description: Recorded existing email ownership must be enabled for recovery
+        required: false
+        default: false
+        type: boolean
+      recovery_wechat_enabled:
+        description: Recorded existing WeChat ownership must be disabled for recovery
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   checks: read
   contents: write
@@ -88,8 +129,19 @@ jobs:
           VERSION: ${{ inputs.version }}
           SCOPE: ${{ inputs.scope }}
           SENDER: ${{ inputs.include_sender }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          RECOVERY_RUNTIME_COMMIT: ${{ inputs.recovery_runtime_commit }}
+          RECOVERY_CONTROL_UPDATED_AT: ${{ inputs.recovery_control_updated_at }}
+          RECOVERY_DELIVERY_ENABLED: ${{ inputs.recovery_delivery_enabled }}
+          RECOVERY_WECHAT_ENABLED: ${{ inputs.recovery_wechat_enabled }}
         run: |
-          python scripts/release_contract.py --version "$VERSION"
+          args=(--version "$VERSION" --target-commit "$TARGET_COMMIT" --scope "$SCOPE"
+            --recovery-runtime-commit "$RECOVERY_RUNTIME_COMMIT"
+            --recovery-control-updated-at "$RECOVERY_CONTROL_UPDATED_AT")
+          if [ "$SENDER" = true ]; then args+=(--include-sender); fi
+          if [ "$RECOVERY_DELIVERY_ENABLED" = true ]; then args+=(--recovery-delivery-enabled); fi
+          if [ "$RECOVERY_WECHAT_ENABLED" = true ]; then args+=(--recovery-wechat-enabled); fi
+          python scripts/release_contract.py "${args[@]}"
           python scripts/host_core_release_scope.py --scope "$SCOPE"
           if [ "$VERSION" = 0.7.0 ] || [ "$SCOPE" = all ]; then
             test "$SCOPE" = all
@@ -111,8 +163,12 @@ jobs:
     needs: preflight
     uses: ./.github/workflows/production-host-core.yml
     with:
-      operation: ${{ inputs.version == '0.7.0' && 'full-cutover' || 'routine-upgrade' }}
+      operation: ${{ inputs.recovery_runtime_commit != '' && 'recovery-upgrade' || inputs.version == '0.7.0' && 'full-cutover' || 'routine-upgrade' }}
       target_commit: ${{ inputs.target_commit }}
+      recovery_runtime_commit: ${{ inputs.recovery_runtime_commit }}
+      recovery_control_updated_at: ${{ inputs.recovery_control_updated_at }}
+      recovery_delivery_enabled: ${{ inputs.recovery_delivery_enabled }}
+      recovery_wechat_enabled: ${{ inputs.recovery_wechat_enabled }}
     secrets: inherit
 
   deploy:

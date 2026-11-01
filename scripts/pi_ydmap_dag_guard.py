@@ -12,7 +12,7 @@ import sys
 import time
 from contextlib import contextmanager
 
-DAG_IDS = ("大沙河国际网球中心巡检", "宝安网球中心巡检")
+DAG_IDS = ("大沙河国际网球中心巡检",)
 ACTIVE_TASK_STATES = (
     "running",
     "queued",
