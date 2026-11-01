@@ -210,3 +210,23 @@ def test_airflow_scope_cannot_skip_required_scraper_update(tmp_path: Path):
     result = run_plan(repo, "--target-commit", target, "--scope", "airflow", success=False)
     assert result.returncode == 2
     assert "omits detected runtime components: pi_ydmap" in result.stderr
+
+
+def test_mcp_only_patch_emits_deployment_and_scoped_ci_outputs(tmp_path: Path):
+    repo, base = init_repo(tmp_path)
+    target = commit_change(repo, "pi_host/remote_ops/server.mjs", "export {};\n", "MCP patch")
+    outputs = tmp_path / "outputs"
+    payload = json.loads(
+        run_plan(
+            repo, "--base-commit", base, "--target-commit", target, "--github-output", str(outputs)
+        ).stdout
+    )
+    assert payload["runtime_components"] == ["remote_ops"]
+    assert payload["resolved_scope"] == "remote_ops"
+    assert payload["deploy_remote_ops"] is True
+    values = dict(line.split("=", 1) for line in outputs.read_text().splitlines())
+    assert values["ci_remote_ops"] == "true"
+    assert values["ci_pi_mcp"] == "false"
+    assert all(
+        values[key] == "false" for key in ("ci_webapp", "ci_airflow", "ci_sender", "deploy_pi_mcp")
+    )

@@ -4,6 +4,8 @@
 
 [English](./README.en.md) · [中文](./README.md)
 
+Operations: [Agent-first routing and fallback](docs/runbooks/agent-operations.md) · [MCP access](docs/runbooks/remote-operations-mcp.md) · [GitHub audit window](https://github.com/claude89757/wechat-on-airflow/issues/39)
+
 [![CI](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml/badge.svg)](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
 [![Airflow 3.3](https://img.shields.io/badge/Airflow-3.3.0-017CEE)](https://airflow.apache.org/)

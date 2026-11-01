@@ -75,9 +75,11 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: steps.plan.outputs.ci_remote_ops == 'true'
         with:
-          node-version: "24"
+          node-version: "22.23.4"
       - name: Verify administrator MCP without real hosts
+        if: steps.plan.outputs.ci_remote_ops == 'true'
         working-directory: pi_host/remote_ops
         run: |
           npm ci --ignore-scripts --no-audit --no-fund

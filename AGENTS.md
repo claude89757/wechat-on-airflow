@@ -1,5 +1,23 @@
 # Agent Guide
 
+## Primary Operations Entry
+
+Use agent conversation + MCP for daily inspection; GitHub remains the release,
+fallback and audit center. Follow `docs/runbooks/agent-operations.md`.
+Start with `ops_status` and `ops_diagnose` (phones: `phone_devices`). These tools
+do not require command approval and do not certify actual notification delivery.
+Use protected GitHub diagnostics if MCP is unavailable or deeper business checks
+are needed. Do not replace those checks with raw shell/log dumps.
+
+Use `production-mcp.yml` for MCP releases: one apply dispatch performs protected
+preflight, apply and independent health. Business releases keep the existing
+protected release lifecycle. Record outcomes in Issue #39. Historical component
+workflows remain implementation/fallback interfaces, not competing daily entrypoints.
+Before a human-confirmed MCP mutation, ensure no protected release is active for
+the same host. MCP's in-process serialization is not a cross-channel deployment
+lock; never claim otherwise. Agents must not perform repository deployments via
+MCP shell commands.
+
 ## Owner-Authorized MCP Administration
 
 The owner authorized administrator-capable remote MCP channels on 2026-10-31.
@@ -22,6 +40,7 @@ device connectivity. These components have independent deployment identities.
 Agent workflow:
 
 1. List tools and call `ops_status` for a host, or `phone_devices` for phones.
+   Use `ops_diagnose` for allowlisted systemd and container states.
    Initial checks must not create phone sessions, execute shell commands or
    send notifications. Recheck device availability; do not assume two phones
    are configured or online.
@@ -184,8 +203,8 @@ make pi-device-ssh-sync
 
 `make verify` is the required local development gate before committing. The
 authoritative release gate is the GitHub `CI / verify` check for the exact
-release commit; it includes the Web/Worker checks, Airflow image build, Compose
-validation, and DagBag contract check.
+release commit; component-aware checks include Web/Worker, Airflow images,
+Compose, DagBag and MCP suites when their dependency surfaces change.
 
 The first host-core cutover is not a normal component deployment. Use the
 protected `production-host-core.yml` lifecycle and

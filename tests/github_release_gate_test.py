@@ -9,6 +9,39 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import github_release_gate  # noqa: E402
 
 
+def test_excessive_check_pages_fail_closed(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(
+        github_release_gate, "fetch_check_page", lambda *args: {"check_runs": [{}] * 100}
+    )
+    with pytest.raises(github_release_gate.OpsError, match="pagination limit"):
+        github_release_gate.fetch_check_runs("owner/repo", "a" * 40, "not-real")
+
+
+def test_ci_on_second_page_is_found_and_latest_failure_still_wins(monkeypatch):
+    calls = []
+
+    def fetch(repository, commit, token, page):
+        calls.append(page)
+        if page == 1:
+            return {"check_runs": [{"id": 200 + n, "name": "operate"} for n in range(100)]}
+        return {
+            "check_runs": [
+                {"id": 3, "name": "verify", "status": "completed", "conclusion": "success"}
+            ]
+        }
+
+    monkeypatch.setattr(github_release_gate, "fetch_check_page", fetch)
+    payload = github_release_gate.fetch_check_runs("owner/repo", "a" * 40, "not-real")
+    assert calls == [1, 2]
+    assert github_release_gate.required_check_result(payload, "verify")["ok"]
+    payload["check_runs"].append(
+        {"id": 4, "name": "verify", "status": "completed", "conclusion": "failure"}
+    )
+    assert not github_release_gate.required_check_result(payload, "verify")["ok"]
+
+
 def test_waits_for_in_progress_verify_then_succeeds():
     payloads = iter(
         [

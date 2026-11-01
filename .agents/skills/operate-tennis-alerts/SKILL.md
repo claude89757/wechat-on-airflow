@@ -1,6 +1,6 @@
 ---
 name: operate-tennis-alerts
-description: Operate and maintain this repository's Shenzhen tennis alert platform across Apache Airflow 3, the Cloudflare Worker and D1 web subscription service, Tencent SES email, and the Android-host WeChat sender. Use for problem diagnosis, incident response, production health checks, DAG or notification failures, configuration maintenance, web-app changes, sender repairs, release preparation, exact-commit deployment, post-deploy observation, rollback, cleanup review, or any end-to-end lifecycle task in wechat-on-airflow.
+description: Operate this repository's Shenzhen tennis alert platform across Airflow 3, PostgreSQL Host Core, the stateless Cloudflare edge, Tencent SES, Android Sender and owner-authorized MCP. Use for diagnosis, incidents, health, configuration, releases, deployment, observation and cleanup review.
 ---
 
 # Operate Tennis Alerts
@@ -92,15 +92,16 @@ Never treat a restart alone as a root-cause fix.
 - Persist venue deduplication state before attempting delivery.
 - Publish raw venue observations to the Web application before attempting
   WeChat so a device outage cannot delay subscriber email.
-- Keep subscriber email in the Cloudflare Web application. Airflow must not
-  read fixed recipient lists, load SES credentials, or send venue email.
-- Do not fail a venue DAG because Web observation or WeChat delivery fails;
-  record the appropriate bounded incident or retry state.
+- Keep subscriptions, matching and email delivery in PostgreSQL Host Core;
+  Cloudflare is a stateless public edge and D1 is an unbound migration archive.
+  Venue DAGs must not read fixed recipient lists or send venue email.
+- Persist observations and durable delivery intents in Host Core; channel
+  failures must not prevent independent email or WeChat processing.
 - Isolate WeChat failures per chat and run one sender process per device.
-- Treat the Airflow WeChat outbox and retired email outbox as non-replay
-  incident evidence.
-- Prevent duplicate web notifications with the D1 subscription/event identity
-  contract.
+- Treat retired Airflow outboxes as non-replay incident evidence. Active
+  PostgreSQL outboxes follow durable worker leases and reconciliation; uncertain
+  provider submissions must never be blindly replayed.
+- Prevent duplicates through PostgreSQL subscription/event identity contracts.
 - Do not display bookable slots or email addresses in the public web app.
 - Keep DAG files wiring-only and preserve active DAG IDs unless a migration
   plan is approved.
@@ -108,6 +109,13 @@ Never treat a restart alone as a root-cause fix.
   Redis, and log volumes during application deployments.
 
 ## Use Repository Commands
+
+For daily operations, prefer the MCP-first routing in
+`docs/runbooks/agent-operations.md`: `ops_status`, `ops_diagnose` or
+`phone_devices` first; protected GitHub diagnostics remain the fallback and
+business-acceptance implementation. MCP command execution requires individual
+human approval and must not replace protected releases. Check for active releases
+on the host before requesting a mutation; there is no cross-channel shell lock.
 
 Use the `Makefile` as the supported interface. Prefer:
 
@@ -124,8 +132,9 @@ make db-cleanup-check
 ```
 
 Do not replace structured scripts with improvised remote shell sequences.
-Authenticate the workstation only with GitHub and dispatch production
-operations through the protected workflows. Deployment credentials must come
+Outside owner-authorized MCP administration, authenticate the workstation only
+with GitHub and dispatch production operations through protected workflows.
+Deployment credentials must come
 from the GitHub `production` Environment. Runtime credentials must come from
 Airflow Variables, Cloudflare Worker Secrets, Docker Secrets, or systemd
 credentials; the repository and developer workstation must not contain

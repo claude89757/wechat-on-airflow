@@ -35,9 +35,9 @@ def required_check_result(payload: Any, name: str) -> dict[str, Any]:
     }
 
 
-def fetch_check_runs(repository: str, commit: str, token: str) -> Any:
+def fetch_check_page(repository: str, commit: str, token: str, page: int) -> Any:
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{repository}/commits/{commit}/check-runs?per_page=100",
+        f"https://api.github.com/repos/{repository}/commits/{commit}/check-runs?per_page=100&page={page}",
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -55,6 +55,20 @@ def fetch_check_runs(repository: str, commit: str, token: str) -> Any:
         return json.loads(response.read().decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise OpsError("GitHub check-runs API returned invalid JSON") from exc
+
+
+def fetch_check_runs(repository: str, commit: str, token: str) -> Any:
+    checks = []
+    # Operational runs add checks to the same SHA; CI may no longer be on page one.
+    for page in range(1, 21):
+        payload = fetch_check_page(repository, commit, token, page)
+        rows = payload.get("check_runs") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            raise OpsError("GitHub check-runs API returned invalid check list")
+        checks.extend(rows)
+        if len(rows) < 100:
+            return {"check_runs": checks}
+    raise OpsError("GitHub check-runs pagination limit exceeded")
 
 
 def effective_missing_check_wait_seconds(

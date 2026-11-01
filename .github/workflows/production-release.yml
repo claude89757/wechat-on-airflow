@@ -41,6 +41,12 @@ on:
       deploy_pi_ydmap:
         description: Whether private Pi scraper deployment was planned
         value: ${{ jobs.gate.outputs.deploy_pi_ydmap }}
+      deploy_remote_ops:
+        description: Whether host MCP deployment was planned
+        value: ${{ jobs.gate.outputs.deploy_remote_ops }}
+      deploy_pi_mcp:
+        description: Whether phone MCP deployment was planned
+        value: ${{ jobs.gate.outputs.deploy_pi_mcp }}
   workflow_dispatch:
     inputs:
       mode:
@@ -67,6 +73,8 @@ on:
           - airflow
           - sender
           - pi_ydmap
+          - remote_ops
+          - pi_mcp
           - control
       include_sender:
         description: Explicit approval for an in-scope Android-host sender deployment
@@ -93,6 +101,8 @@ jobs:
       deploy_airflow: ${{ steps.plan.outputs.deploy_airflow }}
       deploy_sender: ${{ steps.plan.outputs.deploy_sender }}
       deploy_pi_ydmap: ${{ steps.plan.outputs.deploy_pi_ydmap }}
+      deploy_remote_ops: ${{ steps.plan.outputs.deploy_remote_ops }}
+      deploy_pi_mcp: ${{ steps.plan.outputs.deploy_pi_mcp }}
       changed_count: ${{ steps.plan.outputs.changed_count }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -208,9 +218,29 @@ jobs:
       request_id: release-${{ github.run_id }}
     secrets: inherit
 
+  remote_ops:
+    needs: gate
+    if: needs.gate.outputs.deploy_remote_ops == 'true'
+    uses: ./.github/workflows/production-mcp.yml
+    with:
+      component: remote_ops
+      mode: ${{ inputs.mode }}
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  pi_mcp:
+    needs: gate
+    if: needs.gate.outputs.deploy_pi_mcp == 'true'
+    uses: ./.github/workflows/production-mcp.yml
+    with:
+      component: pi_mcp
+      mode: ${{ inputs.mode }}
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
   record:
     if: always()
-    needs: [gate, pi_ydmap, webapp, airflow, sender]
+    needs: [gate, pi_ydmap, webapp, airflow, sender, remote_ops, pi_mcp]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -230,6 +260,10 @@ jobs:
           AIRFLOW_RESULT: ${{ needs.airflow.result }}
           SENDER_RESULT: ${{ needs.sender.result }}
           PI_YDMAP_RESULT: ${{ needs.pi_ydmap.result }}
+          REMOTE_OPS_PLANNED: ${{ needs.gate.outputs.deploy_remote_ops }}
+          PI_MCP_PLANNED: ${{ needs.gate.outputs.deploy_pi_mcp }}
+          REMOTE_OPS_RESULT: ${{ needs.remote_ops.result }}
+          PI_MCP_RESULT: ${{ needs.pi_mcp.result }}
         run: |
           set -euo pipefail
           {
@@ -260,3 +294,6 @@ jobs:
           check_component "$AIRFLOW_PLANNED" "$AIRFLOW_RESULT"
           check_component "$SENDER_PLANNED" "$SENDER_RESULT"
           check_component "$PI_YDMAP_PLANNED" "$PI_YDMAP_RESULT"
+          check_component "$REMOTE_OPS_PLANNED" "$REMOTE_OPS_RESULT"
+          check_component "$PI_MCP_PLANNED" "$PI_MCP_RESULT"
+          echo "MCP hosts: $REMOTE_OPS_RESULT; MCP phones: $PI_MCP_RESULT" >> "$GITHUB_STEP_SUMMARY"

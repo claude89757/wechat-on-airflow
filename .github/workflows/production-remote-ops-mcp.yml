@@ -1,6 +1,17 @@
 name: Production Remote Operations MCP
 run-name: production/remote_ops/${{ inputs.target }}/${{ inputs.operation }}
 on:
+  workflow_call:
+    inputs:
+      target_commit:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
+      operation:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       target_commit:
@@ -13,7 +24,7 @@ on:
         required: true
       operation:
         type: choice
-        options: [preflight, apply, health, withdraw]
+        options: [preflight, release, apply, health, withdraw]
         default: preflight
         required: true
 permissions:
@@ -48,20 +59,23 @@ jobs:
           git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
           PYTHONPATH=scripts python scripts/github_release_gate.py --target-commit "$TARGET_COMMIT" --wait-seconds 0 --format json
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        if: inputs.operation == 'apply' && inputs.target != 'phone'
+        if: (inputs.operation == 'apply' || inputs.operation == 'release') && inputs.target != 'phone'
         with:
           node-version: '22.23.4'
       - name: Stage locked runtime and verified Node binaries
-        if: inputs.operation == 'apply' && inputs.target != 'phone'
+        if: (inputs.operation == 'apply' || inputs.operation == 'release') && inputs.target != 'phone'
         working-directory: pi_host/remote_ops
+        env:
+          STAGE_TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           npm ci --ignore-scripts --no-audit --no-fund
           npm test
           npm audit --omit=dev --audit-level=high
           mkdir -p /tmp/remote-ops-release
-          tar -czf /tmp/remote-ops-release/source.tar.gz server.mjs control.mjs access-keys.mjs check-keys.mjs package.json package-lock.json node_modules
-          for arch in x64 arm64 armv7l; do
+          tar -czf /tmp/remote-ops-release/source.tar.gz server.mjs control.mjs diagnostics.mjs access-keys.mjs check-keys.mjs package.json package-lock.json node_modules
+          case "$STAGE_TARGET" in pi) arch=armv7l ;; vps) arch=x64 ;; *) exit 2 ;; esac
+          for arch in "$arch"; do
             curl --fail --retry 3 --max-time 180 -o "/tmp/remote-ops-release/node-$arch.tar.xz" "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-$arch.tar.xz"
           done
           python - <<'PY'
@@ -69,11 +83,16 @@ jobs:
           from pathlib import Path
           from install import HASHES
           for arch, expected in HASHES.items():
-              assert hashlib.sha256(Path(f"/tmp/remote-ops-release/node-{arch}.tar.xz").read_bytes()).hexdigest() == expected
+              archive = Path(f"/tmp/remote-ops-release/node-{arch}.tar.xz")
+              if archive.exists():
+                  assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected
           PY
       - name: Install SSH and existing MCP health dependencies
         run: |
           python -m pip install --disable-pip-version-check paramiko==3.5.1 cryptography==50.0.1
+      - name: Install phone-only probe dependencies
+        if: inputs.target == 'phone'
+        run: |
           cd pi_host/appium_mcp
           npm ci --ignore-scripts --omit=optional --no-audit --no-fund
       - name: Execute protected operation
@@ -93,4 +112,9 @@ jobs:
           AIRFLOW_SSH_KNOWN_HOSTS: ${{ secrets.AIRFLOW_SSH_KNOWN_HOSTS }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: python scripts/deploy_remote_ops_mcp.py
+        run: |
+          if [ "$OPERATION" = release ]; then
+            python scripts/mcp_lifecycle.py remote_ops
+          else
+            python scripts/deploy_remote_ops_mcp.py
+          fi
