@@ -7,6 +7,9 @@ and operational changes.
 
 ### Fixed
 
+- Release preflight checks the live Pi scraper without the apply-only
+  interruption flag. That flag was rejecting the ready check before WeChat
+  recovery could start.
 - Let a recovery upgrade replace a stopped WeChat consumer that is still on an
   older image. The live API and email worker must still match, and no WeChat
   consumer may be running. A failed recovery check now reports its fixed guard

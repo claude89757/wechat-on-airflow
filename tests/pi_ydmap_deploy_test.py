@@ -1248,7 +1248,9 @@ def test_release_preflight_checks_the_live_service_without_a_browser_drain():
     assert "inputs.allow_interruption != true" in ssh["if"]
     release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
     assert release["jobs"]["pi_ydmap"]["with"]["drain_preflight"] is False
-    assert release["jobs"]["pi_ydmap"]["with"]["allow_interruption"] is True
+    assert release["jobs"]["pi_ydmap"]["with"]["allow_interruption"] == (
+        "${{ inputs.mode == 'apply' }}"
+    )
     assert release["jobs"]["pi_ydmap"]["with"]["operation"] == (
         "${{ inputs.mode == 'apply' && 'apply' || 'ready' }}"
     )

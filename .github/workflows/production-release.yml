@@ -166,7 +166,7 @@ jobs:
     uses: ./.github/workflows/production-pi-ydmap.yml
     with:
       drain_preflight: false
-      allow_interruption: true
+      allow_interruption: ${{ inputs.mode == 'apply' }}
       operation: ${{ inputs.mode == 'apply' && 'apply' || 'ready' }}
       target_commit: ${{ inputs.target_commit }}
       request_id: release-${{ github.run_id }}
