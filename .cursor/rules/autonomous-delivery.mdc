@@ -1,0 +1,15 @@
+---
+description: Finish development and routine operations without waiting for confirmation
+alwaysApply: true
+---
+
+# Autonomous delivery
+
+Commit and push finished work. Use a conventional Chinese commit message.
+Do not stop because the user did not say "commit" or "push".
+
+Run routine production recovery, release, and health checks through the
+protected GitHub workflows when that is the task. Do not ask again.
+
+Stop only before deleting production business data or D1, rotating secrets,
+sending a real test notification, rewriting Git history, or force-pushing main.

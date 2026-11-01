@@ -38,7 +38,10 @@ no automatic verification interaction.
 
 ## Candidate and activation
 
-Manual and reusable release preflight default to drain_preflight=true. Separate
+The release pipeline uses `ready` for preflight and `allow_interruption` for
+apply. It checks that the live scraper answers, then replaces it without
+pausing Dashah or running candidate browser cycles. A manual workflow can still
+set `drain_preflight=true` for a deep candidate check. Separate
 ports and profiles do not isolate Pi CPU, desktop focus or upstream traffic.
 The scoped Airflow guard waits for Dashah work to finish, saves and pauses only
 the Dashah DAG, then restores and verifies its original pause flag after the
@@ -64,10 +67,10 @@ five from noon onward. Selected date, query date, source arrays, product identit
 court inventory and provider bookability must agree. Empty availability is valid
 only when the complete dated court inventory is verified.
 
-Guarded preflight runs three read-only candidate cycles on the same service
-profile, with starts at least 120 seconds apart. It stops at the first failure
-and retains bounded evidence and the completed-cycle count. These are candidate
-checks; natural production cycles remain a separate acceptance requirement.
+A manual guarded preflight can still run three read-only candidate cycles on
+the same service profile, with starts at least 120 seconds apart. The release
+pipeline does not. Natural production cycles are observed after deployment and
+do not hold the ship.
 
 Apply performs the candidate checks before atomically changing only the dedicated
 scraper release link and managed systemd override. It then checks exact live

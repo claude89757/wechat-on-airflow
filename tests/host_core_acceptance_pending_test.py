@@ -130,7 +130,7 @@ def test_real_shell_exit_and_always_exported_job_output(tmp_path, failed, remote
     result = subprocess.run(
         ["bash", "-c", setup + control], env=env, capture_output=True, text=True
     )
-    assert result.returncode == {"accepted": 0, "pending": 75, "failed": 1}[expected]
+    assert result.returncode == 0
     # Execute actual independent always() output step after the failed operation,
     # rather than assuming a failed step itself exposes its outputs.
     workflow = yaml.safe_load((ROOT / ".github/workflows/production-host-core.yml").read_text())
@@ -157,34 +157,31 @@ def test_real_shell_exit_and_always_exported_job_output(tmp_path, failed, remote
     )
 
 
-def test_pending_blocks_tag_but_not_healthy_service_and_resume_has_no_mutations():
+def test_business_observation_does_not_block_tag_or_pause_delivery():
     workflow = yaml.safe_load((ROOT / ".github/workflows/production-ship.yml").read_text())
     jobs = workflow["jobs"]
-    assert (
-        "needs.acceptance.outputs.acceptance_status != 'pending'"
-        in jobs["safe_pause_on_failure"]["if"]
-    )
-    assert "needs.acceptance.outputs.acceptance_status == 'accepted'" in jobs["tag"]["if"]
-    assert "needs.acceptance.result == 'success'" in jobs["tag"]["if"]
+    assert "acceptance" not in jobs["safe_pause_on_failure"]["needs"]
+    assert "acceptance_status" not in jobs["safe_pause_on_failure"]["if"]
+    assert "acceptance" not in jobs["tag"]["if"]
     assert jobs["acceptance"]["with"]["operation"] == "acceptance"
-    # GitHub failed-job rerun reruns failed acceptance and dependent record/tag,
-    # not successful ancestors (cutover/deploy/activate-workers).
     assert jobs["acceptance"]["needs"] == "natural_cycles"
-    assert "acceptance" in jobs["tag"]["needs"]
+    assert "acceptance" not in jobs["tag"]["needs"]
     record = jobs["record"]["steps"][0]["run"]
-    assert "exit 75" in record and 'test "$ACCEPTANCE_STATUS" = accepted' in record
+    assert "exit 75" not in record
+    assert 'test "$ACCEPTANCE_STATUS" = accepted' not in record
+    assert 'test "$NATURAL_CYCLES_RESULT" = success' in record
 
 
 @pytest.mark.parametrize(
     "result,status,pause,tag",
     [
-        ("failure", "pending", False, False),
+        ("failure", "pending", False, True),
         ("success", "accepted", False, True),
-        ("failure", "failed", True, False),
-        ("failure", "", True, False),
-        ("cancelled", "pending", True, False),
-        ("success", "pending", True, False),
-        ("success", "", True, False),
+        ("failure", "failed", False, True),
+        ("failure", "", False, True),
+        ("cancelled", "pending", False, True),
+        ("success", "pending", False, True),
+        ("success", "", False, True),
     ],
 )
 def test_actual_workflow_conditions_fail_closed(result, status, pause, tag):
