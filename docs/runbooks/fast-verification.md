@@ -24,6 +24,10 @@ The owner accepts interruptions. Unified Airflow apply uses `deploy_recovery`:
 stop executors, mark unfinished scheduled tasks failed (retain their history),
 clear the transient broker queue, deploy, then restore scheduling. PostgreSQL
 business outboxes, deduplication and provider receipts are never cleared.
+Immediate post-deploy health does not fail solely for recent DAG-run history:
+interrupted runs remain visible and are reported as pending observation. The
+standalone health monitor remains strict; unhealthy services, wrong commits,
+missing DAGs and other failures still block the deployment.
 Do not wait ten minutes for scheduled/retry tasks to drain. Routine component
 updates can use protected component workflows with a full SHA, without creating
 a semantic-version release first. Ship/tag remains optional release bookkeeping.

@@ -80,3 +80,28 @@ def test_failed_install_is_not_reported_as_healthy():
         deploy_airflow_transaction.deploy_with_health(
             "a" * 40, runner=lambda command, *, check: completed(1, None, "failure")
         )
+
+
+def test_recent_run_history_is_observation_not_deploy_failure():
+    target = "a" * 40
+    for component, commit, expected in (
+        ("recent_dag_runs", target, 0),
+        ("compose_services", target, 1),
+        ("recent_dag_runs", "b" * 40, 1),
+    ):
+        results = iter(
+            [
+                completed(0, deployment_payload("b" * 40)),
+                completed(
+                    1,
+                    {"ok": False, "deployed_commit": commit, "issues": [{"component": component}]},
+                ),
+            ]
+        )
+        payload, code = deploy_airflow_transaction.deploy_with_health(
+            target, runner=lambda command, results=results, **kwargs: next(results)
+        )
+        assert code == expected
+        if code == 0:
+            assert payload["observation_pending"] is True
+            assert payload["health"]["payload"]["ok"] is False

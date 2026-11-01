@@ -69,6 +69,15 @@ def test_default_release_allows_interruption():
 
     release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
     assert "'deploy_recovery'" in release["jobs"]["airflow"]["with"]["operation"]
+    host = yaml.safe_load((ROOT / ".github/workflows/production-host-core.yml").read_text())
+    build = next(
+        step
+        for step in host["jobs"]["operate"]["steps"]
+        if step.get("name") == "Build exact edge artifact"
+    )
+    assert "inputs.operation" in build["if"]
+    assert "recovery-upgrade" in build["if"]
+    assert "activate-workers" not in build["if"]
 
 
 @pytest.mark.parametrize(
