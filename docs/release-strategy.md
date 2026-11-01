@@ -76,7 +76,7 @@ release and resolves these runtime components:
 a detected runtime component. Any sender deployment additionally requires
 `sender=true`; this remains an explicit real-host approval boundary.
 
-Pi scraper apply waits for only the Dashah/Bao'an DAGs to drain, pauses them
+Pi scraper apply waits for only the active Dashah DAG to drain, pauses it
 through a bounded protected guard, and restores their original pause flags after
 acknowledged completion. Lost connectivity retains the pause until the bounded
 lease fence ends. The installer requires measured proof and sufficient remaining
@@ -102,6 +102,38 @@ and rejects unsuccessful checks. ChatOps does not perform a second 30-minute
 wait.
 
 ## Rollback
+
+### Recovery after a partial release
+
+An already-migrated Host Core can remain with email active and WeChat paused
+after an interrupted release. This is a recovery baseline, not a healthy
+routine-upgrade baseline. Keep the normal routine checks unchanged. Inspect
+both channels, the exact running Host/API/email identity, Sender readiness,
+schema fingerprint and control timestamp before selecting recovery.
+
+The owner-only Issue #39 command is:
+
+```text
+/release recover <version> <new-main-sha> <existing-runtime-sha> <UTC-control-updated-at> scope=all sender=true
+```
+
+The command supports only the reviewed email-enabled / WeChat-disabled state.
+It passes the recorded runtime identity and unchanged control timestamp to
+`recovery-upgrade`; a different state requires a new diagnosis. The protected
+workflow checks the existing schema and ownership before source checkout,
+rechecks the baseline before fencing, and keeps ordinary preflight, exact-SHA
+CI, backup, image identity, Sender alignment, API transaction rollback and
+natural-delivery acceptance. It never imports a new D1 snapshot into an
+activated runtime. A failure after runtime mutation uses the existing safe
+pause and evidence path.
+
+Bao'an's withdrawal from PR #263 restores the explicit 26-venue active set.
+The scraper remains subject to three real Dashah inspection cycles and the
+normal protected Pi rollout. The retired Bao'an row, observations,
+subscriptions and delivery history remain stored; unknown venue or scope
+drift still fails checks. Group routing and uncertain-send deduplication are
+preserved. Until natural SES and WeChat receipts pass, the release stays
+pending and creates no tag.
 
 The release planner compares a candidate with its preceding semantic release;
 it is designed for forward releases, not for selecting an arbitrary historical

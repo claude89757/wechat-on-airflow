@@ -14,7 +14,7 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DBAPIError
 
-from .domain import VENUES, utc_now
+from .domain import DURABLE_VENUES, utc_now
 from .schema import SCHEMA_STATEMENTS, SCHEMA_VERSION
 from .schema_extensions import SCHEMA_EXTENSION_STATEMENTS
 
@@ -29,7 +29,7 @@ SCHEMA_REVISION = (
     + ":"
     + hashlib.sha256(
         json.dumps(
-            [SCHEMA_STATEMENTS, SCHEMA_EXTENSION_STATEMENTS, sorted(VENUES.items())],
+            [SCHEMA_STATEMENTS, SCHEMA_EXTENSION_STATEMENTS, sorted(DURABLE_VENUES.items())],
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode()
@@ -82,7 +82,7 @@ def _apply_schema(connection: Connection) -> None:
     for statement in (*SCHEMA_STATEMENTS, *SCHEMA_EXTENSION_STATEMENTS):
         connection.execute(text(statement))
     now = utc_now()
-    for venue_id, venue_name in sorted(VENUES.items()):
+    for venue_id, venue_name in sorted(DURABLE_VENUES.items()):
         connection.execute(
             text(
                 """

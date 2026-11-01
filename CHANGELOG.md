@@ -8,13 +8,40 @@ and operational changes.
 ### Changed
 
 - Align the README license badge and license statement with the MIT `LICENSE`.
-- State current acceptance as all 27 active venue DAGs. The count matches the
+- State current acceptance as all 26 active venue DAGs. The count matches the
   runtime target, public venue cards, and architecture. Dated incident records
   keep their historical counts.
 - Disable Dependabot automatic rebasing. Routine version-update pull requests
   stay closed to the merge queue.
 - Type the shared HTTPS proxy watcher and remove it from the strict mypy
   exclusion list. The remaining six adapters stay the bounded typing backlog.
+
+## [0.9.1] - 2026-11-01
+
+### Changed
+
+- Withdraw the Bao'an Tennis Center integration from PR #263 at the owner's
+  request after the incomplete 0.9.0 rollout. Restore the 26-venue active
+  catalogue and retire Bao'an collection and new subscriptions. Exclude the
+  retired venue from delivery while retaining stored subscriptions and history.
+- Limit the protected YDMap scraper rollout and real-page acceptance to
+  Dashah. Retain its booking correctness, browser-state, locking, identity,
+  drain, rollback and evidence safeguards, and preserve unrelated MCP changes.
+
+### Fixed
+
+- Add an explicit protected recovery upgrade for an already-migrated runtime
+  with active email and paused WeChat. Require the recorded runtime commit and
+  control timestamp, unchanged existing schema, fresh email ownership and
+  passing exact-commit CI before fencing and aligning every release component.
+- Keep normal routine-upgrade checks, exact Sender identity, transaction
+  rollback probes and natural-delivery acceptance unchanged. A healthy release
+  awaiting natural receipts remains pending without a release tag.
+- Restore email through the existing consumer with stale reminders expired by
+  normal policy, preserving deduplication and uncertain-send records.
+
+This entry describes the recovery candidate. Production completion requires the
+protected workflow's final evidence and is not asserted by this changelog.
 
 ## [0.9.0] - 2026-10-31
 

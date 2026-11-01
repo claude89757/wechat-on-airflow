@@ -302,7 +302,7 @@ replayed. Production releases remain protected GitHub workflows; only the
 explicitly scoped MCP administration exception above permits other operational
 access.
 
-Acceptance requires the exact commit on host, edge and Sender; all 27 active
+Acceptance requires the exact commit on host, edge and Sender; all 26 active
 venue DAGs with three natural successful cycles; fresh observations and
 consumers; migration identity reconciliation; the production
 transaction-rollback API probe; and actual natural SES-delivered and

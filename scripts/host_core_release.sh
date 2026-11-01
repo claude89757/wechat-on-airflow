@@ -59,7 +59,7 @@ recover() {
   local status=$?
   trap - EXIT INT TERM HUP
   set +e
-  if [[ "$status" != 0 && "$OPERATION" == routine-upgrade && "$changed" == false ]] &&
+  if [[ "$status" != 0 && ( "$OPERATION" == routine-upgrade || "$OPERATION" == recovery-upgrade ) && "$changed" == false ]] &&
      grep -Fq '"event": "host_runtime_mutation_started"' /tmp/host-core-prepare.log 2>/dev/null; then
     changed=true
   fi
@@ -75,12 +75,26 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 case "$OPERATION" in
   preflight) remote preflight ;;
-  full-cutover|routine-upgrade)
+  full-cutover|routine-upgrade|recovery-upgrade)
     routine_args=()
+    routing_args=()
     if [[ "$OPERATION" == routine-upgrade ]]; then
       : >/tmp/host-core-prepare.log
       remote routine-preflight
       routine_args+=(--routine-only)
+      routing_args+=(--routine-only)
+    elif [[ "$OPERATION" == recovery-upgrade ]]; then
+      : "${RECOVERY_RUNTIME_COMMIT:?}" "${RECOVERY_CONTROL_UPDATED_AT:?}" "${RECOVERY_BASELINE_FILE:?}"
+      [[ "$RECOVERY_RUNTIME_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+      [[ "$RECOVERY_DELIVERY_ENABLED" == true && "$RECOVERY_WECHAT_ENABLED" == false ]]
+      routine_args+=(--recovery-runtime-commit "$RECOVERY_RUNTIME_COMMIT"
+        --recovery-control-updated-at "$RECOVERY_CONTROL_UPDATED_AT"
+        --recovery-delivery-enabled "$RECOVERY_DELIVERY_ENABLED"
+        --recovery-wechat-enabled "$RECOVERY_WECHAT_ENABLED"
+        --recovery-baseline-file "$RECOVERY_BASELINE_FILE")
+      routing_args+=(--routine-only)
+      : >/tmp/host-core-prepare.log
+      remote recovery-preflight "${routine_args[@]}"
     else
       changed=true
     fi
@@ -88,8 +102,8 @@ case "$OPERATION" in
     changed=true
     checkpoint | tee /tmp/host-core-checkpoint.json
     migration_complete="$(jq -er 'if (.migrationComplete | type) == "boolean" then (.migrationComplete | tostring) else error("missing migration checkpoint") end' /tmp/host-core-checkpoint.json)"
-    if [[ "$OPERATION" == routine-upgrade && "$migration_complete" != true ]]; then
-      echo 'Routine upgrade cannot enter first-migration operations' >&2
+    if [[ ( "$OPERATION" == routine-upgrade || "$OPERATION" == recovery-upgrade ) && "$migration_complete" != true ]]; then
+      echo 'Routine upgrade cannot enter first-migration operations; recovery is also checkpoint-only' >&2
       exit 1
     fi
     if [[ "$migration_complete" == false ]]; then
@@ -110,7 +124,7 @@ case "$OPERATION" in
     else
       echo '{"event":"resume_verified_migration","d1Reimport":false,"secretRotation":false}'
     fi
-    remote prepare-routing "${routine_args[@]}"
+    remote prepare-routing "${routing_args[@]}"
     deploy_edge production
     remote cutover
     PYTHONPATH=../scripts python ../scripts/webapp_production_health.py --expected-commit "$TARGET_COMMIT" --format json

@@ -3,7 +3,6 @@ export const VENUE_IDS = [
   "gba",
   "dsh_free",
   "dsh",
-  "baoti",
   "sysh",
   "tops",
   "fsb",
@@ -47,7 +46,8 @@ export type VenueStatus = {
 
 export type Subscription = {
   id: string;
-  venueIds: VenueId[];
+  // Retired selections remain visible/cancellable in historical subscriptions.
+  venueIds: (VenueId | "baoti")[];
   weekdays: Weekday[];
   startTime: string;
   endTime: string;
@@ -209,7 +209,6 @@ const FALLBACK_VENUES: VenueStatus[] = [
   { id: "gba", name: "大湾区网球场", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:34+08:00", lastNotificationAt: null },
   { id: "dsh_free", name: "大沙河免费场", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:31+08:00", lastNotificationAt: null },
   { id: "dsh", name: "大沙河国际网球中心", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:31+08:00", lastNotificationAt: null },
-  { id: "baoti", name: "宝安网球中心", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-10-30T08:00:00+08:00", lastNotificationAt: null },
   { id: "sysh", name: "上越沙河", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:41:28+08:00", lastNotificationAt: null },
   { id: "tops", name: "TOPS 科技园", healthy: true, subscriberCount: 22, lastInspectionAt: "2026-07-29T10:41:12+08:00", lastNotificationAt: null },
   { id: "fsb", name: "泛思博特福中福", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
@@ -387,7 +386,18 @@ export function loadDashboardSnapshot(identityKey: string): Dashboard | null {
       storage.removeItem(key);
       return null;
     }
-    return snapshot.value;
+    // A retained browser snapshot may predate the approved Baoan withdrawal.
+    // Keep its subscriptions, but never offer the retired venue as a new target.
+    const venues = snapshot.value.venues.filter((venue) => String(venue.id) !== "baoti");
+    return {
+      ...snapshot.value,
+      venues,
+      metrics: {
+        ...snapshot.value.metrics,
+        totalVenues: venues.length,
+        healthyVenues: venues.filter((venue) => venue.healthy).length,
+      },
+    };
   } catch {
     storage.removeItem(key);
     return null;

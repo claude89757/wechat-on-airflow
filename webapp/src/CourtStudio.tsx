@@ -62,7 +62,7 @@ export function CourtStudio(props: Props) {
   const searchRef = useRef<HTMLInputElement>(null);
   const directoryRef = useRef<HTMLElement>(null);
   const subscribed = useMemo(() => {
-    const counts = new Map<VenueId, number>();
+    const counts = new Map<string, number>();
     if (!dashboard.identity.verified) return counts;
     for (const subscription of dashboard.subscriptions) {
       if (!subscription.active || !subscription.eligible) continue;

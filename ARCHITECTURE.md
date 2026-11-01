@@ -92,14 +92,24 @@ before each upstream attempt and final publication, so closing the window
 discards partial results and publishes the idle observation. The one-minute
 default and other explicit exceptions remain in force.
 
-Business acceptance keeps the retired `szw:check_and_notify_day_3` observation
-visible as historical evidence, using its explicit 2026-10-20 retirement in
-`host-core-contract.yaml`. Only that exact scope is exempt from ongoing health
-and freshness checks, and only while the active manifest excludes its task.
-Unknown scopes and every other stored scope remain subject to the same checks;
-an empty active set fails. Reports retain the original rows plus checked/retired
-counts. Retirement does not delete records, rewrite timestamps or create an
-observation, and does not alter venue, natural-cycle or delivery acceptance.
+Business acceptance retains the retired `szw:check_and_notify_day_3` scope
+(approved 2026-10-20) and `baoti:check_tennis_courts` scope (approved 2026-11-01)
+as historical evidence under the exact policies in `host-core-contract.yaml`.
+The owner withdrew the Baoan integration, so `baoti` is absent from the 26
+active venue producers and new subscription/delivery targets. Its catalog row,
+existing subscriptions, observations, queue history and deduplication identities
+remain durable. Schema fingerprints and seed identity retain the historical
+27-row catalog; retirement performs no migration or deletion. Existing user
+subscriptions remain visible and cancellable, with the retired selection labeled.
+
+Only these approved scopes are exempt from ongoing scope health/freshness,
+and only while the manifest excludes their retired producers. Every other
+stored scope remains checked, and an empty active set fails. Venue acceptance
+requires the exact 26 active IDs; missing, duplicate or unknown catalog entries
+fail rather than being silently filtered. Reports retain original historical
+rows and separate checked/retired counts. Email dispatch and WeChat eligibility
+reject withdrawn venues without deleting or replaying their records. All active
+venue natural cycles and real natural delivery receipts remain mandatory.
 
 ## Email delivery
 
@@ -184,7 +194,7 @@ Acceptance has four distinct evidence classes:
 2. Production database/API logic through an operator-only transaction probe; all
    test writes are rolled back and it sends no real email/WeChat. It is not a
    public browser or external verification-email test.
-3. All 27 venue DAGs passing three natural cycles, fresh per-scope observations,
+3. All 26 venue DAGs passing three natural cycles, fresh per-scope observations,
    healthy auxiliary tasks and advancing consumers/queues.
 4. Real natural SES-delivered and WeChat-sent records after the release window.
 

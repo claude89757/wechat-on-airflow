@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local Chromium scrape service for the YDMap tennis venues."""
+"""Local Chromium scrape service for the Dashah YDMap tennis venue."""
 
 from __future__ import annotations
 
@@ -25,12 +25,6 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
 DSH_BOOKING_URL = "https://wxsports.ydmap.cn/booking/schedule/100220?salesItemId=100000"
-BAOTI_SALES_ID = "104036"
-BAOTI_GROUP_ITEMS = (
-    ("outdoor", "室外", "111317"),
-    ("indoor", "室内", "103224"),
-    ("windrain", "风雨", "111319"),
-)
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
 PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
@@ -46,9 +40,7 @@ CHROMIUM_BIN = "/usr/lib/chromium/chromium"
 CHROMEDRIVER = "/usr/local/bin/chromedriver"
 DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
-BAOTI_PRODUCT_INTERVAL_SECONDS = 30
 SCRAPE_LOCK = threading.Lock()
-VERIFICATION_AVAILABLE = os.environ.get("YDMAP_AUTHORIZED_VERIFICATION") == "1"
 SOURCE_METHODS = (
     "isAvailableStatic",
     "textFun",
@@ -117,18 +109,12 @@ SOURCE_ONLINE_ENUMS = frozenset(
 ) | {"开放", "关闭", "开启", "不开放"}
 
 
-def _baoti_group_url(sales_item_id: str) -> str:
-    return f"https://bawtt.ydmap.cn/booking/schedule/{BAOTI_SALES_ID}?salesItemId={sales_item_id}"
-
-
 VENUE_GROUPS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "dsh": (("", "", DSH_BOOKING_URL),),
-    "baoti": tuple((key, label, _baoti_group_url(item)) for key, label, item in BAOTI_GROUP_ITEMS),
 }
 
 VENUE_NAMES: dict[str, str] = {
     "dsh": "大沙河国际网球交流中心",
-    "baoti": "宝安网球中心",
 }
 
 FIND_DATE_JS = """
@@ -878,7 +864,6 @@ def _wait_for_schedule(
     timeout: float = 45,
     *,
     deadline: float | None = None,
-    verification: dict[str, Any] | None = None,
     phase: str = "initial_schedule",
     **identity: Any,
 ) -> dict[str, Any]:
@@ -893,17 +878,7 @@ def _wait_for_schedule(
         last = _extract_day(driver)
         issue = _snapshot_issue(last, **identity)
         if issue is None:
-            if verification is not None and verification["attempted"]:
-                verification["outcome"] = "passed"
             return last
-        if (
-            issue == "captcha"
-            and verification is not None
-            and verification["outcome"] == "not_needed"
-        ):
-            if _normal_verification_once(driver, verification):
-                time.sleep(min(3, max(0, end - time.monotonic())))
-                continue
         if issue in {"captcha", "rate_limited", "login_required"}:
             return {
                 **last,
@@ -930,33 +905,6 @@ def _remaining(deadline: float, maximum: float) -> float:
     if remaining <= 0:
         raise TimeoutError("scrape_deadline_exceeded")
     return min(remaining, maximum)
-
-
-VERIFICATION_CONTROL_JS = r"""
-// Inspect only the rendered verification UI. Never call provider callbacks,
-// modify the DOM, manufacture events/tokens, or inspect cookies.
-if (location.hostname !== 'bawtt.ydmap.cn') return {status: 'wrong_host'};
-const visible = el => el && el.getClientRects().length &&
-  getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none';
-const roots = [...document.querySelectorAll('.waf-nc-mask, #WAF_NC_WRAPPER')].filter(visible);
-if (!roots.length) return {status: 'root_missing'};
-const controls = roots.flatMap(root => [...root.querySelectorAll('[role="slider"], [aria-label="滑块"]')]);
-const unique = [...new Set(controls)].filter(visible);
-if (!unique.length) return {status: 'controls_missing'};
-if (unique.length !== 1) return {status: 'ambiguous_controls'};
-const handle = unique[0];
-const track = handle.parentElement;
-const instruction = (track.innerText || '').replace(/\s+/g, '');
-if (!/请.*(?:按住|向右|拖动).*滑块|请.*滑块.*(?:拖动|向右)|请向右滑动验证|slide.*(?:right|verify)/i.test(instruction)) return {status: 'instruction_unrecognized'};
-const h = handle.getBoundingClientRect(), t = track.getBoundingClientRect();
-const x = t.right - h.width / 2 - 2;
-const distance = x - (h.left + h.width / 2);
-if (distance < 50 || distance > 600 || h.height < 10 || h.height > 100 ||
-    h.top < t.top || h.bottom > t.bottom || x >= innerWidth) return {status: 'geometry_invalid'};
-const hit = document.elementFromPoint(h.left + h.width / 2, h.top + h.height / 2);
-if (hit !== handle && !handle.contains(hit)) return {status: 'control_obstructed'};
-return {status: 'ready', handle, distance: Math.round(distance)};
-"""
 
 
 ACCESS_DIAGNOSTIC_JS = r"""
@@ -1141,42 +1089,6 @@ def _access_diagnostics(driver: webdriver.Remote) -> dict[str, int]:
     return counts
 
 
-def _normal_verification_once(driver: webdriver.Remote, state: dict[str, Any]) -> bool:
-    control = driver.execute_script(VERIFICATION_CONTROL_JS)
-    status = control.get("status") if isinstance(control, dict) else None
-    state["control"] = (
-        status
-        if status
-        in (
-            "wrong_host",
-            "root_missing",
-            "controls_missing",
-            "ambiguous_controls",
-            "instruction_unrecognized",
-            "geometry_invalid",
-            "control_obstructed",
-            "ready",
-        )
-        else "probe_failed"
-    )
-    if not isinstance(control, dict) or status != "ready" or "handle" not in control:
-        state["outcome"] = "unsupported_control"
-        return False
-    distance = control.get("distance")
-    if type(distance) is not int or not 50 <= distance <= 600:
-        state["outcome"] = "unsupported_control"
-        return False
-    from selenium.webdriver.common.action_chains import ActionChains
-
-    # A single ordinary pointer drag, explicitly authorized by the operator.
-    # No retry, evasive trajectory, event injection or provider API invocation.
-    state.update(attempted=True, outcome="not_passed")
-    ActionChains(driver, duration=1000).click_and_hold(control["handle"]).move_by_offset(
-        distance, 0
-    ).release().perform()
-    return True
-
-
 def _prefixed_court_name(label: str, court: str) -> str:
     """Disambiguate courts whose raw name omits its venue group."""
     name = str(court).strip()
@@ -1318,21 +1230,14 @@ def _scrape_available_slots(
     days: int,
     *,
     source_evidence: bool,
-    verification: dict[str, Any] | None = None,
     runtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     groups = VENUE_GROUPS.get(venue)
     if not groups:
         return _stop_with_error(error=f"unknown_venue:{venue}", venue=venue)
-    if (
-        source_evidence
-        and venue == "baoti"
-        and os.environ.get("YDMAP_DIAGNOSTIC_FIRST_PRODUCT") == "windrain"
-    ):
-        groups = tuple(sorted(groups, key=lambda group: group[0] != "windrain"))
     days = min(max(days, 1), 7)
     # Reserve driver/browser cleanup time inside the caller's 240-second limit.
-    budget = min(SCRAPE_TIMEOUT, 135) if venue == "dsh" else SCRAPE_TIMEOUT
+    budget = min(SCRAPE_TIMEOUT, 135)
     deadline = time.monotonic() + budget - 30
     today = datetime.now(SHANGHAI).date()
     requested = [(today + timedelta(days=offset)).isoformat() for offset in range(days)]
@@ -1354,7 +1259,6 @@ def _scrape_available_slots(
     watchdog.daemon = True
     watchdog.start()
     try:
-        next_product_at = 0.0
         for index, (key, label, url) in enumerate(groups):
             requested_product = parse_qs(urlparse(url).query)["salesItemId"][0]
             if proc is not None:
@@ -1362,10 +1266,6 @@ def _scrape_available_slots(
                 proc = None
                 driver = None
             phase = "browser_start"
-            if index > 0 and venue == "baoti":
-                delay = next_product_at - time.monotonic()
-                if delay > 0:
-                    time.sleep(_remaining(deadline, delay))
             _remaining(deadline, 20)
             # A fixed private profile belongs to this product across polls.
             # Each source opens its supported URL natively, like Dashah;
@@ -1390,7 +1290,6 @@ def _scrape_available_slots(
             payload = _wait_for_schedule(
                 driver,
                 deadline=deadline,
-                verification=verification,
                 phase=phase,
                 **identity,
             )
@@ -1406,10 +1305,6 @@ def _scrape_available_slots(
             initial_issue = _snapshot_issue(payload, **identity)
             if initial_issue:
                 return _stop_with_error(error=initial_issue, venue=venue, payload=payload)
-            # Calendar verification followed the third rapid product activation
-            # with either product order. Pace fresh product loads, not DAG runs
-            # or retries. Count from readiness so startup latency cannot shorten it.
-            next_product_at = time.monotonic() + BAOTI_PRODUCT_INTERVAL_SECONDS
             order = list(requested)
             if payload["selectedDate"] == order[0]:
                 if len(order) > 1:
@@ -1444,7 +1339,6 @@ def _scrape_available_slots(
                     deadline=deadline,
                     expected_date=booking_iso,
                     previous=previous,
-                    verification=verification,
                     phase=phase,
                     **identity,
                 )
@@ -1558,26 +1452,11 @@ def scrape_available_slots(
     days: int = DEFAULT_DAYS,
     *,
     source_evidence: bool = False,
-    verification_once: bool = False,
 ) -> dict[str, Any]:
-    global VERIFICATION_AVAILABLE
-    verification = None
-    if verification_once and VERIFICATION_AVAILABLE and source_evidence and venue == "baoti":
-        VERIFICATION_AVAILABLE = False
-        verification = {"attempted": False, "outcome": "not_needed"}
     runtime: dict[str, Any] = {}
-    result = _scrape_available_slots(
-        venue, days, source_evidence=source_evidence, verification=verification, runtime=runtime
-    )
+    result = _scrape_available_slots(venue, days, source_evidence=source_evidence, runtime=runtime)
     if runtime:
         result.setdefault("diagnostics", {}).update(runtime)
-    if verification is not None:
-        result.setdefault("diagnostics", {}).update(
-            verificationAttempted=verification["attempted"],
-            verificationOutcome=verification["outcome"],
-        )
-        if "control" in verification:
-            result["diagnostics"]["verificationControl"] = verification["control"]
     return result
 
 
@@ -1614,6 +1493,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         query = parse_qs(parsed.query)
         venue = str((query.get("venue") or [DEFAULT_VENUE])[0]).strip() or DEFAULT_VENUE
+        if venue not in VENUE_GROUPS or "verification" in query:
+            self._send_json(400, _stop_with_error(error="unsupported_inspection", venue=venue))
+            return
         try:
             days = int((query.get("days") or [str(DEFAULT_DAYS)])[0])
         except ValueError:
@@ -1627,7 +1509,6 @@ class Handler(BaseHTTPRequestHandler):
                 venue,
                 days,
                 source_evidence=requested_evidence,
-                verification_once=query.get("verification") == ["once"],
             )
             self._send_json(200 if payload.get("ok") else 503, payload)
         except Exception as exc:

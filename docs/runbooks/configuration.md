@@ -132,8 +132,8 @@ use.
 
 ## Raspberry Pi YDMap Scraper
 
-`PI_DEVICE_SSH` is a sensitive JSON object shared by the Dashah International
-Tennis Center and Bao'an Tennis Center DAGs. It requires `host`, `port`,
+`PI_DEVICE_SSH` is the sensitive JSON object used by the Dashah International
+Tennis Center DAG. It requires `host`, `port`,
 `username`, `password`, and `host_key_sha256`. Optional `scrape_url` defaults to
 `http://127.0.0.1:8788/inspect`. Never log or commit its value.
 
@@ -147,15 +147,15 @@ runtime path and must not be copied onto developer machines. The workstation
 
 The scrape service listens only on the Pi loopback interface. Airflow reaches
 it by SSH and a localhost `curl`. Do not publish port `8788`. The Dashah watcher
-collects today plus four later calendar days; the Bao'an watcher requests
-`venue=baoti`, which scrapes the outdoor, indoor and wind-rain groups of
-`bawtt.ydmap.cn` and returns the two released calendar days. Both publish raw
-slots to the Web app before any WeChat enqueue, and every request is serialized
-by the service's single-scrape lock.
+collects today plus four later calendar days, publishes raw slots to Host Core
+before any WeChat enqueue, and uses the service's single-scrape lock. Baoan
+(`baoti`) was explicitly withdrawn on 2026-11-01. Its historical database rows,
+subscriptions, Airflow state and deduplication cache must be preserved; it is
+not an active required configuration or producer.
 
 ## Web Subscription Publisher
 
-All nine venue DAGs require:
+All 26 active venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in

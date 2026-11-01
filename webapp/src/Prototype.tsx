@@ -80,7 +80,6 @@ const VENUE_ACCENTS: Record<VenueId, string> = {
   gba: "cyan",
   dsh_free: "green",
   dsh: "teal",
-  baoti: "green",
   sysh: "blue",
   tops: "royal",
   fsb: "blue",
@@ -110,7 +109,6 @@ const VENUE_ICONS: Record<VenueId, React.ElementType> = {
   gba: BuildingApartmentIcon,
   dsh_free: TennisBallIcon,
   dsh: TennisBallIcon,
-  baoti: TennisBallIcon,
   sysh: TennisBallIcon,
   tops: BuildingsIcon,
   fsb: MapPinIcon,
@@ -937,7 +935,8 @@ export default function Prototype() {
                 <div>
                   <strong>
                     {subscription.venueIds
-                      .map((venueId) => dashboard.venues.find((venue) => venue.id === venueId)?.name)
+                      .map((venueId) => dashboard.venues.find((venue) => venue.id === venueId)?.name
+                        ?? (venueId === "baoti" ? "宝安网球中心（已停用）" : venueId))
                       .filter(Boolean)
                       .join("、")}
                   </strong>

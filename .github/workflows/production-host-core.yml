@@ -11,6 +11,26 @@ on:
         description: Exact full commit SHA
         required: true
         type: string
+      recovery_runtime_commit:
+        description: Exact existing Host Core commit for recovery-upgrade only
+        required: false
+        type: string
+        default: ''
+      recovery_control_updated_at:
+        description: Exact existing control timestamp for recovery-upgrade only
+        required: false
+        type: string
+        default: ''
+      recovery_delivery_enabled:
+        description: Explicit existing email gate; recovery requires true
+        required: false
+        type: boolean
+        default: false
+      recovery_wechat_enabled:
+        description: Explicit existing WeChat gate; recovery requires false
+        required: false
+        type: boolean
+        default: false
     outputs:
       acceptance_status:
         description: accepted, pending natural delivery, or failed; complete is report completeness only
@@ -25,6 +45,7 @@ on:
           - preflight
           - full-cutover
           - routine-upgrade
+          - recovery-upgrade
           - health
           - activate-workers
           - acceptance
@@ -33,6 +54,26 @@ on:
         description: Exact full commit SHA; empty uses current main
         required: false
         type: string
+      recovery_runtime_commit:
+        description: Exact existing Host Core commit for recovery-upgrade only
+        required: false
+        type: string
+        default: ''
+      recovery_control_updated_at:
+        description: Exact existing control timestamp for recovery-upgrade only
+        required: false
+        type: string
+        default: ''
+      recovery_delivery_enabled:
+        description: Explicit existing email gate; recovery requires true
+        required: false
+        type: boolean
+        default: false
+      recovery_wechat_enabled:
+        description: Explicit existing WeChat gate; recovery requires false
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,14 +98,28 @@ jobs:
         env:
           INPUT_OPERATION: ${{ inputs.operation }}
           INPUT_TARGET: ${{ inputs.target_commit }}
+          RECOVERY_RUNTIME_COMMIT: ${{ inputs.recovery_runtime_commit }}
+          RECOVERY_CONTROL_UPDATED_AT: ${{ inputs.recovery_control_updated_at }}
+          RECOVERY_DELIVERY_ENABLED: ${{ inputs.recovery_delivery_enabled }}
+          RECOVERY_WECHAT_ENABLED: ${{ inputs.recovery_wechat_enabled }}
         run: |
           set -euo pipefail
           operation="$INPUT_OPERATION"
           target_commit="${INPUT_TARGET:-$(git rev-parse origin/main)}"
-          [[ "$operation" =~ ^(preflight|full-cutover|routine-upgrade|health|activate-workers|acceptance|pause)$ ]]
+          [[ "$operation" =~ ^(preflight|full-cutover|routine-upgrade|recovery-upgrade|health|activate-workers|acceptance|pause)$ ]]
           [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
           git fetch --quiet origin main
           [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
+          if [[ "$operation" == recovery-upgrade ]]; then
+            [[ "$RECOVERY_RUNTIME_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            [[ "$RECOVERY_RUNTIME_COMMIT" != "$target_commit" ]]
+            [[ "$RECOVERY_DELIVERY_ENABLED" == true && "$RECOVERY_WECHAT_ENABLED" == false ]]
+            [[ "$RECOVERY_CONTROL_UPDATED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+]00:00)$ ]]
+            git merge-base --is-ancestor "$RECOVERY_RUNTIME_COMMIT" origin/main
+          else
+            [[ -z "$RECOVERY_RUNTIME_COMMIT" && -z "$RECOVERY_CONTROL_UPDATED_AT" ]]
+            [[ "$RECOVERY_DELIVERY_ENABLED" == false && "$RECOVERY_WECHAT_ENABLED" == false ]]
+          fi
           echo "should_run=true" >> "$GITHUB_OUTPUT"
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
           echo "target_commit=$target_commit" >> "$GITHUB_OUTPUT"
@@ -80,6 +135,11 @@ jobs:
     env:
       TARGET_COMMIT: ${{ needs.resolve.outputs.target_commit }}
       OPERATION: ${{ needs.resolve.outputs.operation }}
+      RECOVERY_RUNTIME_COMMIT: ${{ inputs.recovery_runtime_commit }}
+      RECOVERY_CONTROL_UPDATED_AT: ${{ inputs.recovery_control_updated_at }}
+      RECOVERY_DELIVERY_ENABLED: ${{ inputs.recovery_delivery_enabled }}
+      RECOVERY_WECHAT_ENABLED: ${{ inputs.recovery_wechat_enabled }}
+      RECOVERY_BASELINE_FILE: .local/host-core-recovery/${{ needs.resolve.outputs.target_commit }}-${{ github.run_id }}-${{ github.run_attempt }}.json
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       AIRFLOW_SSH_HOST: ${{ secrets.AIRFLOW_SSH_HOST }}
@@ -117,6 +177,16 @@ jobs:
             --poll-seconds 10 \
             --format json
 
+      - name: Require verified existing runtime for recovery
+        if: inputs.operation == 'recovery-upgrade'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=scripts python scripts/github_release_gate.py \
+            --target-commit "$RECOVERY_RUNTIME_COMMIT" \
+            --required-check verify --wait-seconds 0 --format json
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -145,10 +215,47 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 0600 ~/.ssh/known_hosts
 
+      - name: Capture recovery baseline before changing source
+        id: capture_recovery
+        if: inputs.operation == 'recovery-upgrade'
+        run: |
+          set -euo pipefail
+          args=(capture-recovery-baseline --target-commit "$TARGET_COMMIT"
+            --recovery-runtime-commit "$RECOVERY_RUNTIME_COMMIT"
+            --recovery-control-updated-at "$RECOVERY_CONTROL_UPDATED_AT"
+            --recovery-delivery-enabled "$RECOVERY_DELIVERY_ENABLED"
+            --recovery-wechat-enabled "$RECOVERY_WECHAT_ENABLED"
+            --recovery-baseline-file "$RECOVERY_BASELINE_FILE")
+          printf -v quoted '%q ' "${args[@]}"
+          printf -v repository '%q' "$AIRFLOW_REPOSITORY_PATH"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=120 -o TCPKeepAlive=yes \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "cd -- $repository && HOST_CORE_ROOT=$repository python3 - $quoted" \
+            < scripts/host_core_production.py | tee /tmp/host-core-recovery-baseline.log
+
       - name: Prepare exact remote commit
         id: prepare_remote
         run: |
           set -euo pipefail
+          if [[ "$OPERATION" == recovery-upgrade ]]; then
+            args=(prepare-recovery-source --target-commit "$TARGET_COMMIT"
+              --recovery-runtime-commit "$RECOVERY_RUNTIME_COMMIT"
+              --recovery-control-updated-at "$RECOVERY_CONTROL_UPDATED_AT"
+              --recovery-delivery-enabled "$RECOVERY_DELIVERY_ENABLED"
+              --recovery-wechat-enabled "$RECOVERY_WECHAT_ENABLED"
+              --recovery-baseline-file "$RECOVERY_BASELINE_FILE")
+            printf -v quoted '%q ' "${args[@]}"
+            printf -v repository '%q' "$AIRFLOW_REPOSITORY_PATH"
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+              -o ServerAliveInterval=15 -o ServerAliveCountMax=120 -o TCPKeepAlive=yes \
+              -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+              "cd -- $repository && HOST_CORE_ROOT=$repository python3 - $quoted" \
+              < scripts/host_core_production.py
+            echo "previous_commit=$RECOVERY_RUNTIME_COMMIT" >> "$GITHUB_OUTPUT"
+            echo "live_commit=$RECOVERY_RUNTIME_COMMIT" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           prepared="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=120 -o TCPKeepAlive=yes \
             -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
@@ -225,6 +332,38 @@ jobs:
           test "$(git rev-parse HEAD)" = "$previous"
           echo 'Rejected preflight: previous source identity restored; live services untouched.'
           REMOTE
+
+      - name: Restore source after rejected recovery preparation
+        if: failure() && inputs.operation == 'recovery-upgrade' && steps.capture_recovery.outcome == 'success'
+        run: |
+          set -euo pipefail
+          if grep -Fq '"event": "host_runtime_mutation_started"' /tmp/host-core-prepare.log 2>/dev/null; then
+            echo 'Runtime mutation started; source-only restoration is unsafe and was skipped.'
+            exit 0
+          fi
+          args=(restore-recovery-source --target-commit "$TARGET_COMMIT"
+            --recovery-runtime-commit "$RECOVERY_RUNTIME_COMMIT"
+            --recovery-control-updated-at "$RECOVERY_CONTROL_UPDATED_AT"
+            --recovery-delivery-enabled "$RECOVERY_DELIVERY_ENABLED"
+            --recovery-wechat-enabled "$RECOVERY_WECHAT_ENABLED"
+            --recovery-baseline-file "$RECOVERY_BASELINE_FILE")
+          printf -v quoted '%q ' "${args[@]}"
+          printf -v repository '%q' "$AIRFLOW_REPOSITORY_PATH"
+          # Run the reviewed runner copy even when checkout itself was rejected.
+          # The helper checks live DB/container identity independently of the marker.
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            -p "$AIRFLOW_SSH_PORT" "$AIRFLOW_SSH_USER@$AIRFLOW_SSH_HOST" \
+            "cd -- $repository && HOST_CORE_ROOT=$repository python3 - $quoted" \
+            < scripts/host_core_production.py
+
+      - name: Publish sanitized recovery baseline
+        if: always() && inputs.operation == 'recovery-upgrade' && steps.capture_recovery.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: host-core-recovery-${{ inputs.target_commit }}-attempt-${{ github.run_attempt }}
+          path: /tmp/host-core-recovery-baseline.log
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Publish sanitized acceptance evidence
         id: acceptance_evidence

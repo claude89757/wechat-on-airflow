@@ -20,6 +20,7 @@ from .database import ensure_schema, ping, transaction
 from .domain import (
     PRIORITY_TERMS,
     STANDARD_TERMS,
+    active_venue_status,
     decrypt_invite_code,
     encrypt_invite_code,
     generate_invite_code,
@@ -408,6 +409,10 @@ def bootstrap(request: Request) -> dict[str, Any]:
         if identity_tier == "priority"
         else settings.standard_active_subscription_limit
     )
+    try:
+        visible_venue_rows = active_venue_status([dict(row) for row in venue_rows])
+    except ValueError:
+        raise HTTPException(status_code=503, detail="场馆目录暂不可用") from None
     venues = [
         {
             "id": row["venue_id"],
@@ -417,7 +422,7 @@ def bootstrap(request: Request) -> dict[str, Any]:
             "lastInspectionAt": jsonable_datetime(row["last_inspection_at"]),
             "lastNotificationAt": jsonable_datetime(row["last_notification_at"]),
         }
-        for row in venue_rows
+        for row in visible_venue_rows
     ]
     subscriptions = [
         {

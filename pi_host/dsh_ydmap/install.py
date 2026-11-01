@@ -37,7 +37,7 @@ OTHER_UNITS = (
     "pi-appium-mcp.service",
     "cloudflared-appium-mcp.service",
 )
-TEST_NAMES = ("pi_baoti_scraper_test.py", "pi_ydmap_identity_test.py")
+TEST_NAMES = ("pi_ydmap_scraper_test.py", "pi_ydmap_identity_test.py")
 MAX_BYTES = 1_000_000
 MAX_SOURCE_EVIDENCE_BYTES = 128 * 1024
 RENDERER_METHODS = {
@@ -118,7 +118,7 @@ SOURCE_LITERAL_ALLOWLIST = SOURCE_CLASSES | {
 SOURCE_STRING = re.compile(r'"(?:[^"\\\r\n]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"')
 PUBLIC_TEXT = re.compile(r"[\w\u3400-\u9fff ·.()（）-]{1,120}")
 MARKER = "# Managed Pi YDMap release\n"
-DAG_IDS = ("大沙河国际网球中心巡检", "宝安网球中心巡检")
+DAG_IDS = ("大沙河国际网球中心巡检",)
 LEASE_SECONDS = 1620
 PROOF_MARGIN_SECONDS = 90
 ACTIVATION_SECONDS = 540
@@ -217,11 +217,6 @@ SOURCE_FIELDS = {
 }
 PRODUCTS = {
     "dsh": {"": ("100000", "")},
-    "baoti": {
-        "outdoor": ("111317", "室外"),
-        "indoor": ("103224", "室内"),
-        "windrain": ("111319", "风雨"),
-    },
 }
 ERROR_CLASSES = {
     "OperationFailure",
@@ -337,7 +332,7 @@ class OperationFailure(RuntimeError):
 def safe_diagnostic_ui(value: object) -> dict | None:
     if not isinstance(value, dict) or set(value) != {"venue", "mime_type", "sha256", "chunks"}:
         return None
-    if value.get("venue") not in {"dsh", "baoti"} or value.get("mime_type") != "image/png":
+    if value.get("venue") not in PRODUCTS or value.get("mime_type") != "image/png":
         return None
     chunks = value.get("chunks")
     if (
@@ -384,7 +379,7 @@ def safe_source_diagnostic(value: object, *, nested: bool = False) -> dict:
                 ),
             }
             for venue, item in failures.items()
-            if venue in {"dsh", "baoti"} and isinstance(item, dict)
+            if venue in PRODUCTS and isinstance(item, dict)
         }
     access = value.get("accessDiagnostics")
     if isinstance(access, dict):
@@ -462,7 +457,7 @@ def safe_source_diagnostic(value: object, *, nested: bool = False) -> dict:
     if (
         isinstance(failed_venues, list)
         and 1 <= len(failed_venues) <= 2
-        and all(isinstance(venue, str) and venue in {"dsh", "baoti"} for venue in failed_venues)
+        and all(isinstance(venue, str) and venue in PRODUCTS for venue in failed_venues)
     ):
         result["failedVenues"] = list(dict.fromkeys(failed_venues))
     # Presence alone is useful when a provider changed field types. No unknown
@@ -989,14 +984,14 @@ def verify_health(payload: dict, commit: str, source_hash: str) -> dict:
         or payload.get("protocolVersion") != 2
         or payload.get("deploymentCommit") != commit
         or payload.get("sourceSha256") != source_hash
-        or sorted(payload.get("venues", [])) != ["baoti", "dsh"]
+        or sorted(payload.get("venues", [])) != ["dsh"]
     ):
         raise OperationFailure("scraper_identity_mismatch")
     return {
         "protocolVersion": 2,
         "deploymentCommit": commit,
         "sourceSha256": source_hash,
-        "venues": ["baoti", "dsh"],
+        "venues": ["dsh"],
     }
 
 
@@ -1040,7 +1035,7 @@ def validate_drain_proof(value: object, commit: str, *, remaining: int = 30) -> 
     ):
         raise OperationFailure("dag_drain_proof_required")
     dags = value.get("dags")
-    if not isinstance(dags, list) or not 1 <= len(dags) <= 2:
+    if not isinstance(dags, list) or len(dags) != 1:
         raise OperationFailure("dag_drain_proof_required")
     if any(
         not isinstance(dag, dict)
@@ -1086,7 +1081,8 @@ def inspect_evidence(
     payload: dict, venue: str, expected_dates: list[str], *, source_evidence: bool = False
 ) -> dict:
     if (
-        payload.get("ok") is not True
+        venue not in PRODUCTS
+        or payload.get("ok") is not True
         or payload.get("captcha") is not False
         or payload.get("schema_version") != 2
         or payload.get("venue") != venue
@@ -1129,9 +1125,7 @@ def inspect_evidence(
                 label and label not in product_name
             ):
                 raise OperationFailure("product_identity_mismatch")
-            expected_host, expected_sales = (
-                ("wxsports.ydmap.cn", "100220") if venue == "dsh" else ("bawtt.ydmap.cn", "104036")
-            )
+            expected_host, expected_sales = "wxsports.ydmap.cn", "100220"
             if (
                 group.get("source_host") != expected_host
                 or str(group.get("source_sales_id")) != expected_sales
@@ -1267,20 +1261,17 @@ def inspect_venues(
     *,
     at: datetime | None = None,
     source_evidence: bool = False,
-    verification_once: bool = False,
 ) -> list[dict]:
     reports = []
     failures = []
     local = at or datetime.now(ZoneInfo("Asia/Shanghai"))
-    for venue, days, timeout in (("dsh", 5 if local.hour >= 12 else 4, 150), ("baoti", 2, 240)):
+    for venue, days, timeout in (("dsh", 5 if local.hour >= 12 else 4, 150),):
         today = local.date()
         expected = [(today + timedelta(days=offset)).isoformat() for offset in range(days)]
         try:
             path = f"/inspect?venue={venue}&days={days}"
             if source_evidence:
                 path += "&evidence=source-v1"
-                if verification_once and venue == "baoti":
-                    path += "&verification=once"
             payload = request_json(port, path, timeout=timeout)
             reports.append(
                 inspect_evidence(payload, venue, expected, source_evidence=source_evidence)
@@ -1292,8 +1283,8 @@ def inspect_venues(
                 raise
             failures.append(exc)
     if failures:
-        # Diagnostic preflight checks each independent venue once. A failure
-        # still blocks activation, even when the other venue was verified.
+        # Keep the bounded source evidence from the failed Dashah inspection.
+        # A failed candidate never authorizes activation.
         failure = failures[-1]
         failure.diagnostic_ui = next(
             (item.diagnostic_ui for item in reversed(failures) if item.diagnostic_ui), None
@@ -1540,8 +1531,6 @@ def isolated_candidate(
     account: pwd.struct_passwd,
     commit: str,
     *,
-    verification_once: bool = False,
-    first_product: str = "",
     profile: Path | None = None,
     capture_browser_ui: bool = False,
 ):
@@ -1559,8 +1548,6 @@ def isolated_candidate(
         "YDMAP_PROFILE": str(profile or runtime / "profile"),
         "YDMAP_DEPLOYMENT_COMMIT": commit,
         "PYTHONDONTWRITEBYTECODE": "1",
-        "YDMAP_AUTHORIZED_VERIFICATION": "1" if verification_once else "0",
-        "YDMAP_DIAGNOSTIC_FIRST_PRODUCT": first_product,
         "YDMAP_CAPTURE_BROWSER_UI": "1" if capture_browser_ui else "0",
     }
     process = None
@@ -1645,7 +1632,7 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
     validate_drain_proof(drain_proof, commit, remaining=ACTIVATION_LEASE_REQUIRED + 250)
     wait_idle()
     # wait_idle itself may consume 240 seconds. Recheck at the last point before
-    # the live unit can change, reserving both live inspections and rollback.
+    # the live unit can change, reserving live inspection and rollback.
     validate_drain_proof(drain_proof, commit, remaining=ACTIVATION_LEASE_REQUIRED)
     try:
         with bounded_action(ACTIVATION_SECONDS):
@@ -1663,7 +1650,7 @@ def activate(candidate: Path, commit: str, source_hash: str, drain_proof: dict) 
             run(["systemctl", "start", UNIT])
             report = wait_health(commit, source_hash)
             # The real systemd environment can differ from the isolated
-            # candidate. Both real listener inspections are part of activation.
+            # candidate. The real listener inspection is part of activation.
             inspections = inspect_venues(8788)
             report = verify_health(request_json(8788, "/healthz"), commit, source_hash)
             return {
@@ -1726,11 +1713,10 @@ def operate(args) -> dict:
     capture_browser_ui = getattr(args, "capture_browser_ui", False)
     if capture_browser_ui and args.operation != "preflight":
         raise OperationFailure("verification_not_authorized")
-    if drain_preflight and (args.operation != "preflight" or verification_once or first_product):
+    if drain_preflight and args.operation != "preflight":
         raise OperationFailure("verification_not_authorized")
-    if first_product and (first_product != "windrain" or args.operation != "preflight"):
-        raise OperationFailure("verification_not_authorized")
-    if verification_once and args.operation != "preflight":
+    # Retired Baoan-only diagnostic options must fail before host access.
+    if verification_once or first_product:
         raise OperationFailure("verification_not_authorized")
     before = other_service_identities()
     account = verify_existing_service()
@@ -1744,10 +1730,7 @@ def operate(args) -> dict:
         report = {"health": health, "inspections": evidence, "applied": False}
     else:
         candidate = prepare_candidate(args.staging, args.commit, args.source_sha256, account)
-        options = {"verification_once": True} if verification_once else {}
         candidate_options = {
-            **options,
-            **({"first_product": first_product} if first_product else {}),
             **(
                 {"profile": service_profile(account)}
                 if args.operation == "apply" or drain_preflight
@@ -1761,16 +1744,12 @@ def operate(args) -> dict:
                 evidence = inspect_quiesced_candidate(port, args.drain_proof, args.commit)
             else:
                 evidence = (
-                    inspect_venues(port, source_evidence=True, **options)
+                    inspect_venues(port, source_evidence=True)
                     if args.operation == "preflight"
                     else inspect_venues(port)
                 )
         if before != other_service_identities():
             raise OperationFailure("unrelated_service_changed")
-        if first_product:
-            failure = OperationFailure("diagnostic_only")
-            failure.inspections = evidence
-            raise failure
         report = {
             "health": health,
             "inspections": evidence,
@@ -1800,8 +1779,6 @@ def main() -> int:
     parser.add_argument("--commit", required=True)
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--staging", type=Path)
-    parser.add_argument("--verification-once", action="store_true")
-    parser.add_argument("--first-product", choices=("windrain",), default="")
     parser.add_argument("--drain-preflight", action="store_true")
     parser.add_argument("--capture-browser-ui", action="store_true")
     args = parser.parse_args()
