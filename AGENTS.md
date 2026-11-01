@@ -247,14 +247,18 @@ SES keys, invitation plaintext, or the Fernet key.
 
 ## Agent Authority
 
-Agents may autonomously perform read-only inspection and local reversible work:
+Agents finish development and routine operations without asking for another
+confirmation. Commit and push when the change is ready. Dispatch the documented
+protected workflow for a routine release, recovery, or health check.
+
+Agents may autonomously:
 
 - inspect local and production state without revealing secrets;
 - edit code, tests, documentation, and non-secret configuration;
 - build images and run isolated migration rehearsals;
 - create backups;
 - commit and push verified changes;
-- deploy reversible application changes only after all documented gates pass.
+- deploy reversible application changes after the documented gates pass.
 
 Human approval is required before high-risk or irreversible work:
 
