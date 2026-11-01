@@ -109,7 +109,11 @@ jobs:
           [[ "$operation" =~ ^(preflight|full-cutover|routine-upgrade|recovery-upgrade|health|activate-workers|acceptance|pause)$ ]]
           [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
           git fetch --quiet origin main
-          [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
+          if [[ "$operation" == health || "$operation" == acceptance || "$operation" == pause ]]; then
+            git merge-base --is-ancestor "$target_commit" origin/main
+          else
+            [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
+          fi
           if [[ "$operation" == recovery-upgrade ]]; then
             [[ "$RECOVERY_RUNTIME_COMMIT" =~ ^[0-9a-f]{40}$ ]]
             [[ "$RECOVERY_RUNTIME_COMMIT" != "$target_commit" ]]

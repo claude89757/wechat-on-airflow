@@ -78,6 +78,18 @@ def test_default_release_allows_interruption():
     assert "inputs.operation" in build["if"]
     assert "recovery-upgrade" in build["if"]
     assert "activate-workers" not in build["if"]
+    resolve = next(step for step in host["jobs"]["resolve"]["steps"] if step.get("id") == "resolve")
+    assert (
+        '"$operation" == health || "$operation" == acceptance || "$operation" == pause'
+        in resolve["run"]
+    )
+    prepare = next(
+        step
+        for step in host["jobs"]["operate"]["steps"]
+        if step.get("name") == "Prepare exact remote commit"
+    )
+    assert 'test "$previous" = "$target"' in prepare["run"]
+    assert 'test "$live" = "$target"' in prepare["run"]
 
 
 @pytest.mark.parametrize(

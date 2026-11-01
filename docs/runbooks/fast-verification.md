@@ -49,3 +49,6 @@ exact commits, deployment health and separate high-risk approvals are unchanged.
 Natural observation remains asynchronous. This optimization does not introduce
 CI-built image promotion. Formal versioned ship still creates a tag, but routine
 SHA-based component repair does not require a new version or release ceremony.
+Host health, acceptance and emergency pause target the deployed main-ancestor
+commit, not necessarily latest main. Host source and live API must both match
+that target; these operations never check out an older production version.
