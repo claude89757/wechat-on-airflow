@@ -130,14 +130,17 @@ class WeChatDeliveryDiagnosisTest(unittest.TestCase):
         }
         namespace = {
             "chatrooms": configured.__getitem__,
-            "paused_general": set(configured["SZ_TENNIS_CHATROOMS"]),
         }
         exec(mapping, namespace)
-        self.assertEqual(namespace["targets"]["general"], [])
+        self.assertEqual(namespace["targets"]["general"], configured["SZ_TENNIS_CHATROOMS"])
         self.assertEqual(namespace["targets"]["dsh_free"], ["Zacks_大沙河限定免费"])
         self.assertEqual(
             namespace["positions"],
-            {"Zacks_大沙河限定免费": [("dsh_free", 1)]},
+            {
+                "shared-zacks-a": [("general", 1)],
+                "shared-zacks-b": [("general", 2)],
+                "Zacks_大沙河限定免费": [("dsh_free", 1)],
+            },
         )
 
     def test_diagnosis_is_read_only_and_redacts_receiver_and_message(self):
@@ -175,7 +178,7 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
         self.assertNotIn("Variable.set", script)
         self.assertNotIn("WECHAT_SEND_FALLBACK_OUTBOX", script)
 
-    def test_dashah_probe_excludes_paused_general_groups(self):
+    def test_probe_restores_shared_groups_without_redirecting_free_court_group(self):
         script = probe_wechat_delivery.remote_script()
         mapping = script[script.index("configured = {}") : script.index("if not targets:")]
         configured = {
@@ -183,9 +186,9 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
             "SZ_TYZX_TENNIS_CHATROOMS": ["shared-zacks-b"],
         }
         for selector, expected in (
-            ("", ["Zacks_大沙河限定免费"]),
+            ("", ["shared-zacks-a", "shared-zacks-b", "Zacks_大沙河限定免费"]),
             ("dsh_free:1", ["Zacks_大沙河限定免费"]),
-            ("general:1", []),
+            ("general:1", ["shared-zacks-a"]),
         ):
             with self.subTest(selector=selector):
                 namespace = {"selector": selector, "chatrooms": configured.__getitem__}

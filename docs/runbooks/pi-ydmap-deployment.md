@@ -125,8 +125,9 @@ of a provider challenge.
 3. Apply the exact reviewed scraper before the affected Airflow client deployment.
 4. Require health and inspect for the same SHA, then three natural successful
    Dashah DAG cycles and fresh correctly attributed observations.
-5. Preserve group routing, deduplication and natural delivery policies. Shared
-   Zacks groups remain paused until the owner explicitly changes that policy.
+5. Preserve group routing, deduplication and natural delivery policies. The owner
+   restored configured shared Zacks groups on 2026-11-01. Do not reintroduce the
+   retired shared-recipient pause; keep the free-court group isolated.
 6. Record exact identities and any remaining upstream access limitation.
 
 Health establishes service/protocol/source identity. The inspect operation
