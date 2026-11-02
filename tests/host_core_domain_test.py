@@ -93,7 +93,7 @@ def test_named_ideal_window_maps_onto_the_existing_single_window() -> None:
     assert (created.start_time, created.end_time) == ("19:00", "22:00")
     assert describe_preference(created.weekdays, created.start_time, created.end_time) == (
         "weekday_evening",
-        "下班后打球",
+        "工作日晚间",
     )
 
 

@@ -131,7 +131,7 @@ test("marks existing venue subscriptions and blocks an exact duplicate", async (
       startTime: "19:00",
       endTime: "22:00",
       preferencePreset: "weekday_evening",
-      preferenceLabel: "下班后打球",
+      preferenceLabel: "工作日晚间",
       durationDays: 7,
       termCode: "7d",
       autoRenew: false,
@@ -370,7 +370,7 @@ test("retargets an existing reminder to weekend morning without creating another
           startTime: "19:00",
           endTime: "22:00",
           preferencePreset: "weekday_evening",
-          preferenceLabel: "下班后打球",
+          preferenceLabel: "工作日晚间",
           durationDays: 7,
           termCode: "7d",
           autoRenew: false,
@@ -396,8 +396,19 @@ test("retargets an existing reminder to weekend morning without creating another
   await page.goto("/");
   await page.getByRole("button", { name: "更多功能" }).click();
   await page.getByRole("menuitem", { name: "我的订阅" }).click();
-  await expect(page.getByText("下班后打球", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "改成周末上午", exact: true }).click();
+  await expect(page.getByText("工作日晚间", { exact: true })).toBeVisible();
+  const retarget = page.getByRole("button", { name: "改成周末上午", exact: true });
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("周末上午");
+    expect(dialog.message()).toContain("可能会被取消");
+    await dialog.dismiss();
+  });
+  await retarget.click();
+  expect(patched).toBeNull();
+
+  page.once("dialog", async (dialog) => dialog.accept());
+  await retarget.click();
   await expect.poll(() => patched).not.toBeNull();
   expect(patched).toEqual({ preferencePreset: "weekend_morning" });
   await expect(page.locator(".app-toast")).toContainText("已改为周末上午");

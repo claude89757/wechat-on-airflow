@@ -350,7 +350,7 @@ class IdealWindow:
 # time_windows jsonb; these presets must remain expressible as weekday_mask
 # plus start_time/end_time so existing rows need no migration.
 IDEAL_WINDOWS: Final[tuple[IdealWindow, ...]] = (
-    IdealWindow("weekday_evening", "下班后打球", (1, 2, 3, 4, 5), "19:00", "22:00"),
+    IdealWindow("weekday_evening", "工作日晚间", (1, 2, 3, 4, 5), "19:00", "22:00"),
     IdealWindow("weekday_noon", "午休局", (1, 2, 3, 4, 5), "12:00", "14:00"),
     IdealWindow("weekend_morning", "周末上午", (6, 7), "08:00", "12:00"),
     IdealWindow("weekend_afternoon", "周末下午", (6, 7), "14:00", "18:00"),

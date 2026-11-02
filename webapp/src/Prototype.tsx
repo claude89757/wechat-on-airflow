@@ -926,6 +926,10 @@ export default function Prototype() {
 
   const retargetSubscription = async (subscriptionId: string) => {
     if (!receipt || formBusy) return;
+    const confirmed = window.confirm(
+      "确认把这个订阅改成周末上午（星期六、星期日 08:00–12:00）吗？尚未发出或等待重试的提醒邮件可能会被取消。",
+    );
+    if (!confirmed) return;
     setFormBusy(true);
     setFormError("");
     try {
@@ -1177,6 +1181,7 @@ export default function Prototype() {
                       type="button"
                       className="ideal-window-retarget"
                       disabled={formBusy}
+                      title="改成周末上午（需要确认）"
                       onClick={() => void retargetSubscription(subscription.id)}
                     >
                       改成周末上午

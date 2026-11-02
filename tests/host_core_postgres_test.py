@@ -880,6 +880,7 @@ def test_ideal_window_filters_email_and_keeps_wechat_venue_level():
         assert created.status_code == 201, created.text
         body = created.json()
         assert body["preferencePreset"] == "weekday_evening"
+        assert body["preferenceLabel"] == "工作日晚间"
         assert body["weekdays"] == [1, 2, 3, 4, 5]
         assert [body["startTime"], body["endTime"]] == ["19:00", "22:00"]
         conflict = c.post(

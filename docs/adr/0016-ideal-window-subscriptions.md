@@ -20,7 +20,7 @@ Productize the existing columns as named ideal-window presets:
 
 | Preset | Weekdays | Clock | Label |
 | --- | --- | --- | --- |
-| `weekday_evening` | Monday–Friday | 19:00–22:00 | 下班后打球 |
+| `weekday_evening` | Monday–Friday | 19:00–22:00 | 工作日晚间 |
 | `weekday_noon` | Monday–Friday | 12:00–14:00 | 午休局 |
 | `weekend_morning` | Saturday–Sunday | 08:00–12:00 | 周末上午 |
 | `weekend_afternoon` | Saturday–Sunday | 14:00–18:00 | 周末下午 |
@@ -41,9 +41,12 @@ Productize the existing columns as named ideal-window presets:
 - Subscriber digests append one note that email was overlap-filtered and that
   WeChat groups remain venue-level. The note is not a slot line and does not
   change the subject count.
-- The create form defaults to weekday evening. Covering two presets still means
+- The create form defaults to weekday evening, labeled 工作日晚间. Button copy
+  and `preferenceLabel` use that same wording. Covering two presets still means
   two subscriptions.
 - WeChat enqueue stays venue-level.
+- A one-click change from the subscription list asks for confirmation before
+  it can cancel pending or retry email.
 
 ## Consequences
 
@@ -57,3 +60,14 @@ Productize the existing columns as named ideal-window presets:
 - In-flight `processing` or `dispatching` rows are not cancelled.
 - Multi-window subscriptions, minimum slot length, and WeChat gating by a
   personal window remain out of scope.
+
+## Follow-ups
+
+These are deferred and are not part of this change:
+
+- Recheck weekday and clock before send for rows already in `processing` or
+  `dispatching`. A window change can still let a claimed mail go out.
+- Decide whether widening the window should allow the same
+  `(subscription_id, event_key)` to be enqueued again after an
+  `ideal_window_changed` cancellation. Those event rows are kept today, so the
+  key is not sent again.
