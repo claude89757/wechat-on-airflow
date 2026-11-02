@@ -210,7 +210,7 @@ export function CourtStudio(props: Props) {
       <footer className="studio-footer"><span><TennisBallIcon size={18} /> ZACKS · COURT STUDIO</span><p>认真对待每一次上场的期待。</p><button type="button" onClick={event => showPromo(event.currentTarget)}>球友好物 <ArrowUpRightIcon size={15} /></button><button type="button" onClick={() => onPanel("help")}>提醒规则与帮助 <ArrowUpRightIcon size={15} /></button></footer>
 
       <WeChatGroupSheet open={wechatOpen} onOpenChange={setWechatOpen} />
-      <GearPromo ready={hasData && !query.trim()} blocked={props.promotionBlocked || wechatOpen || moreOpen} request={promoRequest} />
+      <GearPromo ready={!query.trim()} blocked={props.promotionBlocked || wechatOpen || moreOpen} request={promoRequest} />
     </main>
   );
 }

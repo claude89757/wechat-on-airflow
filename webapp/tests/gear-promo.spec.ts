@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { FALLBACK_DASHBOARD } from "../src/api";
 
-const PROMO_KEY = "zacks:gear-promo:2026-11:last-shown";
+const PROMO_KEY = "zacks:gear-promo:2026-11:seen-v2";
 type PromoEvent = { mode: string | null; at: number };
 
 async function fixture(page: Page) {
@@ -63,6 +63,7 @@ test("automatic recommendation closes after five seconds and respects the 24-hou
   await expect(promo).toBeVisible({ timeout: 7_000 });
   await expect(promo).toHaveAttribute("data-mode", "auto");
   await expect(more).toBeFocused();
+  expect(await page.evaluate(key => localStorage.getItem(key), PROMO_KEY)).toBeNull();
   await promo.hover();
   await expect(promo).toBeHidden({ timeout: 7_000 });
   const events = await page.evaluate(() => (window as Window & { gearPromoEvents?: PromoEvent[] }).gearPromoEvents ?? []);
@@ -72,6 +73,8 @@ test("automatic recommendation closes after five seconds and respects the 24-hou
   expect(dismissed).toBeTruthy();
   expect(dismissed!.at - appeared!.at).toBeGreaterThanOrEqual(4_800);
   expect(dismissed!.at - appeared!.at).toBeLessThan(6_500);
+  const recordedAt = Number(await page.evaluate(key => localStorage.getItem(key), PROMO_KEY));
+  expect(Date.now() - recordedAt).toBeLessThan(1_000);
 
   await page.reload();
   await page.waitForTimeout(4_500);
@@ -103,9 +106,18 @@ test("search and subscription work take precedence over an automatic recommendat
   await page.keyboard.press("Escape");
   await expect(subscription).toBeHidden();
   await expect(promo).toBeVisible({ timeout: 7_000 });
+  expect(await page.evaluate(key => localStorage.getItem(key), PROMO_KEY)).toBeNull();
   await page.getByRole("button", { name: "设置我的提醒", exact: true }).click();
   await expect(subscription).toBeVisible();
   await expect(promo).toBeHidden();
+  expect(await page.evaluate(key => localStorage.getItem(key), PROMO_KEY)).toBeNull();
+  await page.keyboard.press("Escape");
+  await expect(subscription).toBeHidden();
+  // A business interruption must not consume the visitor’s first impression.
+  await expect(promo).toBeVisible({ timeout: 7_000 });
+  await expect(promo).toHaveAttribute("data-mode", "auto");
+  await promo.getByRole("button", { name: "关闭商品推荐", exact: true }).click();
+  expect(Number(await page.evaluate(key => localStorage.getItem(key), PROMO_KEY))).toBeGreaterThan(0);
   expect(writes()).toBe(0);
 });
 
@@ -166,7 +178,8 @@ for (const width of [320, 393, 1440]) {
   });
 }
 
-test("unavailable browser storage and clipboard preserve readable product and contact information", async ({ page }) => {
+test("unavailable browser storage still permits one automatic view and manual contact access", async ({ page }) => {
+  test.setTimeout(30_000);
   await page.addInitScript(key => {
     const read = Storage.prototype.getItem;
     const write = Storage.prototype.setItem;
@@ -186,6 +199,12 @@ test("unavailable browser storage and clipboard preserve readable product and co
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   const writes = await fixture(page);
+  const automatic = page.getByTestId("gear-promo");
+  await expect(automatic).toBeVisible({ timeout: 7_000 });
+  await expect(automatic).toHaveAttribute("data-mode", "auto");
+  await expect(automatic).toBeHidden({ timeout: 7_000 });
+  await page.waitForTimeout(3_500);
+  await expect(automatic).toBeHidden();
   const promo = await openManually(page);
   await promo.getByRole("button", { name: "复制微信号", exact: true }).click();
   await expect(promo).toContainText("thanks0");
