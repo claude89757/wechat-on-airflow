@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from .control import delivery_guard
 from .database import ensure_schema, transaction
+from .date_pauses import lock_pause_reads, release_unused_claims
 from .domain import VENUES, format_digest, utc_now
 from .service import runtime_heartbeat
 from .settings import HostCoreSettings, load_settings, load_tencent_email_settings
@@ -181,12 +182,12 @@ def _retryable_send_error(exc: Exception) -> bool:
 
 def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> None:
     table = "system_email_outbox" if system else "notification_outbox"
-    now = utc_now()
     # Configuration failures occur before the irreversible dispatch phase.
     settings = load_tencent_email_settings()
     with delivery_guard() as enabled:
         if not enabled:
             return  # Prepared claim expires safely; no external call was made.
+        now = utc_now()
         with transaction() as connection:
             ids = [row["id"] for row in rows]
             if system:
@@ -210,10 +211,13 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
                     JOIN zacks.observed_slots slot ON slot.event_key = o.event_key
                     LEFT JOIN zacks.user_delivery_tiers tier ON tier.email = s.email
                     WHERE o.id = ANY(:ids) AND o.status = 'processing' AND o.lease_owner = :worker
+                      AND o.delivery_claim_id = :claim
                       AND o.venue_id = ANY(:active_venues)
                       AND s.active AND s.active_until > :now
                       AND (NOT s.auto_renew OR (tier.tier = 'priority' AND tier.revoked_at IS NULL))
-                      AND o.created_at > :now - interval '15 minutes'
+                      AND COALESCE(o.eligible_at, o.created_at) > :now - interval '15 minutes'
+                      AND NOT EXISTS (SELECT 1 FROM zacks.notification_date_pauses pause
+                          WHERE pause.email = o.email AND pause.booking_date = slot.booking_date AND pause.paused)
                       AND (slot.booking_date + CAST(slot.start_time AS time)) AT TIME ZONE 'Asia/Shanghai' > :now
                       AND EXISTS(SELECT 1 FROM zacks.current_availability c
                           WHERE c.event_key = o.event_key AND c.last_seen_at > :now - interval '15 minutes')
@@ -223,27 +227,30 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
                             "worker": worker,
                             "now": now,
                             "active_venues": sorted(VENUES),
+                            "claim": rows[0]["claim_id"],
                         },
                     ).scalars()
                 )
             invalid = list(set(ids) - valid_ids)
             if invalid:
+                claim_condition = "" if system else "AND delivery_claim_id = :claim"
                 connection.execute(
                     text(f"""
                     UPDATE zacks.{table} SET status = 'expired', last_error = 'not_eligible_at_dispatch',
                         lease_owner = NULL, lease_until = NULL, updated_at = :now
-                    WHERE id = ANY(:ids) AND lease_owner = :worker
+                    WHERE id = ANY(:ids) AND lease_owner = :worker AND status = 'processing'
+                    {claim_condition}
                 """),
-                    {"ids": invalid, "worker": worker, "now": now},
+                    {
+                        "ids": invalid,
+                        "worker": worker,
+                        "now": now,
+                        "claim": rows[0].get("claim_id"),
+                    },
                 )
             if not valid_ids:
                 if not system and rows:
-                    connection.execute(
-                        text(
-                            "UPDATE zacks.email_delivery_claims SET status = 'released', updated_at = now() WHERE id = :id"
-                        ),
-                        {"id": rows[0]["claim_id"]},
-                    )
+                    release_unused_claims(connection, [rows[0]["claim_id"]], now)
                 return
             rows = [r for r in rows if r["id"] in valid_ids]
             ids = [r["id"] for r in rows]
@@ -271,6 +278,11 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
             category = "邮箱验证" if rows[0]["email_type"] == "verification" else "系统通知"
         else:
             subject, body = format_digest(str(row["body"]) for row in rows)
+            booking_date = rows[0]["booking_date"].isoformat()
+            body += (
+                f"\n\n已有场地？暂停 {booking_date} 的提醒：\n"
+                f"https://courts.zacks.vision/?pauseDate={booking_date}"
+            )
             category = "网球空场提醒"
         phase, reason, sent = "submission_unknown", None, None
         try:
@@ -369,6 +381,8 @@ def _next_subscriber_target() -> dict[str, str] | None:
                 JOIN zacks.observed_slots slot ON slot.event_key = o.event_key
                 LEFT JOIN zacks.user_delivery_tiers t ON t.email = o.email
                 WHERE o.status IN ('pending', 'retry', 'processing')
+                  AND NOT EXISTS (SELECT 1 FROM zacks.notification_date_pauses pause
+                      WHERE pause.email = o.email AND pause.booking_date = slot.booking_date AND pause.paused)
                   AND o.next_attempt_at <= :now
                   AND (o.lease_until IS NULL OR o.lease_until <= :now)
                 ORDER BY CASE WHEN t.tier = 'priority' AND t.revoked_at IS NULL THEN 0 ELSE 1 END, o.created_at
@@ -395,20 +409,24 @@ def _claim_subscriber_group(
     target: Mapping[str, str],
     weather: WeatherDecision,
 ) -> list[dict[str, Any]]:
-    now = utc_now()
-    delivery_day, day_start = _shanghai_day(now)
-    lease_until = now + timedelta(seconds=LEASE_SECONDS)
     with transaction() as connection:
+        lock_pause_reads(connection)
+        now = utc_now()
+        delivery_day, day_start = _shanghai_day(now)
+        lease_until = now + timedelta(seconds=LEASE_SECONDS)
         rows = [
             dict(row)
             for row in connection.execute(
                 text(
                     """
-                    SELECT o.id, o.email, o.subject, o.body, o.venue_id, o.event_key, o.attempt_count
+                    SELECT o.id, o.email, o.subject, o.body, o.venue_id, o.event_key,
+                        o.attempt_count, slot.booking_date
                     FROM zacks.notification_outbox o
                     JOIN zacks.observed_slots slot ON slot.event_key = o.event_key
                     WHERE o.email = :email AND slot.booking_date = CAST(:booking_date AS date)
                       AND o.status IN ('pending', 'retry', 'processing')
+                      AND NOT EXISTS (SELECT 1 FROM zacks.notification_date_pauses pause
+                          WHERE pause.email = o.email AND pause.booking_date = slot.booking_date AND pause.paused)
                       AND o.next_attempt_at <= :now
                       AND (o.lease_until IS NULL OR o.lease_until <= :now)
                     ORDER BY o.created_at
@@ -968,7 +986,7 @@ def _expire_unusable() -> None:
             UPDATE zacks.notification_outbox o SET status = 'expired', updated_at = now(),
                 last_error = 'reminder_expired_or_cancelled'
             WHERE status IN ('pending','retry','processing') AND (
-                created_at < now() - interval '15 minutes' OR NOT EXISTS (
+                COALESCE(o.eligible_at, o.created_at) < now() - interval '15 minutes' OR NOT EXISTS (
                     SELECT 1 FROM zacks.subscriptions s JOIN zacks.observed_slots slot ON slot.event_key = o.event_key
                     LEFT JOIN zacks.user_delivery_tiers t ON t.email = s.email
                     WHERE s.id = o.subscription_id AND s.active AND s.active_until > now()

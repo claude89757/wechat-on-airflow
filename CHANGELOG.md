@@ -5,8 +5,24 @@ and operational changes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-02
+
 ### Added
 
+- Let verified subscribers pause reminders for specific playing dates across
+  their venue subscriptions, select multiple dates in My Subscriptions, restore
+  individual dates, and undo the dates changed by their latest action. Preferences
+  persist by email in Host Core and use the Asia/Shanghai calendar.
+- Add a playing-date link to subscriber reminder emails. The website preselects
+  that date and preserves the selection through email verification; opening a
+  link never changes notification preferences by itself.
+- Fence date changes against observation matching, queue claims and final email
+  dispatch. Release unused claims for definitely-unsent cancelled reminders;
+  preserve submitted or uncertain sends and all subscription history. Restoring
+  a date requalifies only eligible pause-cancelled reminders on a fresh natural
+  observation without resetting event identity or original creation timestamps.
+- Extend the rollback-only production API probe with authenticated pause/list/
+  restore, idempotency, anonymous denial, and no-subscriber-mail checks.
 - Add a brief email-subscription guide to each WeChat group's first natural
   morning court alert (06:00–12:00 Asia/Shanghai). Durable per-group history
   prevents repeats across venues and restarts; safe retries and uncertain sends

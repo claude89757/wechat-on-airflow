@@ -415,10 +415,28 @@ def test_api_probe_uses_real_database_but_rolls_back_every_test_write():
 
     result = run_probe()
     assert result["complete"] and result["ok"], result
-    assert len(result["checks"]) == 13
+    assert {
+        "datePauseReadRequiresVerification",
+        "datePauseWriteRequiresVerification",
+        "notificationDatePaused",
+        "datePausePersistedInTransaction",
+        "datePauseIdempotent",
+        "notificationDateResumed",
+        "dateResumeIdempotent",
+        "datePausePreservesSubscription",
+        "datePauseQueuesNoSubscriberMail",
+    } <= result["checks"].keys()
     assert result["externalTestSends"] == 0
     assert sql("SELECT count(*) AS n FROM zacks.subscriptions")[0]["n"] == 0
     assert sql("SELECT count(*) AS n FROM zacks.system_email_outbox")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.notification_date_pauses")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.notification_outbox")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.verified_receipts")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.verification_challenges")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.user_profiles")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.user_delivery_tiers")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.coffee_invite_sessions")[0]["n"] == 0
+    assert sql("SELECT count(*) AS n FROM zacks.email_delivery_claims")[0]["n"] == 0
 
 
 def test_invalid_migration_proof_cannot_activate_delivery():

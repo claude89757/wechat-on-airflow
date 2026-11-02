@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .database import ensure_schema, ping, transaction
+from .date_pauses import read_pauses, update_pauses
 from .domain import (
     PRIORITY_TERMS,
     STANDARD_TERMS,
@@ -700,6 +701,37 @@ def verify_email(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         "verifiedAt": now.isoformat(),
         "expiresAt": expires_at.isoformat(),
     }
+
+
+@app.get(f"{API_PREFIX}/notification-pauses")
+def get_notification_pauses(request: Request) -> dict[str, Any]:
+    identity = _identity(request, required=True)
+    assert identity is not None
+    with transaction() as connection:
+        return read_pauses(connection, identity["email"])
+
+
+@app.post(f"{API_PREFIX}/notification-pauses")
+def update_notification_pauses(
+    request: Request, payload: dict[str, Any] = Body(...)
+) -> dict[str, Any]:
+    identity = _identity(request, required=True)
+    assert identity is not None
+    with transaction() as connection:
+        result = update_pauses(connection, identity["email"], payload)
+        if result["changedDates"]:
+            venue_ids = list(
+                connection.execute(
+                    text("""
+                SELECT DISTINCT selected.venue_id FROM zacks.subscription_venues selected
+                JOIN zacks.subscriptions s ON s.id = selected.subscription_id
+                WHERE s.email = :email AND s.active
+                """),
+                    {"email": identity["email"]},
+                ).scalars()
+            )
+            increment_subscription_generations(connection, venue_ids)
+        return result
 
 
 @app.post(f"{API_PREFIX}/subscriptions")

@@ -43,11 +43,12 @@ def report(venues):
     )
 
 
-def test_retirement_keeps_the_existing_production_schema_revision_and_seed_identity():
-    # bd8ee983 and 2e4dbe63 already use this exact DDL + 27-row seed fingerprint.
-    # Withdrawing a producer must not create a migration or replay schema DDL.
+def test_date_pause_upgrade_keeps_retired_venue_seed_identity():
+    # 0.10.0 intentionally adds date preferences and delivery-qualification DDL.
+    # The approved routine upgrade retains the original 27-row venue seed;
+    # withdrawing a producer must never delete its durable business identity.
     assert database.SCHEMA_REVISION == (
-        "0.7.0-host-core-v1:ac0a10ac51d1398e1a0e81d2e560b2e355561e52c995e31d326cc65a62af2bfb"
+        "0.7.0-host-core-v1:3cf7737f5763852d193fe8ae43ff429c8fb01e9327f911207fc4baa1ebef7ed6"
     )
     assert len(VENUES) == 26
     assert RETIRED_VENUES == {"baoti": "宝安网球中心"}

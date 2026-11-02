@@ -66,6 +66,34 @@ cancels pending mail. A send that already started is allowed to finish before
 cancellation returns. Coffee claims serialize by identity and preserve the
 five-second delay and 30-day invitation validity.
 
+### Playing-date reminder preferences
+
+`notification_date_pauses` stores one durable preference per verified email and
+Asia/Shanghai playing date. Authenticated `GET /api/notification-pauses` returns
+the active future/today dates and the server's calendar day; `POST` accepts
+`{action: "pause" | "resume", dates: ["YYYY-MM-DD", ...]}`. Each atomic request
+accepts 1–31 dates from today through today + 365 days and returns `changedDates`
+for precise undo. Repeated operations are idempotent; clients cannot select the
+target email. Resuming updates the preference instead of deleting its history.
+
+Date changes take the exclusive delivery fence before touching preferences or
+queues. Observation matching and subscriber claims take its shared counterpart
+before row locks; final dispatch rechecks the preference while holding the
+existing send guard. Pausing cancels only definitely-unsent subscriber intents
+for the selected playing dates and releases their unused quota claims. It never
+rewrites submitted, uncertain or delivered outcomes. Personal preferences do
+not change venue crawling, subscriptions, WeChat group eligibility or system
+emails.
+
+On resume, the next fresh natural observation must have been checked after the
+preference changed and still satisfy the current subscription/slot rules. Only
+intents cancelled by this feature may requalify; their event dedupe key and
+original `created_at` are retained, while `eligible_at` bounds the new delivery
+window. Subscriber digests link to `/?pauseDate=YYYY-MM-DD`. That navigation only
+preselects a date in My Subscriptions and requires an explicit authenticated
+save. The same sheet handles verification return, multi-date selection, restore
+and undo; inbound email reply commands are outside this release.
+
 ## Observation, matching and deduplication
 
 Every natural poll reaches the local API, including unchanged availability.
@@ -200,9 +228,10 @@ Backups and source exports remain root-only, never public workflow artifacts.
 Acceptance has four distinct evidence classes:
 
 1. Exact release identities and public HTTP health/bootstrap/security checks.
-2. Production database/API logic through an operator-only transaction probe; all
-   test writes are rolled back and it sends no real email/WeChat. It is not a
-   public browser or external verification-email test.
+2. Production database/API logic, including date pause/list/restore, idempotency,
+   anonymous denial and preservation of subscriptions, through an operator-only
+   transaction probe; all test writes are rolled back and it sends no real
+   email/WeChat. It is not a public browser or external verification-email test.
 3. All 26 venue DAGs passing three natural cycles, fresh per-scope observations,
    healthy auxiliary tasks and advancing consumers/queues.
 4. Real natural SES-delivered and WeChat-sent records after the release window.

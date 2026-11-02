@@ -119,4 +119,23 @@ SCHEMA_EXTENSION_STATEMENTS: tuple[str, ...] = (
     "ALTER TABLE zacks.runtime_control ADD COLUMN IF NOT EXISTS acceptance_started_at timestamptz",
     "ALTER TABLE zacks.runtime_control ADD COLUMN IF NOT EXISTS wechat_enabled boolean NOT NULL DEFAULT false",
     "ALTER TABLE zacks.runtime_control ADD COLUMN IF NOT EXISTS api_acceptance jsonb",
+    """
+    CREATE TABLE IF NOT EXISTS zacks.notification_date_pauses (
+        email text NOT NULL,
+        booking_date date NOT NULL,
+        paused boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL,
+        updated_at timestamptz NOT NULL,
+        PRIMARY KEY (email, booking_date)
+    )
+    """,
+    """
+    ALTER TABLE zacks.notification_outbox
+        ADD COLUMN IF NOT EXISTS eligible_at timestamptz
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS subscriber_attempt_queue_ids_idx
+        ON zacks.delivery_attempts USING gin(queue_ids)
+        WHERE channel = 'subscriber_email' AND phase NOT IN ('retry', 'failed')
+    """,
 )
