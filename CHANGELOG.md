@@ -5,6 +5,13 @@ and operational changes.
 
 ## [Unreleased]
 
+### Added
+
+- Add a brief email-subscription guide to each WeChat group's first natural
+  morning court alert (06:00–12:00 Asia/Shanghai). Durable per-group history
+  prevents repeats across venues and restarts; safe retries and uncertain sends
+  retain the existing delivery safeguards. No extra message is sent.
+
 ### Fixed
 
 - Let a recovery upgrade replace a stopped WeChat consumer that is still on an

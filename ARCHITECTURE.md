@@ -141,6 +141,15 @@ conditions retry; unknown UI outcomes are quarantined, not replayed. PostgreSQL
 owns per-group mini-program cooldowns and the host queue; the device ledger owns
 the final device-side idempotency boundary.
 
+Each group's first natural alert between 06:00 (inclusive) and 12:00 (exclusive),
+Asia/Shanghai, ends with a short email-subscription guide to
+`https://courts.zacks.vision/`. The host consumer checks durable outbox history
+across all venues for that receiver, so a restart cannot repeat the daily guide.
+Known-unsent failures leave the guide eligible; uncertain submissions containing
+it reserve that morning until reconciled. Retries recheck eligibility and remove
+the guide after noon. No separate promotional notification is scheduled, and a
+morning with no eligible court alert sends no guide.
+
 ## Cloudflare boundary
 
 The owner-authorized [remote operations plane](docs/runbooks/remote-operations-mcp.md)

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -7,7 +8,7 @@ def test_footer_actions_and_help_move_into_accessible_header_menu():
     source = (ROOT / "webapp/src/CourtStudio.tsx").read_text(encoding="utf-8")
 
     assert 'aria-label="更多功能"' in source
-    assert "<DropdownMenu.Root>" in source
+    assert re.search(r"<DropdownMenu\.Root(?:\s|>)", source)
     assert 'onSelect={() => onPanel("subscriptions")}' in source
     assert 'onSelect={() => onPanel("community")}' in source
     assert 'onSelect={() => onPanel("admin")}' in source
