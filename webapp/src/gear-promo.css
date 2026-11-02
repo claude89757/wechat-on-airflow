@@ -47,7 +47,7 @@
 .gear-promo-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 18px 7px; color: #6f7d70; font-size: 10px; }
 .gear-promo-footer > button { min-height: 32px; border: 0; padding: 4px 0 4px 12px; background: transparent; color: #315e45; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
 .gear-promo-progress { height: 3px; background: #edf2e6; }
-.gear-promo-progress > span { display: block; width: 100%; height: 100%; background: #769564; transform-origin: left; animation: gear-promo-countdown 5s linear forwards; }
+.gear-promo-progress > span { display: block; width: 100%; height: 100%; background: #769564; transform-origin: left; animation: gear-promo-countdown 10s linear forwards; }
 /* Stay readable even when a mobile webview pauses its animation timeline. */
 @keyframes gear-promo-enter { from { transform: translateY(6px); } to { transform: translateY(0); } }
 @keyframes gear-promo-countdown { to { transform: scaleX(0); } }

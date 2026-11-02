@@ -143,11 +143,12 @@ email masking, original mobile-runtime hashes and all permission/coffee gates.
   (CNY 860) and tennis cap (CNY 300), pickup in Shenzhen Nanshan, WeChat `thanks0`.
   Use the supplied photos; do not invent stock, condition, warranty or discounts.
 - Keep automatic promotion non-modal: no backdrop, scroll lock or focus theft.
-  Wait three seconds after the page becomes eligible, then close after five seconds.
+  Wait three seconds after the page becomes eligible, then close after ten seconds
+  (owner increased the reading time from five to ten seconds on 2026-11-02).
   Static product information must not wait for the court API to succeed. Ordinary
   scrolling or touch movement must neither postpone nor instantly hide the card.
   Show at most once per browser origin in a rolling 24-hour period after a full
-  five-second display, explicit dismissal or manual viewing. Search inputs, menus,
+  ten-second display, explicit dismissal or manual viewing. Search inputs, menus,
   subscription sheets and background tabs take priority; an interrupted automatic
   display retries after returning to browsing and does not consume the daily limit.
 - Keep a quiet “球友好物” entry in More and the footer. Explicitly opening it or

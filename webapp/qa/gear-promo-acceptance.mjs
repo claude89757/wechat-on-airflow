@@ -36,16 +36,16 @@ export async function verifyAutomaticGearPromo(page, { output, name }) {
     const events = (await read()).events;
     const appeared = events.find(event => event.mode === 'auto');
     return events.some(event => event.mode === null && event.at > appeared.at);
-  }, { timeout: 8_000, message: 'Automatic recommendation must close without user interaction' }).toBe(true);
+  }, { timeout: 13_000, message: 'Automatic recommendation must close without user interaction' }).toBe(true);
   const observation = await read();
   const appeared = observation.events.find(event => event.mode === 'auto');
   const dismissed = observation.events.find(event => event.mode === null && event.at > appeared.at);
   const visibleMs = dismissed.at - appeared.at;
-  assert.ok(visibleMs >= 4_800 && visibleMs < 6_500, `automatic DOM lifetime should be 5s, observed ${visibleMs}ms`);
+  assert.ok(visibleMs >= 9_800 && visibleMs < 11_500, `automatic DOM lifetime should be 10s, observed ${visibleMs}ms`);
   assert.equal(observation.automaticFocused, false, 'automatic advertising must not move keyboard focus');
   await expect(promo).toBeHidden();
   const recordedAt = Number(await page.evaluate(key => localStorage.getItem(key), storageKey));
-  assert.ok(Number.isFinite(recordedAt) && Math.abs(recordedAt - dismissed.epoch) < 1_000, 'persist only after a complete five-second display');
+  assert.ok(Number.isFinite(recordedAt) && Math.abs(recordedAt - dismissed.epoch) < 1_000, 'persist only after a complete ten-second display');
 
   await page.reload({ waitUntil: 'networkidle' });
   await page.locator('.service-ready').waitFor({ timeout: 30_000 });
@@ -102,7 +102,7 @@ export async function verifyMobileFirstVisitGearPromo(browser, { origin, output 
     let dismissed;
     // Real touch input keeps browsing active before and during the promotion.
     // The gesture stays above the fixed promotion and never activates a CTA.
-    while (Date.now() - startedAt < 12_000) {
+    while (Date.now() - startedAt < 18_000) {
       const from = swipes % 2 === 0 ? 320 : 180;
       const to = swipes % 2 === 0 ? 180 : 320;
       await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 30, y: from }] });
@@ -123,7 +123,7 @@ export async function verifyMobileFirstVisitGearPromo(browser, { origin, output 
         await expect(promo).toBeInViewport({ ratio: 1 });
         await expect(promo).toHaveCSS('opacity', '1');
         assert.equal(await page.evaluate(key => localStorage.getItem(key), storageKey), null,
-          'a first appearance must not consume the cooldown before five seconds of viewing');
+          'a first appearance must not consume the cooldown before ten seconds of viewing');
         await page.screenshot({ path: `${output}/${name}-gear-auto.png` });
         captured = true;
       }
@@ -135,7 +135,7 @@ export async function verifyMobileFirstVisitGearPromo(browser, { origin, output 
     assert.ok(appeared && dismissed, 'an active first-time mobile visitor must see the ad while dashboard loading is pending');
     assert.ok(maxScrollTop > 0 && swipes > 3, 'touch gestures must actually scroll the page');
     const visibleMs = dismissed.at - appeared.at;
-    assert.ok(visibleMs >= 4_800 && visibleMs < 6_500, `touch scrolling must preserve the full five seconds, observed ${visibleMs}ms`);
+    assert.ok(visibleMs >= 9_800 && visibleMs < 11_500, `touch scrolling must preserve the full ten seconds, observed ${visibleMs}ms`);
     const recordedAt = Number(await page.evaluate(key => localStorage.getItem(key), storageKey));
     assert.ok(Math.abs(recordedAt - dismissed.epoch) < 1_000, 'only the completed impression starts the cooldown');
     const observation = await page.evaluate(() => window.__gearPromoAcceptance);
@@ -211,7 +211,7 @@ export async function verifyManualGearPromo(page, { output, name, width, height,
   // One representative view verifies the separate manual lifetime; all six views
   // verify opening, exact content, images, layout, copying and keyboard dismissal.
   if (prolonged) {
-    await page.waitForTimeout(5_200);
+    await page.waitForTimeout(10_200);
     await expect(promo).toBeVisible();
   }
   await page.screenshot({ path: `${output}/${name}-gear-manual.png` });
@@ -232,7 +232,7 @@ export async function verifyManualGearPromo(page, { output, name, width, height,
     cooldownTimestamp: new Date(automatic.recordedAt).toISOString(), noRepeatAfterReload: true,
     productsAndPrices: true, imagesLoaded: true, copyWechat: 'thanks0',
     controlsInViewport: true, mobileNavigationClear: width < 900 ? true : null,
-    manualBeyondFiveSeconds: prolonged ? true : null, businessPanelPrecedence: prolonged ? true : null,
+    manualBeyondTenSeconds: prolonged ? true : null, businessPanelPrecedence: prolonged ? true : null,
     keyboardDismissal: true,
   };
 }

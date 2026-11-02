@@ -43,8 +43,8 @@ async function openManually(page: Page, keyboard = false) {
   return promo;
 }
 
-test("automatic recommendation closes after five seconds and respects the 24-hour limit", async ({ page }) => {
-  test.setTimeout(30_000);
+test("automatic recommendation closes after ten seconds and respects the 24-hour limit", async ({ page }) => {
+  test.setTimeout(40_000);
   // Observe actual DOM lifetime, rather than inferring timing from a countdown label.
   await page.addInitScript(() => {
     const events: Array<{ mode: string | null; at: number }> = [];
@@ -65,14 +65,14 @@ test("automatic recommendation closes after five seconds and respects the 24-hou
   await expect(more).toBeFocused();
   expect(await page.evaluate(key => localStorage.getItem(key), PROMO_KEY)).toBeNull();
   await promo.hover();
-  await expect(promo).toBeHidden({ timeout: 7_000 });
+  await expect(promo).toBeHidden({ timeout: 12_000 });
   const events = await page.evaluate(() => (window as Window & { gearPromoEvents?: PromoEvent[] }).gearPromoEvents ?? []);
   const appeared = events.find(event => event.mode === "auto");
   const dismissed = events.find(event => event.mode === null && event.at > (appeared?.at ?? Infinity));
   expect(appeared).toBeTruthy();
   expect(dismissed).toBeTruthy();
-  expect(dismissed!.at - appeared!.at).toBeGreaterThanOrEqual(4_800);
-  expect(dismissed!.at - appeared!.at).toBeLessThan(6_500);
+  expect(dismissed!.at - appeared!.at).toBeGreaterThanOrEqual(9_800);
+  expect(dismissed!.at - appeared!.at).toBeLessThan(11_500);
   const recordedAt = Number(await page.evaluate(key => localStorage.getItem(key), PROMO_KEY));
   expect(Date.now() - recordedAt).toBeLessThan(1_000);
 
@@ -135,7 +135,7 @@ test("manual viewing stays open, copies the exact contact and restores keyboard 
   await copy.focus();
   await page.keyboard.press("Enter");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("thanks0");
-  await page.waitForTimeout(5_500);
+  await page.waitForTimeout(10_500);
   await expect(promo).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(promo).toBeHidden();
@@ -202,7 +202,7 @@ test("unavailable browser storage still permits one automatic view and manual co
   const automatic = page.getByTestId("gear-promo");
   await expect(automatic).toBeVisible({ timeout: 7_000 });
   await expect(automatic).toHaveAttribute("data-mode", "auto");
-  await expect(automatic).toBeHidden({ timeout: 7_000 });
+  await expect(automatic).toBeHidden({ timeout: 12_000 });
   await page.waitForTimeout(3_500);
   await expect(automatic).toBeHidden();
   const promo = await openManually(page);
