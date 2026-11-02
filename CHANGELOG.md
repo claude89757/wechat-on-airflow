@@ -30,6 +30,8 @@ and operational changes.
 
 ### Fixed
 
+- Identify protected phone preflight failures with fixed stage/error-code pairs,
+  retaining every check without exposing exception messages or command output.
 - Pass the Pi interruption option only during apply. Readiness preflight remains
   read-only and no longer rejects an apply-only option before connecting.
 - Let a recovery upgrade replace a stopped WeChat consumer that is still on an
