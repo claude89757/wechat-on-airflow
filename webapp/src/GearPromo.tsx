@@ -9,7 +9,7 @@ import "./gear-promo.css";
 const STORAGE_KEY = "zacks:gear-promo:2026-11:seen-v2";
 const COOLDOWN_MS = 24 * 60 * 60 * 1_000;
 const SHOW_DELAY_MS = 3_000;
-const AUTO_CLOSE_MS = 5_000;
+const AUTO_CLOSE_MS = 10_000;
 let memoryLastShown = 0;
 
 export type GearPromoRequest = { id: number; trigger: HTMLElement | null };
