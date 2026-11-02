@@ -60,17 +60,65 @@ FAILURE_DIAGNOSTICS = {
     "candidate_cleanup": {"candidate_cleanup_failed"},
     "post_preflight_health": HEALTH_ERROR_CODES,
 }
+SERVICE_ERROR_CODES = {
+    "sender_service_inactive",
+    "agent_service_inactive",
+    "legacy_tunnel_inactive",
+}
+SERVICE_STATUS_ENUMS = {
+    "LoadState": set("loaded not-found error bad-setting masked merged stub unknown".split()),
+    "ActiveState": set(
+        "active reloading inactive failed activating deactivating maintenance refreshing unknown".split()
+    ),
+    "SubState": set(
+        "dead condition start-pre start start-post running exited reload reload-signal reload-notify "
+        "stop stop-watchdog stop-sigterm stop-sigkill stop-post final-watchdog final-sigterm "
+        "final-sigkill failed auto-restart auto-restart-queued cleaning unknown".split()
+    ),
+    "Result": set(
+        "success resources timeout exit-code signal core-dump watchdog start-limit-hit protocol "
+        "oom-kill exec-condition unknown".split()
+    ),
+    "UnitFileState": set(
+        "enabled enabled-runtime linked linked-runtime alias masked masked-runtime static disabled "
+        "indirect generated transient bad unknown".split()
+    ),
+    "Type": set("simple forking oneshot dbus notify notify-reload idle exec unknown".split()),
+}
+SERVICE_STATUS_LIMITS = {"ExecMainCode": 6, "ExecMainStatus": 255, "NRestarts": 1_000_000}
+
+
+def safe_service_status(value):
+    if (
+        not isinstance(value, dict)
+        or set(value) != SERVICE_STATUS_ENUMS.keys() | SERVICE_STATUS_LIMITS.keys()
+    ):
+        return None
+    report = {}
+    for name, allowed in SERVICE_STATUS_ENUMS.items():
+        field = value[name]
+        report[name] = field if type(field) is str and field in allowed else "unknown"
+    for name, limit in SERVICE_STATUS_LIMITS.items():
+        field = value[name]
+        report[name] = field if type(field) is int and 0 <= field <= limit else None
+    return report
 
 
 def safe_failure_diagnostic(value):
-    if not isinstance(value, dict) or set(value) != {"stage", "errorCode"}:
+    required = {"stage", "errorCode"}
+    if not isinstance(value, dict) or not required <= value.keys() <= required | {"serviceStatus"}:
         return None
     stage, code = value["stage"], value["errorCode"]
     if type(stage) is not str or type(code) is not str:
         return None
     if code not in FAILURE_DIAGNOSTICS.get(stage, set()):
         return None
-    return {"stage": stage, "errorCode": code}
+    report = {"stage": stage, "errorCode": code}
+    if stage in {"existing_health", "post_preflight_health"} and code in SERVICE_ERROR_CODES:
+        status = safe_service_status(value.get("serviceStatus"))
+        if status is not None:
+            report["serviceStatus"] = status
+    return report
 
 
 @contextmanager
@@ -309,6 +357,40 @@ def run(argv, *, timeout=60, env=None, cwd=None):
     return completed.stdout.decode()
 
 
+def failed_service_status(unit):
+    # Diagnose only the fixed failed unit. Never query commands, paths or logs.
+    if unit not in EXISTING:
+        return None
+    try:
+        fields = SERVICE_STATUS_ENUMS.keys() | SERVICE_STATUS_LIMITS.keys()
+        completed = subprocess.run(
+            ["systemctl", "show", "--all", "--property=" + ",".join(sorted(fields)), unit],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        # A missing unit may still return useful fixed properties with nonzero
+        # status. This diagnostic never changes the failed is-active result.
+        if len(completed.stdout) > 4096:
+            return None
+        output = completed.stdout.decode("utf-8", errors="replace")
+        values = {}
+        for line in output.splitlines():
+            name, separator, value = line.partition("=")
+            if separator and name in fields:
+                if name in values:
+                    return None
+                values[name] = value
+        for name in SERVICE_STATUS_LIMITS:
+            value = values.get(name)
+            if value is not None:
+                values[name] = int(value) if re.fullmatch(r"[0-9]{1,10}", value) else None
+        return safe_service_status(values)
+    except Exception:
+        # A secondary diagnostic failure must never replace the original failure.
+        return None
+
+
 def health(*, stage="existing_health"):
     for unit, code in zip(
         EXISTING,
@@ -319,8 +401,14 @@ def health(*, stage="existing_health"):
         ),
         strict=True,
     ):
-        with diagnostic_step(stage, code):
-            run(["systemctl", "is-active", "--quiet", unit])
+        try:
+            with diagnostic_step(stage, code):
+                run(["systemctl", "is-active", "--quiet", unit])
+        except Exception as exc:
+            status = failed_service_status(unit)
+            if status is not None:
+                exc.failure_diagnostic["serviceStatus"] = status
+            raise
     for port, path, code in (
         (6001, "/status", "appium_6001_unhealthy"),
         (6002, "/status", "appium_6002_unhealthy"),
