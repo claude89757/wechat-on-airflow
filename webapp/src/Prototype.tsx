@@ -793,6 +793,7 @@ export default function Prototype() {
           onPanel={openPanel}
           onRefresh={() => void refresh(true)}
           onChangeEmail={changeEmail}
+          promotionBlocked={panel !== null}
         />
       </MobileScroll>
       {panel === null ? <StudioMobileNav onCreate={openCreatePanel} onPanel={openPanel} /> : null}

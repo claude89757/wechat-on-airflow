@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
 import { acceptanceRequestPolicy } from './public-request-policy.mjs';
+import { observeGearPromo, verifyAutomaticGearPromo, verifyManualGearPromo } from './gear-promo-acceptance.mjs';
 
 const expected = process.argv[2];
 assert.match(expected ?? '', /^[0-9a-f]{40}$/, 'exact Web deployment SHA is required');
@@ -20,6 +21,7 @@ try {
     const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', locale: 'zh-CN', timezoneId: 'Asia/Shanghai' });
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     const page = await context.newPage();
+    await observeGearPromo(page);
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await context.route('**/*', route => {
@@ -69,6 +71,7 @@ try {
       const nav = page.getByRole('navigation', { name: '快捷导航' });
       const box = await nav.boundingBox(); assert.ok(box && box.y >= 0 && box.y + box.height <= height + 1);
     }
+    const automaticGearPromo = await verifyAutomaticGearPromo(page, { output, name });
     await page.getByLabel('搜索场地').fill('前海');
     await page.waitForTimeout(100);
     assert.equal(await page.locator('.venue-card').count(), 1);
@@ -143,8 +146,12 @@ try {
     await closeGroup.click();
     await expect(group).toBeHidden();
     await expect(page.getByRole('button', { name: '更多功能', exact: true })).toBeFocused();
+    const gearPromo = await verifyManualGearPromo(page, {
+      output, name, width, height, automatic: automaticGearPromo,
+      prolonged: origin === origins[0] && view === 'desktop',
+    });
     assert.deepEqual(errors, []);
-    report.views.push({ origin, name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, passed: true });
+    report.views.push({ origin, name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, gearPromo, passed: true });
     await context.close();
   }
   }

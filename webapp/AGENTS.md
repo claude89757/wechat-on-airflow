@@ -136,3 +136,19 @@ The backend has no public live-availability grid: never invent available/booked
 slots or change the subscription API semantics to simulate such a grid.
 Preserve the user-supplied brand asset, stateful Lulu, first-level support action,
 email masking, original mobile-runtime hashes and all permission/coffee gates.
+
+## Court gear promotion (2026-11-02)
+
+- The owner authorized a quiet promotion for the supplied Wilson tennis bag
+  (CNY 860) and tennis cap (CNY 300), pickup in Shenzhen Nanshan, WeChat `thanks0`.
+  Use the supplied photos; do not invent stock, condition, warranty or discounts.
+- Keep automatic promotion non-modal: no backdrop, scroll lock or focus theft.
+  Wait at least three seconds and for idle browsing, then close after five seconds.
+  Show at most once per browser origin in a rolling 24-hour period. Search inputs,
+  menus, subscription sheets and background tabs take priority over the promotion.
+- Keep a quiet “球友好物” entry in More and the footer. Explicitly opening it or
+  choosing “慢慢看” allows unhurried reading. Copying the WeChat ID never sends a
+  message. If storage is unavailable, retain manual access without automatic ads.
+- On phones, keep the card above fixed navigation and safe areas. Preserve reduced
+  motion, keyboard dismissal and focus return. `src/GearPromo.tsx` and
+  `src/gear-promo.css` own this campaign; product images live in `public/assets/promos/`.
