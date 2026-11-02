@@ -30,6 +30,9 @@ and operational changes.
 
 ### Fixed
 
+- Include allowlisted systemd state when a protected phone check finds an
+  inactive existing service, preserving the original failure and never changing
+  service state or printing raw service output.
 - Identify protected phone preflight failures with fixed stage/error-code pairs,
   retaining every check without exposing exception messages or command output.
 - Pass the Pi interruption option only during apply. Readiness preflight remains

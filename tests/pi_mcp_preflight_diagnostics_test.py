@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import subprocess
 from contextlib import nullcontext
 from types import SimpleNamespace
 
@@ -13,11 +14,22 @@ import pytest
 from tests.pi_appium_mcp_test import DEPLOY, INSTALL
 
 PRIVATE = "PRIVATE_TOKEN https://private.invalid Authorization=secret command --password=secret"
+INACTIVE_SERVICE = {
+    "LoadState": "loaded",
+    "ActiveState": "inactive",
+    "SubState": "dead",
+    "Result": "success",
+    "UnitFileState": "disabled",
+    "Type": "oneshot",
+    "ExecMainCode": 1,
+    "ExecMainStatus": 0,
+    "NRestarts": 0,
+}
 
 
 @pytest.fixture
 def preflight(monkeypatch, tmp_path):
-    state = {"fail": None, "health_round": 0, "calls": []}
+    state = {"fail": None, "health_round": 0, "calls": [], "original_error": RuntimeError(PRIVATE)}
     base, staging = tmp_path / "runtime", tmp_path / "staging"
     staging.mkdir()
     archive = b"test-only-node-archive"
@@ -47,7 +59,19 @@ def preflight(monkeypatch, tmp_path):
     test_report = INSTALL.summarize_tests(b"<testsuites><testcase/></testsuites>", 0)
 
     def fail():
-        raise RuntimeError(PRIVATE)
+        raise state["original_error"]
+
+    def service_status(argv, **kwargs):
+        state["calls"].append(argv)
+        assert argv[:2] == ["systemctl", "show"]
+        assert kwargs == {"capture_output": True, "check": False, "timeout": 5}
+        if state.get("status_error"):
+            raise state["status_error"]
+        return SimpleNamespace(
+            stdout=state.get("service_output", "").encode(),
+            stderr=PRIVATE.encode(),
+            returncode=state.get("status_exit", 0),
+        )
 
     def command(argv, **kwargs):
         state["calls"].append(argv)
@@ -123,6 +147,7 @@ def preflight(monkeypatch, tmp_path):
         return rmtree(path, *args, **kwargs)
 
     monkeypatch.setattr(INSTALL, "run", command)
+    monkeypatch.setattr(INSTALL.subprocess, "run", service_status)
     monkeypatch.setattr(INSTALL, "unpack", unpack)
     monkeypatch.setattr(INSTALL, "run_candidate_tests", candidate_tests)
     monkeypatch.setattr(INSTALL, "verify_private_write", verify_private)
@@ -190,6 +215,7 @@ def test_successful_preflight_result_and_no_activation_are_unchanged(preflight):
     assert preflight["health_round"] == 2
     assert not list(preflight["base"].glob("candidate-*"))
     assert not any("start" in call or "restart" in call for call in preflight["calls"])
+    assert not any(call[:2] == ["systemctl", "show"] for call in preflight["calls"])
 
 
 def failed_remote(report):
@@ -204,6 +230,9 @@ def failed_remote(report):
 
 def test_failure_context_crosses_remote_boundary_only_for_valid_fixed_pairs():
     assert INSTALL.FAILURE_DIAGNOSTICS == DEPLOY.FAILURE_DIAGNOSTICS
+    assert INSTALL.SERVICE_ERROR_CODES == DEPLOY.SERVICE_ERROR_CODES
+    assert INSTALL.SERVICE_STATUS_ENUMS == DEPLOY.SERVICE_STATUS_ENUMS
+    assert INSTALL.SERVICE_STATUS_LIMITS == DEPLOY.SERVICE_STATUS_LIMITS
     valid = {"stage": "offline_dependencies", "errorCode": "offline_dependency_install_failed"}
     malformed = [
         None,
@@ -236,11 +265,16 @@ def test_failure_context_crosses_remote_boundary_only_for_valid_fixed_pairs():
     assert caught.value.diagnostic is None
 
 
-def test_runner_prints_only_sanitized_remote_diagnostics(monkeypatch, capsys):
-    valid = {"stage": "existing_health", "errorCode": "agent_service_inactive"}
+@pytest.mark.parametrize("operation", ["preflight", "health"])
+def test_runner_prints_only_sanitized_remote_diagnostics(monkeypatch, capsys, operation):
+    valid = {
+        "stage": "existing_health",
+        "errorCode": "agent_service_inactive",
+        "serviceStatus": INACTIVE_SERVICE,
+    }
     for key, value in {
         "TARGET_COMMIT": "a" * 40,
-        "OPERATION": "preflight",
+        "OPERATION": operation,
         "CLOUDFLARE_ACCOUNT_ID": PRIVATE,
         "PI_DEVICE_SSH_HOST": PRIVATE,
         "PI_DEVICE_SSH_PORT": "22",
@@ -259,7 +293,7 @@ def test_runner_prints_only_sanitized_remote_diagnostics(monkeypatch, capsys):
     monkeypatch.setattr(DEPLOY.paramiko, "SSHClient", lambda: client)
 
     def remote(_client, command, *args, **kwargs):
-        if " preflight " in command:
+        if f" {operation} " in command:
             DEPLOY.remote_before_test(
                 failed_remote(
                     {
@@ -279,8 +313,155 @@ def test_runner_prints_only_sanitized_remote_diagnostics(monkeypatch, capsys):
     assert DEPLOY.main() == 1
     output = capsys.readouterr().out
     report = json.loads(output)
-    assert report["phase"] == "pi_preflight"
+    assert report["phase"] == "pi_" + operation
     assert report["remoteErrorClass"] == "RuntimeError"
     assert report["failureDiagnostic"] == valid
     assert report["externalTestSends"] == 0
     assert PRIVATE not in output and "private.invalid" not in output
+
+
+@pytest.mark.parametrize("operation", ["preflight", "health"])
+@pytest.mark.parametrize(
+    "status",
+    [
+        INACTIVE_SERVICE,
+        {
+            **INACTIVE_SERVICE,
+            "ActiveState": "failed",
+            "SubState": "failed",
+            "Result": "exit-code",
+            "ExecMainStatus": 1,
+            "NRestarts": 3,
+            "UnitFileState": "enabled",
+            "Type": "simple",
+        },
+        {**INACTIVE_SERVICE, "LoadState": "not-found", "UnitFileState": "unknown"},
+    ],
+)
+def test_failed_service_state_survives_installer_and_runner_without_later_checks(
+    preflight, monkeypatch, operation, status
+):
+    preflight["fail"] = "existing_health"
+    source = dict(status)
+    if status["LoadState"] == "not-found":
+        # systemctl show can report an absent unit with a nonzero exit and empty fields.
+        source["UnitFileState"] = ""
+        preflight["status_exit"] = 4
+    preflight["service_output"] = "\n".join(f"{key}={value}" for key, value in source.items())
+    if operation == "health":
+        monkeypatch.setattr(INSTALL.sys, "argv", ["install.py", "health", "--commit", "a" * 40])
+    with pytest.raises(RuntimeError) as caught:
+        INSTALL.main()
+    assert caught.value is preflight["original_error"]
+    report = INSTALL.failure_report(caught.value)
+    assert report["errorClass"] == "RuntimeError"
+    assert report["failureDiagnostic"] == {
+        "stage": "existing_health",
+        "errorCode": "agent_service_inactive",
+        "serviceStatus": status,
+    }
+    calls = preflight["calls"]
+    assert calls[:2] == [
+        ["systemctl", "is-active", "--quiet", "wechat-sender.service"],
+        ["systemctl", "is-active", "--quiet", "zacks-agent.service"],
+    ]
+    assert len(calls) == 3
+    assert calls[-1][:3] == ["systemctl", "show", "--all"]
+    assert calls[-1][-1] == "zacks-agent.service"
+    assert set(calls[-1][3].removeprefix("--property=").split(",")) == set(status)
+    assert not preflight["base"].exists()
+    with pytest.raises(DEPLOY.RemoteOperationError) as remote:
+        DEPLOY.remote(failed_remote(report), "not-executed")
+    assert remote.value.error_class == "RuntimeError"
+    assert remote.value.diagnostic == report["failureDiagnostic"]
+
+
+@pytest.mark.parametrize("failure_point", ["existing_health", "post_preflight_health"])
+def test_service_status_filters_unrecognized_fields_and_sensitive_values(preflight, failure_point):
+    preflight["fail"] = failure_point
+    preflight["service_output"] = "\n".join(
+        [f"{key}={PRIVATE}" for key in INACTIVE_SERVICE]
+        + [f"Environment={PRIVATE}", f"ExecStart={PRIVATE}"]
+    )
+    with pytest.raises(RuntimeError) as caught:
+        INSTALL.main()
+    report = INSTALL.failure_report(caught.value)
+    diagnostic = report["failureDiagnostic"]
+    assert diagnostic["stage"] == failure_point
+    assert diagnostic["errorCode"] == "agent_service_inactive"
+    assert diagnostic["serviceStatus"] == {
+        **dict.fromkeys(INSTALL.SERVICE_STATUS_ENUMS, "unknown"),
+        **dict.fromkeys(INSTALL.SERVICE_STATUS_LIMITS),
+    }
+    assert "PRIVATE" not in json.dumps(report) and "private.invalid" not in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"status_error": RuntimeError("secondary " + PRIVATE)},
+        {"status_error": subprocess.TimeoutExpired([PRIVATE], 5)},
+        {"status_error": PermissionError(PRIVATE)},
+        {"status_exit": 1, "service_output": ""},
+        {"service_output": "LoadState=loaded\n"},
+        {
+            "service_output": "\n".join(f"{key}={value}" for key, value in INACTIVE_SERVICE.items())
+            + "\nLoadState=loaded"
+        },
+        {"service_output": PRIVATE * 1000},
+    ],
+)
+def test_failed_service_diagnostic_read_never_obscures_original_error(preflight, state):
+    preflight.update(state, fail="existing_health")
+    with pytest.raises(RuntimeError) as caught:
+        INSTALL.main()
+    assert caught.value is preflight["original_error"]
+    report = INSTALL.failure_report(caught.value)
+    assert report["errorClass"] == "RuntimeError"
+    assert report["failureDiagnostic"] == {
+        "stage": "existing_health",
+        "errorCode": "agent_service_inactive",
+    }
+    assert "PRIVATE" not in json.dumps(report)
+
+
+def test_runner_revalidates_service_state_and_binds_it_to_failed_service():
+    basic = {"stage": "existing_health", "errorCode": "agent_service_inactive"}
+    invalid_states = [
+        None,
+        [],
+        {**INACTIVE_SERVICE, "Environment": PRIVATE},
+        {key: value for key, value in INACTIVE_SERVICE.items() if key != "Type"},
+    ]
+    malicious = {
+        **dict.fromkeys(INSTALL.SERVICE_STATUS_ENUMS, [PRIVATE]),
+        "ExecMainCode": True,
+        "ExecMainStatus": 256,
+        "NRestarts": -1,
+    }
+    unknown = {
+        **dict.fromkeys(INSTALL.SERVICE_STATUS_ENUMS, "unknown"),
+        **dict.fromkeys(INSTALL.SERVICE_STATUS_LIMITS),
+    }
+    cases = [(basic, state, basic) for state in invalid_states]
+    cases.append((basic, malicious, {**basic, "serviceStatus": unknown}))
+    for unrelated in (
+        {"stage": "existing_health", "errorCode": "appium_6001_unhealthy"},
+        {"stage": "offline_dependencies", "errorCode": "offline_dependency_install_failed"},
+    ):
+        cases.append((unrelated, INACTIVE_SERVICE, unrelated))
+    for context, status, expected in cases:
+        diagnostic = {**context, "serviceStatus": status}
+        report = {"ok": False, "errorClass": "RuntimeError", "failureDiagnostic": diagnostic}
+        with pytest.raises(DEPLOY.RemoteOperationError) as caught:
+            DEPLOY.remote(failed_remote(report), "not-executed")
+        assert caught.value.diagnostic == expected
+        assert INSTALL.safe_failure_diagnostic(diagnostic) == expected
+        assert "PRIVATE" not in json.dumps(caught.value.__dict__)
+
+
+def test_service_status_query_rejects_unfixed_units_without_execution(monkeypatch):
+    calls = []
+    monkeypatch.setattr(INSTALL.subprocess, "run", lambda *a, **k: calls.append(a))
+    assert INSTALL.failed_service_status(PRIVATE) is None
+    assert calls == []
