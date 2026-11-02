@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
 import { acceptanceRequestPolicy } from './public-request-policy.mjs';
-import { observeGearPromo, verifyAutomaticGearPromo, verifyManualGearPromo } from './gear-promo-acceptance.mjs';
+import { observeGearPromo, verifyAutomaticGearPromo, verifyManualGearPromo, verifyMobileFirstVisitGearPromo } from './gear-promo-acceptance.mjs';
 
 const expected = process.argv[2];
 assert.match(expected ?? '', /^[0-9a-f]{40}$/, 'exact Web deployment SHA is required');
@@ -155,6 +155,7 @@ try {
     await context.close();
   }
   }
+  report.mobileFirstVisit = await verifyMobileFirstVisitGearPromo(browser, { origin: origins[0], output });
   // Browser origin isolation only: synthetic local values, all network fulfilled.
   // This does not send a verification code or claim a real email re-verification.
   const isolation = await browser.newContext();

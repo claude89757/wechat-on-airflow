@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
+import { acceptanceRequestPolicy } from './public-request-policy.mjs';
 
-const storageKey = 'zacks:gear-promo:2026-11:last-shown';
+const storageKey = 'zacks:gear-promo:2026-11:seen-v2';
 
 // Install before the first navigation so slow page loads cannot hide a premature
 // dismissal. These observations never modify application state or send requests.
@@ -44,12 +45,120 @@ export async function verifyAutomaticGearPromo(page, { output, name }) {
   assert.equal(observation.automaticFocused, false, 'automatic advertising must not move keyboard focus');
   await expect(promo).toBeHidden();
   const recordedAt = Number(await page.evaluate(key => localStorage.getItem(key), storageKey));
-  assert.ok(Number.isFinite(recordedAt) && Math.abs(recordedAt - appeared.epoch) < 1_000, 'persist the time of actual display');
+  assert.ok(Number.isFinite(recordedAt) && Math.abs(recordedAt - dismissed.epoch) < 1_000, 'persist only after a complete five-second display');
 
   await page.reload({ waitUntil: 'networkidle' });
   await page.locator('.service-ready').waitFor({ timeout: 30_000 });
   // Existing business-flow checks run during this cooldown observation window.
   return { visibleMs: Math.round(visibleMs), automaticFocused: false, recordedAt, reloadedAt: Date.now() };
+}
+
+// Exercise the deployed production bundle, where a first visit has no dashboard
+// yet. The development server starts with fallback data and cannot expose this
+// dependency. Only this isolated browser's bootstrap response is held/failed.
+export async function verifyMobileFirstVisitGearPromo(browser, { origin, output }) {
+  const name = `${new URL(origin).hostname}-mobile-first-visit`;
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+    reducedMotion: 'no-preference', locale: 'zh-CN', timezoneId: 'Asia/Shanghai',
+  });
+  let releaseBootstrap;
+  const bootstrapGate = new Promise(resolve => { releaseBootstrap = resolve; });
+  let bootstrapRequested = false;
+  let bootstrapReleased = false;
+  let publicWriteRequests = 0;
+  let blockedTelemetryRequests = 0;
+  await context.route('**/*', async route => {
+    const request = route.request();
+    const policy = acceptanceRequestPolicy(request.method(), request.url(), origin);
+    if (policy !== 'read') {
+      if (policy === 'blocked-cloudflare-telemetry') blockedTelemetryRequests += 1;
+      else publicWriteRequests += 1;
+      return route.abort('blockedbyclient');
+    }
+    if (new URL(request.url()).origin === origin && new URL(request.url()).pathname === '/api/bootstrap') {
+      bootstrapRequested = true;
+      await bootstrapGate;
+      // A simulated read failure must not create a subscription or notification.
+      return route.fulfill({ status: 503, json: { error: 'Isolated acceptance: dashboard unavailable' } });
+    }
+    return route.continue();
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await observeGearPromo(page);
+  try {
+    await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.locator('main[data-ui-version="0.8.0"]').waitFor();
+    const startedAt = Date.now();
+    const promo = page.getByTestId('gear-promo');
+    const scroller = page.getByTestId('mobile-scroll');
+    const touch = await context.newCDPSession(page);
+    let captured = false;
+    let swipes = 0;
+    let maxScrollTop = 0;
+    let appeared;
+    let dismissed;
+    // Real touch input keeps browsing active before and during the promotion.
+    // The gesture stays above the fixed promotion and never activates a CTA.
+    while (Date.now() - startedAt < 12_000) {
+      const from = swipes % 2 === 0 ? 320 : 180;
+      const to = swipes % 2 === 0 ? 180 : 320;
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 30, y: from }] });
+      for (let step = 1; step <= 6; step += 1) {
+        await touch.send('Input.dispatchTouchEvent', {
+          type: 'touchMove', touchPoints: [{ x: 30, y: from + (to - from) * step / 6 }],
+        });
+        await page.waitForTimeout(24);
+      }
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      swipes += 1;
+      maxScrollTop = Math.max(maxScrollTop, await scroller.evaluate(element => element.scrollTop));
+      const observation = await page.evaluate(() => window.__gearPromoAcceptance);
+      appeared = observation.events.find(event => event.mode === 'auto');
+      dismissed = appeared && observation.events.find(event => event.mode === null && event.at > appeared.at);
+      if (appeared && !captured) {
+        await expect(promo).toBeVisible();
+        await expect(promo).toBeInViewport({ ratio: 1 });
+        await expect(promo).toHaveCSS('opacity', '1');
+        assert.equal(await page.evaluate(key => localStorage.getItem(key), storageKey), null,
+          'a first appearance must not consume the cooldown before five seconds of viewing');
+        await page.screenshot({ path: `${output}/${name}-gear-auto.png` });
+        captured = true;
+      }
+      if (dismissed) break;
+      await page.waitForTimeout(150);
+    }
+    assert.equal(bootstrapRequested, true, 'the production first visit must request its dashboard');
+    assert.equal(bootstrapReleased, false);
+    assert.ok(appeared && dismissed, 'an active first-time mobile visitor must see the ad while dashboard loading is pending');
+    assert.ok(maxScrollTop > 0 && swipes > 3, 'touch gestures must actually scroll the page');
+    const visibleMs = dismissed.at - appeared.at;
+    assert.ok(visibleMs >= 4_800 && visibleMs < 6_500, `touch scrolling must preserve the full five seconds, observed ${visibleMs}ms`);
+    const recordedAt = Number(await page.evaluate(key => localStorage.getItem(key), storageKey));
+    assert.ok(Math.abs(recordedAt - dismissed.epoch) < 1_000, 'only the completed impression starts the cooldown');
+    const observation = await page.evaluate(() => window.__gearPromoAcceptance);
+    assert.equal(observation.automaticFocused, false);
+    await expect(promo).toBeHidden();
+    const failedBootstrap = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/bootstrap' && response.status() === 503);
+    bootstrapReleased = true;
+    releaseBootstrap();
+    await failedBootstrap;
+    await expect(page.getByRole('button', { name: '更多功能', exact: true })).toBeVisible();
+    assert.equal(publicWriteRequests, 0);
+    assert.deepEqual(errors, []);
+    return {
+      origin, width: 390, height: 844, touchContext: true, swipes, maxScrollTop,
+      appearedBeforeDashboardResponse: true, cooldownAfterCompleteView: true,
+      automaticVisibleMs: Math.round(visibleMs), automaticFocused: false,
+      dashboardFailureHandled: true, publicWriteRequests, blockedTelemetryRequests, passed: true,
+    };
+  } finally {
+    releaseBootstrap();
+    await context.close();
+  }
 }
 
 export async function verifyManualGearPromo(page, { output, name, width, height, automatic, prolonged = false }) {

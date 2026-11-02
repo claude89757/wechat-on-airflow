@@ -4,8 +4,11 @@ import { createPortal } from "react-dom";
 import { isTextEntry } from "./nativeKeyboard";
 import "./gear-promo.css";
 
-const STORAGE_KEY = "zacks:gear-promo:2026-11:last-shown";
+// v1 counted attempted renders, including cards immediately hidden by scrolling.
+// Give visitors who never saw that version a real first impression after the fix.
+const STORAGE_KEY = "zacks:gear-promo:2026-11:seen-v2";
 const COOLDOWN_MS = 24 * 60 * 60 * 1_000;
+const SHOW_DELAY_MS = 3_000;
 const AUTO_CLOSE_MS = 5_000;
 let memoryLastShown = 0;
 
@@ -24,16 +27,13 @@ function lastShown(): number {
   return timestamp;
 }
 
-function recordShown(now: number): boolean {
-  let persisted = false;
+function recordShown(now: number): void {
+  memoryLastShown = now;
   for (const name of ["localStorage", "sessionStorage"] as const) {
     try {
       window[name].setItem(STORAGE_KEY, String(now));
-      persisted = true;
-    } catch { /* Try the session store if the persistent store is unavailable. */ }
+    } catch { /* Memory still limits this page if an embedded browser blocks both stores. */ }
   }
-  memoryLastShown = now;
-  return persisted;
 }
 
 function businessSurfaceOpen(): boolean {
@@ -57,15 +57,25 @@ export function GearPromo({ ready, blocked, request }: Props) {
   const cardRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  const mountedAt = useRef(Date.now());
-  const lastInteraction = useRef(Date.now());
+  const eligibleAt = useRef(Date.now() + SHOW_DELAY_MS);
   const autoAttempted = useRef(false);
   const handledRequest = useRef(0);
   const modeRef = useRef<Mode>(null);
   modeRef.current = mode;
 
-  const dismiss = useCallback((restoreFocus = false) => {
+  const dismiss = useCallback((restoreFocus = false, interrupted = false) => {
     const hadFocus = cardRef.current?.contains(document.activeElement);
+    if (modeRef.current === "auto") {
+      if (interrupted) {
+        // A sheet or background tab is not a completed impression. Retry after
+        // returning to ordinary browsing instead of suppressing it for a day.
+        autoAttempted.current = false;
+        eligibleAt.current = Date.now() + SHOW_DELAY_MS;
+      } else {
+        recordShown(Date.now());
+      }
+    }
+    modeRef.current = null;
     setMode(null);
     if (restoreFocus && hadFocus && returnFocusRef.current?.isConnected) {
       returnFocusRef.current.focus({ preventScroll: true });
@@ -73,34 +83,25 @@ export function GearPromo({ ready, blocked, request }: Props) {
   }, []);
 
   useEffect(() => {
-    const noteActivity = (event: Event) => {
-      if (event.target instanceof Node && cardRef.current?.contains(event.target)) return;
-      lastInteraction.current = Date.now();
-      if (modeRef.current === "auto" && (event.type === "scroll" || event.type === "pointerdown")) {
-        dismiss();
-      }
-    };
     const handleFocus = () => {
-      if (isTextEntry(document.activeElement)) dismiss();
+      if (isTextEntry(document.activeElement)) dismiss(false, true);
     };
     const handleVisibility = () => {
-      lastInteraction.current = Date.now();
-      if (document.hidden) dismiss();
+      eligibleAt.current = Date.now() + SHOW_DELAY_MS;
+      if (document.hidden) dismiss(false, true);
     };
-    const events = ["pointerdown", "pointermove", "touchmove", "scroll", "keydown"];
-    for (const event of events) document.addEventListener(event, noteActivity, { capture: true, passive: true });
     document.addEventListener("focusin", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      for (const event of events) document.removeEventListener(event, noteActivity, true);
       document.removeEventListener("focusin", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [dismiss]);
 
   useEffect(() => {
-    if (blocked) dismiss();
-  }, [blocked, dismiss]);
+    eligibleAt.current = Date.now() + SHOW_DELAY_MS;
+    if (blocked || !ready) dismiss(false, true);
+  }, [ready, blocked, dismiss]);
 
   useEffect(() => {
     if (!request.id || request.id === handledRequest.current || blocked) return;
@@ -113,7 +114,7 @@ export function GearPromo({ ready, blocked, request }: Props) {
   }, [request, blocked]);
 
   useEffect(() => {
-    if (!ready || blocked || autoAttempted.current) return;
+    if (!ready || blocked || mode || autoAttempted.current) return;
     let timer = 0;
     const tryShow = () => {
       const now = Date.now();
@@ -122,12 +123,13 @@ export function GearPromo({ ready, blocked, request }: Props) {
         window.clearInterval(timer);
         return;
       }
-      if (document.hidden || businessSurfaceOpen() || now - mountedAt.current < 3_000
-        || now - lastInteraction.current < 1_200) return;
+      if (document.hidden || businessSurfaceOpen()) {
+        eligibleAt.current = now + SHOW_DELAY_MS;
+        return;
+      }
+      if (now < eligibleAt.current) return;
       autoAttempted.current = true;
       window.clearInterval(timer);
-      // If neither store works, keep the manual entry only instead of nagging on reload.
-      if (!recordShown(now)) return;
       returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setFeedback("");
       setRemaining(AUTO_CLOSE_MS);
@@ -136,7 +138,7 @@ export function GearPromo({ ready, blocked, request }: Props) {
     timer = window.setInterval(tryShow, 250);
     tryShow();
     return () => window.clearInterval(timer);
-  }, [ready, blocked]);
+  }, [ready, blocked, mode]);
 
   useEffect(() => {
     if (mode !== "auto") return;
@@ -185,7 +187,7 @@ export function GearPromo({ ready, blocked, request }: Props) {
         <div className="gear-promo-contact-row"><span>联系微信 <strong data-testid="gear-promo-wechat">thanks0</strong></span><button className="gear-promo-copy" type="button" onClick={() => void copyWechat()}>{feedback.startsWith("已复制") ? <CheckIcon size={16} aria-hidden="true" /> : <CopyIcon size={16} aria-hidden="true" />}复制微信号</button></div>
         <p className="gear-promo-feedback" role="status">{feedback}</p>
       </div>
-      <footer className="gear-promo-footer"><span id="gear-promo-timing">{mode === "auto" ? `${Math.ceil(remaining / 1_000)} 秒后自动关闭` : "看完点右上角关闭"}</span>{mode === "auto" ? <button type="button" onClick={() => setMode("manual")}>慢慢看</button> : <span>更多 · 球友好物可再查看</span>}</footer>
+      <footer className="gear-promo-footer"><span id="gear-promo-timing">{mode === "auto" ? `${Math.ceil(remaining / 1_000)} 秒后自动关闭` : "看完点右上角关闭"}</span>{mode === "auto" ? <button type="button" onClick={() => { recordShown(Date.now()); setMode("manual"); }}>慢慢看</button> : <span>更多 · 球友好物可再查看</span>}</footer>
       {mode === "auto" ? <div className="gear-promo-progress" aria-hidden="true"><span /></div> : null}
     </section>, document.body,
   );

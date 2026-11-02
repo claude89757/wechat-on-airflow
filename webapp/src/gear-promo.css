@@ -14,6 +14,7 @@
   background: #fcfdf9;
   box-shadow: 0 14px 50px #173d3029, 0 2px 8px #173d300a;
   color: #243a31;
+  opacity: 1;
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   line-height: 1.5;
   animation: gear-promo-enter 180ms ease-out both;
@@ -47,7 +48,8 @@
 .gear-promo-footer > button { min-height: 32px; border: 0; padding: 4px 0 4px 12px; background: transparent; color: #315e45; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
 .gear-promo-progress { height: 3px; background: #edf2e6; }
 .gear-promo-progress > span { display: block; width: 100%; height: 100%; background: #769564; transform-origin: left; animation: gear-promo-countdown 5s linear forwards; }
-@keyframes gear-promo-enter { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+/* Stay readable even when a mobile webview pauses its animation timeline. */
+@keyframes gear-promo-enter { from { transform: translateY(6px); } to { transform: translateY(0); } }
 @keyframes gear-promo-countdown { to { transform: scaleX(0); } }
 @media (max-width: 899px) {
   .gear-promo { right: max(12px, calc((100vw - 496px) / 2)); bottom: calc(74px + env(safe-area-inset-bottom, 0px)); width: min(380px, calc(100vw - 24px)); max-height: calc(100dvh - 96px - env(safe-area-inset-bottom, 0px)); border-radius: 16px; }
