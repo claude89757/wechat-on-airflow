@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 
@@ -1248,7 +1248,9 @@ def test_release_preflight_checks_the_live_service_without_a_browser_drain():
     assert "inputs.allow_interruption != true" in ssh["if"]
     release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
     assert release["jobs"]["pi_ydmap"]["with"]["drain_preflight"] is False
-    assert release["jobs"]["pi_ydmap"]["with"]["allow_interruption"] is True
+    assert release["jobs"]["pi_ydmap"]["with"]["allow_interruption"] == (
+        "${{ inputs.mode == 'apply' }}"
+    )
     assert release["jobs"]["pi_ydmap"]["with"]["operation"] == (
         "${{ inputs.mode == 'apply' && 'apply' || 'ready' }}"
     )
@@ -1259,6 +1261,55 @@ def test_release_preflight_checks_the_live_service_without_a_browser_drain():
     scraper = contract["managed_services"]["pi_ydmap_scraper"]
     assert scraper["release_preflight_requires_scoped_drain"] is False
     assert scraper["release_preflight_cycles"] == 0
+
+
+@pytest.mark.parametrize(
+    "operation,allow_interruption,expected_status",
+    [("ready", False, 0), ("apply", True, 0), ("ready", True, 1)],
+)
+def test_protected_release_interruption_is_apply_only(
+    monkeypatch, operation, allow_interruption, expected_status
+):
+    for name, value in {
+        "GITHUB_ACTIONS": "true",
+        "TARGET_COMMIT": COMMIT,
+        "OPERATION": operation,
+        "ALLOW_INTERRUPTION": str(allow_interruption).lower(),
+        "DRAIN_PREFLIGHT": "false",
+        "CAPTURE_BROWSER_UI": "false",
+        "CONFIRM_VERIFICATION_ONCE": "false",
+        "DIAGNOSTIC_FIRST_PRODUCT": "default",
+        "PI_DEVICE_SSH_HOST": "isolated.invalid",
+        "PI_DEVICE_SSH_PORT": "22",
+        "PI_DEVICE_SSH_USER": "test-only",
+        "PI_DEVICE_SSH_PASSWORD": "test-only",
+    }.items():
+        monkeypatch.setenv(name, value)
+    client = MagicMock()
+    stdin, stdout, stderr = MagicMock(), MagicMock(), MagicMock()
+    stdout.channel.recv_exit_status.return_value = 0
+    client.exec_command.return_value = (stdin, stdout, stderr)
+    monkeypatch.setattr(DEPLOY.paramiko, "SSHClient", lambda: client)
+    checkout = Mock(return_value=HASH)
+    remote = Mock(return_value={"ok": True})
+    monkeypatch.setattr(DEPLOY, "verify_checkout", checkout)
+    monkeypatch.setattr(DEPLOY, "remote", remote)
+    monkeypatch.setattr(
+        DEPLOY, "apply_with_guard", lambda *args, **kwargs: pytest.fail("unexpected drain")
+    )
+
+    assert DEPLOY.main() == expected_status
+    if expected_status:
+        checkout.assert_not_called()
+        client.connect.assert_not_called()
+        remote.assert_not_called()
+    else:
+        checkout.assert_called_once_with(COMMIT)
+        client.connect.assert_called_once()
+        command = remote.call_args.args[1]
+        assert (" --allow-interruption" in command) is allow_interruption
+        assert f" {operation} --commit {COMMIT}" in command
+    client.close.assert_called_once()
 
 
 def test_ready_checks_the_live_listener_without_a_candidate(monkeypatch):

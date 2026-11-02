@@ -30,6 +30,8 @@ and operational changes.
 
 ### Fixed
 
+- Pass the Pi interruption option only during apply. Readiness preflight remains
+  read-only and no longer rejects an apply-only option before connecting.
 - Let a recovery upgrade replace a stopped WeChat consumer that is still on an
   older image. The live API and email worker must still match, and no WeChat
   consumer may be running. A failed recovery check now reports its fixed guard
