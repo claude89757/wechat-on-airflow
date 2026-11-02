@@ -1,6 +1,7 @@
 import "./court-studio.css";
 import { CourtStudio, StudioMobileNav } from "./CourtStudio";
 import {
+  ArrowLeftIcon,
   BuildingApartmentIcon,
   BuildingsIcon,
   CheckCircleIcon,
@@ -41,8 +42,25 @@ import { resolveLuluState } from "./lulu";
 import { AdminPanel, CommunityPanel } from "./OperationsPanel";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
 import { isTextEntry, useNativeKeyboardViewport } from "./nativeKeyboard";
+import { DatePausePanel, formatPauseDate, isPauseDate } from "./DatePausePanel";
 
-type Panel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | "coffee" | null;
+type Panel = "create" | "help" | "subscriptions" | "pause-dates" | "priority" | "community" | "admin" | "coffee" | null;
+type NotificationPanel = "subscriptions" | "pause-dates";
+const NOTIFICATION_HISTORY_KEY = "zacksNotificationPanel";
+
+function notificationHistory(): { view: NotificationPanel; depth: number } | null {
+  const value = window.history.state?.[NOTIFICATION_HISTORY_KEY];
+  return value && (value.view === "subscriptions" || value.view === "pause-dates")
+    && Number.isInteger(value.depth) && value.depth >= 0 && value.depth <= 2 ? value : null;
+}
+
+function clearNotificationHistory(): void {
+  const next = { ...window.history.state };
+  delete next[NOTIFICATION_HISTORY_KEY];
+  const url = new URL(window.location.href);
+  url.searchParams.delete("pauseDate");
+  window.history.replaceState(next, "", url);
+}
 
 type CoffeeInviteSession = Awaited<ReturnType<typeof startCoffeeInviteSession>>;
 type CoffeeInviteReward = Awaited<ReturnType<typeof claimCoffeeInvite>>;
@@ -241,6 +259,8 @@ export default function Prototype() {
   useNativeKeyboardViewport();
   const [receipts, setReceipts] = useState<VerificationReceipt[]>(() => loadReceipts());
   const [receipt, setReceipt] = useState<VerificationReceipt | null>(() => loadReceipts()[0] ?? null);
+  const receiptRef = useRef(receipt);
+  receiptRef.current = receipt;
   const initialDashboard = import.meta.env.DEV ? FALLBACK_DASHBOARD : EMPTY_DASHBOARD;
   const [dashboard, setDashboard] = useState<Dashboard>(() => ({
     ...initialDashboard,
@@ -249,6 +269,12 @@ export default function Prototype() {
       : initialDashboard.identity,
   }));
   const [panel, setPanel] = useState<Panel>(null);
+  const [pauseDates, setPauseDates] = useState<string[]>(() => {
+    const date = new URL(window.location.href).searchParams.get("pauseDate");
+    return date && isPauseDate(date) ? [date] : [];
+  });
+  const [verificationReturn, setVerificationReturn] = useState<NotificationPanel | null>(null);
+  const closingNotification = useRef(false);
   const [loading, setLoading] = useState(true);
   const [serviceOnline, setServiceOnline] = useState(import.meta.env.DEV);
   const [hasSuccessfulDashboard, setHasSuccessfulDashboard] = useState(import.meta.env.DEV);
@@ -303,6 +329,7 @@ export default function Prototype() {
     setLoading(true);
     try {
       const next = await getDashboard(receipt, { force });
+      if (receiptRef.current?.token !== receipt?.token) return;
       const stale = next.dataStatus?.stale === true;
       setDashboard(next);
       setServiceOnline(true);
@@ -315,17 +342,60 @@ export default function Prototype() {
       }
       if (force) setToast(stale ? "状态库暂时不可用，已保留上次数据" : "已获取最新数据");
     } catch (error) {
+      if (receiptRef.current?.token !== receipt?.token) return;
       setServiceOnline(import.meta.env.DEV);
       setRefreshFailed(true);
       setRefreshError(error instanceof Error ? error.message : "请求处理失败");
     } finally {
-      setLoading(false);
+      if (receiptRef.current?.token === receipt?.token) setLoading(false);
     }
   }, [receipt]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const applyHistory = () => {
+      keyboardRef.current.hide();
+      setFormError("");
+      if (closingNotification.current) {
+        closingNotification.current = false;
+        clearNotificationHistory();
+      }
+      const entry = notificationHistory();
+      if (!entry) {
+        setPanel(null);
+        setVerificationReturn(null);
+        setPauseDates([]);
+      } else if (entry.view === "pause-dates" && !receiptRef.current) {
+        setVerificationReturn("pause-dates");
+        setPanel("create");
+      } else {
+        setVerificationReturn(null);
+        setPanel(entry.view);
+      }
+    };
+    const date = new URL(window.location.href).searchParams.get("pauseDate");
+    if (date && isPauseDate(date)) {
+      window.history.replaceState({ ...window.history.state,
+        [NOTIFICATION_HISTORY_KEY]: { view: "pause-dates", depth: 0 },
+      }, "");
+      applyHistory();
+    } else if (date) {
+      clearNotificationHistory();
+      setToast("邮件中的日期无效，请在“我的订阅”中选择打球日期。");
+    } else if (notificationHistory()) applyHistory();
+    window.addEventListener("popstate", applyHistory);
+    return () => window.removeEventListener("popstate", applyHistory);
+  }, []);
+
+  useEffect(() => {
+    if (panel === "pause-dates" && !receipt) {
+      setVerificationReturn("pause-dates");
+      setPanel("create");
+    }
+  }, [panel, receipt]);
 
   useEffect(() => {
     const allowed = dashboard.subscriptionTerms[dashboard.identity.tier];
@@ -483,9 +553,75 @@ export default function Prototype() {
     notificationBurst,
   });
 
-  const openPanel = (nextPanel: Exclude<Panel, null>) => {
+  const openNotificationPanel = (view: NotificationPanel, replace = false) => {
     keyboard.hide();
     setFormError("");
+    const previous = notificationHistory();
+    const depth = replace ? previous?.depth ?? 0
+      : view === "pause-dates" && previous?.view === "subscriptions" ? Math.min(2, previous.depth + 1) : 1;
+    const nextState = { ...window.history.state, [NOTIFICATION_HISTORY_KEY]: { view, depth } };
+    const url = new URL(window.location.href);
+    if (view === "subscriptions") url.searchParams.delete("pauseDate");
+    if (replace || previous?.view === view) window.history.replaceState(nextState, "", url);
+    else window.history.pushState(nextState, "", url);
+    if (view === "pause-dates" && !receipt) {
+      setVerificationReturn(view);
+      setPanel("create");
+    } else {
+      setVerificationReturn(null);
+      setPanel(view);
+    }
+  };
+
+  const backToSubscriptions = () => {
+    keyboard.hide();
+    setFormError("");
+    setVerificationReturn(null);
+    const entry = notificationHistory();
+    if (entry?.view === "pause-dates" && entry.depth > 0) window.history.back();
+    else openNotificationPanel("subscriptions", true);
+  };
+
+  const closeNotificationPanel = () => {
+    keyboard.hide();
+    setPanel(null);
+    setVerificationReturn(null);
+    setPauseDates([]);
+    const entry = notificationHistory();
+    if (entry && entry.depth > 0) {
+      closingNotification.current = true;
+      window.history.go(-entry.depth);
+    }
+    else clearNotificationHistory();
+  };
+
+  const verifyForNotifications = (expired = false) => {
+    keyboard.hide();
+    const destination = panel === "pause-dates" ? "pause-dates" : "subscriptions";
+    if (expired && receipt) {
+      setReceipts(removeReceipt(receipt.token));
+      receiptRef.current = null;
+      setReceipt(null);
+      setDashboard(EMPTY_DASHBOARD);
+      setHasSuccessfulDashboard(false);
+      setChallengeId("");
+      setCode("");
+    }
+    setVerificationReturn(destination);
+    setPanel("create");
+    setFormError(expired ? "邮箱验证已过期，请重新验证后继续。" : "");
+  };
+
+  const openPanel = (nextPanel: Exclude<Panel, null>) => {
+    if (nextPanel === "subscriptions" || nextPanel === "pause-dates") {
+      openNotificationPanel(nextPanel);
+      return;
+    }
+    keyboard.hide();
+    setFormError("");
+    setVerificationReturn(null);
+    setPauseDates([]);
+    if (notificationHistory()) clearNotificationHistory();
     if (nextPanel === "coffee") resetCoffeeFlow();
     setPanel(nextPanel);
   };
@@ -493,6 +629,9 @@ export default function Prototype() {
   const openCreatePanel = (venueId?: VenueId) => {
     keyboard.hide();
     setFormError("");
+    setVerificationReturn(null);
+    setPauseDates([]);
+    if (notificationHistory()) clearNotificationHistory();
     if (venueId) {
       setVenueIds([venueId]);
       setQuickVenueId(venueId);
@@ -583,15 +722,28 @@ export default function Prototype() {
 
   const switchReceipt = (next: VerificationReceipt) => {
     keyboard.hide();
+    receiptRef.current = next;
     setReceipt(next);
+    setReceipts(saveReceipt(next));
     setEmail(next.email);
-    setPanel("create");
+    setDashboard({ ...EMPTY_DASHBOARD, identity: { ...EMPTY_DASHBOARD.identity, maskedEmail: next.maskedEmail } });
+    setHasSuccessfulDashboard(false);
+    setPanel(verificationReturn ?? "create");
+    setVerificationReturn(null);
     setFormError("");
   };
 
   const changeEmail = () => {
     keyboard.hide();
+    const returnTo = panel === "pause-dates" || panel === "subscriptions" ? panel : verificationReturn;
+    setVerificationReturn(returnTo);
+    // These are an unconfirmed action, not the previous mailbox's saved preferences.
+    // The receipt-keyed date panel discards that mailbox's list, undo and requests.
+    if (returnTo !== "pause-dates") setPauseDates([]);
+    receiptRef.current = null;
     setReceipt(null);
+    setDashboard(EMPTY_DASHBOARD);
+    setHasSuccessfulDashboard(false);
     setEmail("");
     setChallengeId("");
     setCode("");
@@ -623,11 +775,16 @@ export default function Prototype() {
     try {
       const nextReceipt = await verifyEmail(challengeId, code.trim());
       setReceipts(saveReceipt(nextReceipt));
+      receiptRef.current = nextReceipt;
       setReceipt(nextReceipt);
       setEmail(nextReceipt.email);
       setCode("");
       setChallengeId("");
       setToast("邮箱验证成功");
+      if (verificationReturn) {
+        setPanel(verificationReturn);
+        setVerificationReturn(null);
+      }
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "验证码无效");
     } finally {
@@ -766,15 +923,17 @@ export default function Prototype() {
   const panelTitle = useMemo(() => {
     if (panel === "help") return "提醒如何工作";
     if (panel === "subscriptions") return "我的订阅";
+    if (panel === "pause-dates") return "暂停打球日期的提醒";
     if (panel === "priority") return "提醒档位";
     if (panel === "community") return "用户社区";
     if (panel === "admin") return "管理后台";
     if (panel === "coffee") return "支持 Zacks";
+    if (panel === "create" && verificationReturn) return "验证邮箱";
     if (panel === "create" && quickVenue) {
       return receipt ? `创建${quickVenue.name}提醒` : `订阅${quickVenue.name}`;
     }
     return receipt ? "创建订阅" : "验证邮箱";
-  }, [panel, quickVenue, receipt]);
+  }, [panel, quickVenue, receipt, verificationReturn]);
 
   return (
     <>
@@ -802,6 +961,10 @@ export default function Prototype() {
         open={panel !== null}
         onOpenChange={(open) => {
           if (!open) {
+            if (panel === "subscriptions" || panel === "pause-dates" || verificationReturn) {
+              closeNotificationPanel();
+              return;
+            }
             if (panel === "coffee") resetCoffeeFlow();
             setPanel(null);
             setQuickVenueId(null);
@@ -810,14 +973,18 @@ export default function Prototype() {
         title={panelTitle}
         description={
           panel === "create"
-            ? quickVenue
+            ? verificationReturn
+              ? "验证后继续管理打球日期的提醒。"
+              : quickVenue
               ? `已选择${quickVenue.name}，设置星期、时段和有效期即可。`
               : "只设置提醒条件，不展示或代订场地。"
             : undefined
         }
         snap={panel === "coffee" || panel === "community" || panel === "admin"
           ? 0.94
-          : panel === "create" ? quickVenue ? 0.82 : 0.86 : panel === "priority" ? 0.82 : 0.72}
+          : panel === "create" ? quickVenue ? 0.82 : 0.86
+            : panel === "pause-dates" || panel === "subscriptions" ? 0.9
+              : panel === "priority" ? 0.82 : 0.72}
       >
         {panel === "coffee" ? (
           <div className="coffee-panel" data-testid="coffee-panel">
@@ -929,8 +1096,24 @@ export default function Prototype() {
           </div>
         ) : null}
 
-        {panel === "subscriptions" ? (
+        {panel === "subscriptions" || panel === "pause-dates" ? <DatePausePanel
+          key={receipt?.token ?? "anonymous"}
+          receipt={receipt}
+          view={panel === "pause-dates" ? "select" : "summary"}
+          selectedDates={pauseDates}
+          onSelectionChange={setPauseDates}
+          onSelect={() => { setPauseDates([]); openNotificationPanel("pause-dates"); }}
+          onBack={backToSubscriptions}
+          onClose={closeNotificationPanel}
+          onVerify={() => verifyForNotifications()}
+          onUnauthorized={() => verifyForNotifications(true)}
+          onChangeEmail={changeEmail}
+          onChanged={() => { void refresh(); }}
+        /> : null}
+
+        {panel === "subscriptions" && receipt ? (
           <div className="subscription-list">
+            <h3 className="date-pause-subscription-heading">原有订阅条件</h3>
             {dashboard.subscriptions.length ? dashboard.subscriptions.map((subscription) => (
               <article key={subscription.id}>
                 <div>
@@ -1254,7 +1437,14 @@ export default function Prototype() {
             </div>
           ) : (
             <div className="verification-form">
-              {quickVenue ? (
+              {verificationReturn ? <>
+                <button type="button" className="date-pause-auth-back" onClick={backToSubscriptions}><ArrowLeftIcon size={16} />返回我的订阅</button>
+                <div className="date-pause-auth-context">
+                  <strong>{pauseDates.length === 1 ? `管理 ${formatPauseDate(pauseDates[0])}的提醒` : "管理指定打球日期的提醒"}</strong>
+                  <p>请验证接收场地提醒的邮箱。验证后保留已选日期，确认暂停才会生效。</p>
+                </div>
+              </> : null}
+              {!verificationReturn && quickVenue ? (
                 <div className="quick-verification-context">
                   <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id]}`} aria-hidden="true">
                     <QuickVenueIcon size={20} weight="duotone" />

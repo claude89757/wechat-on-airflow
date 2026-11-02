@@ -2,9 +2,9 @@
 
 Runs in a separate CLI process, never in the serving API. All application writes
 use one outer transaction that is ALWAYS rolled back. Receipt verification,
-subscription create/dedupe/cancel, coffee and admin authorization use the actual
-application functions. Public HTTP routing and natural delivery are separately
-required by the release acceptance gate.
+subscription create/dedupe/cancel, date pauses, coffee and admin authorization
+use the actual application functions. Public HTTP routing and natural delivery
+are separately required by the release acceptance gate.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import json
 import os
 import uuid
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
@@ -22,7 +23,7 @@ from starlette.requests import Request
 
 from . import api, service
 from .database import get_engine
-from .domain import utc_now
+from .domain import SHANGHAI, utc_now
 
 
 def run_probe() -> dict[str, Any]:
@@ -32,6 +33,8 @@ def run_probe() -> dict[str, Any]:
     request = Request(
         {"type": "http", "method": "POST", "path": "/", "headers": [], "client": ("127.0.0.1", 0)}
     )
+    anonymous_request = request
+    booking_date = (utc_now().astimezone(SHANGHAI).date() + timedelta(days=1)).isoformat()
     checks: dict[str, bool] = {}
     with get_engine().connect() as connection:
         outer = connection.begin()
@@ -98,6 +101,71 @@ def run_probe() -> dict[str, Any]:
                 checks["subscriptionListed"] = any(
                     v["id"] == value["id"] for v in listed["subscriptions"]
                 )
+                pause_payload = {"action": "pause", "dates": [booking_date]}
+                checks["datePauseReadRequiresVerification"] = False
+                try:
+                    api.get_notification_pauses(anonymous_request)
+                except HTTPException as exc:
+                    checks["datePauseReadRequiresVerification"] = exc.status_code == 401
+                checks["datePauseWriteRequiresVerification"] = False
+                try:
+                    api.update_notification_pauses(anonymous_request, pause_payload)
+                except HTTPException as exc:
+                    checks["datePauseWriteRequiresVerification"] = exc.status_code == 401
+                paused = api.update_notification_pauses(request, pause_payload)
+                checks["notificationDatePaused"] = (
+                    paused["pausedDates"] == [booking_date]
+                    and paused["changedDates"] == [booking_date]
+                    and paused["timezone"] == "Asia/Shanghai"
+                )
+                checks["datePausePersistedInTransaction"] = (
+                    api.get_notification_pauses(request)["pausedDates"] == [booking_date]
+                    and connection.execute(
+                        text(
+                            "SELECT paused FROM zacks.notification_date_pauses "
+                            "WHERE email=:email AND booking_date=CAST(:booking_date AS date)"
+                        ),
+                        {"email": email, "booking_date": booking_date},
+                    ).scalar_one()
+                    is True
+                )
+                repeated_pause = api.update_notification_pauses(request, pause_payload)
+                checks["datePauseIdempotent"] = repeated_pause[
+                    "changedDates"
+                ] == [] and repeated_pause["pausedDates"] == [booking_date]
+                resume_payload = {"action": "resume", "dates": [booking_date]}
+                resumed = api.update_notification_pauses(request, resume_payload)
+                checks["notificationDateResumed"] = (
+                    resumed["changedDates"] == [booking_date]
+                    and resumed["pausedDates"] == []
+                    and api.get_notification_pauses(request)["pausedDates"] == []
+                    and connection.execute(
+                        text(
+                            "SELECT paused FROM zacks.notification_date_pauses "
+                            "WHERE email=:email AND booking_date=CAST(:booking_date AS date)"
+                        ),
+                        {"email": email, "booking_date": booking_date},
+                    ).scalar_one()
+                    is False
+                )
+                repeated_resume = api.update_notification_pauses(request, resume_payload)
+                checks["dateResumeIdempotent"] = (
+                    repeated_resume["changedDates"] == [] and repeated_resume["pausedDates"] == []
+                )
+                checks["datePausePreservesSubscription"] = (
+                    connection.execute(
+                        text("SELECT active FROM zacks.subscriptions WHERE id=:id"),
+                        {"id": value["id"]},
+                    ).scalar_one()
+                    is True
+                )
+                checks["datePauseQueuesNoSubscriberMail"] = (
+                    connection.execute(
+                        text("SELECT count(*) FROM zacks.notification_outbox WHERE email=:email"),
+                        {"email": email},
+                    ).scalar_one()
+                    == 0
+                )
                 checks["subscriptionCancelled"] = (
                     api.cancel_subscription(value["id"], request)["success"] is True
                 )
@@ -127,7 +195,14 @@ def run_probe() -> dict[str, Any]:
                 text(
                     "SELECT (SELECT count(*) FROM zacks.subscriptions WHERE email=:email) + "
                     "(SELECT count(*) FROM zacks.system_email_outbox WHERE email=:email) + "
-                    "(SELECT count(*) FROM zacks.verified_receipts WHERE email=:email)"
+                    "(SELECT count(*) FROM zacks.verified_receipts WHERE email=:email) + "
+                    "(SELECT count(*) FROM zacks.verification_challenges WHERE email=:email) + "
+                    "(SELECT count(*) FROM zacks.user_profiles WHERE email=:email) + "
+                    "(SELECT count(*) FROM zacks.user_delivery_tiers WHERE email=:email) + "
+                    "(SELECT count(*) FROM zacks.coffee_invite_sessions WHERE email=:email) + "
+                    "(SELECT count(*) FROM zacks.notification_date_pauses WHERE email=:email) + "
+                    "(SELECT count(*) FROM zacks.notification_outbox WHERE email=:email) + "
+                    "(SELECT count(*) FROM zacks.email_delivery_claims WHERE email=:email)"
                 ),
                 {"email": email},
             ).scalar_one()
@@ -140,6 +215,15 @@ def run_probe() -> dict[str, Any]:
         "subscriptionCreated",
         "duplicateRejected",
         "subscriptionListed",
+        "datePauseReadRequiresVerification",
+        "datePauseWriteRequiresVerification",
+        "notificationDatePaused",
+        "datePausePersistedInTransaction",
+        "datePauseIdempotent",
+        "notificationDateResumed",
+        "dateResumeIdempotent",
+        "datePausePreservesSubscription",
+        "datePauseQueuesNoSubscriberMail",
         "subscriptionCancelled",
         "cancelPersistedInTransaction",
         "recreateAfterCancel",

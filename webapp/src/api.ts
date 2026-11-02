@@ -146,6 +146,18 @@ export type VerificationReceipt = {
   verifiedAt: string;
 };
 
+export type NotificationPauses = {
+  pausedDates: string[];
+  today: string;
+  timezone: "Asia/Shanghai";
+};
+
+export type NotificationPauseAction = "pause" | "resume";
+
+export type NotificationPauseResult = NotificationPauses & {
+  changedDates: string[];
+};
+
 export type CoffeeInviteSession = {
   claimToken: string;
   availableAt: string;
@@ -597,6 +609,30 @@ export async function cancelSubscription(
     { method: "DELETE" },
     receipt,
   );
+  invalidateDashboardCache();
+  return result;
+}
+
+export async function getNotificationPauses(
+  receipt: VerificationReceipt,
+  signal?: AbortSignal,
+): Promise<NotificationPauses> {
+  return jsonRequest("/api/notification-pauses", {
+    method: "GET",
+    cache: "no-store",
+    signal,
+  }, receipt);
+}
+
+export async function updateNotificationPauses(
+  receipt: VerificationReceipt,
+  action: NotificationPauseAction,
+  dates: string[],
+): Promise<NotificationPauseResult> {
+  const result = await jsonRequest<NotificationPauseResult>("/api/notification-pauses", {
+    method: "POST",
+    body: JSON.stringify({ action, dates }),
+  }, receipt);
   invalidateDashboardCache();
   return result;
 }

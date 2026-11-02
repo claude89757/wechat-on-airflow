@@ -159,3 +159,29 @@ email masking, original mobile-runtime hashes and all permission/coffee gates.
 - On phones, keep the card above fixed navigation and safe areas. Preserve reduced
   motion, keyboard dismissal and focus return. `src/GearPromo.tsx` and
   `src/gear-promo.css` own this campaign; product images live in `public/assets/promos/`.
+
+## Pause reminders for selected booking dates (2026-11-02)
+
+- “我的订阅” owns date-pause management. Show the paused dates above existing
+  subscription conditions; select dates in a child view of the same BottomSheet.
+  Preserve the existing home navigation and mobile runtime.
+- A pause applies to the verified email across all venues and time ranges for
+  the selected **booking date**, using Asia/Shanghai. It does not cancel the
+  subscription or pause other dates. It does not affect shared WeChat groups.
+- Show 14 days from the server-provided `today` and an additional date field.
+  Accept today through today + 365 days, at most 31 dates per action. Selection
+  alone never writes; an explicit confirmation performs an incremental POST.
+- Read `/api/notification-pauses` whenever management opens. Pause/resume writes
+  must use server results, invalidate the dashboard cache, and preserve selection
+  on errors. Undo only the response's `changedDates`, not every requested date.
+  Never save the pause list in localStorage as authoritative state.
+- The email link `?pauseDate=YYYY-MM-DD` opens the date view with that date
+  preselected. GET navigation never changes delivery. If verification is needed,
+  return to the pending action afterward. Switching email preserves unconfirmed
+  dates but clears the previous identity's list, undo and in-flight UI results;
+  revalidate dates against the new identity's server response before confirming.
+- Browser back returns to subscription management and then the home page.
+  Selecting dates does not add history entries. Expired dates are not selectable.
+  Resume follows fresh natural inspections and never promises a backlog replay.
+- Incoming email replies are not implemented by this feature. Do not claim that
+  replying with a date can pause reminders.
