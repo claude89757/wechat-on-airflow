@@ -57,6 +57,50 @@ OAUTH_CONFIGURATION = {
     },
     "grant": {"access_token_lifetime": "15m", "session_duration": "168h"},
 }
+HEALTH_ERROR_CODES = {
+    "sender_service_inactive",
+    "agent_service_inactive",
+    "legacy_tunnel_inactive",
+    "appium_6001_unhealthy",
+    "appium_6002_unhealthy",
+    "sender_health_unhealthy",
+    "sender_not_ready",
+}
+# The remote installer is a standalone upload. Accept only its fixed diagnostic
+# pairs here, independently of remote exception messages or extra JSON fields.
+FAILURE_DIAGNOSTICS = {
+    "validation": {"invalid_operation"},
+    "existing_health": HEALTH_ERROR_CODES,
+    "node_archive": {"node_archive_invalid"},
+    "candidate_reclaim": {"candidate_reclaim_failed"},
+    "candidate_disk": {"candidate_disk_insufficient"},
+    "service_account": {"service_account_unavailable"},
+    "connector_runtime": {
+        "cloudflared_missing",
+        "cloudflared_help_failed",
+        "cloudflared_flags_unsupported",
+        "cloudflared_service_user_failed",
+    },
+    "node_runtime": {"node_runtime_invalid"},
+    "source_bundle": {"source_bundle_invalid"},
+    "private_write": {"private_write_failed"},
+    "dependency_cache": {"dependency_cache_invalid"},
+    "offline_dependencies": {"offline_dependency_install_failed"},
+    "candidate_tests": {"candidate_tests_failed"},
+    "candidate_cleanup": {"candidate_cleanup_failed"},
+    "post_preflight_health": HEALTH_ERROR_CODES,
+}
+
+
+def safe_failure_diagnostic(value):
+    if not isinstance(value, dict) or set(value) != {"stage", "errorCode"}:
+        return None
+    stage, code = value["stage"], value["errorCode"]
+    if type(stage) is not str or type(code) is not str:
+        return None
+    if code not in FAILURE_DIAGNOSTICS.get(stage, set()):
+        return None
+    return {"stage": stage, "errorCode": code}
 
 
 def owner_identity():
@@ -133,11 +177,12 @@ def validate_access_policies(policies, credentials):
 
 
 class RemoteOperationError(RuntimeError):
-    def __init__(self, error_class, test_report=None, connector=None):
+    def __init__(self, error_class, test_report=None, connector=None, diagnostic=None):
         super().__init__("pi_operation_failed")
         self.error_class = error_class
         self.test_report = test_report
         self.connector = connector
+        self.diagnostic = safe_failure_diagnostic(diagnostic)
 
 
 def safe_connector_report(value):
@@ -242,9 +287,12 @@ def remote(client, command, payload="", timeout=900):
         error_class = None
         test_report = None
         connector = None
+        diagnostic = None
         try:
             report = json.loads(value)
             candidate = report.get("errorClass")
+            if report.get("ok") is False:
+                diagnostic = safe_failure_diagnostic(report.get("failureDiagnostic"))
             if report.get("ok") is False and candidate in {
                 "ValueError",
                 "TypeError",
@@ -264,7 +312,7 @@ def remote(client, command, payload="", timeout=900):
                     connector = safe_connector_report(report.get("connector"))
         except (ValueError, AttributeError, TypeError):
             pass
-        raise RemoteOperationError(error_class, test_report, connector)
+        raise RemoteOperationError(error_class, test_report, connector, diagnostic)
     return value.decode()
 
 
@@ -1160,6 +1208,9 @@ def main():
                     if isinstance(exc, RemoteOperationError)
                     else None,
                     "candidateTests": exc.test_report
+                    if isinstance(exc, RemoteOperationError)
+                    else None,
+                    "failureDiagnostic": exc.diagnostic
                     if isinstance(exc, RemoteOperationError)
                     else None,
                     "httpStatus": exc.code if isinstance(exc, urllib.error.HTTPError) else None,
