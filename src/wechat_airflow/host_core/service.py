@@ -65,6 +65,11 @@ def _active_subscriptions(connection: Connection, venue_id: str) -> list[Mapping
 
 
 def active_subscription_for_venue(venue_id: str) -> bool:
+    """Venue-level WeChat admission.
+
+    Personal ideal windows filter subscriber email in ``slot_matches``. They do
+    not slice group messages: any active subscription for the venue opens the gate.
+    """
     if venue_id not in VENUES:
         return False
     with transaction() as connection:

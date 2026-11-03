@@ -5,6 +5,24 @@ and operational changes.
 
 ## [Unreleased]
 
+### Added
+
+- Productize the existing subscription window as named ideal-time presets.
+  New subscriptions created in the web app default to 工作日晚间
+  (Monday–Friday, 19:00–22:00), narrower than the previous every-day evening
+  default. The other presets are 午休局 (Monday–Friday 12:00–14:00), 周末上午
+  (Saturday–Sunday 08:00–12:00), 周末下午 (Saturday–Sunday 14:00–18:00), and
+  自定义. Button copy and `preferenceLabel` use these same words.
+- Email is sent only when a free slot overlaps that personal window. WeChat
+  group delivery stays venue-level: any active subscription for the venue
+  opens the gate, and group messages are not filtered by the personal window.
+- This phase adds no subscription column and no multi-window jsonb. A second
+  window is a second subscription. Labels are derived from the stored weekday
+  mask and clock.
+- Changing an existing window from the subscription list asks for confirmation
+  first, because the change can cancel pending or retry reminder email.
+  Submitted mail and WeChat rows are left as they are.
+
 ### Changed
 
 - Show only the email-subscription link on a group's first morning WeChat alert;
