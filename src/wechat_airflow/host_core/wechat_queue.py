@@ -102,6 +102,7 @@ def _enqueue(payload: dict[str, Any]) -> dict[str, Any]:
     groups = list(dict.fromkeys(str(r).strip() for r in receivers))
     if any(not r or len(r) > 256 for r in groups):
         raise ValueError("Wechat receiver is invalid")
+    # Personal ideal windows narrow email only. Any active venue subscription opens WeChat.
     if not active_subscription_for_venue(venue):
         return {
             "success": True,
