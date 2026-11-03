@@ -209,24 +209,32 @@ def _prepare(row: dict[str, Any], worker: str) -> bool:
                 row["outbound_message"] = None
                 row["message"] = message
             row["event_keys"] = keys
-            outbound = row.get("outbound_message") or row["message"]
-            program = program_for_venue(str(row["venue_id"]))
-            program_id = row.get("program_id")
-            if program and not row.get("outbound_message"):
-                last = connection.execute(
-                    text("""
-                    SELECT sent_at FROM zacks.booking_link_cooldowns
-                    WHERE receiver_hash = :receiver AND program_id = :program
-                """),
-                    {
-                        "receiver": hashlib.sha256(row["receiver"].encode()).hexdigest(),
-                        "program": program.program_id,
-                    },
-                ).scalar_one_or_none()
-                if last is None or utc_now() - last >= BOOKING_LINK_COOLDOWN:
-                    outbound = attach_footer(outbound, program.link)
-                    program_id = program.program_id
-            outbound = _email_subscription_footer(connection, row, outbound, now=utc_now())
+            now = utc_now()
+            # Build from the source so a cached booking footer cannot accompany the guide.
+            outbound = _email_subscription_footer(connection, row, message, now=now)
+            program_id = None
+            if not outbound.endswith("\n\n" + EMAIL_SUBSCRIPTION_GUIDE):
+                previous = row.get("outbound_message")
+                if previous and not previous.endswith("\n\n" + EMAIL_SUBSCRIPTION_GUIDE):
+                    outbound = previous
+                    program_id = row.get("program_id")
+                else:
+                    # Re-evaluate booking links when a known-unsent guide loses eligibility.
+                    program = program_for_venue(str(row["venue_id"]))
+                    if program:
+                        last = connection.execute(
+                            text("""
+                            SELECT sent_at FROM zacks.booking_link_cooldowns
+                            WHERE receiver_hash = :receiver AND program_id = :program
+                        """),
+                            {
+                                "receiver": hashlib.sha256(row["receiver"].encode()).hexdigest(),
+                                "program": program.program_id,
+                            },
+                        ).scalar_one_or_none()
+                        if last is None or now - last >= BOOKING_LINK_COOLDOWN:
+                            outbound = attach_footer(outbound, program.link)
+                            program_id = program.program_id
             row["outbound_message"] = outbound
             row["program_id"] = program_id
             connection.execute(
