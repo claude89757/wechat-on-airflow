@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from .control import runtime_state
 from .database import transaction
-from .domain import utc_now
+from .domain import RETIRED_VENUES, VENUES, active_venue_status, utc_now
 from .settings import load_tencent_email_settings
 from .wechat_worker import sender_readiness
 
@@ -29,6 +29,111 @@ ROOT = Path(
     )
 )
 COMPONENT_MAX_AGE = {"zacks-notification-worker": 120, "zacks-wechat-worker": 300}
+RETIRED_OBSERVATION_SCOPE = "szw:check_and_notify_day_3"
+RETIRED_BAOTI_SCOPE = "baoti:check_tennis_courts"
+
+
+def _venue_retirement_policy(manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
+    retirements = contract.get("retired_venues", {})
+    if not isinstance(retirements, dict):
+        raise ValueError("Venue retirement does not match the approved venue policy")
+    retirement = retirements.get("baoti", {})
+    if not isinstance(retirement, dict):
+        raise ValueError("Venue retirement does not match the approved venue policy")
+    if (
+        set(retirements) != {"baoti"}
+        or RETIRED_VENUES != {"baoti": "宝安网球中心"}
+        or "baoti" in VENUES
+        or retirement.get("venue_name") != "宝安网球中心"
+        or retirement.get("dag_id") != "宝安网球中心巡检"
+        or retirement.get("approved_on") != "2026-11-01"
+        or any(entry["dag_id"] == "宝安网球中心巡检" for entry in manifest["active_dags"])
+    ):
+        raise ValueError("Venue retirement does not match the approved venue policy")
+    return retirement
+
+
+def venue_observation_health(
+    venues: list[dict[str, Any]],
+    *,
+    manifest: dict[str, Any],
+    contract: dict[str, Any],
+    now: datetime,
+    since: datetime,
+) -> dict[str, Any]:
+    """Check the exact active catalog while preserving withdrawn venue evidence."""
+    retirement = _venue_retirement_policy(manifest, contract)
+    retired = [row for row in venues if row["venue_id"] in RETIRED_VENUES]
+    active = [row for row in venues if row["venue_id"] not in RETIRED_VENUES]
+    try:
+        active_venue_status(venues)
+        catalog_matches = len(VENUES) == 26
+    except ValueError:
+        catalog_matches = False
+    return {
+        "ok": catalog_matches
+        and all(
+            row["healthy"]
+            and row["last_inspection_at"]
+            and row["last_inspection_at"] >= since
+            and row["last_inspection_at"] > now - timedelta(minutes=10)
+            for row in active
+        ),
+        "catalogMatches": catalog_matches,
+        "storedVenueCount": len(venues),
+        "checkedVenueCount": len(active),
+        "retiredVenueCount": len(retired),
+        "retiredVenues": [{**row, "retirement": retirement} for row in retired],
+        "unknownVenueIds": sorted(
+            {row["venue_id"] for row in active if row["venue_id"] not in VENUES}
+        ),
+    }
+
+
+def observation_scope_health(
+    scopes: list[dict[str, Any]],
+    *,
+    manifest: dict[str, Any],
+    contract: dict[str, Any],
+    now: datetime,
+) -> dict[str, Any]:
+    """Keep retired history visible without treating it as an active producer."""
+    retirements = contract.get("retired_observation_scopes", {})
+    retirement = retirements.get(RETIRED_OBSERVATION_SCOPE, {})
+    baoti_retirement = retirements.get(RETIRED_BAOTI_SCOPE, {})
+    _venue_retirement_policy(manifest, contract)
+    component = next(
+        (entry for entry in manifest["active_dags"] if entry["dag_id"] == "深圳湾网球场巡检"),
+        None,
+    )
+    # These are exact approved lifecycle transitions, not a configurable ignore
+    # list. Reactivation requires revising the corresponding retirement policy.
+    if (
+        set(retirements) != {RETIRED_OBSERVATION_SCOPE, RETIRED_BAOTI_SCOPE}
+        or retirement.get("dag_id") != "深圳湾网球场巡检"
+        or retirement.get("task_id") != "check_and_notify_day_3"
+        or retirement.get("approved_on") != "2026-10-20"
+        or component is None
+        or "check_and_notify_day_3" in component["tasks"]
+        or baoti_retirement.get("dag_id") != "宝安网球中心巡检"
+        or baoti_retirement.get("task_id") != "check_tennis_courts"
+        or baoti_retirement.get("approved_on") != "2026-11-01"
+    ):
+        raise ValueError("Observation scope retirement does not match the approved task policy")
+    retired = [row for row in scopes if row["observation_key"] in retirements]
+    active = [row for row in scopes if row["observation_key"] not in retirements]
+    return {
+        "ok": bool(active)
+        and all(
+            row["healthy"] and row["last_seen_at"] > now - timedelta(minutes=10) for row in active
+        ),
+        "storedScopeCount": len(scopes),
+        "checkedScopeCount": len(active),
+        "retiredScopeCount": len(retired),
+        "retiredScopes": [
+            {**row, "retirement": retirements[row["observation_key"]]} for row in retired
+        ],
+    }
 
 
 def worker_health(component: str) -> bool:
@@ -56,6 +161,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
     since = state["acceptance_started_at"] or state["deployment_started_at"]
     now = utc_now()
     manifest = yaml.safe_load((ROOT / "config/active-components.yaml").read_text())
+    contract = yaml.safe_load((ROOT / "config/host-core-contract.yaml").read_text())
     venue_components = [
         entry
         for entry in manifest["active_dags"]
@@ -124,13 +230,10 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
                 )
             ).mappings()
         ]
-        checks["all26VenueObservations"] = len(venues) == 26 and all(
-            row["healthy"]
-            and row["last_inspection_at"]
-            and row["last_inspection_at"] >= since
-            and row["last_inspection_at"] > now - timedelta(minutes=10)
-            for row in venues
+        venue_health = venue_observation_health(
+            venues, manifest=manifest, contract=contract, now=now, since=since
         )
+        checks["all26VenueObservations"] = venue_health["ok"]
         scopes = [
             dict(row)
             for row in connection.execute(
@@ -139,9 +242,10 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
                 )
             ).mappings()
         ]
-        checks["allObservationScopesHealthy"] = bool(scopes) and all(
-            row["healthy"] and row["last_seen_at"] > now - timedelta(minutes=10) for row in scopes
+        scope_health = observation_scope_health(
+            scopes, manifest=manifest, contract=contract, now=now
         )
+        checks["allObservationScopesHealthy"] = scope_health["ok"]
         dag_results = []
         for entry in venue_components + auxiliary:
             rows = [
@@ -263,7 +367,9 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
         "subscriptionApi": api_evidence,
         "workerHeartbeats": heartbeats,
         "venues": venues,
+        "venueObservationHealth": venue_health,
         "observationScopes": scopes,
+        "observationScopeHealth": scope_health,
         "dags": dag_results,
         "queues": queues,
         "unresolvedEnqueueIncidents": enqueue_incidents,

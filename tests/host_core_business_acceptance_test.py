@@ -10,16 +10,18 @@ def read(path):
 def test_one_control_plane_and_no_one_time_production_scheduler():
     assert not (ROOT / ".github/workflows/production-host-core-v070.yml").exists()
     ship = read(".github/workflows/production-ship.yml")
-    assert "operation: full-cutover" in ship
+    assert "inputs.version == '0.7.0' && 'full-cutover' || 'routine-upgrade'" in ship
     assert "operation: activate-workers" in ship
     assert "operation: acceptance" in ship
     assert "operation: pause" in ship
 
 
-def test_business_acceptance_precedes_immutable_version_release():
+def test_worker_activation_precedes_immutable_version_release():
     ship = read(".github/workflows/production-ship.yml")
-    assert "needs: [deploy, acceptance]" in ship
-    assert "needs.acceptance.result == 'success'" in ship
+    assert "needs: [deploy, natural_cycles]" in ship
+    assert "needs.natural_cycles.result == 'success'" in ship
+    assert "needs: [deploy, acceptance]" not in ship
+    assert "needs.acceptance.result == 'success'" not in ship
     assert (
         ship.index("  host_core_cutover:")
         < ship.index("  deploy:")
@@ -31,8 +33,12 @@ def test_business_acceptance_precedes_immutable_version_release():
 
 def test_acceptance_checks_records_not_sleep_or_successful_restart():
     health = read("src/wechat_airflow/host_core/health.py")
+    controller = read("scripts/host_core_production.py")
     assert "required = 3 if is_venue else 1" in health
     assert "len(venue_components) == 26" in health
+    assert '"all26VenueObservations"' in health
+    assert '"all26VenueObservations"' in controller
+    assert '"all27VenueObservations"' not in controller
     assert "naturalEmailProviderDelivered" in health
     assert "naturalWeChatDelivered" in health
     assert "migrationReconciled" in health

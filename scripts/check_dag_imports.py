@@ -21,6 +21,7 @@ def main() -> None:
     actual = set(dag_bag.dag_ids)
     task_mismatches = {}
     file_mismatches = {}
+    pool_mismatches = {}
     for dag_id in sorted(expected & actual):
         component = components[dag_id]
         dag = dag_bag.dags[dag_id]
@@ -31,6 +32,17 @@ def main() -> None:
                 "expected": expected_tasks,
                 "actual": actual_tasks,
             }
+
+        expected_pool = component.get("task_pool")
+        if expected_pool:
+            unexpected_pools = {
+                task.task_id: task.pool for task in dag.tasks if task.pool != expected_pool
+            }
+            if unexpected_pools:
+                pool_mismatches[dag_id] = {
+                    "expected": expected_pool,
+                    "actual": unexpected_pools,
+                }
 
         relative_file = Path(component["file"])
         expected_file = (DAGS_DIR / relative_file.relative_to("dags")).resolve()
@@ -47,6 +59,7 @@ def main() -> None:
             and actual == expected
             and not task_mismatches
             and not file_mismatches
+            and not pool_mismatches
         ),
         "dag_count": len(actual),
         "expected_dag_count": len(expected),
@@ -54,6 +67,7 @@ def main() -> None:
         "unexpected_dags": sorted(actual - expected),
         "task_mismatches": task_mismatches,
         "file_mismatches": file_mismatches,
+        "pool_mismatches": pool_mismatches,
         "import_errors": {
             str(path): str(error) for path, error in sorted(dag_bag.import_errors.items())
         },

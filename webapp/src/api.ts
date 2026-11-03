@@ -46,10 +46,13 @@ export type VenueStatus = {
 
 export type Subscription = {
   id: string;
-  venueIds: VenueId[];
+  // Retired selections remain visible/cancellable in historical subscriptions.
+  venueIds: (VenueId | "baoti")[];
   weekdays: Weekday[];
   startTime: string;
   endTime: string;
+  preferencePreset?: string;
+  preferenceLabel?: string;
   durationDays: number;
   termCode: SubscriptionTerm;
   autoRenew: boolean;
@@ -143,6 +146,18 @@ export type VerificationReceipt = {
   email: string;
   maskedEmail: string;
   verifiedAt: string;
+};
+
+export type NotificationPauses = {
+  pausedDates: string[];
+  today: string;
+  timezone: "Asia/Shanghai";
+};
+
+export type NotificationPauseAction = "pause" | "resume";
+
+export type NotificationPauseResult = NotificationPauses & {
+  changedDates: string[];
 };
 
 export type CoffeeInviteSession = {
@@ -385,7 +400,18 @@ export function loadDashboardSnapshot(identityKey: string): Dashboard | null {
       storage.removeItem(key);
       return null;
     }
-    return snapshot.value;
+    // A retained browser snapshot may predate the approved Baoan withdrawal.
+    // Keep its subscriptions, but never offer the retired venue as a new target.
+    const venues = snapshot.value.venues.filter((venue) => String(venue.id) !== "baoti");
+    return {
+      ...snapshot.value,
+      venues,
+      metrics: {
+        ...snapshot.value.metrics,
+        totalVenues: venues.length,
+        healthyVenues: venues.filter((venue) => venue.healthy).length,
+      },
+    };
   } catch {
     storage.removeItem(key);
     return null;
@@ -566,12 +592,27 @@ export async function createSubscription(
     startTime: string;
     endTime: string;
     termCode: SubscriptionTerm;
+    preferencePreset?: string;
   },
 ): Promise<{ subscription: Subscription }> {
   const result = await jsonRequest<{ subscription: Subscription }>("/api/subscriptions", {
     method: "POST",
     body: JSON.stringify(payload),
   }, receipt);
+  invalidateDashboardCache();
+  return result;
+}
+
+export async function updateSubscriptionWindow(
+  receipt: VerificationReceipt,
+  subscriptionId: string,
+  payload: { preferencePreset: string },
+): Promise<Subscription> {
+  const result = await jsonRequest<Subscription>(
+    `/api/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    receipt,
+  );
   invalidateDashboardCache();
   return result;
 }
@@ -585,6 +626,30 @@ export async function cancelSubscription(
     { method: "DELETE" },
     receipt,
   );
+  invalidateDashboardCache();
+  return result;
+}
+
+export async function getNotificationPauses(
+  receipt: VerificationReceipt,
+  signal?: AbortSignal,
+): Promise<NotificationPauses> {
+  return jsonRequest("/api/notification-pauses", {
+    method: "GET",
+    cache: "no-store",
+    signal,
+  }, receipt);
+}
+
+export async function updateNotificationPauses(
+  receipt: VerificationReceipt,
+  action: NotificationPauseAction,
+  dates: string[],
+): Promise<NotificationPauseResult> {
+  const result = await jsonRequest<NotificationPauseResult>("/api/notification-pauses", {
+    method: "POST",
+    body: JSON.stringify({ action, dates }),
+  }, receipt);
   invalidateDashboardCache();
   return result;
 }

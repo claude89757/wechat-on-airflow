@@ -388,6 +388,7 @@ def main() -> None:
         or operations.get("airflow_operations")
         != [
             "health",
+            "crland_inspection_diagnose",
             "deploy_preflight",
             "deploy_apply",
             "deploy_recovery",
@@ -397,6 +398,7 @@ def main() -> None:
             "wechat_delivery_probe",
             "wechat_quiesce",
             "airflow_resume",
+            "szw_authorization_sync",
             "nswtt_config_sync",
             "pi_device_ssh_sync",
         ]
@@ -419,6 +421,7 @@ def main() -> None:
         "AIRFLOW_REPOSITORY_PATH",
         "AIRFLOW_SSH_PRIVATE_KEY",
         "AIRFLOW_SSH_KNOWN_HOSTS",
+        "SZW_API_AUTHORIZATIONS",
         "NSWTT_API_CONFIG",
         "WECHAT_SENDER_SSH_HOST",
         "WECHAT_SENDER_SSH_PORT",

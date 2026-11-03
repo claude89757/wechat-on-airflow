@@ -139,6 +139,7 @@ print(
             "configured_target_counts": {
                 name: len(values) for name, values in targets.items()
             },
+            "paused_shared_target_count": 0,
             "outbox_count": len(outbox) if isinstance(outbox, list) else None,
             "recent_failure_entries": recent_entries,
             "failures": failures,

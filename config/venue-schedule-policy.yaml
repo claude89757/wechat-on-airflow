@@ -5,6 +5,18 @@ scope:
 default_schedule: every_1_minutes
 default_interval_seconds: 60
 exceptions:
+  深圳湾网球场巡检:
+    schedule: every_2_minutes
+    interval_seconds: 120
+    reason: >-
+      User-approved on 2026-10-20 to reduce CRLand API polling to every two
+      minutes from 08:00 (inclusive) to 21:00 (exclusive), Asia/Shanghai.
+  大湾区网球场巡检:
+    schedule: every_3_minutes
+    interval_seconds: 180
+    reason: >-
+      User-approved on 2026-10-20 to reduce CRLand API polling to every three
+      minutes from 08:00 (inclusive) to 21:00 (exclusive), Asia/Shanghai.
   大沙河免费场巡检:
     schedule: every_15_seconds
     interval_seconds: 15

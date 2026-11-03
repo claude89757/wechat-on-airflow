@@ -43,6 +43,26 @@ for (const width of [320, 390, 768, 900, 1440]) {
     const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
     await fixture(page);
     await page.goto("/");
+    await expect(page).toHaveTitle("Zacks 场地 · 网球空场提醒");
+    await expect(page.locator(".brand-lockup h1")).toHaveText("Zacks 场地");
+    await expect(page.locator(".brand-lockup h1 span")).toBeVisible();
+    await expect(page.locator(".brand-lockup p")).toHaveText("网球空场提醒");
+    await expect(page.locator(".brand-lockup p")).toBeVisible();
+    expect(await page.locator(".brand-lockup h1").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    if (width >= 900) {
+      const vision = page.getByRole("navigation", { name: "主要功能" }).getByRole("link", { name: "视频分析 · Zacks Vision" });
+      await expect(vision).toBeInViewport({ ratio: 1 });
+      await expect(vision).toHaveAttribute("href", "https://zacks.vision");
+      await expect(vision).toHaveAttribute("rel", "noopener noreferrer");
+      await vision.click({ trial: true });
+    }
+    await page.getByRole("button", { name: "更多功能" }).click();
+    const visionMenu = page.getByRole("menuitem", { name: "视频分析 · Zacks Vision" });
+    await expect(visionMenu).toBeInViewport({ ratio: 1 });
+    await expect(visionMenu).toHaveAttribute("href", "https://zacks.vision");
+    await expect(visionMenu).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(visionMenu).toHaveAttribute("target", "_blank");
+    await page.keyboard.press("Escape");
     await expect(page.locator("main")).toHaveAttribute("data-ui-version", "0.8.0");
     await expect(page.getByRole("heading", { name: /^把时间，\s*留给打球。$/ })).toBeVisible();
     await expect(page.locator(".venue-card")).toHaveCount(26);
@@ -69,6 +89,25 @@ for (const width of [320, 390, 768, 900, 1440]) {
   });
 }
 
+test("retired Baoan subscriptions stay visible and cancellable without offering a new venue", async ({ page }) => {
+  const { dashboard } = await fixture(page, true);
+  dashboard.subscriptions = [{
+    id: "offline-subscription", venueIds: ["baoti"], weekdays: [1, 2, 3, 4, 5, 6, 7],
+    startTime: "18:00", endTime: "20:00", durationDays: 7, termCode: "7d",
+    autoRenew: false, eligible: true, active: true, activeUntil: "2099-01-01T00:00:00Z",
+    createdAt: "2026-10-31T00:00:00Z",
+  }];
+  await page.goto("/");
+  await expect(page.locator(".venue-card")).toHaveCount(26);
+  await expect(page.getByTestId("venue-card-baoti")).toHaveCount(0);
+  await page.locator(".more-button").click();
+  await page.getByRole("menuitem", { name: "我的订阅", exact: true }).click();
+  await expect(page.getByText("宝安网球中心（已停用）", { exact: true })).toBeVisible();
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "取消订阅", exact: true }).click();
+  await expect(page.getByText("还没有订阅", { exact: true })).toBeVisible();
+});
+
 test("search and filters stay local and have recoverable empty states", async ({ page }) => {
   const { requests } = await fixture(page);
   await page.goto("/");
@@ -80,6 +119,11 @@ test("search and filters stay local and have recoverable empty states", async ({
   await page.getByLabel("搜索场地").fill("没有这个球场");
   await expect(page.getByText("没有找到这个场地", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "查看全部场地", exact: true }).click();
+  await expect(page.locator(".venue-card")).toHaveCount(26);
+  await page.getByLabel("搜索场地").fill("宝安网球中心");
+  await expect(page.locator(".venue-card")).toHaveCount(0);
+  await expect(page.getByText("没有找到这个场地", { exact: true })).toBeVisible();
+  await page.getByLabel("搜索场地").fill("");
   await expect(page.locator(".venue-card")).toHaveCount(26);
   await page.getByRole("button", { name: "我已订阅", exact: true }).click();
   await expect(page.getByText("还没有订阅场地", { exact: true })).toBeVisible();
@@ -187,5 +231,33 @@ for (const width of [390, 1440]) {
     await expect(dialog).toBeHidden();
     expect(requests.filter(request => request.method !== "GET")).toHaveLength(0);
     await expect(page.getByRole("button", { name: "创建订阅", exact: true })).toBeEnabled();
+  });
+}
+
+
+for (const width of [390, 1440]) {
+  test(`verified visitor opens Vision without receipt or referrer at ${width}px`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page, true);
+    let externalHeaders: Record<string, string> = {};
+    await context.route("https://zacks.vision/**", async route => {
+      externalHeaders = await route.request().allHeaders();
+      await route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Offline Vision</title>" });
+    });
+    await page.goto("/");
+    const popupPromise = page.waitForEvent("popup");
+    if (width < 900) {
+      await page.getByRole("button", { name: "更多功能" }).click();
+      await page.getByRole("menuitem", { name: "视频分析 · Zacks Vision" }).click();
+    } else {
+      await page.getByRole("navigation", { name: "主要功能" }).getByRole("link", { name: "视频分析 · Zacks Vision" }).click();
+    }
+    const popup = await popupPromise;
+    await popup.waitForLoadState();
+    expect(popup.url()).toBe("https://zacks.vision/");
+    expect(externalHeaders.referer).toBeUndefined();
+    expect(externalHeaders.authorization).toBeUndefined();
+    expect(JSON.stringify(externalHeaders)).not.toContain(receipt.token);
+    expect(await popup.evaluate(() => window.opener === null)).toBe(true);
   });
 }

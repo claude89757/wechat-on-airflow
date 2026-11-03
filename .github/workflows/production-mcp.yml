@@ -1,0 +1,67 @@
+name: Production MCP Lifecycle
+on:
+  workflow_call:
+    inputs:
+      target_commit:
+        required: true
+        type: string
+      component:
+        required: true
+        type: string
+      mode:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        required: true
+        type: string
+      component:
+        type: choice
+        options: [remote_ops, pi_mcp]
+        required: true
+      mode:
+        type: choice
+        options: [preflight, apply]
+        default: preflight
+permissions:
+  contents: read
+  checks: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate lifecycle selection
+        env:
+          COMPONENT: ${{ inputs.component }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "$COMPONENT" in remote_ops|pi_mcp) ;; *) exit 2 ;; esac
+          case "$MODE" in preflight|apply) ;; *) exit 2 ;; esac
+  pi:
+    needs: validate
+    if: inputs.component == 'remote_ops'
+    uses: ./.github/workflows/production-remote-ops-mcp.yml
+    with:
+      target: pi
+      target_commit: ${{ inputs.target_commit }}
+      operation: ${{ inputs.mode == 'apply' && 'release' || 'preflight' }}
+    secrets: inherit
+  vps:
+    needs: [validate, pi]
+    if: inputs.component == 'remote_ops'
+    uses: ./.github/workflows/production-remote-ops-mcp.yml
+    with:
+      target: vps
+      target_commit: ${{ inputs.target_commit }}
+      operation: ${{ inputs.mode == 'apply' && 'release' || 'preflight' }}
+    secrets: inherit
+  phone:
+    needs: validate
+    if: inputs.component == 'pi_mcp'
+    uses: ./.github/workflows/production-appium-mcp.yml
+    with:
+      target_commit: ${{ inputs.target_commit }}
+      operation: ${{ inputs.mode == 'apply' && 'release' || 'preflight' }}
+      request_id: lifecycle-${{ github.run_id }}
+    secrets: inherit

@@ -35,6 +35,7 @@ def test_prepare_routing_waits_for_both_health_and_readiness():
     target = "a" * 40
     with (
         patch.object(MODULE, "assert_target"),
+        patch.object(MODULE, "already_activated", return_value=False),
         patch.object(MODULE, "variable_set"),
         patch.object(MODULE, "compose_exec"),
         patch.object(MODULE, "_wait_for_local_health") as health,

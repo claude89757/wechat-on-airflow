@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from wechat_airflow.venues import dsh_ydmap_watcher as watcher
 from wechat_airflow.venues.dsh_ydmap_client import CourtAvailability
+from wechat_airflow.venues.ydmap_ranges import merge_time_ranges
 
 MIN_SUSPICIOUS_COURTS = 6
 MIN_SUSPICIOUS_MINUTES = 12 * 60
@@ -17,7 +18,7 @@ def reject_implausible_full_day(court_data: CourtAvailability) -> CourtAvailabil
     """Fail closed on the known YDMap unhydrated whole-day-grid false positive."""
     suspicious = 0
     for ranges in court_data.values():
-        merged = watcher.merge_time_ranges(ranges)
+        merged = merge_time_ranges(ranges)
         if any(_minutes(end) - _minutes(start) >= MIN_SUSPICIOUS_MINUTES for start, end in merged):
             suspicious += 1
     if suspicious >= MIN_SUSPICIOUS_COURTS:

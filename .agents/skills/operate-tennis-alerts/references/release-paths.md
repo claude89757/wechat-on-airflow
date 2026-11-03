@@ -35,6 +35,8 @@ loop to ChatOps.
 - Web source, Worker, migration, or asset changes deploy `webapp`;
 - DAG, Airflow runtime/configuration, or image changes deploy `airflow`;
 - sender runtime changes deploy `sender` and require `sender=true`;
+- host MCP runtime changes deploy `remote_ops`; phone bridge changes deploy
+  `pi_mcp`, using `production-mcp.yml` for preflight/apply/independent health;
 - workflows, release tooling, docs, tests, and version-only metadata resolve to
   `control` and deploy no runtime.
 
@@ -53,15 +55,15 @@ Observe the natural schedule-cycle count in `config/runtime-target.yaml`.
 
 ## Cloudflare Web Application
 
-Web apply performs its own build, Wrangler dry-run, D1 migration listing,
-migration apply, deployment, and exact-commit health check. A Web-only patch
+Web apply performs its own build, Wrangler dry-run, deployment, and exact-commit
+health check. D1 is an unbound archive, never a runtime fallback. A Web-only patch
 must not restart Airflow merely to keep a repository-wide SHA fiction;
 component identities are recorded independently.
 
 Verify:
 
 - `/api/healthz` reports healthy and the expected Web deployment commit;
-- unauthenticated `/api/bootstrap` exposes twenty-five venues and no email address;
+- unauthenticated `/api/bootstrap` exposes the current active venue contract and no email address;
 - unauthenticated observation writes return HTTP 401;
 - mobile subscription and critical interaction tests pass.
 

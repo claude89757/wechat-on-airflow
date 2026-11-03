@@ -5,8 +5,120 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/release_plan.py"
+
+
+def test_ci_keeps_full_regression_and_scoped_database() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers["schedule"]
+    job = workflow["jobs"]["verify"]
+    assert "services" not in job
+    assert "full-regression" in job["name"]
+    assert "'pr-check'" in job["name"]
+    steps = {step.get("name"): step for step in job["steps"]}
+    for name in (
+        "Start isolated test database only for Python checks",
+        "Install development dependencies",
+        "Lint",
+        "Type check",
+        "Unit and workflow contract tests",
+    ):
+        assert steps[name]["if"] == "steps.plan.outputs.ci_python == 'true'"
+    assert "echo 'ci_python=true'" in steps["Detect changed component surfaces"]["run"]
+    assert '"$EVENT_NAME" == "pull_request"' in steps["Detect changed component surfaces"]["run"]
+    assert steps["Fast pull request checks"]["if"] == "github.event_name == 'pull_request'"
+    for name in ("Build Airflow image", "Build WeChat sender image", "Airflow 3 DAG imports"):
+        assert "ci_images" in steps[name]["if"]
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("scripts/example.py", "false"),
+        ("src/wechat_airflow/host_core/worker.py", "false"),
+        ("dags/example.py", "true"),
+        ("docker/sender/requirements.lock", "true"),
+        ("unknown.conf", "true"),
+    ],
+)
+def test_image_checks_follow_build_surfaces(tmp_path: Path, path: str, expected: str) -> None:
+    repo, base = init_repo(tmp_path)
+    target = commit_change(repo, path, "changed\n", "change")
+    output = tmp_path / "outputs"
+    run_plan(
+        repo,
+        "--base-commit",
+        base,
+        "--target-commit",
+        target,
+        "--include-sender",
+        "--github-output",
+        str(output),
+    )
+    assert f"ci_images={expected}" in output.read_text().splitlines()
+
+
+def test_default_release_allows_interruption():
+    import yaml
+
+    release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
+    assert "'deploy_recovery'" in release["jobs"]["airflow"]["with"]["operation"]
+    host = yaml.safe_load((ROOT / ".github/workflows/production-host-core.yml").read_text())
+    build = next(
+        step
+        for step in host["jobs"]["operate"]["steps"]
+        if step.get("name") == "Build exact edge artifact"
+    )
+    assert "inputs.operation" in build["if"]
+    assert "recovery-upgrade" in build["if"]
+    assert "activate-workers" not in build["if"]
+    resolve = next(step for step in host["jobs"]["resolve"]["steps"] if step.get("id") == "resolve")
+    assert (
+        '"$operation" == health || "$operation" == acceptance || "$operation" == pause'
+        in resolve["run"]
+    )
+    prepare = next(
+        step
+        for step in host["jobs"]["operate"]["steps"]
+        if step.get("name") == "Prepare exact remote commit"
+    )
+    assert 'test "$previous" = "$target"' in prepare["run"]
+    assert 'test "$live" = "$target"' in prepare["run"]
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("README.md", "false"),
+        ("webapp/src/app.ts", "false"),
+        ("pi_host/remote_ops/server.mjs", "false"),
+        ("src/wechat_airflow/host_core/api.py", "true"),
+        ("tests/example_test.py", "true"),
+        ("scripts/release_plan.py", "true"),
+        ("unknown.conf", "true"),
+    ],
+)
+def test_python_gate_is_conservative(tmp_path: Path, path: str, expected: str) -> None:
+    repo, base = init_repo(tmp_path)
+    target = commit_change(repo, path, "changed\n", "change")
+    output = tmp_path / "outputs"
+    run_plan(
+        repo,
+        "--base-commit",
+        base,
+        "--target-commit",
+        target,
+        "--include-sender",
+        "--github-output",
+        str(output),
+    )
+    assert f"ci_python={expected}" in output.read_text().splitlines()
 
 
 def git(repo: Path, *args: str) -> str:
@@ -188,7 +300,7 @@ def test_manual_scope_cannot_omit_detected_runtime_component(tmp_path: Path):
     assert "omits detected runtime components: airflow" in result.stderr
 
 
-def test_pi_scrape_host_files_are_metadata_not_sender_runtime(tmp_path: Path):
+def test_pi_scrape_host_files_require_scraper_deployment_not_sender(tmp_path: Path):
     repo, _ = init_repo(tmp_path)
     write(repo, "pi_host/dsh_ydmap/server.py", "print('ok')\n")
     write(repo, "deploy/systemd/dsh-ydmap-scraper.service", "[Service]\n")
@@ -197,7 +309,36 @@ def test_pi_scrape_host_files_are_metadata_not_sender_runtime(tmp_path: Path):
 
     payload = json.loads(run_plan(repo, "--target-commit", git(repo, "rev-parse", "HEAD")).stdout)
 
-    assert payload["runtime_components"] == []
-    assert payload["resolved_scope"] == "control"
+    assert payload["runtime_components"] == ["pi_ydmap"]
+    assert payload["resolved_scope"] == "pi_ydmap"
+    assert payload["deploy_pi_ydmap"] is True
     assert payload["deploy_sender"] is False
     assert payload["unknown_files"] == []
+
+
+def test_airflow_scope_cannot_skip_required_scraper_update(tmp_path: Path):
+    repo, _ = init_repo(tmp_path)
+    target = commit_change(repo, "pi_host/dsh_ydmap/server.py", "changed = True\n", "scraper")
+    result = run_plan(repo, "--target-commit", target, "--scope", "airflow", success=False)
+    assert result.returncode == 2
+    assert "omits detected runtime components: pi_ydmap" in result.stderr
+
+
+def test_mcp_only_patch_emits_deployment_and_scoped_ci_outputs(tmp_path: Path):
+    repo, base = init_repo(tmp_path)
+    target = commit_change(repo, "pi_host/remote_ops/server.mjs", "export {};\n", "MCP patch")
+    outputs = tmp_path / "outputs"
+    payload = json.loads(
+        run_plan(
+            repo, "--base-commit", base, "--target-commit", target, "--github-output", str(outputs)
+        ).stdout
+    )
+    assert payload["runtime_components"] == ["remote_ops"]
+    assert payload["resolved_scope"] == "remote_ops"
+    assert payload["deploy_remote_ops"] is True
+    values = dict(line.split("=", 1) for line in outputs.read_text().splitlines())
+    assert values["ci_remote_ops"] == "true"
+    assert values["ci_pi_mcp"] == "false"
+    assert all(
+        values[key] == "false" for key in ("ci_webapp", "ci_airflow", "ci_sender", "deploy_pi_mcp")
+    )

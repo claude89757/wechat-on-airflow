@@ -1,0 +1,65 @@
+.date-pause-panel { display: flex; flex-direction: column; gap: 14px; padding-bottom: 20px; color: #203e31; }
+.date-pause-navigation, .date-pause-identity, .date-pause-list-heading, .date-pause-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.date-pause-navigation { margin-top: -6px; }
+.date-pause-panel button { font: inherit; cursor: pointer; touch-action: manipulation; }
+.date-pause-panel button:disabled { cursor: default; opacity: .52; }
+.date-pause-panel button:focus-visible { outline: 2px solid #27785f; outline-offset: 3px; }
+.date-pause-close, .date-pause-back, .date-pause-list-heading > button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 6px; border: 0; background: none; color: #47675b; }
+.date-pause-close { flex: 0 0 44px; }
+.date-pause-eyebrow { font-size: 12px; color: #77847a; }
+.date-pause-identity { padding: 11px 12px; border-radius: 9px; background: #f3f5f1; font-size: 12px; color: #67756c; }
+.date-pause-identity strong { color: #344e40; overflow-wrap: anywhere; }
+.date-pause-identity button { flex-shrink: 0; border: 0; background: none; padding: 6px; color: #27624d; }
+.date-pause-intro { display: flex; gap: 12px; align-items: flex-start; padding: 6px 0; }
+.date-pause-intro > svg { flex: 0 0 28px; color: #33775c; margin-top: 2px; }
+.date-pause-intro h3 { font-size: 17px; margin: 0 0 6px; }
+.date-pause-intro p, .date-pause-explanation { margin: 0; font-size: 13px; line-height: 1.65; color: #647268; }
+.date-pause-explanation strong { color: #254b39; }
+.date-pause-primary { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 46px; padding: 12px 16px; border: 0; border-radius: 10px; background: #174d40; color: white; font-weight: 650 !important; }
+.date-pause-list-heading { margin-top: 8px; }
+.date-pause-list-heading h4 { font-size: 13px; margin: 0; }
+.date-pause-list-heading h4 span { font-size: 11px; padding: 3px 7px; border-radius: 20px; background: #eef2eb; margin-left: 6px; }
+.date-pause-list-heading > button { min-height: 36px; font-size: 12px; }
+.date-pause-muted, .date-pause-footnote { margin: 0; color: #788277; font-size: 12px; line-height: 1.65; }
+.date-pause-footnote { font-size: 11px; }
+.date-pause-list { list-style: none; padding: 0; margin: 0; border: 1px solid #e6e9e1; border-radius: 10px; }
+.date-pause-list > li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; }
+.date-pause-list > li + li { border-top: 1px solid #e9ece5; }
+.date-pause-list > li > div { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.date-pause-list strong { color: #344b3a; font-size: 12px; line-height: 1.5; }
+.date-pause-list span { color: #818879; font-size: 10px; }
+.date-pause-list button { flex-shrink: 0; min-height: 42px; padding: 7px 9px; border: 1px solid #dde5d7; border-radius: 7px; background: #f8faf5; color: #3b6449; font-size: 11px; }
+.date-pause-notice { align-items: flex-start; padding: 12px; border: 1px solid #d6e6d8; border-radius: 9px; background: #edf5ec; font-size: 12px; line-height: 1.65; }
+.date-pause-notice button { flex-shrink: 0; padding: 4px 7px; min-height: 32px; color: #22583f; border: 0; border-radius: 5px; background: #fff; }
+.date-pause-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.date-pause-day { display: flex; min-width: 0; min-height: 80px; flex-direction: column; align-items: center; gap: 6px; padding: 9px 2px; border: 1px solid #e0e6dc; border-radius: 9px; color: #627460; background: #fafbf8; }
+.date-pause-day span { font-size: 10px; }
+.date-pause-day strong { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.date-pause-day small { display: flex; height: 13px; align-items: center; font-size: 9px; }
+.date-pause-day.selected { background: #174d40; border-color: #174d40; color: #fff; }
+.date-pause-day.paused { border-style: dashed; background: #f1f3ee; }
+.date-pause-other { display: flex; align-items: flex-end; gap: 10px; }
+.date-pause-other .field { flex: 1; min-width: 0; }
+.date-pause-other input { min-width: 0; width: 100%; min-height: 43px; box-sizing: border-box; }
+.date-pause-other > button { flex-shrink: 0; min-height: 43px; padding: 9px 12px; border: 1px solid #d5e0d1; border-radius: 8px; color: #3f6551; background: #f6f8f3; font-size: 12px; }
+.date-pause-selection { padding: 12px; border-radius: 10px; background: #f5f7f2; font-size: 12px; }
+.date-pause-selection > strong { font-size: 12px; }
+.date-pause-selection ul { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 8px 0 0; padding: 0; }
+.date-pause-selection li { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: #54664e; }
+.date-pause-selection button { display: grid; place-items: center; flex: 0 0 36px; min-height: 36px; border: 0; background: none; color: #65805a; }
+.date-pause-confirm { position: sticky; bottom: -1px; z-index: 2; padding: 14px 0 6px; background: #fff; box-shadow: 0 -10px 16px #fff; }
+.date-pause-confirm p { margin: 8px 0 0; color: #8a9385; font-size: 10px; line-height: 1.5; text-align: center; }
+.date-pause-error { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.date-pause-error > button { min-height: 40px; padding: 6px 9px; border: 1px solid #e1e6db; border-radius: 7px; background: #fafbf7; color: #4a6548; font-size: 12px; }
+.date-pause-auth-context { padding: 12px 14px; border-radius: 10px; background: #f1f6ee; color: #3d5d3e; font-size: 13px; line-height: 1.65; }
+.date-pause-auth-context p { margin: 4px 0 0; color: #6f7e65; font-size: 12px; }
+.date-pause-auth-back { display: inline-flex; align-items: center; align-self: flex-start; gap: 5px; padding: 5px 0; min-height: 40px; border: 0; background: none; color: #4f6c50; font: inherit; font-size: 12px; }
+.date-pause-subscription-heading { padding-top: 14px; border-top: 1px solid #e8ece3; margin: 0 0 12px; font-size: 14px; color: #3c5544; }
+@media (max-width: 360px) {
+  .date-pause-days { gap: 4px; }
+  .date-pause-day { border-radius: 7px; }
+  .date-pause-day strong { font-size: 11px; }
+  .date-pause-day span, .date-pause-day small { font-size: 9px; }
+  .date-pause-other { gap: 6px; }
+  .date-pause-other > button { padding-inline: 8px; }
+}

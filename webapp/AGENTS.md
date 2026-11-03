@@ -87,9 +87,16 @@ When any text-entry control loses focus, dismiss the simulated keyboard. If the 
   a concerned state. Keep sprite timing compositor-friendly and do not restart
   unchanged animations on polling refreshes.
 - Creating a subscription is a standalone card and flow. Users choose venues,
-  one or more ISO weekdays, a desired daily time range, and an active duration
-  from 7 to 14 days. Weekday selection defaults to all seven days and offers
-  daily, workday, and weekend presets.
+  one ideal-window preset or a custom ISO weekday set plus daily time range,
+  and an active duration from 7 to 14 days. The create form defaults to weekday
+  evening (Monday–Friday, 19:00–22:00), labeled 工作日晚间 on both the button
+  and `preferenceLabel`. Named presets are weekday evening, weekday noon,
+  weekend morning, and weekend afternoon. Email matches only slots that
+  overlap that single window. WeChat group delivery stays venue-level and is
+  not filtered by the personal window. A second window is a second
+  subscription until a later multi-window phase. Changing an existing window
+  from the list asks for confirmation, because it can cancel pending or retry
+  email.
 - Opening the subscription verification sheet must not summon the native
   keyboard until the user taps an input. While the native keyboard is open,
   every sheet follows `visualViewport`, keeps the focused email or verification
@@ -136,3 +143,52 @@ The backend has no public live-availability grid: never invent available/booked
 slots or change the subscription API semantics to simulate such a grid.
 Preserve the user-supplied brand asset, stateful Lulu, first-level support action,
 email masking, original mobile-runtime hashes and all permission/coffee gates.
+
+## Court gear promotion (2026-11-02)
+
+- The owner authorized a quiet promotion for the supplied Wilson tennis bag
+  (CNY 860) and tennis cap (CNY 300), pickup in Shenzhen Nanshan, WeChat `thanks0`.
+  Use the supplied photos; do not invent stock, condition, warranty or discounts.
+- Keep automatic promotion non-modal: no backdrop, scroll lock or focus theft.
+  Wait three seconds after the page becomes eligible, then close after ten seconds
+  (owner increased the reading time from five to ten seconds on 2026-11-02).
+  Static product information must not wait for the court API to succeed. Ordinary
+  scrolling or touch movement must neither postpone nor instantly hide the card.
+  Show at most once per browser origin in a rolling 24-hour period after a full
+  ten-second display, explicit dismissal or manual viewing. Search inputs, menus,
+  subscription sheets and background tabs take priority; an interrupted automatic
+  display retries after returning to browsing and does not consume the daily limit.
+- Keep a quiet “球友好物” entry in More and the footer. Explicitly opening it or
+  choosing “慢慢看” allows unhurried reading. Copying the WeChat ID never sends a
+  message. If storage is unavailable, use memory to allow one automatic display
+  during this page lifetime. The `seen-v2` campaign key replaces the original
+  attempt-based record so a prematurely hidden v1 card cannot block this repair.
+- On phones, keep the card above fixed navigation and safe areas. Preserve reduced
+  motion, keyboard dismissal and focus return. `src/GearPromo.tsx` and
+  `src/gear-promo.css` own this campaign; product images live in `public/assets/promos/`.
+
+## Pause reminders for selected booking dates (2026-11-02)
+
+- “我的订阅” owns date-pause management. Show the paused dates above existing
+  subscription conditions; select dates in a child view of the same BottomSheet.
+  Preserve the existing home navigation and mobile runtime.
+- A pause applies to the verified email across all venues and time ranges for
+  the selected **booking date**, using Asia/Shanghai. It does not cancel the
+  subscription or pause other dates. It does not affect shared WeChat groups.
+- Show 14 days from the server-provided `today` and an additional date field.
+  Accept today through today + 365 days, at most 31 dates per action. Selection
+  alone never writes; an explicit confirmation performs an incremental POST.
+- Read `/api/notification-pauses` whenever management opens. Pause/resume writes
+  must use server results, invalidate the dashboard cache, and preserve selection
+  on errors. Undo only the response's `changedDates`, not every requested date.
+  Never save the pause list in localStorage as authoritative state.
+- The email link `?pauseDate=YYYY-MM-DD` opens the date view with that date
+  preselected. GET navigation never changes delivery. If verification is needed,
+  return to the pending action afterward. Switching email preserves unconfirmed
+  dates but clears the previous identity's list, undo and in-flight UI results;
+  revalidate dates against the new identity's server response before confirming.
+- Browser back returns to subscription management and then the home page.
+  Selecting dates does not add history entries. Expired dates are not selectable.
+  Resume follows fresh natural inspections and never promises a backlog replay.
+- Incoming email replies are not implemented by this feature. Do not claim that
+  replying with a date can pause reminders.

@@ -1,0 +1,38 @@
+[Unit]
+Description=Guarded Appium MCP for trusted cloud agents
+After=network-online.target wechat-sender.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi-appium-mcp
+Group=pi-appium-mcp
+SupplementaryGroups=wechat-sender
+WorkingDirectory=/opt/pi-appium-mcp/current
+LoadCredential=devices.json:/etc/pi-appium-mcp/devices.json
+Environment=PI_MCP_CONFIG=%d/devices.json
+Environment=HOME=/var/lib/pi-appium-mcp
+Environment=APPIUM_HOME=/var/lib/pi-appium-mcp/appium
+Environment=PATH=/opt/pi-appium-mcp/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/pi-appium-mcp/node/bin/node server.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=180
+KillMode=mixed
+StateDirectory=pi-appium-mcp
+StateDirectoryMode=0700
+ReadWritePaths=/run/wechat-device
+UMask=0007
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+CapabilityBoundingSet=
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

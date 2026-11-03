@@ -96,13 +96,13 @@ active_dags:
 
   - dag_id: 深圳湾网球场巡检
     file: dags/tennis_dags/sz_tennis/szw_watcher.py
-    schedule: every_1_minutes
+    schedule: every_2_minutes
     tasks:
       - check_and_notify_day_0
       - check_and_notify_day_1
       - check_and_notify_day_2
-      - check_and_notify_day_3
     variables:
+      - SZW_API_AUTHORIZATIONS
       - SZW_API_AUTHORIZATION
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
@@ -121,7 +121,11 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect and notify combined Shenzhen Bay outdoor and covered-court availability.
+    purpose: >-
+      Detect and notify combined Shenzhen Bay outdoor and covered-court availability
+      for today and the next two calendar days, as approved by the user.
+      Poll the upstream API every two minutes from 08:00 (inclusive) to
+      21:00 (exclusive), Asia/Shanghai.
     verification:
       - dag_imports
       - recent_runs_succeed
@@ -130,12 +134,13 @@ active_dags:
 
   - dag_id: 大湾区网球场巡检
     file: dags/tennis_dags/sz_tennis/gba_watcher.py
-    schedule: every_1_minutes
+    schedule: every_3_minutes
     tasks:
       - check_and_notify_day_0
       - check_and_notify_day_1
       - check_and_notify_day_2
     variables:
+      - SZW_API_AUTHORIZATIONS
       - SZW_API_AUTHORIZATION
       - SZ_TENNIS_CHATROOMS
       - WEBAPP_OBSERVATION_API_TOKEN
@@ -154,7 +159,11 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect and notify Greater Bay Area tennis availability to the shared Zacks WeChat chatrooms, using weekday 18:00-21:00 and weekend 12:00-21:00 windows.
+    purpose: >-
+      Detect and notify Greater Bay Area tennis availability to the shared Zacks
+      WeChat chatrooms, using weekday 18:00-21:00 and weekend 12:00-21:00 slot windows.
+      Poll the upstream API every three minutes from 08:00 (inclusive) to
+      21:00 (exclusive), Asia/Shanghai.
     verification:
       - dag_imports
       - recent_runs_succeed
@@ -185,7 +194,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect released Dashah River free-court dates, publish free availability for subscriber email, and notify the dedicated WeChat group.
+    purpose: Detect released Dashah River free-court dates, publish free availability for subscriber email, and notify the shared Zacks WeChat chatrooms.
     verification:
       - dag_imports
       - recent_runs_succeed
@@ -197,6 +206,7 @@ active_dags:
   - dag_id: 大沙河国际网球中心巡检
     file: dags/tennis_dags/sz_tennis/dsh_ydmap_watcher.py
     schedule: every_2_minutes
+    task_pool: ydmap_browser
     tasks:
       - check_tennis_courts
     variables:
@@ -991,6 +1001,31 @@ excluded_stale_components:
     action: removed
 
 active_services:
+  - service_id: pi_appium_mcp
+    files:
+      - pi_host/appium_mcp/server.mjs
+      - pi_host/appium_mcp/guard.mjs
+      - pi_host/appium_mcp/lock-holder.py
+      - pi_host/appium_mcp/pi-appium-mcp.service
+      - pi_host/appium_mcp/install.py
+      - scripts/deploy_pi_appium_mcp.py
+      - .github/workflows/production-appium-mcp.yml
+    runtime_owner: pi_device_host
+    external_services: [cloudflare_access, cloudflare_tunnel, appium, adb]
+    invariants:
+      - loopback_origin_and_owner_oauth_or_dedicated_machine_authenticated_public_mcp
+      - owner_only_cloudflare_login_and_bounded_oauth_refresh_grant
+      - whole_session_shared_device_flock
+      - explicit_owned_session_ids_only
+      - no_foreign_session_override
+      - no_real_notifications_in_tests
+      - independent_service_and_tunnel_preserve_existing_runtimes
+    verification:
+      - isolated_unit_and_upstream_transport_tests
+      - actual_arm32_candidate_preflight
+      - anonymous_and_invalid_credentials_denied
+      - authenticated_public_readonly_mcp_probe
+      - existing_sender_appium_agent_tunnel_health_unchanged
   - service_id: wechat_sender
     files:
       - sender_agent/app.py

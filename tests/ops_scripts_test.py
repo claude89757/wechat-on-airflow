@@ -121,6 +121,28 @@ class AirflowSchedulingResumeTest(unittest.TestCase):
 
 
 class WeChatDeliveryDiagnosisTest(unittest.TestCase):
+    def test_dashah_diagnosis_routes_only_to_dedicated_group(self):
+        script = diagnose_wechat_delivery.remote_script()
+        mapping = script[script.index("targets = {") : script.index("try:\n    outbox")]
+        configured = {
+            "SZ_TENNIS_CHATROOMS": ["shared-zacks-a", "shared-zacks-b"],
+            "SZ_TYZX_TENNIS_CHATROOMS": [],
+        }
+        namespace = {
+            "chatrooms": configured.__getitem__,
+        }
+        exec(mapping, namespace)
+        self.assertEqual(namespace["targets"]["general"], configured["SZ_TENNIS_CHATROOMS"])
+        self.assertEqual(namespace["targets"]["dsh_free"], ["Zacks_大沙河限定免费"])
+        self.assertEqual(
+            namespace["positions"],
+            {
+                "shared-zacks-a": [("general", 1)],
+                "shared-zacks-b": [("general", 2)],
+                "Zacks_大沙河限定免费": [("dsh_free", 1)],
+            },
+        )
+
     def test_diagnosis_is_read_only_and_redacts_receiver_and_message(self):
         script = diagnose_wechat_delivery.remote_script()
 
@@ -142,7 +164,6 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
         self.assertIn('test "$2" = "real-send-approved"', script)
         self.assertIn("PROBE_TARGET_MEMBERSHIP=$3", script)
         self.assertIn('if selector == "all":', script)
-        self.assertIn('"dsh_free": ["Zacks_大沙河限定免费"]', script)
         self.assertIsNotNone(
             probe_wechat_delivery.TARGET_MEMBERSHIP_PATTERN.fullmatch("dsh_free:1")
         )
@@ -156,6 +177,23 @@ class WeChatDeliveryProbeTest(unittest.TestCase):
         self.assertNotIn('"message": message', script.split("print(")[-1])
         self.assertNotIn("Variable.set", script)
         self.assertNotIn("WECHAT_SEND_FALLBACK_OUTBOX", script)
+
+    def test_probe_restores_shared_groups_without_redirecting_free_court_group(self):
+        script = probe_wechat_delivery.remote_script()
+        mapping = script[script.index("configured = {}") : script.index("if not targets:")]
+        configured = {
+            "SZ_TENNIS_CHATROOMS": ["shared-zacks-a", "shared-zacks-b"],
+            "SZ_TYZX_TENNIS_CHATROOMS": ["shared-zacks-b"],
+        }
+        for selector, expected in (
+            ("", ["shared-zacks-a", "shared-zacks-b", "Zacks_大沙河限定免费"]),
+            ("dsh_free:1", ["Zacks_大沙河限定免费"]),
+            ("general:1", ["shared-zacks-a"]),
+        ):
+            with self.subTest(selector=selector):
+                namespace = {"selector": selector, "chatrooms": configured.__getitem__}
+                exec(mapping, namespace)
+                self.assertEqual([target["receiver"] for target in namespace["targets"]], expected)
 
 
 class WeChatSenderServiceContractTest(unittest.TestCase):
@@ -199,9 +237,15 @@ class WeChatSenderServiceContractTest(unittest.TestCase):
         self.assertIn("systemctl enable", installer)
         self.assertIn("http://127.0.0.1:7001/readyz", installer)
         self.assertIn("tesseract --list-langs", installer)
-        self.assertIn("python3-pil with Image.Resampling support is required", installer)
-        self.assertIn("python3 -m venv --system-site-packages", installer)
-        self.assertIn("grep -v '^Pillow=='", installer)
+        self.assertIn("Sender Python 3.11 or 3.12 with venv support is required", installer)
+        self.assertIn('"$SENDER_PYTHON" -m venv "$next_venv"', installer)
+        self.assertIn('SENDER_PYTHON="$VENV_DIR/bin/python"', installer)
+        self.assertNotIn("--system-site-packages", installer)
+        self.assertNotIn("grep -v '^Pillow=='", installer)
+        self.assertIn("--only-binary=Pillow", installer)
+        self.assertLess(
+            installer.index("verify_dependencies.py"), installer.index('mv "$next_venv"')
+        )
         self.assertIn('adb -s "$DEVICE_NAME" get-state', installer)
         self.assertIn("appium-6002.override.conf", installer)
 
@@ -330,6 +374,15 @@ class AirflowDeploymentTest(unittest.TestCase):
             )
         )
 
+    def test_ydmap_tasks_serialize_before_new_dags_can_run(self):
+        script = deploy_airflow.remote_script()
+        pool_setup = script.index('name="ydmap_browser"')
+        self.assertLess(script.index('while [ "$(active_task_count)" -ne 0 ]'), pool_setup)
+        self.assertLess(pool_setup, script.index('git checkout --quiet --detach "$target_commit"'))
+        self.assertIn("slots=1", script)
+        self.assertIn('Pool.get_pool("ydmap_browser", session=session)', script)
+        self.assertIn('"ydmap_browser_pool_slots": 1', script)
+
     def test_recovery_deploy_bounds_current_work_and_preserves_outbox(self):
         script = deploy_airflow.remote_script()
 
@@ -375,7 +428,8 @@ class WeChatSenderDeploymentTest(unittest.TestCase):
         self.assertNotIn("wechat-sender.env", script)
         self.assertNotIn("legacy_migration", script)
         self.assertIn(
-            'install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null', script
+            'install_wechat_sender.sh" --wheelhouse "$wheelhouse_path" --apply --target-commit "$target_commit" </dev/null',
+            script,
         )
 
     @patch("deploy_wechat_sender.run")

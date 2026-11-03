@@ -11,9 +11,17 @@ from typing import Any
 
 import yaml
 from _ops import REPO_ROOT, OpsError, emit, run, sender_remote, ssh_command
+from sender_wheelhouse import (
+    ARCHIVE_NAME,
+    FAILURE_KINDS,
+    MANIFEST_PATH,
+    ArtifactError,
+    download_wheelhouse,
+)
 
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 REMOTE_BUNDLE_PREFIX = "/tmp/wechat-sender-"
+REMOTE_ARTIFACT_PATTERN = re.compile(r"/tmp/wechat-sender-[0-9a-f]{32}\.(?:bundle|wheelhouse\.zip)")
 
 
 def resolve_target_commit(revision: str) -> str:
@@ -42,6 +50,193 @@ def parse_remote_result(output: str) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
     raise OpsError("sender operation returned no structured result")
+
+
+def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep failure inventory without publishing arbitrary remote text or stderr."""
+    if value.get("stage") != "sender_dependency_preflight":
+        return None
+    clean: dict[str, Any] = {"stage": "sender_dependency_preflight"}
+    for key in (
+        "ok",
+        "applied",
+        "supported_interpreter",
+        "rollback_environment_available",
+        "active_environment_changed",
+        "service_enabled",
+        "service_active",
+        "service_interpreter_matches",
+        "service_ready",
+        "active_pillow_inside_prefix",
+        "disk_sufficient",
+        "candidate_locked_dependencies_verified",
+        "temporary_environment_removed",
+        "candidate_pip_tag_inventory_available",
+        "candidate_pip_arm32_tags",
+        "candidate_pip_arm64_tags",
+        "candidate_pip_native_cpython_abi",
+        "candidate_arm32_wheelhouse_source",
+        "candidate_staged_artifact_verified",
+    ):
+        if key in value:
+            clean[key] = value[key] is True
+    for key in (
+        "free_bytes",
+        "minimum_free_bytes",
+        "external_test_sends",
+        "active_python_bits",
+        "candidate_python_bits",
+    ):
+        raw = value.get(key)
+        if isinstance(raw, int) and not isinstance(raw, bool) and 0 <= raw <= 10**18:
+            clean[key] = raw
+    for key in ("current_commit", "target_commit", "runtime_commit"):
+        raw = value.get(key)
+        clean[key] = raw if isinstance(raw, str) and COMMIT_PATTERN.fullmatch(raw) else None
+    for key in (
+        "architecture",
+        "active_python",
+        "active_pillow",
+        "candidate_pillow",
+        "candidate_python",
+        "active_python_platform",
+        "candidate_python_platform",
+    ):
+        raw = value.get(key)
+        if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9_.+-]{1,40}", raw):
+            clean[key] = raw
+    for section, keys in (("distribution", ("ID", "VERSION_ID")), ("libc", ("name", "version"))):
+        raw = value.get(section)
+        if isinstance(raw, dict):
+            clean[section] = {
+                key: raw[key]
+                for key in keys
+                if isinstance(raw.get(key), str) and re.fullmatch(r"[A-Za-z0-9_.-]{0,40}", raw[key])
+            }
+    pip_version = value.get("candidate_pip_version")
+    if (
+        isinstance(pip_version, str)
+        and len(pip_version) <= 40
+        and re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", pip_version)
+    ):
+        clean["candidate_pip_version"] = pip_version
+    install_kind = value.get("candidate_install_failure_kind")
+    if install_kind is not None:
+        clean["candidate_install_failure_kind"] = (
+            install_kind
+            if isinstance(install_kind, str)
+            and install_kind
+            in {
+                "no_matching_distribution",
+                "network_tls",
+                "network_connection",
+                "index_authentication",
+                "dependency_resolution",
+                "build_failed",
+                "timeout",
+                "process_start_failed",
+                "unclassified",
+            }
+            else "unclassified"
+        )
+    install_exit = value.get("candidate_install_exit_code")
+    if type(install_exit) is int and -255 <= install_exit <= 255:
+        clean["candidate_install_exit_code"] = install_exit
+    wheel_count = value.get("candidate_staged_wheel_count")
+    if type(wheel_count) is int and 0 <= wheel_count <= 64:
+        clean["candidate_staged_wheel_count"] = wheel_count
+    for key, allowed in (
+        (
+            "candidate_install_network_evidence",
+            {
+                "network_tls",
+                "index_authentication",
+                "network_connection",
+                "retry_observed",
+                "not_observed",
+            },
+        ),
+        (
+            "candidate_install_observed_progress",
+            {
+                "collecting",
+                "retrieval",
+                "build_dependencies",
+                "build_requirements",
+                "metadata",
+                "wheel_build",
+                "installing_packages",
+                "resolver_backtracking",
+                "not_observed",
+            },
+        ),
+    ):
+        raw = value.get(key)
+        if isinstance(raw, str) and raw in allowed:
+            clean[key] = raw
+    artifact_failure = value.get("candidate_artifact_failure_kind")
+    if artifact_failure is not None:
+        clean["candidate_artifact_failure_kind"] = (
+            artifact_failure
+            if isinstance(artifact_failure, str) and artifact_failure in FAILURE_KINDS
+            else "unclassified"
+        )
+    phase = value.get("candidate_failure_phase")
+    if isinstance(phase, str) and phase in {
+        "inventory",
+        "staged_artifact_validation",
+        "locked_install",
+        "dependency_check",
+        "image_smoke",
+    }:
+        clean["candidate_failure_phase"] = phase
+    for key in ("candidate_failed_requirement", "candidate_install_last_observed_requirement"):
+        requirement = value.get(key)
+        if not isinstance(requirement, str):
+            continue
+        try:
+            locked = {
+                line.strip()
+                for line in (REPO_ROOT / "docker/sender/requirements.lock").read_text().splitlines()
+            }
+        except OSError:
+            locked = set()
+        if requirement in locked and re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}==[A-Za-z0-9][A-Za-z0-9_.+!-]{0,39}",
+            requirement,
+        ):
+            clean[key] = requirement
+    category = value.get("failure_category")
+    categories = {
+        "service_not_enabled",
+        "service_not_active",
+        "service_interpreter_unknown",
+        "active_service_or_rollback_unavailable",
+        "sender_not_ready",
+        "runtime_identity_mismatch",
+        "active_dependency_inventory_failed",
+        "unsupported_service_python",
+        "service_python_venv_unavailable",
+        "insufficient_staging_disk",
+        "candidate_lock_unavailable",
+        "candidate_checker_unavailable",
+        "candidate_artifact_helper_unavailable",
+        "candidate_staged_artifact_invalid",
+        "candidate_pillow_pin_invalid",
+        "candidate_venv_failed",
+        "candidate_interpreter_mismatch",
+        "candidate_locked_install_failed",
+        "candidate_dependency_conflict",
+        "candidate_image_smoke_failed",
+        "dependency_preflight_internal_error",
+    }
+    if category is not None:
+        clean["failure_category"] = (
+            category
+            if isinstance(category, str) and category in categories
+            else "unclassified_preflight_failure"
+        )
+    return clean
 
 
 def create_deployment_bundle(path: Path) -> None:
@@ -84,6 +279,16 @@ def upload_deployment_bundle(
     )
 
 
+def cleanup_deployment_artifacts(remote: dict[str, str], paths: list[str]) -> None:
+    """Best effort after a partial upload/SSH failure; never mask the original result."""
+    if not paths or not all(REMOTE_ARTIFACT_PATTERN.fullmatch(path) for path in paths):
+        return
+    try:
+        run([*ssh_command(remote), "sudo", "-n", "rm", "-f", "--", *paths], check=False)
+    except (OpsError, OSError):
+        pass
+
+
 def remote_script() -> str:
     script = r"""
 set -eu
@@ -92,6 +297,7 @@ mode="$2"
 install_dir="$3"
 credential_dir="$4"
 bundle_path="${5:-}"
+wheelhouse_path="${6:-}"
 service_file="/etc/systemd/system/wechat-sender.service"
 venv_dir="/opt/wechat-sender-venv"
 
@@ -99,13 +305,16 @@ cleanup_bundle() {
     if [ -n "$bundle_path" ]; then
         rm -f -- "$bundle_path"
     fi
+    if [ -n "$wheelhouse_path" ]; then
+        rm -f -- "$wheelhouse_path"
+    fi
 }
 
 if [ -n "$bundle_path" ]; then
-    case "$bundle_path" in
-        /tmp/wechat-sender-*.bundle) ;;
-        *) exit 2 ;;
-    esac
+    [[ "$bundle_path" =~ ^/tmp/wechat-sender-[0-9a-f]{32}\.bundle$ ]] || exit 2
+fi
+if [ -n "$wheelhouse_path" ]; then
+    [[ "$wheelhouse_path" =~ ^/tmp/wechat-sender-[0-9a-f]{32}\.wheelhouse\.zip$ ]] || exit 2
 fi
 trap cleanup_bundle EXIT HUP INT TERM
 
@@ -121,8 +330,13 @@ health() {
     if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:7001/readyz >/dev/null; then
         ready=true
     fi
+    dependencies_ready=false
+    if "$venv_dir/bin/python" "$install_dir/sender_agent/verify_dependencies.py" \
+        "$install_dir/docker/sender/requirements.lock" >/dev/null 2>&1; then
+        dependencies_ready=true
+    fi
     python3 - "$current_commit" "$service_enabled" "$service_active" "$ready" \
-        "$credential_dir" <<'PY'
+        "$credential_dir" "$dependencies_ready" <<'PY'
 import json
 import stat
 import sys
@@ -173,11 +387,13 @@ print(json.dumps({
         and sys.argv[3] == "active"
         and sys.argv[4] == "true"
         and credentials_ready
+        and sys.argv[6] == "true"
     ),
     "commit": sys.argv[1] or None,
     "service_enabled": sys.argv[2] == "enabled",
     "service_active": sys.argv[3] == "active",
     "ready": sys.argv[4] == "true",
+    "dependencies_ready": sys.argv[6] == "true",
     "credentials": {
         "ready": credentials_ready,
         "directory_ready": directory_ready,
@@ -447,6 +663,279 @@ fetch_target() {
     git -C "$install_dir" cat-file -e "$target_commit^{commit}"
 }
 
+dependency_preflight() {
+    python3 - "$current_commit" "$target_commit" "$install_dir" "$venv_dir" "$wheelhouse_path" <<'DEPENDENCY_PREFLIGHT_PY'
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+current_commit, target_commit, install_dir, venv_dir, wheelhouse_path = sys.argv[1:]
+minimum_free_bytes = 1024 * 1024 * 1024
+report = {
+    "stage": "sender_dependency_preflight",
+    "ok": False,
+    "applied": False,
+    "current_commit": current_commit or None,
+    "target_commit": target_commit,
+    "architecture": platform.machine() if re.fullmatch(r"[A-Za-z0-9_-]{1,32}", platform.machine()) else "unknown",
+    "supported_interpreter": False,
+    "rollback_environment_available": Path(venv_dir, "bin/python").is_file(),
+    "active_environment_changed": False,
+    "external_test_sends": 0,
+    "candidate_staged_artifact_verified": False,
+}
+phase = "inventory"
+
+class PreflightFailure(Exception):
+    pass
+
+def install_failure_diagnostics(stdout, stderr, lock_text, returncode=None, exception_kind=None):
+    # Inspect only bounded captured text; emit fixed categories and known lock pins.
+    def tail(value):
+        if isinstance(value, bytes):
+            return value[-32768:].decode("utf-8", errors="replace")
+        return value[-32768:] if isinstance(value, str) else ""
+    stdout_tail, stderr_tail = tail(stdout), tail(stderr)
+    output = (stdout_tail + "\n" + stderr_tail)[-65536:]
+    lowered = output.lower()
+    observed_kind = "unclassified"
+    signatures = (
+        ("network_tls", ("certificate_verify_failed", "sslerror", "tlsv1", "certificate verify failed")),
+        ("index_authentication", ("401 client error", "403 client error", "401 error", "403 error", "authentication required")),
+        ("network_connection", ("connectionerror", "newconnectionerror", "connection refused", "temporary failure in name resolution", "network is unreachable", "readtimeout", "connecttimeout", "connection timed out", "max retries exceeded")),
+        ("no_matching_distribution", ("no matching distribution found", "could not find a version that satisfies the requirement", "is not a supported wheel on this platform")),
+        ("dependency_resolution", ("resolutionimpossible", "conflicting dependencies", "dependency conflict")),
+        ("build_failed", ("failed building wheel", "could not build wheels", "metadata-generation-failed", "getting requirements to build wheel did not run successfully")),
+    )
+    for category, markers in signatures:
+        if any(marker in lowered for marker in markers):
+            observed_kind = category
+            break
+    result = {"candidate_install_failure_kind": exception_kind or observed_kind}
+    result["candidate_install_network_evidence"] = (
+        observed_kind if observed_kind in {"network_tls", "index_authentication", "network_connection"}
+        else "retry_observed" if "retrying (retry(" in lowered else "not_observed"
+    )
+    # Stream buffers have no shared chronology. Progress and the last observed
+    # locked requirement come only from stdout; neither proves the timeout cause.
+    progress = "not_observed"
+    for line in stdout_tail.splitlines():
+        line = line.strip().lower()
+        if "pip is looking at multiple versions of " in line or "the dependency resolver with stricter constraints" in line:
+            progress = "resolver_backtracking"
+        else:
+            for category, markers in (
+                ("collecting", ("collecting ", "processing ")),
+                ("retrieval", ("downloading ", "using cached ")),
+                ("build_dependencies", ("installing build dependencies",)),
+                ("build_requirements", ("getting requirements to build wheel",)),
+                ("metadata", ("preparing metadata",)),
+                ("wheel_build", ("building wheel for ", "building wheels for collected packages",)),
+                ("installing_packages", ("installing collected packages:",)),
+            ):
+                if line.startswith(markers):
+                    progress = category
+                    break
+    result["candidate_install_observed_progress"] = progress
+    if type(returncode) is int and -255 <= returncode <= 255:
+        result["candidate_install_exit_code"] = returncode
+    locked = {}
+    for line in lock_text.splitlines():
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9_.-]{0,79})==([A-Za-z0-9][A-Za-z0-9_.+!-]{0,39})", line.strip())
+        if match:
+            name, version = match.groups()
+            locked[(re.sub(r"[-_.]+", "-", name).lower(), version)] = line.strip()
+    failed = set()
+    for name, version in re.findall(r"(?:No matching distribution found for|Could not find a version that satisfies the requirement)\s+([A-Za-z0-9][A-Za-z0-9_.-]{0,79})==([A-Za-z0-9][A-Za-z0-9_.+!-]{0,39})(?=\s|\(|$)", output, re.IGNORECASE):
+        pin = locked.get((re.sub(r"[-_.]+", "-", name).lower(), version))
+        if pin:
+            failed.add(pin)
+    if len(failed) == 1:
+        result["candidate_failed_requirement"] = next(iter(failed))
+    for match in re.finditer(r"(?mi)^\s*Collecting\s+([A-Za-z0-9][A-Za-z0-9_.-]{0,79})==([A-Za-z0-9][A-Za-z0-9_.+!-]{0,39})(?=\s|\(|$)", stdout_tail):
+        name, version = match.groups()
+        pin = locked.get((re.sub(r"[-_.]+", "-", name).lower(), version))
+        if pin:
+            result["candidate_install_last_observed_requirement"] = pin
+    return result
+
+def record_install_failure(install_lock, stdout="", stderr="", returncode=None, exception_kind=None):
+    if install_lock is None:
+        return
+    try:
+        report.update(install_failure_diagnostics(stdout, stderr, install_lock.read_text(), returncode, exception_kind))
+    except Exception:
+        # Failure to collect optional diagnostics must not replace the install failure.
+        report["candidate_install_failure_kind"] = exception_kind or "unclassified"
+        if type(returncode) is int and -255 <= returncode <= 255:
+            report["candidate_install_exit_code"] = returncode
+
+def command(argv, category, timeout=30, install_lock=None, isolated_pip=False):
+    kwargs = {}
+    if isolated_pip:
+        # In pip 23, --isolated ignores option environment variables and
+        # PIP_CONFIG_FILE=/dev/null independently disables every config file.
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("PIP_")}
+        environment["PIP_CONFIG_FILE"] = os.devnull
+        kwargs["env"] = environment
+    try:
+        result = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout, check=False, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        record_install_failure(install_lock, exc.output, exc.stderr, exception_kind="timeout")
+        raise PreflightFailure(category) from None
+    except OSError:
+        record_install_failure(install_lock, exception_kind="process_start_failed")
+        raise PreflightFailure(category) from None
+    if result.returncode != 0:
+        record_install_failure(install_lock, result.stdout, result.stderr, result.returncode)
+        if category == "candidate_staged_artifact_invalid":
+            kind = result.stderr.strip()
+            report["candidate_artifact_failure_kind"] = kind if kind in {
+                "lock_mismatch", "manifest_invalid", "archive_invalid", "missing", "not_regular", "size_mismatch", "copy_failed",
+                "sha256_mismatch", "metadata_mismatch", "tag_mismatch", "tag_inventory_failed",
+                "download_failed", "unclassified",
+            } else "unclassified"
+        raise PreflightFailure(category)
+    return result.stdout.strip()
+
+try:
+    report["service_enabled"] = command(["systemctl", "is-enabled", "wechat-sender.service"], "service_not_enabled") == "enabled"
+    report["service_active"] = command(["systemctl", "is-active", "wechat-sender.service"], "service_not_active") == "active"
+    exec_start = command(["systemctl", "show", "wechat-sender.service", "--property=ExecStart", "--value"], "service_interpreter_unknown")
+    report["service_interpreter_matches"] = re.search(r"(?:^|[ =])" + re.escape(str(Path(venv_dir, "bin/python"))) + r"(?=[ ;]|$)", exec_start) is not None
+    if not all(report[key] for key in ("service_enabled", "service_active", "service_interpreter_matches", "rollback_environment_available")):
+        raise PreflightFailure("active_service_or_rollback_unavailable")
+    ready = json.loads(command(["curl", "--fail", "--silent", "--show-error", "--max-time", "5", "http://127.0.0.1:7001/readyz"], "sender_not_ready"))
+    report["service_ready"] = isinstance(ready, dict) and ready.get("ok") is True
+    runtime_commit = ready.get("deploymentCommit") if isinstance(ready, dict) else None
+    report["runtime_commit"] = runtime_commit if re.fullmatch(r"[0-9a-f]{40}", str(runtime_commit)) else None
+    if not report["service_ready"]:
+        raise PreflightFailure("sender_not_ready")
+    if report["runtime_commit"] != current_commit:
+        raise PreflightFailure("runtime_identity_mismatch")
+    active_probe = command([str(Path(venv_dir, "bin/python")), "-c", "import json,os,struct,sys,sysconfig; import PIL; prefix=os.path.realpath(sys.prefix); print(json.dumps({'python': '.'.join(map(str,sys.version_info[:3])), 'bits': struct.calcsize('P')*8, 'platform': sysconfig.get_platform(), 'pillow': PIL.__version__, 'inside_prefix': os.path.commonpath([os.path.realpath(PIL.__file__),prefix]) == prefix}))"], "active_dependency_inventory_failed")
+    active = json.loads(active_probe)
+    report["active_python"] = active.get("python") if re.fullmatch(r"[0-9.]{1,32}", str(active.get("python", ""))) else None
+    report["active_pillow"] = active.get("pillow") if re.fullmatch(r"[A-Za-z0-9.+-]{1,40}", str(active.get("pillow", ""))) else None
+    report["active_pillow_inside_prefix"] = active.get("inside_prefix") is True
+    report["active_python_bits"] = active.get("bits") if active.get("bits") in (32, 64) else None
+    report["active_python_platform"] = active.get("platform") if re.fullmatch(r"[A-Za-z0-9_.+-]{1,40}", str(active.get("platform", ""))) else None
+    try:
+        distro = getattr(platform, "freedesktop_os_release", lambda: {})()
+        report["distribution"] = {}
+        for key in ("ID", "VERSION_ID"):
+            value = distro.get(key)
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", value):
+                report["distribution"][key] = value
+    except OSError:
+        report["distribution"] = {}
+    libc_name, libc_version = platform.libc_ver()
+    report["libc"] = {"name": libc_name if re.fullmatch(r"[A-Za-z0-9_-]{0,32}", libc_name) else "unknown", "version": libc_version if re.fullmatch(r"[A-Za-z0-9_.-]{0,40}", libc_version) else "unknown"}
+    # Never select a different minor from PATH: reuse the actual service interpreter.
+    service_python = str(Path(venv_dir, "bin/python"))
+    report["supported_interpreter"] = str(report["active_python"]).split(".")[:2] in (["3", "11"], ["3", "12"])
+    if not report["supported_interpreter"]:
+        raise PreflightFailure("unsupported_service_python")
+    command([service_python, "-c", "import sys,venv; assert sys.version_info[:2] in {(3,11),(3,12)}"], "service_python_venv_unavailable")
+    report["free_bytes"] = shutil.disk_usage(Path(venv_dir).parent).free
+    report["minimum_free_bytes"] = minimum_free_bytes
+    report["disk_sufficient"] = report["free_bytes"] >= minimum_free_bytes
+    if not report["disk_sufficient"]:
+        raise PreflightFailure("insufficient_staging_disk")
+    # Stage on the active environment's filesystem, never in the live checkout.
+    # TemporaryDirectory cleans up failures; raw pip/host output is never published.
+    with tempfile.TemporaryDirectory(prefix=".sender-preflight-", dir=Path(venv_dir).parent) as directory:
+        staging = Path(directory)
+        lock = staging / "requirements.lock"
+        checker = staging / "verify_dependencies.py"
+        lock.write_text(command(["git", "-C", install_dir, "show", target_commit + ":docker/sender/requirements.lock"], "candidate_lock_unavailable") + "\n")
+        checker.write_text(command(["git", "-C", install_dir, "show", target_commit + ":sender_agent/verify_dependencies.py"], "candidate_checker_unavailable") + "\n")
+        pins = re.findall(r"^Pillow==([0-9]+(?:\.[0-9]+){2})$", lock.read_text(), re.MULTILINE)
+        if len(pins) != 1:
+            raise PreflightFailure("candidate_pillow_pin_invalid")
+        report["candidate_pillow"] = pins[0]
+        environment = staging / "venv"
+        command([service_python, "-m", "venv", str(environment)], "candidate_venv_failed", 120)
+        candidate_python = str(environment / "bin/python")
+        candidate_probe = '''import contextlib,io,json,re,struct,sys,sysconfig
+inventory = {'python': '.'.join(map(str,sys.version_info[:3])), 'bits': struct.calcsize('P')*8, 'platform': sysconfig.get_platform(), 'pip_tag_inventory_available': False}
+# Optional evidence only: an inventory error never changes the installation policy.
+try:
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        import pip
+        version = str(pip.__version__)
+        if len(version) <= 40 and re.fullmatch(r'[0-9]+(?:\\.[0-9]+){1,3}', version):
+            inventory['pip_version'] = version
+        from pip._internal.utils.compatibility_tags import get_supported
+        tags = get_supported()
+    inventory['pip_tag_inventory_available'] = True
+    inventory['pip_arm32_tags'] = any(tag.platform.endswith(('_armv6l', '_armv7l')) for tag in tags)
+    inventory['pip_arm64_tags'] = any(tag.platform.endswith('_aarch64') for tag in tags)
+    inventory['pip_native_cpython_abi'] = any(tag.abi == 'cp%d%d' % sys.version_info[:2] for tag in tags)
+except (Exception, SystemExit):
+    pass
+print(json.dumps(inventory))'''
+        candidate = json.loads(command([candidate_python, "-c", candidate_probe], "candidate_interpreter_mismatch"))
+        if (str(candidate.get("python")).split(".")[:2] != str(active.get("python")).split(".")[:2]
+                or candidate.get("bits") != active.get("bits") or candidate.get("platform") != active.get("platform")):
+            raise PreflightFailure("candidate_interpreter_mismatch")
+        report["candidate_python"] = candidate["python"]
+        report["candidate_python_bits"] = candidate["bits"]
+        report["candidate_python_platform"] = candidate["platform"]
+        candidate_pip = candidate.get("pip_version")
+        if isinstance(candidate_pip, str) and len(candidate_pip) <= 40 and re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", candidate_pip):
+            report["candidate_pip_version"] = candidate_pip
+        for key in ("pip_tag_inventory_available", "pip_arm32_tags", "pip_arm64_tags", "pip_native_cpython_abi"):
+            report["candidate_" + key] = candidate.get(key) is True
+        if candidate.get("bits") == 32 and candidate.get("pip_tag_inventory_available") is not True:
+            phase = "staged_artifact_validation"
+            report["candidate_artifact_failure_kind"] = "tag_inventory_failed"
+            raise PreflightFailure("candidate_staged_artifact_invalid")
+        report["candidate_arm32_wheelhouse_source"] = (
+            candidate.get("bits") == 32
+            and candidate.get("pip_tag_inventory_available") is True
+            and candidate.get("pip_arm32_tags") is True
+        )
+        install_args = [candidate_python, "-m", "pip", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=Pillow", "--requirement", str(lock)]
+        if report["candidate_arm32_wheelhouse_source"]:
+            phase = "staged_artifact_validation"
+            artifact_helper = staging / "sender_wheelhouse.py"
+            artifact_helper.write_text(command(["git", "-C", install_dir, "show", target_commit + ":scripts/sender_wheelhouse.py"], "candidate_artifact_helper_unavailable") + "\n")
+            manifest = staging / "wheelhouse.json"
+            manifest.write_text(command(["git", "-C", install_dir, "show", target_commit + ":config/sender-arm32-wheelhouse.json"], "candidate_artifact_helper_unavailable") + "\n")
+            wheelhouse = staging / "wheelhouse"
+            verified = command([candidate_python, str(artifact_helper), "--lock", str(lock), "--manifest", str(manifest), "--artifact", wheelhouse_path, "--directory", str(wheelhouse)], "candidate_staged_artifact_invalid")
+            if verified != "true":
+                raise PreflightFailure("candidate_staged_artifact_invalid")
+            report["candidate_staged_artifact_verified"] = True
+            report["candidate_staged_wheel_count"] = len(json.loads(manifest.read_text())["wheels"])
+            install_args = [candidate_python, "-m", "pip", "--isolated", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=:all:", "--no-index", "--find-links", str(wheelhouse), "--requirement", str(lock)]
+        phase = "locked_install"
+        command(install_args, "candidate_locked_install_failed", 300, install_lock=lock, isolated_pip=report["candidate_arm32_wheelhouse_source"])
+        phase = "dependency_check"
+        command([candidate_python, "-m", "pip", "check"], "candidate_dependency_conflict", 30)
+        phase = "image_smoke"
+        command([candidate_python, str(checker), str(lock)], "candidate_image_smoke_failed", 30)
+        report["candidate_locked_dependencies_verified"] = True
+    report["temporary_environment_removed"] = True
+    report["ok"] = True
+except PreflightFailure as exc:
+    report["failure_category"] = str(exc)
+    report["candidate_failure_phase"] = phase
+except Exception:
+    report["failure_category"] = "dependency_preflight_internal_error"
+    report["candidate_failure_phase"] = phase
+print(json.dumps(report, sort_keys=True))
+raise SystemExit(0 if report["ok"] else 1)
+DEPENDENCY_PREFLIGHT_PY
+}
+
 legacy_backup=""
 preserve_reviewed_drift() {
     python3 - "$install_dir" "$mode" <<'LEGACY_PY'
@@ -463,7 +952,12 @@ if [ "$mode" = "dry-run" ]; then
     test "$credentials_ready" = true
     preserve_reviewed_drift >/dev/null
     fetch_target
-    python3 - "$current_commit" "$target_commit" <<'PY'
+    dependency_report="$(dependency_preflight)" || {
+        rc="$?"
+        printf '%s\n' "$dependency_report"
+        exit "$rc"
+    }
+    python3 - "$current_commit" "$target_commit" "$dependency_report" <<'PY'
 import json
 import sys
 
@@ -473,6 +967,7 @@ print(json.dumps({
     "current_commit": sys.argv[1] or None,
     "target_commit": sys.argv[2],
     "credentials_ready": True,
+    "dependency_preflight": json.loads(sys.argv[3]),
 }, sort_keys=True))
 PY
     exit 0
@@ -481,7 +976,12 @@ fi
 test "$mode" = "apply"
 test "$(id -u)" = 0
 test "$credentials_ready" = true
+fetch_target
+dependency_preflight
 
+# A retained .previous may belong to an earlier successful release. Restore it
+# only after this attempt has actually moved/replaced the active environment.
+venv_identity_before="$(stat -c '%d:%i' "$venv_dir" 2>/dev/null || true)"
 unit_backup="$(mktemp)"
 if [ -f "$service_file" ]; then
     cp -p "$service_file" "$unit_backup"
@@ -502,15 +1002,18 @@ rollback() {
         if [ -s "$unit_backup" ]; then
             cp -p "$unit_backup" "$service_file" || true
         fi
-        if [ -d "${venv_dir}.previous" ]; then
-            rm -rf "${venv_dir}.failed" || true
-            if [ -d "$venv_dir" ]; then
-                mv "$venv_dir" "${venv_dir}.failed" || true
+        venv_identity_after="$(stat -c '%d:%i' "$venv_dir" 2>/dev/null || true)"
+        if [ "$venv_identity_after" != "$venv_identity_before" ]; then
+            if [ -d "${venv_dir}.previous" ]; then
+                rm -rf "${venv_dir}.failed" || true
+                if [ -d "$venv_dir" ]; then
+                    mv "$venv_dir" "${venv_dir}.failed" || true
+                fi
+                mv "${venv_dir}.previous" "$venv_dir" || true
             fi
-            mv "${venv_dir}.previous" "$venv_dir" || true
+            systemctl daemon-reload || true
+            systemctl restart wechat-sender.service || true
         fi
-        systemctl daemon-reload || true
-        systemctl restart wechat-sender.service || true
     fi
     rm -f "$unit_backup"
     cleanup_bundle
@@ -521,11 +1024,10 @@ trap 'rollback 129' HUP
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
-fetch_target
 legacy_backup="$(preserve_reviewed_drift)"
 git -C "$install_dir" checkout --quiet --detach "$target_commit"
-"$install_dir/scripts/install_wechat_sender.sh" --target-commit "$target_commit" </dev/null
-"$install_dir/scripts/install_wechat_sender.sh" --apply --target-commit "$target_commit" </dev/null
+"$install_dir/scripts/install_wechat_sender.sh" --wheelhouse "$wheelhouse_path" --target-commit "$target_commit" </dev/null
+"$install_dir/scripts/install_wechat_sender.sh" --wheelhouse "$wheelhouse_path" --apply --target-commit "$target_commit" </dev/null
 
 current_commit="$target_commit"
 rm -f "$unit_backup"
@@ -555,30 +1057,59 @@ def main() -> None:
     sender = runtime["managed_services"]["wechat_sender"]
     remote = sender_remote()
     remote_bundle_path = ""
+    remote_wheelhouse_path = ""
+    staged_paths: list[str] = []
     with tempfile.TemporaryDirectory(prefix="wechat-sender-deploy-") as directory:
-        if args.operation in {"dry-run", "apply"}:
-            bundle_path = Path(directory) / "repository.bundle"
-            create_deployment_bundle(bundle_path)
-            remote_bundle_path = f"{REMOTE_BUNDLE_PREFIX}{uuid.uuid4().hex}.bundle"
-            upload_deployment_bundle(bundle_path, remote, remote_bundle_path)
+        try:
+            if args.operation in {"dry-run", "apply"}:
+                bundle_path = Path(directory) / "repository.bundle"
+                create_deployment_bundle(bundle_path)
+                wheel_path = Path(directory) / ARCHIVE_NAME
+                lock_text = run(
+                    ["git", "show", target_commit + ":docker/sender/requirements.lock"]
+                ).stdout
+                manifest_text = run(["git", "show", target_commit + ":" + MANIFEST_PATH]).stdout
+                download_wheelhouse(wheel_path, lock_text, manifest_text)
+                transfer_id = uuid.uuid4().hex
+                remote_bundle_path = f"{REMOTE_BUNDLE_PREFIX}{transfer_id}.bundle"
+                remote_wheelhouse_path = f"{REMOTE_BUNDLE_PREFIX}{transfer_id}.wheelhouse.zip"
+                staged_paths = [remote_bundle_path, remote_wheelhouse_path]
+                upload_deployment_bundle(bundle_path, remote, remote_bundle_path)
+                upload_deployment_bundle(wheel_path, remote, remote_wheelhouse_path)
 
-        command = [
-            *ssh_command(remote),
-            "sudo",
-            "-n",
-            "bash",
-            "-s",
-            "--",
-            target_commit,
-            args.operation,
-            "/opt/wechat-on-airflow",
-            str(sender["credential_directory"]),
-            remote_bundle_path,
-        ]
-        result = run(command, check=False, input_text=remote_script())
+            command = [
+                *ssh_command(remote),
+                "sudo",
+                "-n",
+                "bash",
+                "-s",
+                "--",
+                target_commit,
+                args.operation,
+                "/opt/wechat-on-airflow",
+                str(sender["credential_directory"]),
+                remote_bundle_path,
+                remote_wheelhouse_path,
+            ]
+            result = run(command, check=False, input_text=remote_script())
+        except ArtifactError as exc:
+            kind = str(exc) if str(exc) in FAILURE_KINDS else "unclassified"
+            raise OpsError("sender wheel staging failed: " + kind) from None
+        except (OpsError, OSError):
+            # Transport errors may contain private hostnames or credential-bearing URLs.
+            raise OpsError("sender deployment transport or staging failed") from None
+        finally:
+            cleanup_deployment_artifacts(remote, staged_paths)
     if result.returncode:
-        detail = result.stderr.strip().splitlines()
-        raise OpsError(detail[-1] if detail else "sender operation failed")
+        try:
+            failure = parse_remote_result(result.stdout)
+        except OpsError:
+            failure = {}
+        evidence = safe_dependency_preflight(failure)
+        if evidence is not None:
+            emit(evidence, args.format)
+        # Remote stderr can include private hosts, package index URLs, or secrets.
+        raise OpsError("sender operation failed; inspect sanitized preflight evidence when present")
     payload = parse_remote_result(result.stdout)
     emit(payload, args.format)
     if payload.get("ok") is not True:

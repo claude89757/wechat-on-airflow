@@ -12,6 +12,8 @@ WORKFLOWS = {
     "airflow": "production-airflow.yml",
     "sender": "production-wechat-sender.yml",
     "webapp": "production-webapp.yml",
+    "pi_mcp": "production-appium-mcp.yml",
+    "pi_ydmap": "production-pi-ydmap.yml",
 }
 
 
@@ -47,6 +49,7 @@ def dispatch(
     *,
     confirm_real_send: bool = False,
     probe_target_membership: str = "",
+    runtime_commit: str = "",
 ) -> None:
     workflow = WORKFLOWS[component]
     request_id = uuid.uuid4().hex
@@ -68,6 +71,8 @@ def dispatch(
     if component == "airflow":
         command.extend(["-f", f"confirm_real_send={str(confirm_real_send).lower()}"])
         command.extend(["-f", f"probe_target_membership={probe_target_membership or 'all'}"])
+    if runtime_commit:
+        command.extend(["-f", f"runtime_commit={runtime_commit}"])
     run(command)
     run_id = discover_run(workflow, title)
     watched = run(["gh", "run", "watch", str(run_id), "--exit-status"], check=False)
@@ -105,6 +110,7 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-real-send", action="store_true")
     parser.add_argument("--target-membership", default="")
+    parser.add_argument("--runtime-commit", default="")
     args = parser.parse_args()
 
     target_commit = run(
@@ -115,9 +121,26 @@ def main() -> None:
         operation = "deploy_apply" if args.apply else "deploy_preflight"
     if args.component == "sender" and operation == "deploy":
         operation = "apply" if args.apply else "dry_run"
+    if args.component in {"pi_mcp", "pi_ydmap"} and operation == "deploy":
+        operation = "apply" if args.apply else "preflight"
+    if args.component == "pi_mcp" and operation in {"domain", "oauth"}:
+        operation = operation + ("_apply" if args.apply else "_preflight")
     allowed = {
+        "pi_ydmap": {"preflight", "apply", "health", "inspect"},
+        "pi_mcp": {
+            "preflight",
+            "apply",
+            "health",
+            "withdraw",
+            "rollback",
+            "domain_preflight",
+            "domain_apply",
+            "oauth_preflight",
+            "oauth_apply",
+        },
         "airflow": {
             "health",
+            "crland_inspection_diagnose",
             "deploy_preflight",
             "deploy_apply",
             "deploy_recovery",
@@ -127,6 +150,7 @@ def main() -> None:
             "wechat_delivery_probe",
             "wechat_quiesce",
             "airflow_resume",
+            "szw_authorization_sync",
             "nswtt_config_sync",
             "pi_device_ssh_sync",
         },
@@ -148,12 +172,25 @@ def main() -> None:
         raise OpsError("--confirm-real-send is only valid for wechat_delivery_probe")
     if args.target_membership and operation != "wechat_delivery_probe":
         raise OpsError("--target-membership is only valid for wechat_delivery_probe")
+    edge_operations = {"domain_preflight", "domain_apply", "oauth_preflight", "oauth_apply"}
+    if operation in edge_operations and not args.runtime_commit:
+        raise OpsError("edge operations require --runtime-commit")
+    if args.runtime_commit and (
+        args.component != "pi_mcp" or operation not in {"health", *edge_operations}
+    ):
+        raise OpsError("runtime override is only valid for Pi MCP health/edge operations")
+    runtime = (
+        run(["git", "rev-parse", "--verify", f"{args.runtime_commit}^{{commit}}"]).stdout.strip()
+        if args.runtime_commit
+        else ""
+    )
     dispatch(
         args.component,
         operation,
         target_commit,
         confirm_real_send=args.confirm_real_send,
         probe_target_membership=args.target_membership,
+        **({"runtime_commit": runtime} if runtime else {}),
     )
 
 

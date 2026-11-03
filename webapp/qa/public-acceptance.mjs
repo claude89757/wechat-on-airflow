@@ -2,30 +2,55 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
+import { acceptanceRequestPolicy } from './public-request-policy.mjs';
+import { observeGearPromo, verifyAutomaticGearPromo, verifyManualGearPromo, verifyMobileFirstVisitGearPromo } from './gear-promo-acceptance.mjs';
 
 const expected = process.argv[2];
 assert.match(expected ?? '', /^[0-9a-f]{40}$/, 'exact Web deployment SHA is required');
-const origin = 'https://zacks.claude89757.cc';
+const config = JSON.parse(await readFile('wrangler.jsonc', 'utf8'));
+const origins = config.routes.filter(route => route.custom_domain).map(route => `https://${route.pattern}`);
+assert.deepEqual(origins, ['https://courts.zacks.vision', 'https://zacks.claude89757.cc']);
 const output = 'qa-output';
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch();
-const report = { expectedCommit: expected, uiVersion: '0.8.0', publicWriteRequests: 0, syntheticNotifications: 0, views: [], passed: false };
+const report = { expectedCommit: expected, uiVersion: '0.8.0', publicWriteRequests: 0, blockedTelemetryRequests: 0, blockedWriteTargets: [], syntheticNotifications: 0, views: [], passed: false };
 try {
-  for (const [name, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844], ['small', 320, 740]]) {
+  for (const origin of origins) {
+  for (const [view, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844], ['small', 320, 740]]) {
+    const name = `${new URL(origin).hostname}-${view}`;
     const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', locale: 'zh-CN', timezoneId: 'Asia/Shanghai' });
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     const page = await context.newPage();
+    await observeGearPromo(page);
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await context.route('**/*', route => {
-      if (!['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) {
-        report.publicWriteRequests += 1;
+      const request = route.request();
+      const policy = acceptanceRequestPolicy(request.method(), request.url(), origin);
+      if (policy !== 'read') {
+        if (policy === 'blocked-cloudflare-telemetry') report.blockedTelemetryRequests += 1;
+        else report.publicWriteRequests += 1;
+        const blocked = new URL(request.url());
+        report.blockedWriteTargets.push({ origin: blocked.origin, path: blocked.pathname, method: request.method(), policy });
         return route.abort('blockedbyclient');
       }
       return route.continue();
     });
     const response = await page.goto(origin, { waitUntil: 'networkidle', timeout: 60000 });
     assert.equal(response.status(), 200);
+    assert.equal(new URL(page.url()).origin, origin, 'custom domains must not redirect');
+    await expect(page).toHaveTitle('Zacks 场地 · 网球空场提醒');
+    await expect(page.locator('.brand-lockup h1')).toHaveText('Zacks 场地');
+    await expect(page.locator('.brand-lockup p')).toHaveText('网球空场提醒');
+    await expect(page.locator('.brand-lockup p')).toBeVisible();
+    assert.ok(await page.locator('.brand-lockup h1').evaluate(el => el.scrollWidth - el.clientWidth <= 1));
+    if (width >= 900) {
+      const vision = page.getByRole('navigation', { name: '主要功能' }).getByRole('link', { name: '视频分析 · Zacks Vision' });
+      await expect(vision).toBeInViewport({ ratio: 1 });
+      await expect(vision).toHaveAttribute('href', 'https://zacks.vision');
+      await expect(vision).toHaveAttribute('rel', 'noopener noreferrer');
+      await vision.click({ trial: true });
+    }
     await page.locator('main[data-ui-version="0.8.0"]').waitFor();
     await page.locator('.service-ready').waitFor({timeout:30000});
     const health = await page.evaluate(async () => {
@@ -46,6 +71,7 @@ try {
       const nav = page.getByRole('navigation', { name: '快捷导航' });
       const box = await nav.boundingBox(); assert.ok(box && box.y >= 0 && box.y + box.height <= height + 1);
     }
+    const automaticGearPromo = await verifyAutomaticGearPromo(page, { output, name });
     await page.getByLabel('搜索场地').fill('前海');
     await page.waitForTimeout(100);
     assert.equal(await page.locator('.venue-card').count(), 1);
@@ -53,6 +79,7 @@ try {
     await page.getByText('没有找到这个场地', { exact: true }).waitFor();
     await page.getByRole('button', { name: '查看全部场地', exact: true }).click();
     assert.equal(await page.locator('.venue-card').count(), 26);
+    assert.equal(await page.getByTestId('venue-card-baoti').count(), 0);
     await page.getByTestId('venue-card-tops').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}/${name}-directory.png` });
     await page.getByTestId('venue-card-tops').click();
@@ -82,6 +109,12 @@ try {
     await page.screenshot({ path: `${output}/${name}-verification.png` });
     await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' });
     await page.locator('.more-button').click();
+    const vision = page.getByRole('menuitem', { name: '视频分析 · Zacks Vision', exact: true });
+    await expect(vision).toBeInViewport({ ratio: 1 });
+    await expect(vision).toHaveAttribute('href', 'https://zacks.vision');
+    await expect(vision).toHaveAttribute('rel', 'noopener noreferrer');
+    await expect(vision).toHaveAttribute('target', '_blank');
+    await vision.click({ trial: true });
     const repository = page.getByRole('menuitem', { name: '项目开源地址', exact: true });
     assert.equal(await repository.getAttribute('rel'), 'noopener noreferrer');
     assert.equal(await page.getByRole('menuitem', { name: '管理后台', exact: true }).count(), 0);
@@ -113,10 +146,31 @@ try {
     await closeGroup.click();
     await expect(group).toBeHidden();
     await expect(page.getByRole('button', { name: '更多功能', exact: true })).toBeFocused();
+    const gearPromo = await verifyManualGearPromo(page, {
+      output, name, width, height, automatic: automaticGearPromo,
+      prolonged: origin === origins[0] && view === 'desktop',
+    });
     assert.deepEqual(errors, []);
-    report.views.push({ name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, passed: true });
+    report.views.push({ origin, name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, gearPromo, passed: true });
     await context.close();
   }
+  }
+  report.mobileFirstVisit = await verifyMobileFirstVisitGearPromo(browser, { origin: origins[0], output });
+  // Browser origin isolation only: synthetic local values, all network fulfilled.
+  // This does not send a verification code or claim a real email re-verification.
+  const isolation = await browser.newContext();
+  await isolation.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Storage isolation</title>' }));
+  const storagePage = await isolation.newPage();
+  const receiptKey = 'zacks-tennis-verified-emails-v1';
+  await storagePage.goto(origins[1]);
+  await storagePage.evaluate(key => localStorage.setItem(key, 'offline-legacy-sentinel'), receiptKey);
+  await storagePage.goto(origins[0]);
+  assert.equal(await storagePage.evaluate(key => localStorage.getItem(key), receiptKey), null);
+  await storagePage.evaluate(key => localStorage.setItem(key, 'offline-courts-sentinel'), receiptKey);
+  await storagePage.goto(origins[1]);
+  assert.equal(await storagePage.evaluate(key => localStorage.getItem(key), receiptKey), 'offline-legacy-sentinel');
+  await isolation.close();
+  report.browserOriginStorageIsolation = true;
   assert.equal(report.publicWriteRequests, 0, 'public acceptance must never attempt a write');
   report.passed = true;
 } finally {

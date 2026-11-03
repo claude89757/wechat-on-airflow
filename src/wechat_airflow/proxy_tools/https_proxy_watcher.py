@@ -6,11 +6,14 @@
 @Description : Check and update HTTPS proxies (synchronous implementation)
 """
 
+from __future__ import annotations
+
 # 标准库导入
 import base64
 import random
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime
+from typing import Literal, TypedDict, cast
 
 # 第三方库导入
 import requests
@@ -25,15 +28,21 @@ SOURCE_TIMEOUT_SECONDS = 15
 GITHUB_TIMEOUT_SECONDS = 15
 
 
-def generate_proxies():
+class ProxyCheckResult(TypedDict):
+    proxy: str
+    status: Literal["success", "failed"]
+    source: str | None
+
+
+def generate_proxies() -> tuple[list[str], dict[str, str]]:
     """获取待检查的代理列表"""
     urls = [
         "https://github.com/roosterkid/openproxylist/raw/main/HTTPS_RAW.txt",
         "https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/https.txt",
         "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",
     ]
-    candidate_proxies = []
-    proxy_url_infos = {}
+    candidate_proxies: list[str] = []
+    proxy_url_infos: dict[str, str] = {}
 
     for url in urls:
         print(f"getting proxy list for {url}")
@@ -57,7 +66,7 @@ def generate_proxies():
     return candidate_proxies, proxy_url_infos
 
 
-def is_valid_proxy(proxy):
+def is_valid_proxy(proxy: str) -> bool:
     # 简单的 IP 格式验证
     parts = proxy.split(":")
     if len(parts) != 2:
@@ -66,7 +75,7 @@ def is_valid_proxy(proxy):
     return ip.count(".") == 3 and port.isdigit()
 
 
-def check_proxy_with_info(proxy, proxy_url_infos):
+def check_proxy_with_info(proxy: str, proxy_url_infos: dict[str, str]) -> ProxyCheckResult:
     """检查代理是否可用，返回详细信息"""
     try:
         # 检查代理时不使用系统代理
@@ -78,7 +87,7 @@ def check_proxy_with_info(proxy, proxy_url_infos):
     return {"proxy": proxy, "status": "failed", "source": proxy_url_infos.get(proxy)}
 
 
-def check_proxy(candidate_proxy, proxy_url_infos):
+def check_proxy(candidate_proxy: str, proxy_url_infos: dict[str, str]) -> str | None:
     """检查代理是否可用（保留原函数以兼容）"""
     try:
         # 检查代理时不使用系统代理
@@ -93,7 +102,7 @@ def check_proxy(candidate_proxy, proxy_url_infos):
     return None
 
 
-def update_proxy_file(filename, available_proxies):
+def update_proxy_file(filename: str, available_proxies: list[str]) -> None:
     """更新代理文件，保留最新的100个代理
 
     Args:
@@ -108,7 +117,7 @@ def update_proxy_file(filename, available_proxies):
         existing_proxies = []
 
     # 合并现有代理和新代理，去重
-    all_proxies = []
+    all_proxies: list[str] = []
     # 首先添加新的可用代理
     for proxy in available_proxies:
         if proxy not in all_proxies:
@@ -127,13 +136,17 @@ def update_proxy_file(filename, available_proxies):
             file.write(proxy + "\n")
 
 
-def upload_file_to_github(filename):
-    token = Variable.get("GIT_TOKEN")
+def _github_payload(response: requests.Response) -> dict[str, object]:
+    return cast(dict[str, object], response.json())
+
+
+def upload_file_to_github(filename: str) -> None:
+    token = cast(str, Variable.get("GIT_TOKEN"))
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
 
     with open(LOCAL_FILENAME, "rb") as file:
         content = file.read()
-    data = {
+    data: dict[str, str | None] = {
         "message": "Update proxy list by airflow",
         "content": base64.b64encode(content).decode("utf-8"),
         "sha": get_file_sha(REMOTE_FILENAME, headers),
@@ -150,15 +163,15 @@ def upload_file_to_github(filename):
         print("Failed to upload file:", response.status_code, response.text)
 
 
-def download_file():
+def download_file() -> None:
     try:
         response = requests.get(REMOTE_FILENAME, timeout=GITHUB_TIMEOUT_SECONDS)
         response.raise_for_status()
 
         # GitHub API 返回的是 JSON 格式，包含 base64 编码的内容
-        content = response.json().get("content", "")
+        content = _github_payload(response).get("content", "")
         if content:
-            decoded_content = base64.b64decode(content).decode("utf-8")
+            decoded_content = base64.b64decode(cast(str, content)).decode("utf-8")
             # 计算当前代理数量
             current_proxies = [line.strip() for line in decoded_content.split("\n") if line.strip()]
             print(f"Current proxies count: {len(current_proxies)}")
@@ -175,26 +188,26 @@ def download_file():
             pass
 
 
-def get_file_sha(url, headers):
+def get_file_sha(url: str, headers: dict[str, str]) -> str | None:
     response = requests.get(url, headers=headers, timeout=GITHUB_TIMEOUT_SECONDS)
     if response.status_code == 200:
-        return response.json()["sha"]
+        return cast(str, _github_payload(response)["sha"])
     return None
 
 
-def task_check_proxies():
+def task_check_proxies() -> None:
     """主任务函数 - 使用并发检查代理"""
     download_file()
     proxies, proxy_url_infos = generate_proxies()
     print(f"开始并发检查 {len(proxies)} 个代理")
 
-    available_proxies = []
+    available_proxies: list[str] = []
     max_workers = 50  # 并发线程数，避免过高对目标网站造成压力
     target_proxy_count = 50  # 目标代理数量
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # 提交所有任务
-        future_to_proxy = {
+        future_to_proxy: dict[Future[ProxyCheckResult], str] = {
             executor.submit(check_proxy_with_info, proxy, proxy_url_infos): proxy
             for proxy in proxies
         }

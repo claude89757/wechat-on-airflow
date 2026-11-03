@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import worker from "../worker/index.js";
+import { acceptanceRequestPolicy } from "../qa/public-request-policy.mjs";
 
 test("serves existing static assets without a fallback", async () => {
   const calls = [];
@@ -83,4 +84,19 @@ test("packages the mobile v2 stylesheet as a narrow-screen enhancement", async (
   assert.match(stylesheet, /@media \(max-width: 520px\)/);
   assert.match(stylesheet, /grid-template-areas:/);
   assert.match(stylesheet, /prefers-reduced-motion: reduce/);
+});
+
+test("public acceptance blocks all writes and identifies only same-origin Cloudflare RUM", () => {
+  const origin = "https://courts.zacks.vision";
+  assert.equal(acceptanceRequestPolicy("GET", origin + "/api/bootstrap", origin), "read");
+  assert.equal(acceptanceRequestPolicy("POST", origin + "/cdn-cgi/rum", origin), "blocked-cloudflare-telemetry");
+  for (const [method, url] of [
+    ["POST", origin + "/api/email/send-code"],
+    ["POST", origin + "/api/subscriptions"],
+    ["DELETE", origin + "/api/subscriptions/test"],
+    ["PUT", origin + "/cdn-cgi/rum"],
+    ["POST", origin + "/api/cdn-cgi/rum"],
+    ["POST", origin + "/cdn-cgi/rum/extra"],
+    ["POST", "https://external.invalid/cdn-cgi/rum"],
+  ]) assert.equal(acceptanceRequestPolicy(method, url, origin), "blocked-write");
 });

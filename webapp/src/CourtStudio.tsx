@@ -14,6 +14,7 @@ import { KeyboardInput } from "./mobile";
 import { formatInspectionCadence } from "./venue-inspection-display";
 
 import { WeChatGroupSheet } from "./WeChatGroupSheet";
+import { GearPromo, type GearPromoRequest } from "./GearPromo";
 
 export type StudioPanel = "create" | "help" | "subscriptions" | "priority" | "community" | "admin" | "coffee";
 type Props = {
@@ -30,6 +31,7 @@ type Props = {
   onPanel: (panel: StudioPanel) => void;
   onRefresh: () => void;
   onChangeEmail: () => void;
+  promotionBlocked: boolean;
 };
 type Filter = "all" | "subscribed" | "attention";
 
@@ -50,6 +52,9 @@ export function CourtStudio(props: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [wechatOpen, setWechatOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [promoRequest, setPromoRequest] = useState<GearPromoRequest>({ id: 0, trigger: null });
+  const showPromo = (trigger: HTMLElement | null) => setPromoRequest(previous => ({ id: previous.id + 1, trigger }));
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const wasWechatOpen = useRef(false);
   useEffect(() => {
@@ -62,7 +67,7 @@ export function CourtStudio(props: Props) {
   const searchRef = useRef<HTMLInputElement>(null);
   const directoryRef = useRef<HTMLElement>(null);
   const subscribed = useMemo(() => {
-    const counts = new Map<VenueId, number>();
+    const counts = new Map<string, number>();
     if (!dashboard.identity.verified) return counts;
     for (const subscription of dashboard.subscriptions) {
       if (!subscription.active || !subscription.eligible) continue;
@@ -90,22 +95,23 @@ export function CourtStudio(props: Props) {
   const scrollToDirectory = () => directoryRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
 
   return (
-    <main className="dashboard-screen court-studio" aria-label="Zacks 网球提醒" data-ui-version="0.8.0">
+    <main className="dashboard-screen court-studio" aria-label="Zacks 场地" data-ui-version="0.8.0">
       <header className="product-header studio-header">
-        <a className="brand-lockup" href="#studio-top" aria-label="Zacks 网球提醒首页">
+        <a className="brand-lockup" href="#studio-top" aria-label="Zacks 场地首页">
           <span className="brand-mark" aria-hidden="true"><TennisBallIcon size={24} /></span>
-          <div><h1>Zacks <span>网球提醒</span></h1><p>COURT STUDIO</p></div>
+          <div><h1>Zacks <span>场地</span></h1><p>网球空场提醒</p></div>
         </a>
         <nav className="studio-desktop-nav" aria-label="主要功能">
           <button type="button" onClick={scrollToDirectory}>探索场地</button>
           <button type="button" onClick={() => onPanel("subscriptions")}>我的订阅</button>
           <button type="button" onClick={() => onPanel("help")}>使用指南</button>
+          <a href="https://zacks.vision" target="_blank" rel="noopener noreferrer">视频分析 · Zacks Vision <ArrowUpRightIcon size={15} aria-hidden="true" /></a>
         </nav>
         <div className="header-actions">
           <button className="coffee-button" type="button" aria-label="支持 Zacks，请作者喝咖啡" title="支持 Zacks" onClick={() => onPanel("coffee")}>
             <CoffeeIcon size={18} aria-hidden="true" /><span>支持 Zacks</span>
           </button>
-          <DropdownMenu.Root>
+          <DropdownMenu.Root onOpenChange={setMoreOpen}>
             <DropdownMenu.Trigger asChild>
               <button ref={moreButtonRef} className="more-button" type="button" aria-label="更多功能"><DotsThreeIcon size={22} weight="bold" aria-hidden="true" /><span>更多</span></button>
             </DropdownMenu.Trigger>
@@ -116,9 +122,11 @@ export function CourtStudio(props: Props) {
                 {verified ? <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("community")}><UsersThreeIcon size={20} /><span>用户社区</span></DropdownMenu.Item> : null}
                 {verified && dashboard.identity.isAdmin ? <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("admin")}><ShieldCheckIcon size={20} /><span>管理后台</span></DropdownMenu.Item> : null}
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => setWechatOpen(true)}><UsersThreeIcon size={20} /><span>添加微信群</span></DropdownMenu.Item>
+                <DropdownMenu.Item className="more-menu-item" onSelect={() => showPromo(moreButtonRef.current)}><TennisBallIcon size={20} /><span>球友好物</span></DropdownMenu.Item>
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("priority")}><StarIcon size={20} /><span>提醒档位</span></DropdownMenu.Item>
                 <DropdownMenu.Item className="more-menu-item" onSelect={() => onPanel("help")}><QuestionIcon size={20} /><span>查看帮助</span></DropdownMenu.Item>
                 <DropdownMenu.Separator className="more-menu-separator" />
+                <DropdownMenu.Item className="more-menu-item" asChild><a href="https://zacks.vision" target="_blank" rel="noopener noreferrer"><ArrowUpRightIcon size={20} aria-hidden="true" /><span>视频分析 · Zacks Vision</span></a></DropdownMenu.Item>
                 <DropdownMenu.Item className="more-menu-item" asChild><a href="https://github.com/claude89757/wechat-on-airflow" target="_blank" rel="noopener noreferrer"><GithubLogoIcon size={20} /><span>项目开源地址</span></a></DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
@@ -199,9 +207,10 @@ export function CourtStudio(props: Props) {
         </div>
         {!matchingVenues.length ? <div className="studio-empty" role="status"><MagnifyingGlassIcon size={32} /><h3>{query ? "没有找到这个场地" : filter === "subscribed" ? "还没有订阅场地" : "当前没有需要关注的场地"}</h3><p>{query ? "试试更短的关键词，或清除筛选看看。" : filter === "subscribed" ? "创建提醒后，你关注的场地会出现在这里。" : "可以切换到全部场地，继续选择提醒条件。"}</p><button type="button" onClick={resetFilters}>查看全部场地</button></div> : null}
       </section>
-      <footer className="studio-footer"><span><TennisBallIcon size={18} /> ZACKS · COURT STUDIO</span><p>认真对待每一次上场的期待。</p><button type="button" onClick={() => onPanel("help")}>提醒规则与帮助 <ArrowUpRightIcon size={15} /></button></footer>
+      <footer className="studio-footer"><span><TennisBallIcon size={18} /> ZACKS · COURT STUDIO</span><p>认真对待每一次上场的期待。</p><button type="button" onClick={event => showPromo(event.currentTarget)}>球友好物 <ArrowUpRightIcon size={15} /></button><button type="button" onClick={() => onPanel("help")}>提醒规则与帮助 <ArrowUpRightIcon size={15} /></button></footer>
 
       <WeChatGroupSheet open={wechatOpen} onOpenChange={setWechatOpen} />
+      <GearPromo ready={!query.trim()} blocked={props.promotionBlocked || wechatOpen || moreOpen} request={promoRequest} />
     </main>
   );
 }

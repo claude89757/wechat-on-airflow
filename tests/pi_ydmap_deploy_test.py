@@ -1,0 +1,1540 @@
+from __future__ import annotations
+
+import base64
+import copy
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import signal
+import sys
+import tempfile
+import time
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock
+from urllib.error import HTTPError
+from zoneinfo import ZoneInfo
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load(name: str, path: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+INSTALL = load("pi_ydmap_installer_test", "pi_host/dsh_ydmap/install.py")
+DEPLOY = load("pi_ydmap_deployer_test", "scripts/deploy_pi_ydmap.py")
+GUARD = load("pi_ydmap_dag_guard_test", "scripts/pi_ydmap_dag_guard.py")
+COMMIT = "a" * 40
+HASH = "b" * 64
+PUBLIC_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl0l3sAAAAASUVORK5CYII="
+)
+
+
+def public_ui():
+    return {
+        "venue": "dsh",
+        "mime_type": "image/png",
+        "sha256": hashlib.sha256(PUBLIC_PNG).hexdigest(),
+        "chunks": [base64.b64encode(PUBLIC_PNG).decode()],
+    }
+
+
+def test_service_profile_preserves_own_state_and_rejects_unsafe_reuse(monkeypatch):
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-profile-test-") as directory:
+        profile = Path(directory) / "service-profile"
+        monkeypatch.setattr(INSTALL, "SERVICE_PROFILE", profile)
+        account = SimpleNamespace(pw_uid=os.geteuid() or 1001, pw_gid=os.getegid())
+        assert INSTALL.service_profile(account) == profile
+        cache = profile / "public-cache"
+        cache.write_bytes(b"owned browser cache")
+        assert INSTALL.service_profile(account) == profile
+        assert cache.read_bytes() == b"owned browser cache"
+        assert profile.stat().st_mode & 0o777 == 0o700
+        marker = profile / ".pi-ydmap-profile"
+        marker.unlink()
+        with pytest.raises(INSTALL.OperationFailure, match="unrecognized_service_profile"):
+            INSTALL.service_profile(account)
+        assert cache.exists()
+
+
+def test_service_profile_rejects_symlink_without_modifying_target(monkeypatch, tmp_path):
+    with tempfile.TemporaryDirectory(dir="/tmp", prefix="pi-profile-test-") as directory:
+        profile = Path(directory) / "profile"
+        target = Path(directory) / "target"
+        target.mkdir(mode=0o755)
+        profile.symlink_to(target, target_is_directory=True)
+        monkeypatch.setattr(INSTALL, "SERVICE_PROFILE", profile)
+        with pytest.raises(INSTALL.OperationFailure, match="unrecognized_service_profile"):
+            INSTALL.service_profile(
+                SimpleNamespace(pw_uid=os.geteuid() or 1001, pw_gid=os.getegid())
+            )
+        assert target.stat().st_mode & 0o777 == 0o755
+        assert list(target.iterdir()) == []
+
+
+def test_public_ui_is_validated_and_saved_only_as_a_private_artifact(tmp_path):
+    image = public_ui()
+    assert INSTALL.safe_diagnostic_ui(image) == image
+    assert DEPLOY.save_diagnostic_ui(image, tmp_path / "ui") is True
+    output = tmp_path / "ui/dsh.png"
+    assert output.read_bytes() == PUBLIC_PNG
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert INSTALL.safe_diagnostic_ui({**image, "cookies": "never-export"}) is None
+    assert INSTALL.safe_diagnostic_ui({**image, "sha256": "0" * 64}) is None
+    assert INSTALL.safe_diagnostic_ui({**image, "chunks": ["not-base64"]}) is None
+    assert DEPLOY.save_diagnostic_ui(image, tmp_path / "ui") is False
+
+
+@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+def test_ui_capture_cannot_enter_live_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, capture_browser_ui=True))
+
+
+@pytest.mark.parametrize("capture", [False, True])
+def test_remote_ui_bytes_are_opt_in_and_never_part_of_normal_reports(capture):
+    payload = {
+        "ok": False,
+        "operationComplete": True,
+        "failure": "access_verification",
+        "diagnostic_ui": public_ui(),
+        "externalTestSends": 0,
+    }
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
+    )
+    stdout = io.BytesIO(json.dumps(payload).encode())
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (SimpleNamespace(channel=channel), stdout, io.BytesIO())
+    )
+    report = DEPLOY.remote(client, "candidate", capture_browser_ui=capture)
+    assert ("diagnostic_ui" in report) is capture
+
+
+def test_candidate_shutdown_preserves_the_guarded_service_profile(monkeypatch, tmp_path):
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    profile = tmp_path / "service-profile"
+    profile.mkdir()
+    (profile / "public-cache").write_bytes(b"keep")
+    account = SimpleNamespace(pw_name="test-user", pw_uid=123, pw_gid=123, pw_dir="/tmp/test-user")
+    process = Mock()
+    process.poll.side_effect = [None, 0]
+    launch = Mock(return_value=process)
+    monkeypatch.setattr(INSTALL, "checked_runuser", lambda: "/usr/sbin/runuser")
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", launch)
+    monkeypatch.setattr(INSTALL.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    with INSTALL.isolated_candidate(
+        tmp_path, account, COMMIT, profile=profile, capture_browser_ui=True
+    ):
+        environment = launch.call_args.kwargs["env"]
+        assert environment["YDMAP_PROFILE"] == str(profile)
+        assert environment["YDMAP_CAPTURE_BROWSER_UI"] == "1"
+    assert not runtime.exists()
+    assert (profile / "public-cache").read_bytes() == b"keep"
+
+
+def test_capture_survives_dashah_source_failure(monkeypatch):
+    failure = INSTALL.OperationFailure("access_verification")
+    failure.diagnostic_ui = public_ui()
+    request = Mock(side_effect=failure)
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_venues(18788, source_evidence=True)
+    assert caught.value.venue == "dsh"
+    assert caught.value.diagnostic_ui["venue"] == "dsh"
+    assert request.call_count == 1
+
+
+def health():
+    return {
+        "ok": True,
+        "service": "dsh_ydmap",
+        "protocolVersion": 2,
+        "deploymentCommit": COMMIT,
+        "sourceSha256": HASH,
+        "venues": ["dsh"],
+        "busy": False,
+    }
+
+
+def observation():
+    return {
+        "ok": True,
+        "captcha": False,
+        "schema_version": 2,
+        "venue": "dsh",
+        "days": [
+            {
+                "date": "2026-11-01",
+                "courts": {},
+                "groups": [
+                    {
+                        "key": "",
+                        "sales_item_id": "100000",
+                        "source_date": "2026-11-01",
+                        "selected_date": "2026-11-01",
+                        "court_names": ["1号场"],
+                        "cell_count": 24,
+                        "product_name": "网球场",
+                        "source_host": "wxsports.ydmap.cn",
+                        "source_sales_id": "100220",
+                        "load_generation": 3,
+                        "data_version": {"platforms": 5, "orders": 6},
+                        "freshness": "both_source_arrays_replaced_after_date_selection",
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def drain_proof():
+    return {
+        "schema_version": 1,
+        "guard_id": "c" * 32,
+        "target_commit": COMMIT,
+        "drained": True,
+        "active_tasks": 0,
+        "active_runs": 0,
+        "issued_at": int(time.time()),
+        "expires_at": int(time.time()) + INSTALL.LEASE_SECONDS - INSTALL.PROOF_MARGIN_SECONDS,
+        "dags": [{"dag_id": INSTALL.DAG_IDS[0], "was_paused": False, "paused": True}],
+    }
+
+
+def renderer_evidence():
+    source = 'function textFun() { return "已预订"; }'
+    size = len(source.encode("utf-8"))
+    return {
+        "schema_version": 1,
+        "bookability_verified": False,
+        "source_cell_count": 24,
+        "matched_cell_count": 24,
+        "unmatched_cell_count": 0,
+        "coverage_complete": True,
+        "component_scan_truncated": False,
+        "source_truncated": False,
+        "components": [
+            {
+                "index": 0,
+                "name": "ScheduleCell",
+                "matched_cell_count": 24,
+                "methods": {name: name == "textFun" for name in INSTALL.RENDERER_METHODS},
+            }
+        ],
+        "methods": [
+            {
+                "component_indices": [0],
+                "name": "textFun",
+                "kind": "method",
+                "sha256": hashlib.sha256(source.encode()).hexdigest(),
+                "source": source,
+                "original_bytes": size,
+                "emitted_bytes": size,
+                "truncated": False,
+                "redacted": False,
+                "reused": False,
+            }
+        ],
+        "samples": [
+            {
+                "included": False,
+                "court": "室外1号场",
+                "start": "19:00",
+                "end": "20:00",
+                "known_classes": ["col-completed"],
+                "expired": False,
+                "order_no_book": False,
+                "has_order": True,
+                "has_price": True,
+                "online_booking": 1,
+                "online_booking_redacted": False,
+            }
+        ],
+    }
+
+
+def observation_with_source():
+    value = observation()
+    value["days"][0]["groups"][0]["source_evidence"] = renderer_evidence()
+    return value
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("protocolVersion", 1),
+        ("deploymentCommit", "c" * 40),
+        ("sourceSha256", "d" * 64),
+        ("venues", ["baoti", "dsh"]),
+    ],
+)
+def test_health_requires_all_runtime_identity_fields(field, value):
+    payload = {**health(), field: value}
+    with pytest.raises(INSTALL.OperationFailure, match="scraper_identity_mismatch"):
+        INSTALL.verify_health(payload, COMMIT, HASH)
+
+
+def test_retired_source_cannot_be_verified_or_included_in_drain_proof():
+    assert INSTALL.DAG_IDS == GUARD.DAG_IDS == ("大沙河国际网球中心巡检",)
+    assert INSTALL.PRODUCTS == {"dsh": {"": ("100000", "")}}
+    with pytest.raises(INSTALL.OperationFailure, match="scrape_not_verified"):
+        INSTALL.inspect_evidence({**observation(), "venue": "baoti"}, "baoti", ["2026-11-01"])
+    proof = drain_proof()
+    proof["dags"].append({"dag_id": "宝安网球中心巡检", "paused": True, "was_paused": True})
+    with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
+        INSTALL.validate_drain_proof(proof, COMMIT)
+
+
+def test_inspection_requires_independent_date_product_and_court_evidence():
+    valid = observation()
+    report = INSTALL.inspect_evidence(valid, "dsh", ["2026-11-01"])
+    assert report["verified"] is True
+    assert len(report["days"][0]["groups"]) == 1
+    mutations = []
+    missing = copy.deepcopy(valid)
+    missing["days"][0]["groups"].pop()
+    mutations.append(missing)
+    wrong_date = copy.deepcopy(valid)
+    wrong_date["days"][0]["groups"][0]["source_date"] = "2026-10-31"
+    mutations.append(wrong_date)
+    empty_cells = copy.deepcopy(valid)
+    empty_cells["days"][0]["groups"][0]["cell_count"] = 0
+    mutations.append(empty_cells)
+    wrong_venue = {**valid, "venue": "baoti"}
+    mutations.append(wrong_venue)
+    legacy = copy.deepcopy(valid)
+    legacy.pop("schema_version")
+    mutations.append(legacy)
+    secret_name = copy.deepcopy(valid)
+    secret_name["days"][0]["groups"][0]["court_names"] = ["https://private.test?token=secret"]
+    mutations.append(secret_name)
+    mismatched_product = copy.deepcopy(valid)
+    mismatched_product["days"][0]["groups"][0]["product_name"] = ""
+    mutations.append(mismatched_product)
+    wrong_product = copy.deepcopy(valid)
+    wrong_product["days"][0]["groups"][0]["sales_item_id"] = "111317"
+    mutations.append(wrong_product)
+    for field, value in (
+        ("freshness", "unverified"),
+        ("load_generation", 0),
+        ("data_version", {"platforms": 1, "orders": 0}),
+    ):
+        stale = copy.deepcopy(valid)
+        stale["days"][0]["groups"][0][field] = value
+        mutations.append(stale)
+    for ranges in (
+        [["25:00", "26:00"]],
+        [["20:00", "19:00"]],
+        [["24:00", "24:00"]],
+        [["19:00", "20:00", "bad"]],
+    ):
+        invalid_slots = copy.deepcopy(valid)
+        invalid_slots["days"][0]["courts"] = {"1号场": ranges}
+        mutations.append(invalid_slots)
+    for payload in mutations:
+        with pytest.raises(INSTALL.OperationFailure):
+            INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"])
+
+
+def test_candidate_failure_never_replaces_or_stops_live_service(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {"other": "unchanged"})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "service_profile", lambda account: tmp_path / "service-profile")
+    monkeypatch.setattr(INSTALL, "wait_idle", lambda: None)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *a: tmp_path)
+
+    @contextmanager
+    def candidate(*args, **kwargs):
+        yield 18788
+
+    monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
+    monkeypatch.setattr(
+        INSTALL,
+        "inspect_venues",
+        lambda *a: (_ for _ in ()).throw(INSTALL.OperationFailure("access_verification")),
+    )
+    monkeypatch.setattr(INSTALL, "activate", lambda *a: calls.append("activate"))
+    monkeypatch.setattr(INSTALL, "run", lambda *a, **k: calls.append(a))
+    args = SimpleNamespace(
+        operation="apply",
+        commit=COMMIT,
+        source_sha256=HASH,
+        staging=tmp_path,
+        drain_proof=drain_proof(),
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="access_verification"):
+        INSTALL.operate(args)
+    assert calls == []
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="runuser is a Linux runtime prerequisite")
+def test_candidate_launcher_executes_with_its_restricted_path(monkeypatch, tmp_path):
+    # Exercise the actual executable lookup with the candidate's environment;
+    # a mocked Popen alone would miss a bare runuser hidden outside PATH.
+    real_popen = INSTALL.subprocess.Popen
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    account = SimpleNamespace(pw_name="pi-test", pw_uid=1000, pw_gid=1000, pw_dir=str(tmp_path))
+    polls = iter((None, 0))
+    launches = []
+    cleanup = []
+
+    def launch(command, **kwargs):
+        assert Path(command[0]).is_absolute()
+        assert "/usr/sbin" not in kwargs["env"]["PATH"].split(":")
+        with real_popen(
+            [command[0], "--version"],
+            env=kwargs["env"],
+            stdout=INSTALL.subprocess.PIPE,
+            stderr=INSTALL.subprocess.PIPE,
+        ) as probe:
+            output, _ = probe.communicate(timeout=5)
+            assert probe.returncode == 0 and b"runuser" in output
+        launches.append(command)
+        return SimpleNamespace(poll=lambda: next(polls))
+
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", launch)
+    monkeypatch.setattr(INSTALL.subprocess, "run", lambda argv, **kwargs: cleanup.append(argv))
+    monkeypatch.setattr(INSTALL, "request_json", lambda *args: health())
+    with INSTALL.isolated_candidate(tmp_path, account, COMMIT) as port:
+        assert port == 18788
+    assert launches[0][:4] == [INSTALL.checked_runuser(), "-u", "pi-test", "--"]
+    assert len(cleanup) == 1 and "19224" in cleanup[0][-1]
+    assert not runtime.exists()
+
+
+def test_missing_runuser_fails_before_candidate_directory_creation(monkeypatch, tmp_path):
+    monkeypatch.setattr(INSTALL, "RUNUSER", tmp_path / "missing-runuser")
+    monkeypatch.setattr(
+        INSTALL.tempfile, "mkdtemp", lambda **kwargs: pytest.fail("candidate must not be created")
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="runuser_unavailable"):
+        with INSTALL.isolated_candidate(tmp_path, object(), COMMIT):
+            pytest.fail("missing launcher cannot start a candidate")
+
+
+def test_launch_exception_diagnostic_survives_remote_filter_without_private_data(
+    monkeypatch, tmp_path, capsys
+):
+    monkeypatch.setattr(INSTALL, "checked_runuser", lambda: "/usr/sbin/runuser")
+    runtime = tmp_path / "candidate-runtime"
+    runtime.mkdir()
+    account = SimpleNamespace(pw_name="pi-test", pw_uid=1000, pw_gid=1000, pw_dir=str(tmp_path))
+    monkeypatch.setattr(
+        INSTALL.sys,
+        "argv",
+        [
+            "install.py",
+            "preflight",
+            "--commit",
+            COMMIT,
+            "--source-sha256",
+            HASH,
+            "--staging",
+            str(tmp_path),
+        ],
+    )
+    monkeypatch.setattr(INSTALL.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(INSTALL.os, "chown", lambda *args: None)
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: account)
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *args: tmp_path)
+    monkeypatch.setattr(INSTALL.tempfile, "mkdtemp", lambda **kwargs: str(runtime))
+
+    def failed_launch(*args, **kwargs):
+        raise FileNotFoundError("private path and secret-value")
+
+    monkeypatch.setattr(INSTALL.subprocess, "Popen", failed_launch)
+    monkeypatch.setattr(
+        INSTALL.subprocess, "run", lambda *args, **kwargs: pytest.fail("no process was started")
+    )
+    handlers = {
+        signum: signal.getsignal(signum)
+        for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+    }
+    try:
+        assert INSTALL.main() == 1
+    finally:
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["errorClass"] == "FileNotFoundError"
+    assert payload["failureDiagnostic"]["phase"] == "candidate_runtime"
+    assert payload["failureDiagnostic"]["function"] == "isolated_candidate"
+    assert type(payload["failureDiagnostic"]["line"]) is int
+    assert not runtime.exists()
+    assert "secret-value" not in json.dumps(payload)
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
+    )
+    stdout = io.BytesIO(json.dumps(payload).encode())
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (
+            SimpleNamespace(channel=channel),
+            stdout,
+            io.BytesIO(b"secret-value"),
+        )
+    )
+    retained = DEPLOY.remote(client, "fake-command")
+    assert retained["errorClass"] == payload["errorClass"]
+    assert retained["failureDiagnostic"] == payload["failureDiagnostic"]
+    assert retained["inspections"] == []
+    assert "secret-value" not in json.dumps(retained)
+
+
+@pytest.mark.parametrize("field,value", [("phase", []), ("function", {}), ("line", True)])
+def test_failure_diagnostic_rejects_malformed_untrusted_fields(field, value):
+    diagnostic = {"phase": "candidate_runtime", "function": "isolated_candidate", "line": 1200}
+    assert INSTALL.safe_failure_diagnostic({**diagnostic, field: value}) is None
+    assert INSTALL.safe_error_class("secret-value") == "Exception"
+    assert INSTALL.safe_failure_diagnostic({**diagnostic, "private": "secret-value"}) == diagnostic
+
+
+def test_any_apply_requires_measured_protected_drain(monkeypatch, tmp_path):
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a: {"ok": True, "service": "dsh_ydmap"})
+    args = SimpleNamespace(
+        operation="apply",
+        commit=COMMIT,
+        source_sha256=HASH,
+        staging=tmp_path,
+        drain_proof=None,
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
+        INSTALL.operate(args)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("active_tasks", 1),
+        ("active_runs", 1),
+        ("target_commit", "d" * 40),
+        ("expires_at", 0),
+        ("dags", []),
+    ],
+)
+def test_drain_proof_rejects_busy_expired_or_wrong_target(field, value):
+    with pytest.raises(INSTALL.OperationFailure):
+        INSTALL.validate_drain_proof({**drain_proof(), field: value}, COMMIT)
+
+
+@pytest.mark.parametrize(
+    "with_baoti,release_reason",
+    [(False, "release"), (True, "release"), (True, "eof"), (True, "timeout")],
+)
+def test_dag_guard_restores_exact_flags_after_success_disconnect_or_timeout(
+    with_baoti, release_reason
+):
+    flags = {GUARD.DAG_IDS[0]: False, "unrelated": False}
+    if with_baoti:
+        flags["宝安网球中心巡检"] = True
+    original = dict(flags)
+    clock = [0.0]
+    counts = iter(((1, 1), (0, 0), (0, 0)))
+    events = []
+
+    class Backend:
+        def pause(self):
+            state = {key: flags[key] for key in GUARD.DAG_IDS if key in flags}
+            for key in state:
+                flags[key] = True
+            return state
+
+        def counts(self, state):
+            assert all(flags[key] for key in state)
+            assert flags["unrelated"] is False
+            return next(counts)
+
+        def restore(self, state):
+            flags.update(state)
+            return all(flags[key] == value for key, value in state.items())
+
+    def release(timeout):
+        assert events[-1]["event"] == "drained"
+        assert events[-1]["proof"]["active_tasks"] == 0
+        assert flags[GUARD.DAG_IDS[0]] is True
+        return release_reason
+
+    result = GUARD.run_guard(
+        Backend(),
+        COMMIT,
+        "c" * 32,
+        emit=events.append,
+        release=release,
+        monotonic=lambda: clock[0],
+        now=lambda: 1000,
+        sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+    )
+    assert flags == original
+    assert events[-1]["event"] == "restored" and events[-1]["ok"] is True
+    assert result == (0 if release_reason == "release" else 1)
+    issued_clock = 4
+    if release_reason != "release":
+        assert clock[0] >= issued_clock + GUARD.HOLD_SECONDS
+    else:
+        assert clock[0] < GUARD.HOLD_SECONDS
+
+
+def test_drain_timeout_restores_and_never_issues_an_apply_proof():
+    state = {GUARD.DAG_IDS[0]: False}
+    clock = [0.0]
+    events = []
+    restored = []
+    backend = SimpleNamespace(
+        pause=lambda: state,
+        counts=lambda _: (1, 1),
+        restore=lambda original: restored.append(dict(original)) or True,
+    )
+    result = GUARD.run_guard(
+        backend,
+        COMMIT,
+        "c" * 32,
+        emit=events.append,
+        monotonic=lambda: clock[0],
+        sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+        drain_timeout=5,
+    )
+    assert result == 1 and restored and all(value == state for value in restored)
+    assert not any(event["event"] == "drained" for event in events)
+    assert events[-1]["restored"] is True
+
+
+def test_remote_failure_retains_verified_public_inspection_evidence():
+    summary = INSTALL.inspect_evidence(observation(), "dsh", ["2026-11-01"])
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
+    )
+    stdin = SimpleNamespace(channel=channel)
+    stdout = io.BytesIO(
+        json.dumps(
+            {
+                "ok": False,
+                "operationComplete": True,
+                "failure": "access_verification",
+                "inspections": [summary],
+                "secret": "private",
+            }
+        ).encode()
+    )
+    stdout.channel = channel
+    client = SimpleNamespace(exec_command=lambda *a, **k: (stdin, stdout, io.BytesIO(b"private")))
+    report = DEPLOY.remote(client, "fake-command")
+    assert report["inspections"] == [summary]
+    assert "private" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("phase", ["health", "live_inspect"])
+def test_failed_activation_restores_only_its_original_service_override(
+    monkeypatch, tmp_path, phase
+):
+    base = tmp_path / "managed"
+    base.mkdir()
+    old = base / "old"
+    old.mkdir()
+    (base / "current").symlink_to(old)
+    override = tmp_path / "unit/managed.conf"
+    override.parent.mkdir()
+    original = (INSTALL.MARKER + "[Service]\nExecStart=/old\n").encode()
+    override.write_bytes(original)
+    candidate = base / "candidate"
+    candidate.mkdir()
+    commands = []
+    monkeypatch.setattr(INSTALL, "BASE", base)
+    monkeypatch.setattr(INSTALL, "DROPIN", override)
+    monkeypatch.setattr(INSTALL, "wait_idle", lambda: None)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a: health())
+    monkeypatch.setattr(INSTALL, "run", lambda argv: commands.append(argv) or "")
+    failed = INSTALL.OperationFailure(
+        "installed_health_failed" if phase == "health" else "access_verification"
+    )
+    failed.venue = "dsh"
+    failed.source_failure = "rate_limited"
+    monkeypatch.setattr(INSTALL, "wait_health", lambda *a: health())
+    monkeypatch.setattr(INSTALL, "inspect_venues", lambda *a: [])
+    monkeypatch.setattr(
+        INSTALL,
+        "wait_health" if phase == "health" else "inspect_venues",
+        lambda *a: (_ for _ in ()).throw(failed),
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="activation_failed") as error:
+        INSTALL.activate(candidate, COMMIT, HASH, drain_proof())
+    assert error.value.rollback_verified is True
+    assert error.value.source_failure == "rate_limited"
+    assert (base / "current").resolve() == old
+    assert override.read_bytes() == original
+    assert all(
+        command[-1] == INSTALL.UNIT or command == ["systemctl", "daemon-reload"]
+        for command in commands
+    )
+    assert (candidate / "rollback.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_activation_rechecks_full_lease_after_waiting_for_idle(monkeypatch, tmp_path):
+    clock = [1000]
+    commands = []
+    monkeypatch.setattr(INSTALL, "BASE", tmp_path)
+    monkeypatch.setattr(INSTALL, "DROPIN", tmp_path / "override")
+    monkeypatch.setattr(INSTALL.time, "time", lambda: clock[0])
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a: health())
+    monkeypatch.setattr(INSTALL, "wait_idle", lambda: clock.__setitem__(0, 1800))
+    monkeypatch.setattr(INSTALL, "run", lambda *a: commands.append(a))
+    proof = drain_proof()
+    with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_expired"):
+        INSTALL.activate(tmp_path, COMMIT, HASH, proof)
+    assert commands == []
+
+
+def test_guard_does_not_release_when_pi_completion_is_unknown(monkeypatch):
+    acknowledgements = []
+    guard = DEPLOY.AirflowGuard(COMMIT)
+    monkeypatch.setattr(guard, "close", lambda *, completed: acknowledgements.append(completed))
+    with pytest.raises(RuntimeError, match="airflow_pause_restore_not_verified"):
+        guard.__exit__(TimeoutError, TimeoutError(), None)
+    assert acknowledgements == [False]
+
+
+def test_guard_waits_for_idle_without_pausing_pending_runs():
+    clock = [0]
+    attempts = []
+    events = []
+    state = {GUARD.DAG_IDS[0]: False}
+
+    def pause():
+        attempts.append(clock[0])
+        if len(attempts) < 3:
+            raise GUARD.DrainBusy()
+        return state
+
+    backend = SimpleNamespace(pause=pause, counts=lambda _: (0, 0), restore=lambda _: True)
+    result = GUARD.run_guard(
+        backend,
+        COMMIT,
+        "c" * 32,
+        emit=events.append,
+        release=lambda _: "release",
+        monotonic=lambda: clock[0],
+        sleep=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+    )
+    assert result == 0 and attempts == [0, 2, 4]
+    assert events[0]["event"] == "drained"
+
+
+@pytest.mark.parametrize("release_reason", ["release", "eof"])
+def test_guard_restoration_survives_signals_during_retry_sleep(release_reason):
+    clock = [0]
+    events = []
+    attempts = []
+    protected = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+
+    def interrupted(signum, frame):
+        raise InterruptedError("simulated_disconnect")
+
+    previous = {signum: signal.signal(signum, interrupted) for signum in protected}
+
+    def restore(state):
+        attempts.append(dict(state))
+        return len(attempts) == 2
+
+    def sleep(seconds):
+        if attempts or events:
+            for signum in protected:
+                signal.raise_signal(signum)
+        clock[0] += seconds
+
+    state = {GUARD.DAG_IDS[0]: False}
+    backend = SimpleNamespace(pause=lambda: state, counts=lambda _: (0, 0), restore=restore)
+    try:
+        result = GUARD.run_guard(
+            backend,
+            COMMIT,
+            "c" * 32,
+            emit=events.append,
+            release=lambda _: release_reason,
+            monotonic=lambda: clock[0],
+            sleep=sleep,
+        )
+        assert result == (0 if release_reason == "release" else 1) and attempts == [state, state]
+        if release_reason == "eof":
+            assert clock[0] >= GUARD.HOLD_SECONDS
+        assert events[-1]["restored"] is True
+        assert all(signal.getsignal(signum) is interrupted for signum in protected)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
+    payload = {
+        "ok": False,
+        "error": "product_name_unverified",
+        "diagnostics": {
+            "pageHost": "bawtt.ydmap.cn",
+            "selectedDate": "2026-11-01",
+            "sourceProduct": "111317",
+            "productName": None,
+            "productNameField": None,
+            "productInCatalog": False,
+            "courtNames": ["1号室外场"],
+            "secret": "private-cookie",
+            "sourceSalesId": "token=private",
+            "challengeMaskVisible": True,
+            "challengeText": "private-token",
+            "failurePhase": "initial_schedule",
+            "requestedProduct": "111317",
+        },
+        "cookie": "private-cookie",
+    }
+
+    def fail(*args, **kwargs):
+        raise HTTPError(
+            "http://127.0.0.1", 503, "unused", {}, io.BytesIO(json.dumps(payload).encode())
+        )
+
+    monkeypatch.setattr(
+        INSTALL.urllib.request, "build_opener", lambda *args: SimpleNamespace(open=fail)
+    )
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.request_json(8788, "/inspect")
+    error = caught.value
+    assert error.source_failure == "product_name_unverified"
+    assert error.source_diagnostic["sourceProduct"] == "111317"
+    assert error.source_diagnostic["present"]["productName"] is True
+    assert error.source_diagnostic["productInCatalog"] is False
+    assert error.source_diagnostic["challengeMaskVisible"] is True
+    assert "challengeText" not in error.source_diagnostic
+    assert error.source_diagnostic["failurePhase"] == "initial_schedule"
+    assert error.source_diagnostic["requestedProduct"] == "111317"
+    assert "failurePhase" not in INSTALL.safe_source_diagnostic({"failurePhase": "private"})
+    assert INSTALL.safe_source_failure("JavascriptException") == "JavascriptException"
+    assert INSTALL.safe_source_failure("private-cookie-value") is None
+    assert "private" not in json.dumps(error.source_diagnostic)
+    assert INSTALL.safe_source_diagnostic(error.source_diagnostic) == error.source_diagnostic
+
+
+@pytest.mark.parametrize("hour,minute,days", [(11, 59, 4), (12, 0, 5)])
+def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, days):
+    requests = []
+    monkeypatch.setattr(
+        INSTALL, "request_json", lambda port, path, **kwargs: requests.append(path) or {}
+    )
+    monkeypatch.setattr(
+        INSTALL,
+        "inspect_evidence",
+        lambda payload, venue, dates, **kwargs: {"venue": venue, "dates": dates},
+    )
+    result = INSTALL.inspect_venues(
+        18788, at=datetime(2026, 11, 1, hour, minute, tzinfo=ZoneInfo("Asia/Shanghai"))
+    )
+    assert requests == [f"/inspect?venue=dsh&days={days}"]
+    assert len(result[0]["dates"]) == days
+
+
+def test_remote_failure_does_not_forward_raw_errors_or_upstream_data():
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: 1, close=lambda: None
+    )
+    stdin = SimpleNamespace(channel=channel)
+    stdout = io.BytesIO(
+        json.dumps(
+            {
+                "ok": False,
+                "operationComplete": True,
+                "failure": "secret-value",
+                "private": "secret-value",
+                "venue": "dsh",
+            }
+        ).encode()
+    )
+    stdout.channel = channel
+    client = SimpleNamespace(
+        exec_command=lambda *a, **k: (stdin, stdout, io.BytesIO(b"secret-value"))
+    )
+    report = DEPLOY.remote(client, "fake-command")
+    assert report["failure"] == "operation_failed"
+    assert report["venue"] == "dsh"
+    assert "secret-value" not in json.dumps(report)
+
+
+def test_source_evidence_is_opt_in_and_strips_unknown_sensitive_fields():
+    payload = observation_with_source()
+    optional = payload["days"][0]["groups"][0]["source_evidence"]
+    optional["cookies"] = {"session": "private-value"}
+    optional["components"][0]["user"] = "private-value"
+    optional["methods"][0]["headers"] = "private-value"
+    optional["samples"][0]["orderInfo"] = {"phone": "private-value"}
+    ordinary = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"])
+    assert "source_evidence" not in json.dumps(ordinary)
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
+    retained = report["days"][0]["groups"][0]["source_evidence"]
+    assert retained == renderer_evidence()
+    assert retained["bookability_verified"] is False
+    assert "private-value" not in json.dumps(report)
+    assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
+    assert "source_evidence" not in json.dumps(INSTALL.safe_inspections([report]))
+
+
+def test_actual_scraper_source_sanitizer_matches_report_contract():
+    server = load("pi_ydmap_source_report_contract", "tests/pi_ydmap_scraper_test.py").server
+    assert set(server.SOURCE_CLASSES) == INSTALL.SOURCE_CLASSES
+    assert set(server.SOURCE_LITERAL_ALLOWLIST).issubset(INSTALL.SOURCE_LITERAL_ALLOWLIST)
+    raw = renderer_evidence()
+    raw["methods"][0]["source"] = (
+        'function textFun(){ /* private comment */ return "https://private.test/token"; }'
+    )
+    raw["methods"][0]["original_bytes"] = len(raw["methods"][0]["source"].encode())
+    raw["samples"][0]["court"] = "1号场"
+    budget = {"remaining": server.SOURCE_TOTAL_BYTES, "seen": set()}
+    canonical = server._source_evidence(raw, "", budget)
+    reused = server._source_evidence(raw, "", budget)
+    assert reused["methods"][0]["reused"] is True
+    payload = observation()
+    payload["days"][0]["groups"][0]["source_evidence"] = reused
+    later = copy.deepcopy(payload["days"][0])
+    later["date"] = "2026-11-02"
+    later["groups"][0].update(source_date="2026-11-02", selected_date="2026-11-02")
+    later["groups"][0]["source_evidence"] = canonical
+    payload["days"].append(later)
+    report = INSTALL.inspect_evidence(
+        payload, "dsh", ["2026-11-01", "2026-11-02"], source_evidence=True
+    )
+    assert report["sourceEvidenceRejected"] is False
+    assert report["sourceEvidenceTruncated"] is False
+    assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
+    encoded = INSTALL.encode_report({"ok": True, "inspections": [report]}, source_evidence=True)
+    assert json.loads(encoded)["inspections"] == [report]
+    retained = report["days"][1]["groups"][0]["source_evidence"]
+    assert retained["methods"][0]["redacted"] is True
+    assert "private" not in json.dumps(retained)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("sha256", "0" * 64),
+        ("emitted_bytes", 999),
+        ("original_bytes", True),
+        ("truncated", "false"),
+        ("redacted", 1),
+        ("reused", 1),
+        ("name", "readCookies"),
+        ("component_indices", [16]),
+    ],
+)
+def test_invalid_source_method_metadata_is_rejected_without_losing_identity(field, value):
+    payload = observation_with_source()
+    payload["days"][0]["groups"][0]["source_evidence"]["methods"][0][field] = value
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
+    assert report["verified"] is True and report["sourceEvidenceRejected"] is True
+    assert "source_evidence" not in report["days"][0]["groups"][0]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'function textFun(){return "private-cookie-value";}',
+        "function textFun(){/* private-cookie-value */ return 1;}",
+        "function textFun(){return `private-cookie-value`;}",
+        "function textFun(){return " + "1" * 4097 + ";}",
+    ],
+)
+def test_source_hash_is_not_a_substitute_for_sanitization(source):
+    payload = observation_with_source()
+    method = payload["days"][0]["groups"][0]["source_evidence"]["methods"][0]
+    method.update(
+        source=source,
+        sha256=hashlib.sha256(source.encode()).hexdigest(),
+        emitted_bytes=len(source.encode()),
+        original_bytes=len(source.encode()),
+        redacted=True,
+    )
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
+    assert report["sourceEvidenceRejected"] is True
+    assert "private-cookie-value" not in json.dumps(report)
+
+
+def test_source_evidence_requires_false_bookability_and_bounded_public_samples():
+    for field, value in (
+        ("bookability_verified", True),
+        ("matched_cell_count", True),
+        ("samples", [renderer_evidence()["samples"][0]] * 3),
+    ):
+        evidence = renderer_evidence()
+        evidence[field] = value
+        assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+    evidence = renderer_evidence()
+    evidence["samples"][0]["online_booking"] = {"token": "private-value"}
+    assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+    evidence = renderer_evidence()
+    evidence["component_scan_truncated"] = True
+    assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+    evidence = renderer_evidence()
+    evidence["methods"][0]["truncated"] = True
+    assert INSTALL.safe_source_evidence(evidence, cell_count=24) is None
+
+
+def test_forward_source_reuse_across_dates_is_resolved_and_unknown_hash_is_rejected():
+    payload = observation_with_source()
+    later = copy.deepcopy(payload["days"][0])
+    later["date"] = "2026-11-02"
+    later["groups"][0].update(source_date="2026-11-02", selected_date="2026-11-02")
+    payload["days"].append(later)
+    method = payload["days"][0]["groups"][0]["source_evidence"]["methods"][0]
+    method.update(source="", emitted_bytes=0, reused=True)
+    dates = ["2026-11-01", "2026-11-02"]
+    valid = INSTALL.inspect_evidence(payload, "dsh", dates, source_evidence=True)
+    assert valid["sourceEvidenceRejected"] is False
+    assert valid["days"][0]["groups"][0]["source_evidence"]["methods"][0]["reused"] is True
+    method["sha256"] = "f" * 64
+    invalid = INSTALL.inspect_evidence(payload, "dsh", dates, source_evidence=True)
+    assert invalid["sourceEvidenceRejected"] is True
+    assert "source_evidence" not in invalid["days"][0]["groups"][0]
+
+
+def test_optional_evidence_budget_preserves_identity_and_flags_roundtrip(monkeypatch):
+    report = INSTALL.inspect_evidence(
+        observation_with_source(), "dsh", ["2026-11-01"], source_evidence=True
+    )
+    monkeypatch.setattr(INSTALL, "MAX_SOURCE_EVIDENCE_BYTES", 1)
+    encoded = INSTALL.encode_report(
+        {"ok": True, "operationComplete": True, "inspections": [report]}, source_evidence=True
+    )
+    bounded = json.loads(encoded)
+    assert bounded["ok"] is True and bounded["sourceEvidenceTruncated"] is True
+    assert bounded["inspections"][0]["verified"] is True
+    assert "source_evidence" not in encoded
+    again = json.loads(INSTALL.encode_report(bounded, source_evidence=True))
+    assert again == bounded
+
+
+def test_final_report_is_valid_json_below_limit_including_utf8_bytes():
+    encoded = INSTALL.encode_report(
+        {"ok": True, "operationComplete": True, "padding": "中" * INSTALL.MAX_BYTES}
+    )
+    assert len(encoded.encode("utf-8")) + 1 < INSTALL.MAX_BYTES
+    report = json.loads(encoded)
+    assert report["ok"] is False and report["failure"] == "report_too_large"
+
+
+def test_large_report_preserves_json_without_an_oversized_log_line():
+    payload = {"ok": True, "rows": [{"source": "x" * 4096} for _ in range(20)]}
+    encoded = INSTALL.encode_report(payload)
+    assert len(encoded.encode()) > 65536
+    assert max(len(line.encode()) for line in encoded.splitlines()) < 65536
+    assert len(encoded.encode()) + 1 < INSTALL.MAX_BYTES
+    assert json.loads(encoded) == payload
+
+
+@pytest.mark.parametrize("status", [0, 1])
+def test_remote_source_evidence_roundtrip_for_success_and_prior_success_on_failure(status):
+    summary = INSTALL.inspect_evidence(
+        observation_with_source(), "dsh", ["2026-11-01"], source_evidence=True
+    )
+    payload = {
+        "ok": status == 0,
+        "operationComplete": True,
+        "failure": "access_verification",
+        "venue": "dsh",
+        "inspections": [summary],
+    }
+    channel = SimpleNamespace(
+        shutdown_write=lambda: None, recv_exit_status=lambda: status, close=lambda: None
+    )
+    stdin = SimpleNamespace(channel=channel)
+
+    def remote_files(*args, **kwargs):
+        stdout = io.BytesIO(INSTALL.encode_report(payload, source_evidence=True).encode())
+        stdout.channel = channel
+        return stdin, stdout, io.BytesIO()
+
+    client = SimpleNamespace(exec_command=remote_files)
+    retained = DEPLOY.remote(client, "fake", source_evidence=True)
+    assert retained["inspections"] == [summary]
+    assert (
+        retained["inspections"][0]["days"][0]["groups"][0]["source_evidence"][
+            "bookability_verified"
+        ]
+        is False
+    )
+    assert "source_evidence" not in json.dumps(DEPLOY.remote(client, "fake"))
+
+
+@pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])
+def test_only_preflight_requests_source_evidence(monkeypatch, tmp_path, operation):
+    calls = []
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "service_profile", lambda account: tmp_path / "service-profile")
+    monkeypatch.setattr(INSTALL, "wait_idle", lambda: None)
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *a: tmp_path)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    monkeypatch.setattr(INSTALL, "activate", lambda *a: {"applied": True})
+    monkeypatch.setattr(
+        INSTALL,
+        "inspect_venues",
+        lambda port, **kwargs: calls.append((port, kwargs.get("source_evidence", False))) or [],
+    )
+
+    @contextmanager
+    def candidate(*args, **kwargs):
+        yield 18788
+
+    monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
+    INSTALL.operate(
+        SimpleNamespace(
+            operation=operation,
+            commit=COMMIT,
+            source_sha256=HASH,
+            staging=tmp_path,
+            drain_proof=drain_proof(),
+        )
+    )
+    assert (
+        calls
+        == (
+            {
+                "preflight": [(18788, True)],
+                "apply": [(18788, False)],
+                "health": [],
+                "inspect": [(8788, False)],
+            }[operation]
+        )
+    )
+
+
+def test_preflight_query_inspects_only_dashah(monkeypatch):
+    paths = []
+    monkeypatch.setattr(
+        INSTALL, "request_json", lambda port, path, **kwargs: paths.append(path) or {}
+    )
+    monkeypatch.setattr(INSTALL, "inspect_evidence", lambda *args, **kwargs: {})
+    INSTALL.inspect_venues(
+        18788, at=datetime(2026, 11, 1, 12, tzinfo=ZoneInfo("Asia/Shanghai")), source_evidence=True
+    )
+    assert paths == ["/inspect?venue=dsh&days=5&evidence=source-v1"]
+
+
+@pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])
+def test_verification_cannot_enter_live_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, verification_once=True))
+
+
+def test_verification_audit_is_allowlisted():
+    safe = INSTALL.safe_source_diagnostic(
+        {
+            "verificationAttempted": True,
+            "verificationOutcome": "not_passed",
+            "private": "cookie",
+        }
+    )
+    assert safe["verificationAttempted"] is True
+    assert safe["verificationOutcome"] == "not_passed"
+    assert "cookie" not in json.dumps(safe)
+    unknown = INSTALL.safe_source_diagnostic(
+        {"verificationAttempted": "private", "verificationOutcome": "private"}
+    )
+    assert "verificationAttempted" not in unknown
+    assert "verificationOutcome" not in unknown
+
+
+def test_browser_environment_survives_report_filter_without_raw_capabilities():
+    payload = observation()
+    payload["diagnostics"] = {
+        "browserVersion": "137.0.7151.119",
+        "driverVersion": "137.0.7151.119",
+        "driverMajorMatchesBrowser": True,
+        "userAgentVersionMatchesBrowser": True,
+        "userAgentOverrideEnabled": False,
+        "profileResetBeforeScrape": True,
+        "userDataDir": "private-profile",
+    }
+    report = INSTALL.inspect_evidence(payload, "dsh", ["2026-11-01"], source_evidence=True)
+    assert INSTALL.safe_inspections([report], source_evidence=True) == [report]
+    assert report["browserVersion"] == "137.0.7151.119"
+    assert report["userAgentOverrideEnabled"] is False
+    assert "private" not in json.dumps(report)
+    assert "browserVersion" not in INSTALL.safe_source_diagnostic({"browserVersion": "private"})
+
+
+def test_preflight_fails_closed_after_dashah_failure_without_requesting_retired_venue(monkeypatch):
+    paths = []
+
+    def request(port, path, **kwargs):
+        paths.append(path)
+        failure = INSTALL.OperationFailure("scrape_not_verified")
+        failure.source_failure = "schedule_not_ready"
+        raise failure
+
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_venues(18788, source_evidence=True)
+    assert len(paths) == 1 and paths[0].startswith("/inspect?venue=dsh&")
+    failure = caught.value
+    assert failure.venue == "dsh" and failure.inspections == []
+    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == ["dsh"]
+    assert "failedVenues" not in INSTALL.safe_source_diagnostic({"failedVenues": ["baoti"]})
+
+
+def test_apply_inspection_still_stops_after_first_failure(monkeypatch):
+    request = Mock(side_effect=INSTALL.OperationFailure("scrape_not_verified"))
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    with pytest.raises(INSTALL.OperationFailure):
+        INSTALL.inspect_venues(18788)
+    assert request.call_count == 1
+
+
+def test_workflow_gates_and_release_order_cover_pi_before_airflow():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/production-pi-ydmap.yml").read_text())
+    job = workflow["jobs"]["operate"]
+    assert job["environment"] == "production"
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    gate = next(
+        step for step in job["steps"] if step.get("name") == "Require exact main commit and CI"
+    )
+    assert "github_release_gate.py" in gate["run"]
+    assert "merge-base --is-ancestor" in gate["run"]
+    release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
+    assert "pi_ydmap" in release["jobs"]["airflow"]["needs"]
+    assert "needs.pi_ydmap.result == 'success'" in release["jobs"]["airflow"]["if"]
+    assert "pi_ydmap" in release["jobs"]["record"]["needs"]
+
+
+def test_release_preflight_checks_the_live_service_without_a_browser_drain():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/production-pi-ydmap.yml").read_text())
+    triggers = workflow[True]  # PyYAML's YAML 1.1 treats the Actions 'on' key as true.
+    for entry in ("workflow_call", "workflow_dispatch"):
+        assert triggers[entry]["inputs"]["drain_preflight"]["default"] is True
+        assert triggers[entry]["inputs"]["allow_interruption"]["default"] is False
+        assert "confirm_verification_once" not in triggers[entry]["inputs"]
+        assert "diagnostic_first_product" not in triggers[entry]["inputs"]
+    steps = workflow["jobs"]["operate"]["steps"]
+    operation = next(
+        step for step in steps if step.get("name") == "Run protected scraper operation"
+    )
+    assert operation["env"]["DRAIN_PREFLIGHT"] == (
+        "${{ inputs.operation == 'preflight' && inputs.drain_preflight }}"
+    )
+    assert "ALLOW_INTERRUPTION" in operation["env"]
+    ssh = next(
+        step for step in steps if step.get("name", "").startswith("Configure existing Airflow SSH")
+    )
+    assert "inputs.drain_preflight == true" in ssh["if"]
+    assert "inputs.allow_interruption != true" in ssh["if"]
+    release = yaml.safe_load((ROOT / ".github/workflows/production-release.yml").read_text())
+    assert release["jobs"]["pi_ydmap"]["with"]["drain_preflight"] is False
+    assert release["jobs"]["pi_ydmap"]["with"]["allow_interruption"] == (
+        "${{ inputs.mode == 'apply' }}"
+    )
+    assert release["jobs"]["pi_ydmap"]["with"]["operation"] == (
+        "${{ inputs.mode == 'apply' && 'apply' || 'ready' }}"
+    )
+    assert release["jobs"]["sender"]["with"]["operation"] == (
+        "${{ inputs.mode == 'apply' && 'apply' || 'health' }}"
+    )
+    contract = yaml.safe_load((ROOT / "config/runtime-target.yaml").read_text())
+    scraper = contract["managed_services"]["pi_ydmap_scraper"]
+    assert scraper["release_preflight_requires_scoped_drain"] is False
+    assert scraper["release_preflight_cycles"] == 0
+
+
+@pytest.mark.parametrize(
+    "operation,allow_interruption,expected_status",
+    [("ready", False, 0), ("apply", True, 0), ("ready", True, 1)],
+)
+def test_protected_release_interruption_is_apply_only(
+    monkeypatch, operation, allow_interruption, expected_status
+):
+    for name, value in {
+        "GITHUB_ACTIONS": "true",
+        "TARGET_COMMIT": COMMIT,
+        "OPERATION": operation,
+        "ALLOW_INTERRUPTION": str(allow_interruption).lower(),
+        "DRAIN_PREFLIGHT": "false",
+        "CAPTURE_BROWSER_UI": "false",
+        "CONFIRM_VERIFICATION_ONCE": "false",
+        "DIAGNOSTIC_FIRST_PRODUCT": "default",
+        "PI_DEVICE_SSH_HOST": "isolated.invalid",
+        "PI_DEVICE_SSH_PORT": "22",
+        "PI_DEVICE_SSH_USER": "test-only",
+        "PI_DEVICE_SSH_PASSWORD": "test-only",
+    }.items():
+        monkeypatch.setenv(name, value)
+    client = MagicMock()
+    stdin, stdout, stderr = MagicMock(), MagicMock(), MagicMock()
+    stdout.channel.recv_exit_status.return_value = 0
+    client.exec_command.return_value = (stdin, stdout, stderr)
+    monkeypatch.setattr(DEPLOY.paramiko, "SSHClient", lambda: client)
+    checkout = Mock(return_value=HASH)
+    remote = Mock(return_value={"ok": True})
+    monkeypatch.setattr(DEPLOY, "verify_checkout", checkout)
+    monkeypatch.setattr(DEPLOY, "remote", remote)
+    monkeypatch.setattr(
+        DEPLOY, "apply_with_guard", lambda *args, **kwargs: pytest.fail("unexpected drain")
+    )
+
+    assert DEPLOY.main() == expected_status
+    if expected_status:
+        checkout.assert_not_called()
+        client.connect.assert_not_called()
+        remote.assert_not_called()
+    else:
+        checkout.assert_called_once_with(COMMIT)
+        client.connect.assert_called_once()
+        command = remote.call_args.args[1]
+        assert (" --allow-interruption" in command) is allow_interruption
+        assert f" {operation} --commit {COMMIT}" in command
+    client.close.assert_called_once()
+
+
+def test_ready_checks_the_live_listener_without_a_candidate(monkeypatch):
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {"unit": ("active", "1", "2")})
+    monkeypatch.setattr(INSTALL, "prepare_candidate", lambda *args: pytest.fail("no candidate"))
+    monkeypatch.setattr(INSTALL, "inspect_venues", lambda *args, **kwargs: pytest.fail("no scrape"))
+    monkeypatch.setattr(
+        INSTALL,
+        "request_json",
+        lambda *args: {
+            "ok": True,
+            "service": "dsh_ydmap",
+            "protocolVersion": 2,
+            "venues": ["dsh"],
+            "deploymentCommit": COMMIT,
+        },
+    )
+    report = INSTALL.operate(SimpleNamespace(operation="ready"))
+    assert report["ok"] is True
+    assert report["applied"] is False
+    assert report["liveServiceReady"] is True
+    assert report["deploymentCommit"] == COMMIT
+
+
+def test_access_diagnostics_are_bounded_numeric_and_survive_repeated_sanitization():
+    raw = {
+        "accessDiagnostics": {
+            "documentHidden": 1,
+            "scriptReferences": 3,
+            "consoleHttp403Errors": 1,
+            "mimeTypeErrors": 1,
+            "legacyHandles": 1,
+            "semanticHandles": 0,
+            "frames": 2,
+            "orderHtmlResponses": 1,
+            "scriptFailures": 3,
+            "lastOrderStatus": 200,
+            "maskRoots": True,
+            "maskChildren": -1,
+            "dnsFailures": 10001,
+            "referenceErrors": "private",
+            "url": "private",
+            "cookies": "private",
+        }
+    }
+    safe = INSTALL.safe_source_diagnostic(raw)
+    assert safe["accessDiagnostics"] == {
+        "documentHidden": 1,
+        "scriptReferences": 3,
+        "consoleHttp403Errors": 1,
+        "mimeTypeErrors": 1,
+        "legacyHandles": 1,
+        "semanticHandles": 0,
+        "frames": 2,
+        "orderHtmlResponses": 1,
+        "scriptFailures": 3,
+        "lastOrderStatus": 200,
+    }
+    assert INSTALL.safe_source_diagnostic(safe) == safe
+    assert "private" not in json.dumps(safe)
+
+
+@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+def test_product_order_probe_is_rejected_before_live_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, first_product="windrain"))
+
+
+def test_retired_product_order_probe_is_rejected_before_any_host_access(monkeypatch):
+    monkeypatch.setattr(
+        INSTALL, "other_service_identities", lambda: pytest.fail("host access forbidden")
+    )
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation="preflight", first_product="windrain"))
+
+
+@pytest.mark.parametrize("operation", ["apply", "health", "inspect"])
+def test_quiesced_preflight_rejects_other_operations(operation):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation=operation, drain_preflight=True))
+
+
+@pytest.mark.parametrize("proof", [None, "valid"])
+def test_quiesced_preflight_requires_proof_and_never_activates(monkeypatch, tmp_path, proof):
+    monkeypatch.setattr(INSTALL, "other_service_identities", lambda: {})
+    monkeypatch.setattr(INSTALL, "verify_existing_service", lambda: object())
+    profile = Mock(return_value=tmp_path / "service-profile")
+    monkeypatch.setattr(INSTALL, "service_profile", profile)
+    idle = Mock()
+    monkeypatch.setattr(INSTALL, "wait_idle", idle)
+    prepare = Mock(return_value=tmp_path)
+    monkeypatch.setattr(INSTALL, "prepare_candidate", prepare)
+    monkeypatch.setattr(INSTALL, "request_json", lambda *a, **k: health())
+    inspect = Mock(return_value=[])
+    monkeypatch.setattr(INSTALL, "inspect_venues", inspect)
+    clock = [0.0]
+    monkeypatch.setattr(INSTALL.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(INSTALL.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    monkeypatch.setattr(INSTALL, "activate", lambda *a: pytest.fail("must not activate"))
+
+    @contextmanager
+    def candidate(*args, **kwargs):
+        assert kwargs["profile"] == tmp_path / "service-profile"
+        yield 18788
+
+    monkeypatch.setattr(INSTALL, "isolated_candidate", candidate)
+    args = SimpleNamespace(
+        operation="preflight",
+        drain_preflight=True,
+        drain_proof=drain_proof() if proof else None,
+        commit=COMMIT,
+        source_sha256=HASH,
+        staging=tmp_path,
+    )
+    if proof:
+        report = INSTALL.operate(args)
+        assert report["applied"] is False
+        assert report["candidateVerified"] is True
+        assert inspect.call_count == 3
+        assert all(call.kwargs == {"source_evidence": True} for call in inspect.call_args_list)
+        assert report["candidateVerifiedCycles"] == 3
+        assert clock[0] == 240
+    else:
+        with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
+            INSTALL.operate(args)
+        prepare.assert_not_called()
+        profile.assert_not_called()
+        idle.assert_not_called()
+
+
+@pytest.mark.parametrize("ok", [False, True])
+def test_quiesced_preflight_guard_restores_flags_and_retains_source_evidence(monkeypatch, ok):
+    events = []
+
+    class Guard:
+        proof = drain_proof()
+        restored = False
+
+        def __enter__(self):
+            events.append("drained")
+            return self
+
+        def __exit__(self, *args):
+            events.append("restored")
+            self.restored = True
+
+    guard = Guard()
+    monkeypatch.setattr(DEPLOY, "AirflowGuard", lambda commit: guard)
+
+    def remote(client, command, **kwargs):
+        assert events == ["drained"]
+        assert kwargs["payload"] == guard.proof
+        assert kwargs["source_evidence"] is True
+        return {"ok": ok, "applied": False, "sourceFailure": "ReadTimeoutError"}
+
+    monkeypatch.setattr(DEPLOY, "remote", remote)
+    report = DEPLOY.apply_with_guard(None, "candidate preflight", COMMIT, source_evidence=True)
+    assert events == ["drained", "restored"]
+    assert report["ok"] is ok
+    assert report["applied"] is False
+    assert report["airflowPauseRestored"] is True
+    assert report["sourceFailure"] == "ReadTimeoutError"
+
+
+@pytest.mark.parametrize(
+    "code", ["ReadTimeoutError", "MaxRetryError", "ProtocolError", "date_tab_not_found"]
+)
+def test_source_transport_errors_survive_repeated_sanitization(code):
+    assert INSTALL.safe_source_failure(INSTALL.safe_source_failure(code)) == code
+    assert INSTALL.safe_source_failure("date_tab_not_found:2026-11-01") == "date_tab_not_found"
+    assert INSTALL.safe_source_failure("ReadTimeoutError private-cookie") is None
+
+
+def test_quiesced_cycles_stop_at_first_failure_without_restarting_the_candidate(monkeypatch):
+    clock, starts = [0.0], []
+    failure = INSTALL.OperationFailure("access_verification")
+    failure.source_diagnostic = {"requestedProduct": "111319"}
+
+    def inspect(*args, **kwargs):
+        starts.append(clock[0])
+        clock[0] += 50
+        if len(starts) == 2:
+            raise failure
+        return []
+
+    monkeypatch.setattr(INSTALL, "inspect_venues", inspect)
+    monkeypatch.setattr(INSTALL.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(INSTALL.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_quiesced_candidate(18788, drain_proof(), COMMIT)
+    assert starts == [0, 120]
+    assert caught.value is failure
+    assert failure.source_diagnostic == {
+        "requestedProduct": "111319",
+        "completedCandidateCycles": 1,
+    }
+    assert (
+        INSTALL.safe_source_diagnostic(failure.source_diagnostic)["completedCandidateCycles"] == 1
+    )
+
+
+@pytest.mark.parametrize("option", [{"verification_once": True}, {"first_product": "windrain"}])
+def test_quiesced_cycles_require_the_normal_unattended_flow(option):
+    with pytest.raises(INSTALL.OperationFailure, match="verification_not_authorized"):
+        INSTALL.operate(SimpleNamespace(operation="preflight", drain_preflight=True, **option))
+
+
+def test_retired_venue_diagnostics_are_excluded_and_dashah_evidence_is_bounded():
+    nested = {
+        "accessDiagnostics": {"typeErrors": 1, "private": "never-export"},
+        "failedVenueDiagnostics": {"baoti": {"sourceDiagnostic": {"private": "never-export"}}},
+    }
+    safe = INSTALL.safe_source_diagnostic(
+        {
+            "failedVenueDiagnostics": {
+                "dsh": {"sourceFailure": "schedule_not_ready", "sourceDiagnostic": nested},
+                "baoti": {"sourceFailure": "captcha", "sourceDiagnostic": nested},
+                "private": {"sourceFailure": "never-export"},
+            }
+        }
+    )
+    assert set(safe["failedVenueDiagnostics"]) == {"dsh"}
+    item = safe["failedVenueDiagnostics"]["dsh"]
+    assert item["sourceDiagnostic"]["accessDiagnostics"] == {"typeErrors": 1}
+    assert "failedVenueDiagnostics" not in item["sourceDiagnostic"]
+    assert "never-export" not in json.dumps(safe)
+    assert INSTALL.safe_source_diagnostic(safe) == safe

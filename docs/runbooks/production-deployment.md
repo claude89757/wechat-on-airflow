@@ -75,13 +75,67 @@ The production release gate is the only CI waiter. It fails immediately for an
 older target with no CI record, polls only an existing queued or in-progress
 check, and rejects unsuccessful checks. ChatOps must not duplicate that wait.
 
+## Read-only Airflow Acceptance
+
+The repository owner can request independent checks on issue 39 after a
+deployment or during incident diagnosis:
+
+```text
+/ops airflow-health <full-sha>
+/ops crland-inspection-diagnose <full-sha>
+```
+
+Both commands require a full 40-character commit SHA on `main`, reuse the
+protected `production` Environment, and keep real notification sending
+disabled. They do not deploy code, change DAG state, or trigger venue requests.
+The result comment links to the workflow containing the structured JSON.
+
+`airflow-health` runs the existing complete production-health snapshot against
+the requested deployed commit. The same identity, service, configuration,
+import, and recent-run checks apply independently of the deployment job. It
+does not wait for new schedule cycles or erase failed history; rerun it after
+the required natural cycles have completed.
+
+`crland-inspection-diagnose` reads the three most recent completed scheduled
+runs of the fixed Shenzhen Bay and Greater Bay Area DAGs, including their
+three date tasks each (`day_0` through `day_2`). It checks both the host Git
+commit and the Airflow container's runtime commit. Output contains run/task
+states, bounded attempt evidence, safe account slots and scheduled rounds,
+numeric upstream status
+codes, and allowlisted error categories. It does not return raw logs, tokens,
+account identities, or arbitrary caller-selected paths.
+
+A successful diagnosis means that commit identities match and the requested
+evidence is complete. Failed historical runs remain visible through
+`all_recent_runs_successful=false`; diagnosis success is not a health pass.
+Missing identity or evidence fails the diagnostic operation. For cadence or
+authorization acceptance, inspect `rotation_selections`, `api_success_count`,
+and `inspection_skipped_count` to distinguish actual queries during the
+08:00–21:00 Asia/Shanghai polling window from intentional off-hours heartbeats.
+Require the declared natural cycles and a passing independent health check
+before recording production acceptance.
+
+Retiring a date task does not rewrite failed historical DAG runs. After the
+Shenzhen Bay fourth-day task removal, exclude deployment-transition runs and
+require three new natural successful rounds after the deployment cutoff.
+An immediate health check can still report old failures while these rounds
+are accumulating; preserve that evidence instead of changing task/run states.
+
 ## Component Deployment Order
 
-When multiple components are in scope, deployment remains ordered:
+When multiple components are in scope, `production-release.yml` orders its
+component jobs as follows:
 
-1. Web application and D1 migrations;
-2. Airflow application services;
-3. WeChat sender when explicitly approved.
+1. Private Pi YDMap scraper, including candidate verification before activation;
+2. Stateless Web edge and browser assets;
+3. Airflow application services;
+4. WeChat sender when explicitly approved.
+
+A `scope=all` ship wraps these jobs with the Host Core routine-upgrade,
+worker-activation and business-acceptance stages. PostgreSQL remains the business
+owner, and D1 remains an unbound archive. Source identity alone does not establish
+correct bookability: complete the source-rule comparison described in
+`pi-ydmap-deployment.md` before activating a new YDMap venue.
 
 A skipped component is recorded as skipped, not treated as a failure. Unknown
 or unclassified runtime paths conservatively expand to all components.
@@ -95,11 +149,14 @@ only application services, and retains PostgreSQL, Redis, log, and other
 stateful volumes. It batches pause-state changes through the supported
 Airflow CLI.
 
-Deployment and full production health are one transaction. If new containers
-start but any complete health check fails, the workflow restores the prior
-commit, image configuration, and DAG pause state, verifies the restored version,
-and fails the attempted release. Deployment failure and restore failure are
-reported separately.
+Deployment and full production health are reported together. A failing health
+check fails the attempted release even when `deployment.remote.applied=true`.
+The current transaction does not automatically restore the previous image;
+inspect the explicit `automatic_restore` result and deployed identity before
+selecting recovery. For a successful application switch with only old failed
+run history, wait for the required new natural cycles and recheck health
+without applying the same release again. A full Host Core ship additionally
+uses its documented delivery-pause and roll-forward lifecycle.
 
 The health gate checks, among other contracts:
 

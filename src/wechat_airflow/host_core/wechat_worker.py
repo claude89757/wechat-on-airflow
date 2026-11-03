@@ -7,12 +7,13 @@ import os
 import socket
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 
 from wechat_airflow.notifications.booking_links import (
     BOOKING_LINK_COOLDOWN,
@@ -22,6 +23,7 @@ from wechat_airflow.notifications.booking_links import (
 
 from .control import delivery_guard, runtime_state
 from .database import ensure_schema, get_engine, transaction
+from .domain import SHANGHAI, utc_now
 from .service import active_subscription_for_venue, runtime_heartbeat
 from .settings import _first_value, load_settings
 from .wechat_queue import current_message
@@ -30,6 +32,7 @@ LOGGER = logging.getLogger(__name__)
 # One host consumer across all devices; the sender independently serializes each device.
 CONSUMER_LOCK = 728190316
 MAX_ATTEMPTS = 3
+EMAIL_SUBSCRIPTION_GUIDE = "📬 想按偏好接收场地提醒？订阅邮件：\nhttps://courts.zacks.vision/"
 SENDER_ERRORS = {
     "device_busy",
     "device_not_ready",
@@ -141,6 +144,47 @@ def _finish(row: dict[str, Any], worker: str, status: str, reason: str | None = 
             )
 
 
+def _email_subscription_footer(
+    connection: Connection, row: dict[str, Any], message: str, *, now: datetime
+) -> str:
+    """Guide each group once on its first natural morning alert, across venues.
+
+    The single-consumer fence serializes this check with dispatch. Existing
+    durable outbox records survive restarts; no separate in-memory daily flag
+    or scheduled promotional message is needed. Known-unsent retries re-evaluate
+    eligibility, while an uncertain send with the guide reserves that morning.
+    """
+    suffix = "\n\n" + EMAIL_SUBSCRIPTION_GUIDE
+    message = message.removesuffix(suffix)
+    local_now = now.astimezone(SHANGHAI)
+    if not 6 <= local_now.hour < 12:
+        return message
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    already_sent = connection.execute(
+        text("""
+        SELECT EXISTS (
+            SELECT 1 FROM zacks.wechat_outbox
+            WHERE receiver = :receiver AND id <> :id AND (
+                (status = 'sent' AND sent_at >= :morning_start AND sent_at < :morning_end)
+                OR (status IN ('dispatching', 'submission_unknown')
+                    AND created_at >= :day_start AND created_at < :day_end
+                    AND right(outbound_message, length(:suffix)) = :suffix)
+            )
+        )
+        """),
+        {
+            "receiver": row["receiver"],
+            "id": row["id"],
+            "morning_start": day_start + timedelta(hours=6),
+            "morning_end": day_start + timedelta(hours=12),
+            "day_start": day_start,
+            "day_end": day_start + timedelta(days=1),
+            "suffix": suffix,
+        },
+    ).scalar_one()
+    return message if already_sent else message + suffix
+
+
 def _prepare(row: dict[str, Any], worker: str) -> bool:
     if not active_subscription_for_venue(str(row["venue_id"])):
         _finish(row, worker, "cancelled", "no_active_subscription")
@@ -179,11 +223,10 @@ def _prepare(row: dict[str, Any], worker: str) -> bool:
                         "program": program.program_id,
                     },
                 ).scalar_one_or_none()
-                from .domain import utc_now
-
                 if last is None or utc_now() - last >= BOOKING_LINK_COOLDOWN:
                     outbound = attach_footer(outbound, program.link)
                     program_id = program.program_id
+            outbound = _email_subscription_footer(connection, row, outbound, now=utc_now())
             row["outbound_message"] = outbound
             row["program_id"] = program_id
             connection.execute(

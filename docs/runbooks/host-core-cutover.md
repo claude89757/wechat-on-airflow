@@ -38,12 +38,10 @@ database, SES, verification or invitation secrets to developer machines.
    exercises verification, creation/listing/deduplication/cancellation and auth,
    then rolls back every test record. No email/device service is called. Store
    only the privacy-safe result. This is NOT a browser or real-email probe.
-8. Enable the dedicated WeChat worker and start an acceptance window. Require
-   all 26 venue DAGs to complete three natural cycles with fresh observations;
-   auxiliary services must have recent successful runs. Require exact component
-   identities, fresh worker heartbeats, no stalled queues, reconciled migration,
-   public health/bootstrap/security checks, and actual natural SES-delivered and
-   WeChat-sent evidence. Only then create an immutable release tag.
+8. Enable the dedicated WeChat worker after the API probe. Tag the release at
+   that point. Three natural venue cycles, fresh observations and natural
+   SES or WeChat receipts stay visible to production health and do not hold
+   the pipeline or the tag.
 
 The maintenance interval is explicit downtime for Web mutations, not a claim of
 zero-downtime migration. The full import duration depends on the snapshot size.
@@ -62,6 +60,70 @@ set, **D1 import is forbidden even while delivery is paused**. Never recreate ol
 Cloudflare business ownership. Keep source snapshots and PostgreSQL backups
 root-only and off public artifacts. Never automatically restore a snapshot over
 live post-cutover writes. Data restore is a separate explicitly approved action.
+
+### Recover an interrupted release with email already active
+
+Normal `routine-upgrade` still requires both delivery gates to be enabled. Do
+not enable an incompatible WeChat consumer to satisfy that gate, or select a
+first-cutover operation to avoid the operational baseline check. The protected
+ship lifecycle has an explicit recovery entry for the verified state
+`deliveryEnabled=true`, `wechatEnabled=false`:
+
+```text
+/release recover 0.9.1 <new-full-main-sha> <existing-host-runtime-sha> <control-updated-at-UTC> scope=all sender=true
+```
+
+The timestamp is the existing control row's exact `updatedAt`, not the time of
+the command. The router passes `recovery_runtime_commit`,
+`recovery_control_updated_at`, `recovery_delivery_enabled=true` and
+`recovery_wechat_enabled=false` to `production-host-core.yml` with
+`operation=recovery-upgrade`. Other states and omitted baselines are rejected.
+Both the new target and the existing runtime require successful exact-SHA CI;
+the new target must still be current main.
+
+Before changing the host checkout, the reviewed runner code executes bounded
+read-only checks in the existing API container. It checks the schema
+fingerprint, prior activation and complete migration reconciliation, the exact
+control timestamp and gates, a fresh active email-owner heartbeat, API/edge
+identity, the existing routing, and the IDs/image digests/runtime revisions of
+all eight application containers. Email must have one running consumer on the
+same image as the API. WeChat must remain stopped. Its stopped container may
+still be an older image: it is not a delivery owner, and recovery replaces it.
+The protected baseline contains no recipient,
+message, credential or raw configuration values and is saved before checkout.
+
+Preparation builds the new exact image and creates a protected business-schema
+backup while email continues running. The candidate must use exactly the
+already-applied schema fingerprint; this recovery cannot introduce schema
+changes, reimport D1, rotate identities, reset caches, or restore a database.
+Immediately before mutation it rechecks the baseline, acquires the existing
+exclusive delivery fence, and compares the old runtime commit, gates and
+control timestamp atomically. Only a successful compare-and-set closes delivery
+and marks runtime mutation as started. A stale request cannot pause a later
+operator's state.
+
+Preflight/build failures leave the running email service alone. After checkout,
+source restoration is allowed only while the original container and database
+identities are demonstrably unchanged; a missing runner marker alone is
+insufficient. Once the fence commits, failure retains evidence and safely
+pauses delivery. Do not blindly restore the previous mixed component versions.
+
+The remaining deployment and acceptance steps are unchanged: protected Pi
+preflight/apply, exact Web/Host/Airflow/Sender identities, production API
+transaction rollback probe, natural cycles for all 26 active venues, and real
+natural email and WeChat receipts. Baoan's approved feature rollback retires
+its business route and observations while preserving its historical database
+rows; the Pi candidate and acceptance contract are Dashah-only. The Pi gate is
+retained rather than skipped. The owner restored all configured shared WeChat
+groups on 2026-11-01; the dedicated Dashah free group retains its isolated route.
+
+There is a delivery interruption after the fence. The established cutover step
+resumes email once the new Host/edge are ready; WeChat becomes eligible only
+after the full component deployment and exact Sender/API checks. A later
+technical failure safely pauses both channels. If all technical checks pass
+and only natural delivery receipts are absent, acceptance stays pending and
+leaves the healthy consumers active. Resume the same run's failed jobs to
+preserve the acceptance window; never manufacture a test notification.
 
 ## Notification semantics
 
@@ -107,8 +169,9 @@ rehearse recovery in isolation; do not claim high availability from a single hos
 A change under `src/wechat_airflow/host_core/` requires `scope=all sender=true`
 and the protected **ship** lifecycle, not an Airflow-only apply. The lifecycle
 builds and checks the new Host Core image, fences delivery, updates all consumers,
-then requires exact identities, three natural venue cycles, API transaction
-rollback acceptance and natural email/WeChat evidence before tagging. A verified
+then requires exact identities and the API transaction rollback probe before
+activating workers and tagging. Natural venue cycles and email/WeChat receipts
+are observed in production and do not hold the tag. A verified
 existing migration checkpoint skips the D1 import. Never clear the checkpoint or
 reimport the archive to get a later release through its gate.
 

@@ -7,7 +7,7 @@
     "check:runtime": "node scripts/check-mobile-runtime.mjs",
     "check:worker": "npm run cf:types && tsc -p tsconfig.worker.json",
     "update:runtime-lock": "node scripts/update-mobile-runtime-lock.mjs",
-    "test": "vitest run cloudflare/*.test.ts",
+    "test": "vitest run cloudflare/*.test.ts src/ideal-windows.test.ts",
     "test:runtime": "playwright test",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "predev": "npm run check:runtime",
@@ -36,8 +36,8 @@
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.0",
     "typescript": "7.0.2",
-    "vite": "8.2.2",
-    "vitest": "^4.1.11",
-    "wrangler": "^4.125.0"
+    "vite": "8.3.4",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.156.0"
   }
 }

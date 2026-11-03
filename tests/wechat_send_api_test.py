@@ -203,6 +203,57 @@ class WeChatSendApiTest(unittest.TestCase):
         assert post.call_args.kwargs["json"]["receivers"] == ["A", "B"]
         assert post.call_args.kwargs["timeout"] == 5
 
+    def test_restored_shared_groups_reach_durable_enqueue(self):
+        configured = {
+            "SZ_TENNIS_CHATROOMS": "shared-zacks-a\nshared-zacks-b",
+            "WECHAT_SEND_DEVICE_NAME": "device",
+        }
+        with (
+            patch.object(
+                wechat_send_api,
+                "_get_variable",
+                side_effect=lambda key, default=None: configured.get(key, default),
+            ),
+            patch("wechat_airflow.notifications.webapp._host_token", return_value="token"),
+            patch.object(
+                wechat_send_api.requests,
+                "post",
+                return_value=FakeResponse({"success": True, "queued": 1}),
+            ) as post,
+            patch.object(wechat_send_api, "_release_subscription_gate_dedupe"),
+        ):
+            result = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["shared-zacks-a", "shared-zacks-b"], "message", booking_venue_id="tops"
+            )
+            assert result[0]["queued"] is True
+            assert post.call_args.kwargs["json"]["receivers"] == [
+                "shared-zacks-a",
+                "shared-zacks-b",
+            ]
+            result = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["Zacks_大沙河限定免费"],
+                "free-court availability",
+                booking_venue_id="dsh_free",
+            )
+        assert result[0]["queued"] is True
+        assert post.call_args.kwargs["json"]["receivers"] == ["Zacks_大沙河限定免费"]
+
+    def test_explicit_device_does_not_read_unrelated_shared_group_config(self):
+        with (
+            patch.object(wechat_send_api, "_get_variable", side_effect=RuntimeError),
+            patch("wechat_airflow.notifications.webapp._host_token", return_value="token"),
+            patch.object(
+                wechat_send_api.requests,
+                "post",
+                return_value=FakeResponse({"success": True, "queued": 1}),
+            ) as post,
+        ):
+            result = wechat_send_api.send_wechat_text_to_chatrooms_best_effort(
+                ["shared-zacks-a"], "message", device_name="device", booking_venue_id="tops"
+            )
+        assert result[0]["queued"] is True
+        post.assert_called_once()
+
     def test_best_effort_releases_collector_preclaim_on_persistence_failure(self):
         with (
             patch("wechat_airflow.notifications.webapp._host_token", return_value="token"),

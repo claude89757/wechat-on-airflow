@@ -66,6 +66,34 @@ cancels pending mail. A send that already started is allowed to finish before
 cancellation returns. Coffee claims serialize by identity and preserve the
 five-second delay and 30-day invitation validity.
 
+### Playing-date reminder preferences
+
+`notification_date_pauses` stores one durable preference per verified email and
+Asia/Shanghai playing date. Authenticated `GET /api/notification-pauses` returns
+the active future/today dates and the server's calendar day; `POST` accepts
+`{action: "pause" | "resume", dates: ["YYYY-MM-DD", ...]}`. Each atomic request
+accepts 1–31 dates from today through today + 365 days and returns `changedDates`
+for precise undo. Repeated operations are idempotent; clients cannot select the
+target email. Resuming updates the preference instead of deleting its history.
+
+Date changes take the exclusive delivery fence before touching preferences or
+queues. Observation matching and subscriber claims take its shared counterpart
+before row locks; final dispatch rechecks the preference while holding the
+existing send guard. Pausing cancels only definitely-unsent subscriber intents
+for the selected playing dates and releases their unused quota claims. It never
+rewrites submitted, uncertain or delivered outcomes. Personal preferences do
+not change venue crawling, subscriptions, WeChat group eligibility or system
+emails.
+
+On resume, the next fresh natural observation must have been checked after the
+preference changed and still satisfy the current subscription/slot rules. Only
+intents cancelled by this feature may requalify; their event dedupe key and
+original `created_at` are retained, while `eligible_at` bounds the new delivery
+window. Subscriber digests link to `/?pauseDate=YYYY-MM-DD`. That navigation only
+preselects a date in My Subscriptions and requires an explicit authenticated
+save. The same sheet handles verification return, multi-date selection, restore
+and undo; inbound email reply commands are outside this release.
+
 ## Observation, matching and deduplication
 
 Every natural poll reaches the local API, including unchanged availability.
@@ -75,9 +103,41 @@ unhealthy/empty observations clear that scope. Semantic fingerprints suppress
 redundant matching but not freshness updates. Subscription generations cause
 newly created subscriptions to be matched on the next natural poll even when
 availability has not changed. Event/subscription/channel uniqueness prevents
-repeated queue creation. Venue IDs, DAG IDs, task IDs and approved schedules are
-unchanged: Shenzhen Bay remains 15 seconds; explicit resource-safe exceptions
-remain in the schedule policy.
+repeated queue creation. Venue IDs, DAG IDs and retained task IDs remain stable.
+Approved schedules are recorded in the schedule policy. Following the
+2026-10-20 update, Shenzhen Bay polls every two minutes and Greater Bay Area
+every three minutes, only from 08:00 inclusive to 21:00 exclusive in
+Asia/Shanghai. Both venues inspect today and the next two calendar days;
+Shenzhen Bay's fourth-day task was retired by explicit user request on
+2026-10-20, retaining its historical run records. Their interval schedules
+continue outside that window, but
+intentional-idle rounds publish only an internal healthy empty observation to
+refresh status and clear stale availability, without querying CRLand or
+attempting reminders. Both venues share three CRLand accounts and rotate
+independently by their own scheduled round; every date and booking-area query
+in a venue round keeps the selected account. Actual local time is checked
+before each upstream attempt and final publication, so closing the window
+discards partial results and publishes the idle observation. The one-minute
+default and other explicit exceptions remain in force.
+
+Business acceptance retains the retired `szw:check_and_notify_day_3` scope
+(approved 2026-10-20) and `baoti:check_tennis_courts` scope (approved 2026-11-01)
+as historical evidence under the exact policies in `host-core-contract.yaml`.
+The owner withdrew the Baoan integration, so `baoti` is absent from the 26
+active venue producers and new subscription/delivery targets. Its catalog row,
+existing subscriptions, observations, queue history and deduplication identities
+remain durable. Schema fingerprints and seed identity retain the historical
+27-row catalog; retirement performs no migration or deletion. Existing user
+subscriptions remain visible and cancellable, with the retired selection labeled.
+
+Only these approved scopes are exempt from ongoing scope health/freshness,
+and only while the manifest excludes their retired producers. Every other
+stored scope remains checked, and an empty active set fails. Venue acceptance
+requires the exact 26 active IDs; missing, duplicate or unknown catalog entries
+fail rather than being silently filtered. Reports retain original historical
+rows and separate checked/retired counts. Email dispatch and WeChat eligibility
+reject withdrawn venues without deleting or replaying their records. All active
+venue natural cycles and real natural delivery receipts remain mandatory.
 
 ## Email delivery
 
@@ -109,7 +169,38 @@ conditions retry; unknown UI outcomes are quarantined, not replayed. PostgreSQL
 owns per-group mini-program cooldowns and the host queue; the device ledger owns
 the final device-side idempotency boundary.
 
+Each group's first natural alert between 06:00 (inclusive) and 12:00 (exclusive),
+Asia/Shanghai, ends with a short email-subscription guide to
+`https://courts.zacks.vision/`. The host consumer checks durable outbox history
+across all venues for that receiver, so a restart cannot repeat the daily guide.
+Known-unsent failures leave the guide eligible; uncertain submissions containing
+it reserve that morning until reconciled. Retries recheck eligibility and remove
+the guide after noon. No separate promotional notification is scheduled, and a
+morning with no eligible court alert sends no guide.
+
 ## Cloudflare boundary
+
+The owner-authorized [remote operations plane](docs/runbooks/remote-operations-mcp.md)
+adds separate Pi/VPS MCP applications and explicit operator groups. Privileged
+shell operations require same-user browser confirmation of the exact command,
+with audit hashes and no automatic replay. This is trusted-admin access, not a
+shell sandbox. Repository releases remain protected GitHub-only. Cloudflare
+frontend management uses the official API MCP with each collaborator's own
+account permissions; management tokens are not copied into Pi/VPS hosts.
+Operator membership remains in Cloudflare and is never overwritten by deploys.
+
+An independent trusted-agent control endpoint is specified in
+[ADR 0015](docs/adr/0015-pi-appium-mcp.md). It uses dedicated Cloudflare
+Access owner-only managed OAuth for interactive agents, a dedicated machine
+credential for protected automation, and a separate Tunnel to a loopback-only
+Pi MCP process. OAuth uses the existing Cloudflare login provider, bounded
+refresh grants and restricted callbacks, not a reused management token or an
+account-wide phone-control policy. The connector validates the Access assertion
+for both paths. It shares whole-phone locks with the Sender and device agent; it is
+not part of the venue delivery pipeline and cannot attach to their Appium
+sessions. Existing Appium 2 services are reused, not upgraded. This boundary
+does not secure legacy public Appium routes automatically; those require a
+separate caller inventory and approved restriction.
 
 Cloudflare has no durable business ownership. The production Worker has no D1
 binding, scheduled business work, migration endpoint or legacy backend import.
@@ -137,9 +228,10 @@ Backups and source exports remain root-only, never public workflow artifacts.
 Acceptance has four distinct evidence classes:
 
 1. Exact release identities and public HTTP health/bootstrap/security checks.
-2. Production database/API logic through an operator-only transaction probe; all
-   test writes are rolled back and it sends no real email/WeChat. It is not a
-   public browser or external verification-email test.
+2. Production database/API logic, including date pause/list/restore, idempotency,
+   anonymous denial and preservation of subscriptions, through an operator-only
+   transaction probe; all test writes are rolled back and it sends no real
+   email/WeChat. It is not a public browser or external verification-email test.
 3. All 26 venue DAGs passing three natural cycles, fresh per-scope observations,
    healthy auxiliary tasks and advancing consumers/queues.
 4. Real natural SES-delivered and WeChat-sent records after the release window.

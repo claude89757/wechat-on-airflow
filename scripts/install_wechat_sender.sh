@@ -3,6 +3,7 @@ set -euo pipefail
 
 APPLY=false
 TARGET_COMMIT=""
+WHEELHOUSE=""
 REPOSITORY_URL="${WECHAT_SENDER_REPOSITORY_URL:-https://github.com/claude89757/wechat-on-airflow.git}"
 INSTALL_DIR="${WECHAT_SENDER_INSTALL_DIR:-/opt/wechat-on-airflow}"
 VENV_DIR="${WECHAT_SENDER_VENV_DIR:-/opt/wechat-sender-venv}"
@@ -14,7 +15,7 @@ APPIUM_OVERRIDE_FILE="${APPIUM_OVERRIDE_DIR}/wechat-sender.conf"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/install_wechat_sender.sh --target-commit <full-sha> [--apply]
+Usage: scripts/install_wechat_sender.sh --target-commit <full-sha> [--wheelhouse <staged-file>] [--apply]
 
 The command is read-only by default. Apply mode installs the exact Git commit,
 creates a dedicated service user and virtual environment, and enables the
@@ -54,6 +55,11 @@ while (($#)); do
       TARGET_COMMIT="$2"
       shift 2
       ;;
+    --wheelhouse)
+      (($# >= 2)) || fail "--wheelhouse requires a value"
+      WHEELHOUSE="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -82,8 +88,14 @@ for command in adb appium tesseract; do
 done
 tesseract --list-langs 2>/dev/null | grep -Fxq chi_sim ||
   fail "tesseract chi_sim language data is required"
-python3 -c 'from PIL import Image; assert hasattr(Image, "Resampling")' 2>/dev/null ||
-  fail "python3-pil with Image.Resampling support is required"
+# Preserve the established service interpreter/minor version for an upgrade.
+# A new standalone installation may use the documented Python 3.12 baseline.
+SENDER_PYTHON="$VENV_DIR/bin/python"
+if [[ ! -e "$VENV_DIR" && ! -L "$VENV_DIR" ]]; then
+  SENDER_PYTHON=python3.12
+fi
+"$SENDER_PYTHON" -c 'import sys, venv; assert sys.version_info[:2] in {(3, 11), (3, 12)}' 2>/dev/null ||
+  fail "Sender Python 3.11 or 3.12 with venv support is required"
 [[ "$(adb -s "$DEVICE_NAME" get-state 2>/dev/null)" == "device" ]] ||
   fail "configured Android device is not online in adb"
 adb -s "$DEVICE_NAME" shell pm path com.tencent.mm 2>/dev/null | grep -q '^package:' ||
@@ -128,13 +140,42 @@ git -C "$INSTALL_DIR" checkout --detach "$TARGET_COMMIT"
 next_venv="${VENV_DIR}.new"
 previous_venv="${VENV_DIR}.previous"
 rm -rf "$next_venv"
-python3 -m venv --system-site-packages "$next_venv"
-grep -v '^Pillow==' \
-  "$INSTALL_DIR/docker/sender/requirements.lock" \
-  >"$next_venv/requirements.lock"
-"$next_venv/bin/python" -m pip install --disable-pip-version-check \
-  --requirement "$next_venv/requirements.lock"
-rm "$next_venv/requirements.lock"
+# Do not inherit distribution Pillow: its version is outside our release lock.
+"$SENDER_PYTHON" -m venv "$next_venv"
+wheelhouse_stage="$(mktemp -d "${VENV_DIR}.wheelhouse.XXXXXXXX")"
+cleanup_wheelhouse_stage() {
+  rm -rf -- "$wheelhouse_stage"
+}
+trap cleanup_wheelhouse_stage EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# Independently validate the complete archive using the replacement interpreter.
+wheelhouse_verified="$("$next_venv/bin/python" "$INSTALL_DIR/scripts/sender_wheelhouse.py" \
+  --lock "$INSTALL_DIR/docker/sender/requirements.lock" \
+  --manifest "$INSTALL_DIR/config/sender-arm32-wheelhouse.json" --artifact "$WHEELHOUSE" \
+  --directory "$wheelhouse_stage/wheels")" || fail "staged wheelhouse verification failed"
+if [[ "$wheelhouse_verified" == true ]]; then
+  "$next_venv/bin/python" - "$INSTALL_DIR/docker/sender/requirements.lock" "$wheelhouse_stage/wheels" <<'OFFLINE_INSTALL_PY'
+import os
+import sys
+
+environment = {key: value for key, value in os.environ.items() if not key.startswith("PIP_")}
+environment["PIP_CONFIG_FILE"] = os.devnull
+# Replace this process so normal termination and timeout ownership stay with pip.
+os.execve(sys.executable, [sys.executable, "-m", "pip", "--isolated", "install", "--disable-pip-version-check", "--no-cache-dir", "--only-binary=:all:", "--no-index", "--find-links", sys.argv[2], "--requirement", sys.argv[1]], environment)
+OFFLINE_INSTALL_PY
+elif [[ "$wheelhouse_verified" == false ]]; then
+  "$next_venv/bin/python" -m pip install --disable-pip-version-check \
+    --only-binary=Pillow --requirement "$INSTALL_DIR/docker/sender/requirements.lock"
+else
+  fail "staged wheelhouse returned invalid evidence"
+fi
+"$next_venv/bin/python" "$INSTALL_DIR/sender_agent/verify_dependencies.py" \
+  "$INSTALL_DIR/docker/sender/requirements.lock"
+cleanup_wheelhouse_stage
+trap - EXIT HUP INT TERM
+# Validate before replacing the active environment or restarting any service.
 rm -rf "$previous_venv"
 if [[ -d "$VENV_DIR" ]]; then
   mv "$VENV_DIR" "$previous_venv"

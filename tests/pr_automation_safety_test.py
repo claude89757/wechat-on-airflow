@@ -30,6 +30,7 @@ def test_routine_dependabot_version_updates_are_disabled() -> None:
     for update in updates:
         assert update["open-pull-requests-limit"] == 0
         assert update["schedule"]["interval"] == "monthly"
+        assert update["rebase-strategy"] == "disabled"
         assert "groups" not in update
 
 

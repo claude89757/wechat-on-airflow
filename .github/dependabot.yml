@@ -4,6 +4,8 @@ version: 2
 # - routine version-update pull requests are disabled for every ecosystem;
 # - security-update pull requests can still be created when Dependabot security
 #   updates are enabled in the repository settings;
+# - automatic rebasing is disabled so already-open routine bumps are not kept
+#   current as if they were a merge queue;
 # - broader dependency refreshes happen only in an explicit maintenance window.
 updates:
   - package-ecosystem: pip
@@ -11,27 +13,32 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 0
+    rebase-strategy: disabled
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
     open-pull-requests-limit: 0
+    rebase-strategy: disabled
 
   - package-ecosystem: npm
     directory: /webapp
     schedule:
       interval: monthly
     open-pull-requests-limit: 0
+    rebase-strategy: disabled
 
   - package-ecosystem: docker
     directory: /docker/airflow
     schedule:
       interval: monthly
     open-pull-requests-limit: 0
+    rebase-strategy: disabled
 
   - package-ecosystem: docker
     directory: /docker/sender
     schedule:
       interval: monthly
     open-pull-requests-limit: 0
+    rebase-strategy: disabled

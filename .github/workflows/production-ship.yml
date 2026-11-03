@@ -18,6 +18,26 @@ on:
         required: false
         default: false
         type: boolean
+      recovery_runtime_commit:
+        description: Existing runtime SHA for an email-active, WeChat-paused recovery
+        required: false
+        default: ''
+        type: string
+      recovery_control_updated_at:
+        description: Exact existing runtime_control timestamp from the reviewed baseline
+        required: false
+        default: ''
+        type: string
+      recovery_delivery_enabled:
+        description: Recorded existing email ownership must be enabled for recovery
+        required: false
+        default: false
+        type: boolean
+      recovery_wechat_enabled:
+        description: Recorded existing WeChat ownership must be disabled for recovery
+        required: false
+        default: false
+        type: boolean
     outputs:
       resolved_scope:
         description: Resolved component scope
@@ -31,6 +51,15 @@ on:
       deploy_sender:
         description: Whether sender deployment was planned
         value: ${{ jobs.deploy.outputs.deploy_sender }}
+      deploy_pi_ydmap:
+        description: Whether private Pi scraper deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_pi_ydmap }}
+      deploy_remote_ops:
+        description: Whether host MCP deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_remote_ops }}
+      deploy_pi_mcp:
+        description: Whether phone MCP deployment was planned
+        value: ${{ jobs.deploy.outputs.deploy_pi_mcp }}
   workflow_dispatch:
     inputs:
       version:
@@ -52,10 +81,34 @@ on:
           - webapp
           - airflow
           - sender
+          - pi_ydmap
+          - remote_ops
+          - pi_mcp
           - control
       include_sender:
         description: Explicit approval for an in-scope sender deployment
         required: true
+        default: false
+        type: boolean
+
+      recovery_runtime_commit:
+        description: Existing runtime SHA for an email-active, WeChat-paused recovery
+        required: false
+        default: ''
+        type: string
+      recovery_control_updated_at:
+        description: Exact existing runtime_control timestamp from the reviewed baseline
+        required: false
+        default: ''
+        type: string
+      recovery_delivery_enabled:
+        description: Recorded existing email ownership must be enabled for recovery
+        required: false
+        default: false
+        type: boolean
+      recovery_wechat_enabled:
+        description: Recorded existing WeChat ownership must be disabled for recovery
+        required: false
         default: false
         type: boolean
 
@@ -84,28 +137,54 @@ jobs:
           VERSION: ${{ inputs.version }}
           SCOPE: ${{ inputs.scope }}
           SENDER: ${{ inputs.include_sender }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          RECOVERY_RUNTIME_COMMIT: ${{ inputs.recovery_runtime_commit }}
+          RECOVERY_CONTROL_UPDATED_AT: ${{ inputs.recovery_control_updated_at }}
+          RECOVERY_DELIVERY_ENABLED: ${{ inputs.recovery_delivery_enabled }}
+          RECOVERY_WECHAT_ENABLED: ${{ inputs.recovery_wechat_enabled }}
         run: |
-          python scripts/release_contract.py --version "$VERSION"
+          args=(--version "$VERSION" --target-commit "$TARGET_COMMIT" --scope "$SCOPE"
+            --recovery-runtime-commit "$RECOVERY_RUNTIME_COMMIT"
+            --recovery-control-updated-at "$RECOVERY_CONTROL_UPDATED_AT")
+          if [ "$SENDER" = true ]; then args+=(--include-sender); fi
+          if [ "$RECOVERY_DELIVERY_ENABLED" = true ]; then args+=(--recovery-delivery-enabled); fi
+          if [ "$RECOVERY_WECHAT_ENABLED" = true ]; then args+=(--recovery-wechat-enabled); fi
+          python scripts/release_contract.py "${args[@]}"
           python scripts/host_core_release_scope.py --scope "$SCOPE"
           if [ "$VERSION" = 0.7.0 ] || [ "$SCOPE" = all ]; then
             test "$SCOPE" = all
             test "$SENDER" = true
           fi
 
+  preflight:
+    needs: contract
+    uses: ./.github/workflows/production-release.yml
+    with:
+      mode: preflight
+      target_commit: ${{ inputs.target_commit }}
+      scope: ${{ inputs.scope }}
+      include_sender: ${{ inputs.include_sender }}
+    secrets: inherit
+
   host_core_cutover:
     if: inputs.version == '0.7.0' || inputs.scope == 'all'
-    needs: contract
+    needs: preflight
     uses: ./.github/workflows/production-host-core.yml
     with:
-      operation: full-cutover
+      operation: ${{ inputs.recovery_runtime_commit != '' && 'recovery-upgrade' || inputs.version == '0.7.0' && 'full-cutover' || 'routine-upgrade' }}
       target_commit: ${{ inputs.target_commit }}
+      recovery_runtime_commit: ${{ inputs.recovery_runtime_commit }}
+      recovery_control_updated_at: ${{ inputs.recovery_control_updated_at }}
+      recovery_delivery_enabled: ${{ inputs.recovery_delivery_enabled }}
+      recovery_wechat_enabled: ${{ inputs.recovery_wechat_enabled }}
     secrets: inherit
 
   deploy:
-    needs: [contract, host_core_cutover]
+    needs: [contract, preflight, host_core_cutover]
     if: >-
       always() &&
       needs.contract.result == 'success' &&
+      needs.preflight.result == 'success' &&
       ((inputs.version != '0.7.0' && inputs.scope != 'all') || needs.host_core_cutover.result == 'success')
     uses: ./.github/workflows/production-release.yml
     with:
@@ -137,8 +216,8 @@ jobs:
     if: >-
       always() && (inputs.version == '0.7.0' || inputs.scope == 'all') &&
       needs.host_core_cutover.result == 'success' &&
-      (needs.deploy.result != 'success' || needs.natural_cycles.result != 'success' || needs.acceptance.result != 'success')
-    needs: [host_core_cutover, deploy, natural_cycles, acceptance]
+      (needs.deploy.result != 'success' || needs.natural_cycles.result != 'success')
+    needs: [host_core_cutover, deploy, natural_cycles]
     uses: ./.github/workflows/production-host-core.yml
     with:
       operation: pause
@@ -146,11 +225,11 @@ jobs:
     secrets: inherit
 
   tag:
-    needs: [deploy, acceptance]
+    needs: [deploy, natural_cycles]
     if: >-
       always() &&
       needs.deploy.result == 'success' &&
-      ((inputs.version != '0.7.0' && inputs.scope != 'all') || needs.acceptance.result == 'success')
+      ((inputs.version != '0.7.0' && inputs.scope != 'all') || needs.natural_cycles.result == 'success')
     uses: ./.github/workflows/release-tag-chatops.yml
     with:
       version: ${{ inputs.version }}
@@ -159,7 +238,7 @@ jobs:
 
   record:
     if: always()
-    needs: [contract, host_core_cutover, deploy, natural_cycles, acceptance, tag]
+    needs: [contract, preflight, host_core_cutover, deploy, natural_cycles, acceptance, tag]
     runs-on: ubuntu-latest
     steps:
       - name: Record ship result
@@ -172,10 +251,12 @@ jobs:
           AIRFLOW_PLANNED: ${{ needs.deploy.outputs.deploy_airflow }}
           SENDER_PLANNED: ${{ needs.deploy.outputs.deploy_sender }}
           CONTRACT_RESULT: ${{ needs.contract.result }}
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           HOST_CORE_CUTOVER_RESULT: ${{ needs.host_core_cutover.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
           NATURAL_CYCLES_RESULT: ${{ needs.natural_cycles.result }}
           ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+          ACCEPTANCE_STATUS: ${{ needs.acceptance.outputs.acceptance_status }}
           TAG_RESULT: ${{ needs.tag.result }}
         run: |
           {
@@ -186,18 +267,19 @@ jobs:
             echo "- Requested scope: \`$REQUESTED_SCOPE\`"
             echo "- Resolved scope: \`$RESOLVED_SCOPE\`"
             echo "- Components: webapp=\`$WEBAPP_PLANNED\`, airflow=\`$AIRFLOW_PLANNED\`, sender=\`$SENDER_PLANNED\`"
+            echo "- Preflight: \`$PREFLIGHT_RESULT\`"
             echo "- Release contract: \`$CONTRACT_RESULT\`"
             echo "- Host-core cutover: \`$HOST_CORE_CUTOVER_RESULT\`"
             echo "- Deployment: \`$DEPLOY_RESULT\`"
-            echo "- Three natural cycles: \`$NATURAL_CYCLES_RESULT\`"
-            echo "- Final production acceptance: \`$ACCEPTANCE_RESULT\`"
+            echo "- Worker activation: \`$NATURAL_CYCLES_RESULT\`"
+            echo "- Business observation: \`$ACCEPTANCE_RESULT\` / \`$ACCEPTANCE_STATUS\`"
             echo "- Immutable tag and GitHub Release: \`$TAG_RESULT\`"
           } >> "$GITHUB_STEP_SUMMARY"
           test "$CONTRACT_RESULT" = success
+          test "$PREFLIGHT_RESULT" = success
           test "$DEPLOY_RESULT" = success
           if [ "$VERSION" = 0.7.0 ] || [ "$REQUESTED_SCOPE" = all ]; then
             test "$HOST_CORE_CUTOVER_RESULT" = success
             test "$NATURAL_CYCLES_RESULT" = success
-            test "$ACCEPTANCE_RESULT" = success
           fi
           test "$TAG_RESULT" = success

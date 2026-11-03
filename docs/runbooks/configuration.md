@@ -22,17 +22,72 @@ When adding a Variable:
 
 ## CRLand Booking Authorization
 
-`SZW_API_AUTHORIZATION` stores the shared CRLand booking API JWT used by the
-Shenzhen Bay outdoor area, Shenzhen Bay covered area, and Greater Bay Area
-venue. The canonical form includes the `Wechat ` prefix; the adapter also
-accepts the legacy raw JWT and adds the prefix in memory. Keep it only in
-Airflow Variables; never place it in source, documentation, shell history, or
-logs.
+`SZW_API_AUTHORIZATIONS` is a sensitive JSON list of exactly three CRLand
+booking API JWTs for distinct accounts. Shenzhen Bay outdoor, Shenzhen Bay
+covered, and Greater Bay Area share the pool. Each canonical entry includes
+the `Wechat ` prefix; raw JWT entries are normalized in memory. The runtime
+reads only Airflow Variables. Stage an explicitly authorized replacement pool
+in the GitHub `production` Environment secret `SZW_API_AUTHORIZATIONS`; never
+place values in source, documentation, workflow inputs, issue comments, shell
+history, or logs.
 
-The venue adapter validates the JWT structure and `exp` claim before each request. A missing,
-malformed, or expired value marks the Web observation unhealthy and fails the affected Airflow
-task so its configured retry and failure visibility remain effective. Renewing the credential only
-requires replacing this Variable; it does not require a code deployment.
+After the exact main commit passes `CI / verify`, dispatch the protected
+`Production Airflow` workflow with operation `szw_authorization_sync` and that
+full `target_commit`. The operation checks every JWT's structure, expiry, and
+distinct `sub`/`openid` identity without reporting claim values. It streams the
+pool over pinned SSH stdin and performs nine read-only matrix queries for
+tomorrow in Asia/Shanghai: every account against Shenzhen Bay outdoor,
+Shenzhen Bay covered, and Greater Bay Area. Each query has a bounded timeout;
+queries are spaced by two seconds and never follow redirects or environment
+proxies. No observation, notification, booking, or Airflow Variable is written
+by these probes.
+
+Only after all nine API responses succeed does the operation replace the pool
+and set the legacy `SZW_API_AUTHORIZATION` to its first account in one database
+transaction. It compares both stored values before committing, so a failed
+probe preserves the old values and a failed readback rolls back both writes.
+The legacy value keeps the previous runtime and a reviewed rollback usable
+during the pool deployment. Logs contain only fixed error categories, account
+indices, and confirmation counts, never token claims, response bodies, or
+credential values. A transport timeout has an uncertain completion state and
+requires checking the protected result before claiming success. Verify three
+subsequent natural polling cycles within the active window for both venue
+DAGs; do not trigger synthetic email or WeChat notifications.
+
+### Polling window and account rotation
+
+Both venue DAGs inspect today and the next two calendar days using
+`check_and_notify_day_0` through `check_and_notify_day_2`. Shenzhen Bay's
+fourth-day task was retired by explicit user request on 2026-10-20. Its
+historical task/run records remain; the current task manifest and bounded
+diagnosis require only the three retained dates.
+
+Shenzhen Bay uses a two-minute interval and Greater Bay Area a three-minute
+interval. Routine CRLand queries run only from 08:00 inclusive to 21:00
+exclusive in Asia/Shanghai. Booking dates and window checks use that timezone
+independently of the host timezone. Airflow retains the interval schedules
+outside this window: an intentional-idle round publishes an internal healthy
+empty observation to clear stale availability and refresh status, without
+querying CRLand or attempting reminders. Check actual local time at task entry,
+before each upstream attempt, and before final publication. If the window
+closes during collection, discard partial results and publish the idle empty
+observation once.
+
+Each venue rotates through the same three-account pool by its own scheduled
+round. Selection is `floor(scheduled_timestamp / (interval_minutes * 60)) % 3`,
+using the Airflow data interval end, then logical date when unavailable, then
+captured actual time for a direct call. It uses no mutable counter or daily
+reset. During uninterrupted polling, each account is selected every six
+minutes for Shenzhen Bay and every nine minutes for Greater Bay Area. Every
+date task in the same venue round selects the same account; it stays fixed
+across booking areas and request retries. Expiry is checked against actual
+execution time.
+
+The legacy single Variable is a compatibility fallback only when the pool is
+absent. An invalid, incomplete, duplicate-account, or expired configured pool
+fails closed instead of silently concentrating requests on one account.
+Credential renewal uses the protected sync operation and does not require a
+runtime code deployment after the pool-capable release is installed.
 
 The Greater Bay Area API permits today plus the next two calendar days. Its DAG
 therefore runs `day_0` through `day_2`; longer-lived Web subscriptions continue
@@ -77,9 +132,9 @@ use.
 
 ## Raspberry Pi YDMap Scraper
 
-`PI_DEVICE_SSH` is a sensitive JSON object used only by the Dashah
-International Tennis Center DAG. It requires `host`, `port`, `username`,
-`password`, and `host_key_sha256`. Optional `scrape_url` defaults to
+`PI_DEVICE_SSH` is the sensitive JSON object used by the Dashah International
+Tennis Center DAG. It requires `host`, `port`,
+`username`, `password`, and `host_key_sha256`. Optional `scrape_url` defaults to
 `http://127.0.0.1:8788/inspect`. Never log or commit its value.
 
 The GitHub `production` Environment stores the scrape-host login as
@@ -91,13 +146,16 @@ runtime path and must not be copied onto developer machines. The workstation
 `.env` is a local convenience file, not production identity.
 
 The scrape service listens only on the Pi loopback interface. Airflow reaches
-it by SSH and a localhost `curl`. Do not publish port `8788`. The watcher
-collects today plus four later calendar days, publishes raw slots to the Web
-app, and applies the shared paid-venue WeChat window afterwards.
+it by SSH and a localhost `curl`. Do not publish port `8788`. The Dashah watcher
+collects today plus four later calendar days, publishes raw slots to Host Core
+before any WeChat enqueue, and uses the service's single-scrape lock. Baoan
+(`baoti`) was explicitly withdrawn on 2026-11-01. Its historical database rows,
+subscriptions, Airflow state and deduplication cache must be preserved; it is
+not an active required configuration or producer.
 
 ## Web Subscription Publisher
 
-All nine venue DAGs require:
+All 26 active venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in

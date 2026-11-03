@@ -3,6 +3,278 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [Unreleased]
+
+### Added
+
+- Productize the existing subscription window as named ideal-time presets.
+  New subscriptions created in the web app default to 工作日晚间
+  (Monday–Friday, 19:00–22:00), narrower than the previous every-day evening
+  default. The other presets are 午休局 (Monday–Friday 12:00–14:00), 周末上午
+  (Saturday–Sunday 08:00–12:00), 周末下午 (Saturday–Sunday 14:00–18:00), and
+  自定义. Button copy and `preferenceLabel` use these same words.
+- Email is sent only when a free slot overlaps that personal window. WeChat
+  group delivery stays venue-level: any active subscription for the venue
+  opens the gate, and group messages are not filtered by the personal window.
+- This phase adds no subscription column and no multi-window jsonb. A second
+  window is a second subscription. Labels are derived from the stored weekday
+  mask and clock.
+- Changing an existing window from the subscription list asks for confirmation
+  first, because the change can cancel pending or retry reminder email.
+  Submitted mail and WeChat rows are left as they are.
+
+## [0.10.0] - 2026-11-02
+
+### Added
+
+- Let verified subscribers pause reminders for specific playing dates across
+  their venue subscriptions, select multiple dates in My Subscriptions, restore
+  individual dates, and undo the dates changed by their latest action. Preferences
+  persist by email in Host Core and use the Asia/Shanghai calendar.
+- Add a playing-date link to subscriber reminder emails. The website preselects
+  that date and preserves the selection through email verification; opening a
+  link never changes notification preferences by itself.
+- Fence date changes against observation matching, queue claims and final email
+  dispatch. Release unused claims for definitely-unsent cancelled reminders;
+  preserve submitted or uncertain sends and all subscription history. Restoring
+  a date requalifies only eligible pause-cancelled reminders on a fresh natural
+  observation without resetting event identity or original creation timestamps.
+- Extend the rollback-only production API probe with authenticated pause/list/
+  restore, idempotency, anonymous denial, and no-subscriber-mail checks.
+- Add a brief email-subscription guide to each WeChat group's first natural
+  morning court alert (06:00–12:00 Asia/Shanghai). Durable per-group history
+  prevents repeats across venues and restarts; safe retries and uncertain sends
+  retain the existing delivery safeguards. No extra message is sent.
+
+### Fixed
+
+- Include allowlisted systemd state when a protected phone check finds an
+  inactive existing service, preserving the original failure and never changing
+  service state or printing raw service output.
+- Identify protected phone preflight failures with fixed stage/error-code pairs,
+  retaining every check without exposing exception messages or command output.
+- Pass the Pi interruption option only during apply. Readiness preflight remains
+  read-only and no longer rejects an apply-only option before connecting.
+- Let a recovery upgrade replace a stopped WeChat consumer that is still on an
+  older image. The live API and email worker must still match, and no WeChat
+  consumer may be running. A failed recovery check now reports its fixed guard
+  name instead of only `RuntimeError`.
+
+### Changed
+
+- Keep required CI on lint, types, unit tests and the web unit check. Browser
+  interaction runs are no longer a release gate.
+- Release preflight checks that the Pi scraper and WeChat sender are alive.
+  It does not pause Dashah, run three browser cycles, or install a sender
+  candidate. Apply may replace the scraper while one inspection is in progress.
+- Tag a full ship after worker activation. Missing natural venue cycles or
+  email/WeChat receipts no longer hold the pipeline, block the tag, or pause
+  delivery.
+- Align the README license badge and license statement with the MIT `LICENSE`.
+- State current acceptance as all 26 active venue DAGs. The count matches the
+  runtime target, public venue cards, and architecture. Dated incident records
+  keep their historical counts.
+- Disable Dependabot automatic rebasing. Routine version-update pull requests
+  stay closed to the merge queue.
+- Type the shared HTTPS proxy watcher and remove it from the strict mypy
+  exclusion list. The remaining six adapters stay the bounded typing backlog.
+
+## [0.9.1] - 2026-11-01
+
+### Changed
+
+- Withdraw the Bao'an Tennis Center integration from PR #263 at the owner's
+  request after the incomplete 0.9.0 rollout. Restore the 26-venue active
+  catalogue and retire Bao'an collection and new subscriptions. Exclude the
+  retired venue from delivery while retaining stored subscriptions and history.
+- Limit the protected YDMap scraper rollout and real-page acceptance to
+  Dashah. Retain its booking correctness, browser-state, locking, identity,
+  drain, rollback and evidence safeguards, and preserve unrelated MCP changes.
+
+### Fixed
+
+- Add an explicit protected recovery upgrade for an already-migrated runtime
+  with active email and paused WeChat. Require the recorded runtime commit and
+  control timestamp, unchanged existing schema, fresh email ownership and
+  passing exact-commit CI before fencing and aligning every release component.
+- Keep normal routine-upgrade checks, exact Sender identity, transaction
+  rollback probes and natural-delivery acceptance unchanged. A healthy release
+  awaiting natural receipts remains pending without a release tag.
+- Restore email through the existing consumer with stale reminders expired by
+  normal policy, preserving deduplication and uncertain-send records.
+
+This entry describes the recovery candidate. Production completion requires the
+protected workflow's final evidence and is not asserted by this changelog.
+
+## [0.9.0] - 2026-10-31
+
+### Added
+
+- Integrate the Bao'an Tennis Center inspection from PR #262, retaining the
+  contributor's attribution. Cover today and tomorrow across the three YDMap
+  products, with Host Core observations and Web venue status.
+- Add protected exact-commit Pi scraper preflight, deployment, health and
+  inspection operations. Validate an isolated candidate against real Dashah
+  and Bao'an pages before activation, with source identity and rollback checks.
+- Collect bounded, read-only booking-renderer definitions and public cell
+  samples only during candidate preflight. Record coverage and redaction
+  explicitly; source identity or diagnostic collection alone does not certify
+  bookability.
+
+### Fixed
+
+- Use the page's read-only booking predicate to exclude empty cells that lack
+  prices, are not open for online booking, or represent merged/special ranges.
+  Preserve the original browser startup warm-up and retain bounded challenge
+  evidence for Pi preflight diagnosis.
+- Require source venue, product name and freshly loaded booking date evidence
+  before accepting a court grid. Reject stale rows, incomplete product groups,
+  access verification pages and old scraper responses instead of publishing
+  misleading healthy observations.
+- Quote the complete SSH curl URL so venue and day parameters reach the Pi,
+  preserve curl failures, and publish observations before claiming alerts.
+- Enqueue only validated availability lines. Add booking links at delivery time
+  and release Bao'an dedupe claims when enqueue fails or delivery is suppressed.
+- Handle midnight interval endings and booking dates across New Year.
+- Serialize Dashah and Bao'an tasks in a single-slot Airflow pool so simultaneous
+  schedules cannot compete for the shared Chromium scraper.
+- Start the keyboard-dismiss regression gesture on settled, noninteractive
+  footer padding so it tests the intended gesture instead of an input click.
+
+### Operations
+
+- Pause and drain only affected YDMap DAGs during scraper replacement, then
+  restore their recorded pause states. Preserve existing shared-group delivery
+  restrictions, notification history and unrelated device services.
+- Require exact-main CI and real-page preflight before the Pi update can unblock
+  Airflow and Web release. Production acceptance remains a separate evidence gate;
+  this changelog does not assert that deployment has completed.
+
+## [0.8.7] - 2026-10-31
+
+### Changed
+
+- Restore Dashah free-court availability alerts exclusively to
+  `Zacks_大沙河限定免费`. Pause new automatic alerts to the two
+  existing shared Zacks groups in `SZ_TENNIS_CHATROOMS` without removing
+  their configuration or redirecting unrelated venues to the dedicated group.
+- Apply the shared-group block before the durable WeChat enqueue operation,
+  including overlaps in other chatroom lists. Fail closed when the paused
+  recipient set cannot be read.
+- Align redacted diagnosis and explicitly approved probe targets with the new
+  active route. Keep existing polling, Web observations, subscriptions and
+  historical dedupe data unchanged; do not replay queued historical messages.
+
+
+## [0.8.6] - 2026-10-27
+
+### Changed
+
+- Route Dashah River free-court alerts to the existing shared Zacks chatrooms
+  in `SZ_TENNIS_CHATROOMS`, retiring the dedicated free-court group route.
+  Align diagnostic and explicitly approved probe targets with the shared list,
+  preserving per-recipient deduplication and existing venue notification history.
+
+### Fixed
+
+- Stage all exact locked ARM32 CPython 3.11 wheels through the protected runner
+  using reviewed HTTPS sources, hashes, sizes and tags. Candidate and installer
+  independently validate the complete private wheelhouse before offline,
+  binary-only installation with pip configuration sources disabled. Preserve
+  the existing timeout, isolated environments and dependency/image gates.
+- Report bounded Sender candidate-install failure categories, exact locked failed
+  requirements and pip ABI evidence without exposing package-index output. The
+  diagnostic does not change dependencies, install policy or active services.
+- Preserve bounded partial pip output on candidate timeout as fixed network and
+  progress evidence plus the last observed locked requirement. Keep timeout as
+  the primary failure and retain the existing 300-second installation limit.
+- Preserve the explicitly retired Shenzhen Bay fourth-day observation as visible
+  historical evidence without requiring it to keep polling. The exact retirement
+  is validated against the active task manifest; all other stored observation
+  scopes and every venue, cycle and delivery gate remain required.
+- Pin Pillow 13.0.0 in both sender installation paths and isolate the systemd
+  Python 3.11/3.12 environment from distribution packages. Verify the actual imported
+  version, origin and screenshot/OCR operations before activation and in health.
+- Preserve the active sender environment on dependency/preflight failure instead
+  of restoring an unrelated retained rollback environment.
+
+### Operations
+
+- Gate the coupled release on a non-activating sender dependency preflight using
+  the actual host architecture and existing service interpreter. Stage the complete
+  candidate lock
+  in a temporary isolated venv; never modify the active service during this check.
+- Preserve existing identities, network settings, PostgreSQL and sender ledger;
+  reuse the supported Python 3.11/3.12 already running the service, never replace
+  the OS interpreter; require coupled runtime identity and natural-cycle acceptance,
+  without synthetic
+  email or WeChat sends.
+
+- Keep technically healthy delivery active while natural-message acceptance is
+  pending; do not tag or complete a release until all original evidence arrives.
+  Same-run failed-job retries preserve the acceptance window and per-attempt
+  artifacts, and cannot move a newer runtime back to an older checkout.
+- Collect only fixed read-only preflight business aggregates; dirty production
+  worktrees now block preflight rather than being implicitly repaired.
+
+## [0.8.5] - 2026-10-20
+
+### Changed
+
+- Poll Shenzhen Bay every two minutes and Greater Bay Area every three
+  minutes, only from 08:00 inclusive to 21:00 exclusive in Asia/Shanghai.
+  Keep the interval schedules and internal healthy empty observations outside
+  that window to refresh status and clear stale availability.
+- Rotate the three shared CRLand accounts independently by each venue's
+  scheduled round. Each account recurs every six minutes for Shenzhen Bay
+  and every nine minutes for Greater Bay Area during uninterrupted polling.
+  Preserve the selected account across date tasks, booking areas and retries.
+- Check the active window before each upstream attempt and final publication;
+  discard partial results and publish one idle empty observation when the
+  window closes, without attempting reminders from that round.
+- Limit Shenzhen Bay inspection to today and the next two calendar days, as
+  explicitly requested. Retire `check_and_notify_day_3` and align the active
+  task manifest, bounded diagnosis and three-day account-rotation coverage.
+- Align the Web cadence labels and documented policy while preserving DAG IDs,
+  retained task IDs, booking areas and notification eligibility rules.
+
+### Operations
+
+- Add owner-only protected read-only commands for exact-commit Airflow health
+  and bounded CRLand inspection evidence. Report scheduled runs, task states,
+  account rotation slots and allowlisted error codes without exporting raw
+  logs, credentials or recipient data.
+- Read dated scheduled-run metadata in the existing index order and retain
+  strict read-only transaction and timeout limits. Classify collection errors
+  using fixed stages, exception types and SQLSTATE values without exposing
+  database queries, parameters or exception text.
+- Verify three successful natural polling rounds inside the active window for
+  each venue, including account rotation, after exact-commit Airflow and Web
+  deployment. Off-hours no-query successes do not replace polling evidence.
+
+## [0.8.4] - 2026-10-19
+
+### Changed
+
+- Rotate three CRLand accounts in shared one-minute rounds for Shenzhen Bay
+  and Greater Bay Area. Both venues inspect every minute; each account is
+  selected once per three minutes. Keep the same account for every date and
+  booking area within a scheduled round, including delayed tasks and retries.
+- Preserve the existing DAG/task identities, date coverage, concurrency and
+  notification rules. Keep the one-minute policy and Web labels consistent.
+- Prefer the sensitive `SZW_API_AUTHORIZATIONS` three-account pool, retaining
+  the single `SZW_API_AUTHORIZATION` fallback only when the pool is absent.
+
+### Operations
+
+- Add a protected `szw_authorization_sync` operation for the shared account
+  pool. Validate all three accounts against Shenzhen Bay outdoor, covered and
+  Greater Bay Area queries before replacing the Airflow Variables, and verify
+  the transaction without exposing credentials or account identifiers.
+- Require exact-commit CI and the existing production Environment for the
+  credential sync and release. Verify three natural successful cycles after
+  deployment without sending synthetic email or WeChat notifications.
+
 ## [0.8.3] - 2026-10-01
 
 ### Fixed

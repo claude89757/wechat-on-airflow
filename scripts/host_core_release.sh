@@ -59,6 +59,10 @@ recover() {
   local status=$?
   trap - EXIT INT TERM HUP
   set +e
+  if [[ "$status" != 0 && ( "$OPERATION" == routine-upgrade || "$OPERATION" == recovery-upgrade ) && "$changed" == false ]] &&
+     grep -Fq '"event": "host_runtime_mutation_started"' /tmp/host-core-prepare.log 2>/dev/null; then
+    changed=true
+  fi
   if [[ "$status" != 0 && "$changed" == true ]]; then
     remote pause-host-delivery
     echo '{"event":"release_failed","recovery":"host_paused_no_legacy_fallback","legacyRuntime":false}' >&2
@@ -71,11 +75,37 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 case "$OPERATION" in
   preflight) remote preflight ;;
-  full-cutover)
+  full-cutover|routine-upgrade|recovery-upgrade)
+    routine_args=()
+    routing_args=()
+    if [[ "$OPERATION" == routine-upgrade ]]; then
+      : >/tmp/host-core-prepare.log
+      remote routine-preflight
+      routine_args+=(--routine-only)
+      routing_args+=(--routine-only)
+    elif [[ "$OPERATION" == recovery-upgrade ]]; then
+      : "${RECOVERY_RUNTIME_COMMIT:?}" "${RECOVERY_CONTROL_UPDATED_AT:?}" "${RECOVERY_BASELINE_FILE:?}"
+      [[ "$RECOVERY_RUNTIME_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+      [[ "$RECOVERY_DELIVERY_ENABLED" == true && "$RECOVERY_WECHAT_ENABLED" == false ]]
+      routine_args+=(--recovery-runtime-commit "$RECOVERY_RUNTIME_COMMIT"
+        --recovery-control-updated-at "$RECOVERY_CONTROL_UPDATED_AT"
+        --recovery-delivery-enabled "$RECOVERY_DELIVERY_ENABLED"
+        --recovery-wechat-enabled "$RECOVERY_WECHAT_ENABLED"
+        --recovery-baseline-file "$RECOVERY_BASELINE_FILE")
+      routing_args+=(--routine-only)
+      : >/tmp/host-core-prepare.log
+      remote recovery-preflight "${routine_args[@]}"
+    else
+      changed=true
+    fi
+    remote prepare-runtime "${routine_args[@]}" | tee /tmp/host-core-prepare.log
     changed=true
-    remote prepare-runtime | tee /tmp/host-core-prepare.log
     checkpoint | tee /tmp/host-core-checkpoint.json
     migration_complete="$(jq -er 'if (.migrationComplete | type) == "boolean" then (.migrationComplete | tostring) else error("missing migration checkpoint") end' /tmp/host-core-checkpoint.json)"
+    if [[ ( "$OPERATION" == routine-upgrade || "$OPERATION" == recovery-upgrade ) && "$migration_complete" != true ]]; then
+      echo 'Routine upgrade cannot enter first-migration operations; recovery is also checkpoint-only' >&2
+      exit 1
+    fi
     if [[ "$migration_complete" == false ]]; then
       # Refuse to overwrite host-side writes when a previous attempt already
       # exposed the pure edge but has lost its migration evidence.
@@ -94,7 +124,7 @@ case "$OPERATION" in
     else
       echo '{"event":"resume_verified_migration","d1Reimport":false,"secretRotation":false}'
     fi
-    remote prepare-routing
+    remote prepare-routing "${routing_args[@]}"
     deploy_edge production
     remote cutover
     PYTHONPATH=../scripts python ../scripts/webapp_production_health.py --expected-commit "$TARGET_COMMIT" --format json
@@ -102,9 +132,29 @@ case "$OPERATION" in
   activate-workers) changed=true; remote activate-workers ;;
   health) remote health --include-public | tee /tmp/host-core-business-health.log ;;
   acceptance)
-    remote acceptance --include-public --wait-seconds 1800 | tee /tmp/host-core-business-health.log
+    rm -f /tmp/host-core-acceptance-status
+    # One immediate sample. Missing receipts and venue history do not fail or
+    # hold the release; production health observes them after the ship returns.
+    acceptance_exit=0
+    remote acceptance --include-public --wait-seconds 0 | tee /tmp/host-core-business-health.log || acceptance_exit=$?
     tail -n 1 /tmp/host-core-business-health.log > /tmp/host-core-acceptance.json
-    jq -e '.complete == true and .ok == true and .success == true' /tmp/host-core-acceptance.json >/dev/null
+    acceptance_status=failed
+    if [[ "$acceptance_exit" == 0 ]] && jq -e '
+      .acceptanceStatus == "accepted" and .complete == true and .ok == true and .success == true
+    ' /tmp/host-core-acceptance.json >/dev/null; then
+      acceptance_status=accepted
+    elif [[ "$acceptance_exit" == 75 ]] && jq -e '
+      .acceptanceStatus == "pending" and .complete == true and .ok == false and .success == false
+      and (.checks | type == "object")
+      and (.checks | to_entries | all(.value | type == "boolean"))
+      and (.failedChecks | length > 0)
+      and (.failedChecks == [.checks | to_entries[] | select(.value == false) | .key])
+      and (.failedChecks | all(. == "naturalEmailProviderDelivered" or . == "naturalWeChatDelivered"))
+    ' /tmp/host-core-acceptance.json >/dev/null; then
+      acceptance_status=pending
+    fi
+    # Separate always-running workflow step exports this only after validation.
+    printf '%s\n' "$acceptance_status" > /tmp/host-core-acceptance-status
     ;;
   pause) remote pause-host-delivery ;;
   *) echo "Unsupported Host Core operation" >&2; exit 2 ;;

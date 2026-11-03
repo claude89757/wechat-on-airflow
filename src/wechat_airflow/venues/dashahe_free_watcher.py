@@ -14,7 +14,7 @@ CACHE_KEY = "大沙河免费场"
 VENUE_ID = "dsh_free"
 VENUE_NAME = "大沙河免费场"
 DAG_ID = "大沙河免费场巡检"
-WECHAT_CHATROOMS = ("Zacks_大沙河限定免费",)
+DEDICATED_CHATROOM = "Zacks_大沙河限定免费"
 MAX_SUBSCRIPTION_DAYS = 14
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -56,6 +56,11 @@ def _load_config_value() -> object:
     from airflow.sdk import Variable
 
     return Variable.get(CONFIG_VARIABLE, deserialize_json=True)
+
+
+def _load_chatrooms() -> list[str]:
+    # The dedicated free-court group must not inherit shared Zacks recipients.
+    return [DEDICATED_CHATROOM]
 
 
 def _load_cache() -> list[str]:
@@ -250,14 +255,16 @@ def run_check_dashahe_free_courts() -> dict[str, object]:
             message for message in format_wechat_messages(slots) if message not in cache
         ]
         if pending_messages:
-            cache.extend(pending_messages)
-            _store_cache(cache)
-            delivery = send_wechat_text_to_chatrooms_best_effort(
-                list(WECHAT_CHATROOMS),
-                "\n".join(pending_messages),
-                source=DAG_ID,
-                booking_venue_id=VENUE_ID,
-            )
+            chatrooms = _load_chatrooms()
+            if chatrooms:
+                cache.extend(pending_messages)
+                _store_cache(cache)
+                delivery = send_wechat_text_to_chatrooms_best_effort(
+                    chatrooms,
+                    "\n".join(pending_messages),
+                    source=DAG_ID,
+                    booking_venue_id=VENUE_ID,
+                )
         print(
             f"[NSWTT] inspection complete ready_dates={len(dates)}, "
             f"free_dates={len(free_dates)}, available_slots={len(slots)}"

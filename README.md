@@ -4,15 +4,17 @@
 
 [中文](./README.md) · [English](./README.en.md)
 
+远程运维：[智能体运维入口与后备流程](docs/runbooks/agent-operations.md) · [MCP 接入与协作者授权](docs/runbooks/remote-operations-mcp.md) · [GitHub 运维记录](https://github.com/claude89757/wechat-on-airflow/issues/39) · [MCP 统一发布](https://github.com/claude89757/wechat-on-airflow/actions/workflows/production-mcp.yml)
+
 [![CI](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml/badge.svg)](https://github.com/claude89757/wechat-on-airflow/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org/)
 [![Airflow 3.3](https://img.shields.io/badge/Airflow-3.3.0-017CEE)](https://airflow.apache.org/)
 [![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1)](https://www.postgresql.org/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 ## ✨ 功能特性
 
-- **多场馆自动巡检**：26 个深圳场馆巡检 DAG；深圳湾保持 15 秒低延迟例外，其余场馆按 1 分钟默认或显式资源安全周期运行。
+- **多场馆自动巡检**：26 个深圳场馆巡检 DAG；深圳湾每 2 分钟、大湾区每 3 分钟，在北京时间 08:00（含）至 21:00（不含）巡检，3 个华润账号按各场馆的巡检轮次轮换；大沙河国际使用单槽浏览器任务池，每 2 分钟巡检；其余场馆按 1 分钟默认或显式策略周期运行。
 - **主机侧订阅闭环**：本地 `zacks-api` 接收场地观测和 Web 请求；PostgreSQL `zacks` schema 保存用户、订阅、去重、Outbox、配额与投递状态。
 - **邮箱订阅推送**：`zacks-notification-worker` 负责订阅匹配、摘要合并、天气策略、标准/优先额度、Tencent SES 发送、退避重试和送达对账。
 - **微信群提醒**：场地任务只写入 PostgreSQL 投递队列；独立 `zacks-wechat-worker` 调用 Android Sender，设备端持久幂等记录避免重启后重复发送。
@@ -176,4 +178,4 @@ zacks-wechat-worker
 
 ## 📄 License
 
-Apache License 2.0。见 [LICENSE](./LICENSE)。
+MIT License。见 [LICENSE](./LICENSE)。

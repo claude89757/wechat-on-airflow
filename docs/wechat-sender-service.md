@@ -55,15 +55,81 @@ the marketing model name. The same value must be used by
 The Android host must provide Appium, ADB, and Chinese OCR data:
 
 ```bash
-sudo apt-get install python3-pil tesseract-ocr tesseract-ocr-chi-sim
+sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim
 adb devices -l
 appium driver doctor uiautomator2
 ```
 
-The systemd installer creates its virtual environment with system site packages
-so ARM hosts can use the distribution-built Pillow package. The Docker image
-continues to install the pinned Pillow wheel from
-`docker/sender/requirements.lock`.
+The standalone sender supports Python 3.11 and 3.12, with the matching venv
+module already available. Routine upgrades reuse the active service's interpreter
+to create the candidate and replacement venv; they never install another Python,
+change the OS default, or silently switch minor versions. The Airflow/project
+Python 3.12 contract is unchanged. Both systemd and Docker
+install the complete `docker/sender/requirements.lock`, including Pillow 13.0.0.
+Systemd uses an isolated venv, never distribution `python3-pil` or system site
+packages. A compatible Pillow wheel is required (including on ARM); unavailable
+wheels fail installation rather than silently falling back to the system package.
+Python provisioning or an unsupported host architecture must be resolved separately.
+
+For the production ARM32 CPython 3.11 interpreter, protected operations stage the
+complete exact lock on the GitHub runner using `config/sender-arm32-wheelhouse.json`.
+The manifest fixes each wheel's HTTPS source, SHA-256, size, package and tags.
+All wheels except the approved piwheels Pillow artifact come from official PyPI
+release files. The runner transfers a stored ZIP alongside the verified Git bundle.
+Candidate and installer independently validate private copies, exact lock coverage,
+flat regular archive members, per-file hashes/metadata, native compatibility and
+absence of direct URL dependencies before using the private directory.
+
+The ARM32 install uses `--no-index`, `--only-binary=:all:` and only that directory.
+It also uses `--isolated` with `PIP_CONFIG_FILE=/dev/null` and removes inherited
+`PIP_*` options, so configured find-links cannot reintroduce downloads. Full
+dependency resolution remains enabled. Non-ARM32 environments retain their
+existing install command and environment; unknown 32-bit tags or incompatible
+ARM32 interpreters fail before installation. The protected wrapper supplies
+`--wheelhouse`; a direct ARM32 installer invocation must provide the same reviewed
+archive through this option. The upload remains available until the installer
+finishes; private directories and uploads are cleaned on success or failure.
+An expired preflight temporary directory is not an installation source.
+
+Before activating the new venv, the installer verifies the imported Pillow version
+against the lock, checks that PIL is loaded from that interpreter's prefix, and
+exercises local PNG decode, crop, resize and encode without a device or network.
+The Docker build runs the same check. Dependency installation/verification failure
+before activation preserves the active venv and does not restart services. The
+production wrapper only restores `.previous` after this attempt actually changed
+the active venv, not after a preflight failure with an older retained backup.
+The previous venv is retained on successful activation.
+
+A source change or green image build does not prove production remediation.
+After an independently approved exact-commit deployment, run the read-only check
+with the service interpreter through the protected production operations boundary:
+`/opt/wechat-sender-venv/bin/python /opt/wechat-on-airflow/sender_agent/verify_dependencies.py /opt/wechat-on-airflow/docker/sender/requirements.lock`.
+The protected sender `health` operation now runs this check using the service
+interpreter and requires `dependencies_ready=true` in addition to normal health
+and readiness. Missing checker/old deployments fail this gate rather than being
+reported patched. Record that result and exact deployed commit.
+Do not use the send endpoint for verification. Until this evidence exists, the
+installed distribution version/backport status and production remediation remain
+unverified.
+
+The protected sender `dry_run` now inventories the actual service interpreter,
+Python bitness/platform and Pillow version/provenance, running commit, CPU/OS, disk headroom and rollback
+availability. It then fetches the exact candidate Git objects and uses the
+verified wheel artifact where required to build an isolated temporary environment
+on the host and test its complete lock and image
+operations. This is a non-activating staging preflight (temporary files/package
+downloads), not a claim of zero filesystem writes. It does not checkout code,
+replace the active venv, restart services or send notifications. Temporary data
+is removed; package logs/credentials are not published. Failure returns a bounded
+category and stops before activation. Apply repeats the same gate.
+
+The named coupled ship lifecycle requires this full preflight before its first
+runtime change. Releases after the initial 0.7.0 cutover use the protected
+`routine-upgrade` operation: require an already-activated, reconciled Host Core,
+verify existing ingress/route/identity, and reject any first-migration fallback.
+Configuration drift requires separate repair instead of implicit network changes
+or observation-cache deletion. Pre-mutation failures leave delivery running;
+failures after the delivery fence retain the existing safe-pause behavior.
 
 Deploy an exact pushed commit. The command is read-only unless `--apply` is
 present:
@@ -215,3 +281,13 @@ For a dedicated, USB-powered phone, apply mode configures stay-awake on USB,
 disables window animations, and exempts WeChat from Android idle mode. Huawei
 power management still needs manual confirmation that WeChat is allowed to run
 in the background and that USB debugging authorization survives reconnects.
+
+### 2026-10-24 compatibility finding
+
+Protected preflight 40093800182 stopped without changing the active environment:
+the existing sender used Python 3.11.2 and distribution Pillow 9.4.0 on Raspbian 12,
+with an aarch64 kernel and glibc 2.36; Python 3.12 was absent. This is a deployment
+prerequisite finding, not a claim about distribution security backports. Kernel
+architecture alone does not prove Python userland bitness. Both supported Python
+versions now have full-lock/image and no-notification sender regression CI; the
+actual host's isolated installation remains the final wheel compatibility gate.

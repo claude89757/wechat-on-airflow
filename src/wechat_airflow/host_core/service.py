@@ -11,8 +11,16 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .database import transaction
+from .date_pauses import (
+    lock_pause_reads,
+    needs_resume_match,
+    observation_rules,
+    restore_paused_notification,
+    rule_allows_observation,
+)
 from .domain import (
     SHANGHAI,
+    VENUES,
     VenueObservation,
     format_slot_line,
     observation_fingerprint,
@@ -57,6 +65,13 @@ def _active_subscriptions(connection: Connection, venue_id: str) -> list[Mapping
 
 
 def active_subscription_for_venue(venue_id: str) -> bool:
+    """Venue-level WeChat admission.
+
+    Personal ideal windows filter subscriber email in ``slot_matches``. They do
+    not slice group messages: any active subscription for the venue opens the gate.
+    """
+    if venue_id not in VENUES:
+        return False
     with transaction() as connection:
         return bool(
             connection.execute(
@@ -159,9 +174,9 @@ def ingest_observation(payload: object) -> dict[str, Any]:
     observation = validate_observation(payload)
     fingerprint = observation_fingerprint(observation)
     observation_key = f"{observation.venue_id}:{observation.observation_scope}"
-    now = utc_now()
-
     with transaction() as connection:
+        lock_pause_reads(connection)
+        now = utc_now()
         connection.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
             {"key": "zacks-observation:" + observation_key},
@@ -238,6 +253,17 @@ def ingest_observation(payload: object) -> dict[str, Any]:
             and int(state["subscription_generation"] or 0) == generation
         )
         subscriptions = _active_subscriptions(connection, observation.venue_id)
+        pause_rules = observation_rules(
+            connection,
+            list({str(row["email"]) for row in subscriptions}),
+            list({slot.booking_date for slot in observation.slots}),
+        )
+        if (
+            unchanged
+            and state
+            and needs_resume_match(pause_rules.values(), state["last_seen_at"], now)
+        ):
+            unchanged = False
 
         if unchanged:
             connection.execute(
@@ -273,6 +299,9 @@ def ingest_observation(payload: object) -> dict[str, Any]:
                     continue
                 event_key = slot_event_key(observation.venue_id, slot)
                 for subscription in subscriptions:
+                    pause_rule = pause_rules.get((str(subscription["email"]), slot.booking_date))
+                    if not rule_allows_observation(pause_rule, observation.checked_at, now):
+                        continue
                     if not slot_matches(
                         slot,
                         weekday_mask_value=int(subscription["weekday_mask"]),
@@ -298,6 +327,15 @@ def ingest_observation(payload: object) -> dict[str, Any]:
                         },
                     ).scalar_one_or_none()
                     if not inserted:
+                        if pause_rule is not None and restore_paused_notification(
+                            connection,
+                            str(subscription["id"]),
+                            event_key,
+                            observation.checked_at,
+                            now,
+                            str(subscription["tier"]),
+                        ):
+                            matched_notifications += 1
                         continue
                     line = format_slot_line(observation.venue_name, slot)
                     connection.execute(
