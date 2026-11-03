@@ -144,6 +144,16 @@ jobs:
       - name: Verify Web application
         if: steps.plan.outputs.ci_webapp == 'true'
         run: make webapp-check
+      - name: Install Chromium for focused Web browser checks
+        if: steps.plan.outputs.ci_webapp == 'true'
+        working-directory: webapp
+        run: npx playwright install --with-deps chromium
+      - name: Verify subscription and date-pause browser flows
+        if: steps.plan.outputs.ci_webapp == 'true'
+        working-directory: webapp
+        env:
+          MOBILE_RUNTIME_TEST_PORT: "4174"
+        run: npm run test:runtime -- tests/subscription-ux.spec.ts tests/date-pause.spec.ts --workers=2
       - name: Validate active components and runtime drift
         if: steps.plan.outputs.ci_airflow == 'true'
         run: PYTHONPATH=src python scripts/check_active_components.py

@@ -863,6 +863,7 @@ def test_unknown_reconciliation_is_status_only_and_does_not_replay(monkeypatch):
     wechat_worker.reconcile_unknown()
     assert urls
     assert sql("SELECT status FROM zacks.wechat_outbox")[0]["status"] == "sent"
+    assert wechat_worker._claim("test-worker") is None
 
 
 def test_ideal_window_filters_email_and_keeps_wechat_venue_level():
