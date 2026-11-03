@@ -173,10 +173,13 @@ Each group's first natural alert between 06:00 (inclusive) and 12:00 (exclusive)
 Asia/Shanghai, ends with a short email-subscription guide to
 `https://courts.zacks.vision/`. The host consumer checks durable outbox history
 across all venues for that receiver, so a restart cannot repeat the daily guide.
+An alert with this guide omits the venue booking mini-program link and does not
+consume its cooldown. Other alerts retain the existing booking-link policy.
 Known-unsent failures leave the guide eligible; uncertain submissions containing
 it reserve that morning until reconciled. Retries recheck eligibility and remove
-the guide after noon. No separate promotional notification is scheduled, and a
-morning with no eligible court alert sends no guide.
+the guide after noon, restoring the booking link when its cooldown permits.
+No separate promotional notification is scheduled, and a morning with no eligible
+court alert sends no guide.
 
 ## Cloudflare boundary
 

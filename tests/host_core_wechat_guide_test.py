@@ -19,7 +19,7 @@ from tests.host_core_postgres_test import (
 )
 from wechat_airflow.host_core import database, service, wechat_queue, wechat_worker
 from wechat_airflow.host_core.domain import SHANGHAI, VENUES, utc_now
-from wechat_airflow.notifications.booking_links import TOPS_PROGRAM
+from wechat_airflow.notifications.booking_links import TOPS_PROGRAM, WEILAIHUI
 
 pytestmark = pytest.mark.skipif(not URL, reason="isolated PostgreSQL test URL not supplied")
 WORKER = "guide-test-worker"
@@ -66,6 +66,10 @@ def prepare_at(monkeypatch, row, now):
     assert saved["status"] == "dispatching"
     assert saved["outbound_message"] == row["outbound_message"]
     assert wechat_worker.EMAIL_SUBSCRIPTION_GUIDE not in saved["message"]
+    if wechat_worker.EMAIL_SUBSCRIPTION_GUIDE in saved["outbound_message"]:
+        assert saved["outbound_message"].count("://") == 1
+        assert "#小程序://" not in saved["outbound_message"]
+        assert saved["program_id"] is None
     return row["outbound_message"]
 
 
@@ -94,18 +98,26 @@ def test_first_morning_message_is_per_group_across_venues_and_database_reconnect
     first = queue_alert()
     outbound = prepare_at(monkeypatch, first, morning)
     assert outbound.endswith("\n\n" + wechat_worker.EMAIL_SUBSCRIPTION_GUIDE)
-    assert TOPS_PROGRAM.link in outbound
     finish_at(first, "sent", morning)
+    assert not sql("SELECT program_id FROM zacks.booking_link_cooldowns")
 
     # A fresh DB connection still sees the durable send; no process-local daily flag.
     database.reset_engine_for_test()
     second = queue_alert(court="2号场", venue="szw")
-    assert wechat_worker.EMAIL_SUBSCRIPTION_GUIDE not in prepare_at(
-        monkeypatch, second, morning + timedelta(minutes=1)
-    )
+    outbound = prepare_at(monkeypatch, second, morning + timedelta(minutes=1))
+    assert wechat_worker.EMAIL_SUBSCRIPTION_GUIDE not in outbound
+    assert WEILAIHUI.link in outbound
     finish_at(second, "sent", morning + timedelta(minutes=1))
 
-    other_group = queue_alert(court="3号场", receiver="test-only-group-b")
+    # The guide did not send the TOPS link or consume its per-group cooldown.
+    same_venue = queue_alert(court="3号场")
+    outbound = prepare_at(monkeypatch, same_venue, morning + timedelta(minutes=2))
+    assert wechat_worker.EMAIL_SUBSCRIPTION_GUIDE not in outbound
+    assert TOPS_PROGRAM.link in outbound
+    assert same_venue["program_id"] == TOPS_PROGRAM.program_id
+    finish_at(same_venue, "sent", morning + timedelta(minutes=2))
+
+    other_group = queue_alert(court="4号场", receiver="test-only-group-b")
     assert prepare_at(monkeypatch, other_group, morning).endswith(
         wechat_worker.EMAIL_SUBSCRIPTION_GUIDE
     )
@@ -130,6 +142,24 @@ def test_safe_retry_keeps_payload_until_another_alert_succeeds(monkeypatch, morn
     outbound = prepare_at(monkeypatch, first, morning + timedelta(seconds=30))
     assert wechat_worker.EMAIL_SUBSCRIPTION_GUIDE not in outbound
     assert TOPS_PROGRAM.link in outbound
+    assert first["program_id"] == TOPS_PROGRAM.program_id
+
+
+def test_known_unsent_legacy_retry_removes_cached_booking_link_before_guide(monkeypatch, morning):
+    first = queue_alert()
+    legacy = "\n\n".join(
+        [first["message"], TOPS_PROGRAM.link, wechat_worker.EMAIL_SUBSCRIPTION_GUIDE]
+    )
+    sql(
+        "UPDATE zacks.wechat_outbox SET outbound_message=:outbound, program_id=:program WHERE id=:id",
+        {"id": first["id"], "outbound": legacy, "program": TOPS_PROGRAM.program_id},
+    )
+    finish_at(first, "retry", morning)
+    first = reclaim(first)
+    outbound = prepare_at(monkeypatch, first, morning + timedelta(seconds=15))
+    assert outbound == first["message"] + "\n\n" + wechat_worker.EMAIL_SUBSCRIPTION_GUIDE
+    finish_at(first, "sent", morning + timedelta(seconds=15))
+    assert not sql("SELECT program_id FROM zacks.booking_link_cooldowns")
 
 
 @pytest.mark.parametrize("status", ["dispatching", "submission_unknown"])
@@ -182,9 +212,10 @@ def test_morning_boundaries_use_shanghai_time(monkeypatch, morning, hour, minute
     row = queue_alert()
     outbound = prepare_at(monkeypatch, row, now)
     assert (wechat_worker.EMAIL_SUBSCRIPTION_GUIDE in outbound) is expected
+    assert (TOPS_PROGRAM.link in outbound) is not expected
 
 
-def test_retry_after_noon_removes_the_guide_and_keeps_booking_footer(monkeypatch, morning):
+def test_retry_after_noon_replaces_the_guide_with_booking_footer(monkeypatch, morning):
     before_noon = morning.replace(hour=11, minute=59, second=50)
     first = queue_alert()
     assert prepare_at(monkeypatch, first, before_noon).endswith(
@@ -195,6 +226,7 @@ def test_retry_after_noon_removes_the_guide_and_keeps_booking_footer(monkeypatch
     outbound = prepare_at(monkeypatch, first, morning.replace(hour=12))
     assert wechat_worker.EMAIL_SUBSCRIPTION_GUIDE not in outbound
     assert TOPS_PROGRAM.link in outbound
+    assert first["program_id"] == TOPS_PROGRAM.program_id
 
 
 def test_invalid_availability_does_not_consume_the_daily_guide(monkeypatch, morning):

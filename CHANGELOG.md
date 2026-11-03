@@ -5,6 +5,13 @@ and operational changes.
 
 ## [Unreleased]
 
+### Changed
+
+- Show only the email-subscription link on a group's first morning WeChat alert;
+  omit its venue booking link without consuming the booking-link cooldown.
+  Other alerts keep their booking links, including safe retries that no longer
+  qualify for the morning guide, subject to the existing cooldown.
+
 ## [0.10.0] - 2026-11-02
 
 ### Added
