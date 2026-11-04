@@ -1,5 +1,21 @@
 # Troubleshooting
 
+## Airflow UI Returns 502 While Host Core Is Healthy
+
+`airflow.claude89757.cc` routes `/zacks-api/*` to `127.0.0.1:8090` and every other
+path to `127.0.0.1:8080`. A public 502 on `/` and `/api/v2/monitor/health`,
+together with HTTP 200 from `/zacks-api/api/healthz`, means the tunnel is up and
+the Airflow API container is not accepting connections.
+
+Confirm the deployed commit from the host-core health payload. Run protected
+`service_recover` with the current main SHA. That operation records container
+state, starts or recreates only the stopped application services from the image
+already running beside them, and does not change the host checkout, database,
+or Redis. It refuses to mutate when PostgreSQL, Redis, or the host-core API
+container is down, and it does not restart an API container that is already
+crash-looping or OOM-killed. After the origin returns 200, run `health` with
+the deployed SHA.
+
 ## DAG Import Error
 
 Run `make test-dags`, then inspect the exact file and traceback. Reusable modules
