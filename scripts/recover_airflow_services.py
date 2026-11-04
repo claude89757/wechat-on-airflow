@@ -374,6 +374,88 @@ def recover_tunnel():
         }
 
 
+def harden_host():
+    try:
+        removed = []
+        for target in ("/tmp/oroc", "/tmp/oroz", "/tmp/remote_mot.log"):
+            if os.path.exists(target):
+                run_command(["pkill", "-9", "-f", target], check=False)
+                run_command(["rm", "-rf", target], check=False)
+                if not os.path.exists(target):
+                    removed.append(target)
+        sshd_path = "/etc/ssh/sshd_config"
+        auth_keys = "/root/.ssh/authorized_keys"
+        sshd_hardened = False
+        if os.path.isfile(auth_keys) and os.path.getsize(auth_keys) > 0 and os.path.isfile(sshd_path):
+            with open(sshd_path, "r") as handle:
+                original = handle.read()
+            lines = []
+            seen_pass = False
+            seen_root = False
+            for raw in original.splitlines():
+                stripped = raw.strip()
+                if stripped.startswith("#"):
+                    key = stripped.lstrip("#").strip().split()[:1]
+                else:
+                    key = stripped.split()[:1]
+                if key == ["PasswordAuthentication"]:
+                    if not seen_pass:
+                        lines.append("PasswordAuthentication no")
+                        seen_pass = True
+                    continue
+                if key == ["PermitRootLogin"]:
+                    if not seen_root:
+                        lines.append("PermitRootLogin prohibit-password")
+                        seen_root = True
+                    continue
+                lines.append(raw)
+            if not seen_pass:
+                lines.append("PasswordAuthentication no")
+            if not seen_root:
+                lines.append("PermitRootLogin prohibit-password")
+            updated = "\\n".join(lines) + "\\n"
+            if updated != original:
+                with open(sshd_path, "w") as handle:
+                    handle.write(updated)
+                if run_command(["sshd", "-t"], check=False).returncode != 0:
+                    with open(sshd_path, "w") as handle:
+                        handle.write(original)
+                    raise RuntimeError("sshd config validation failed")
+                run_command(["systemctl", "reload", "sshd"])
+            sshd_hardened = True
+        swap_show = run_command(["swapon", "--show"], check=False).stdout
+        swap_active = "/swapfile" in swap_show
+        if not swap_active:
+            if not os.path.isfile("/swapfile"):
+                run_command(
+                    ["dd", "if=/dev/zero", "of=/swapfile", "bs=1M", "count=4096", "status=none"]
+                )
+            os.chmod("/swapfile", 0o600)
+            run_command(["mkswap", "/swapfile"])
+            run_command(["swapon", "/swapfile"])
+            swap_active = "/swapfile" in run_command(["swapon", "--show"], check=False).stdout
+        if os.path.isfile("/etc/fstab"):
+            with open("/etc/fstab", "r") as handle:
+                fstab = handle.read()
+            if "/swapfile" not in fstab:
+                with open("/etc/fstab", "a") as handle:
+                    handle.write("\\n/swapfile none swap sw 0 0\\n")
+        run_command(["sysctl", "-w", "vm.swappiness=10"], check=False)
+        return {
+            "ok": sshd_hardened and swap_active and not any(
+                os.path.exists(p) for p in ("/tmp/oroc", "/tmp/oroz", "/tmp/remote_mot.log")
+            ),
+            "removed_paths": removed,
+            "sshd_password_disabled": sshd_hardened,
+            "swap_active": swap_active,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": redact_text(str(exc))[:300],
+        }
+
+
 def container_for(inventory, service, container_id):
     for item in inventory.get(service) or []:
         if item.get("id") == container_id:
@@ -450,6 +532,7 @@ try:
     head_after = run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
     api_now = [inspected(container_id) for container_id in service_ids("airflow-api-server")]
     tunnel = recover_tunnel()
+    hardening = harden_host()
     public_after = tunnel.get("public_after") or []
     tunnel_ok = (
         tunnel.get("result") != "error"
@@ -480,16 +563,19 @@ try:
             item["service"] == "airflow-api-server" and item["action"] == "report" for item in results
         )
         and tunnel_ok
+        and hardening.get("ok") is True
     )
     payload = {
         "ok": ok,
-        "applied": any(item.get("result") in {"started", "restarted", "created"} for item in results),
+        "applied": any(item.get("result") in {"started", "restarted", "created"} for item in results)
+        or bool(hardening.get("removed_paths")),
         "host_commit": head_after,
         "commit_unchanged": head_before == head_after,
         "database_unchanged": True,
         "origin_health_before": before,
         "origin_health_after": after,
         "tunnel": tunnel,
+        "hardening": hardening,
         "blocked_data_services": plan["blocked_data_services"],
         "actions": results,
         "services": summary,
