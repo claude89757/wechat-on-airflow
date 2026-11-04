@@ -7,6 +7,17 @@ path to `127.0.0.1:8080`. A public 502 on `/` and `/api/v2/monitor/health`,
 together with HTTP 200 from `/zacks-api/api/healthz`, means the tunnel is up and
 the Airflow API container is not accepting connections.
 
+The API server runs one uvicorn worker unless configured otherwise. On
+2026-11-04 the single worker stopped accepting connections after its 02:56
+CST startup log and remained process-alive: Docker reported `running` and
+`unhealthy`, with restart count 0 and no OOM. `restart: unless-stopped` does
+not replace that process. The triggerer can wedge the same way after PostgreSQL
+closes its connection. The healthcheck now records consecutive failures and,
+on the fifth, terminates PID 1 so the existing restart policy replaces the
+container. That behavior is in the image and Compose file, so it starts with
+the next Airflow deploy. Until then, recover a wedged process with protected
+`service_recover`.
+
 Confirm the deployed commit from the host-core health payload. Run protected
 `service_recover` with the current main SHA. That operation records container
 state, starts or recreates only the stopped application services from the image
