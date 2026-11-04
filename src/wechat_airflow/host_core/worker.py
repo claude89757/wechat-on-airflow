@@ -16,7 +16,13 @@ from sqlalchemy import text
 from .control import delivery_guard
 from .database import ensure_schema, transaction
 from .date_pauses import lock_pause_reads, release_unused_claims
-from .domain import VENUES, format_digest, utc_now, with_subscriber_digest_note
+from .domain import (
+    IDEAL_WINDOW_CHANGED,
+    VENUES,
+    format_digest,
+    utc_now,
+    with_subscriber_digest_note,
+)
 from .service import runtime_heartbeat
 from .settings import HostCoreSettings, load_settings, load_tencent_email_settings
 from .tencent_ses import TencentSesError, get_email_status, normalize_status, send_template_email
@@ -190,6 +196,7 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
         now = utc_now()
         with transaction() as connection:
             ids = [row["id"] for row in rows]
+            window_bad: list[Any] = []
             if system:
                 valid_ids = set(
                     connection.execute(
@@ -203,10 +210,18 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
                     ).scalars()
                 )
             else:
-                valid_ids = set(
-                    connection.execute(
-                        text("""
-                    SELECT o.id FROM zacks.notification_outbox o
+                # The PATCH fence stops a window change from committing between this
+                # read and the dispatch update. A claim that already missed the new
+                # window is cancelled, not expired, so a later observation can restore it.
+                classified = connection.execute(
+                    text("""
+                    SELECT o.id,
+                      (
+                        (s.weekday_mask & (1 << (EXTRACT(ISODOW FROM slot.booking_date)::integer - 1))) <> 0
+                        AND slot.start_time < s.end_time
+                        AND slot.end_time > s.start_time
+                      ) AS window_matches
+                    FROM zacks.notification_outbox o
                     JOIN zacks.subscriptions s ON s.id = o.subscription_id
                     JOIN zacks.observed_slots slot ON slot.event_key = o.event_key
                     LEFT JOIN zacks.user_delivery_tiers tier ON tier.email = s.email
@@ -222,16 +237,45 @@ def _attempt_email(rows: list[dict[str, Any]], worker: str, *, system: bool) -> 
                       AND EXISTS(SELECT 1 FROM zacks.current_availability c
                           WHERE c.event_key = o.event_key AND c.last_seen_at > :now - interval '15 minutes')
                 """),
+                    {
+                        "ids": ids,
+                        "worker": worker,
+                        "now": now,
+                        "active_venues": sorted(VENUES),
+                        "claim": rows[0]["claim_id"],
+                    },
+                ).mappings()
+                window_ok: set[Any] = set()
+                for classified_row in classified:
+                    if classified_row["window_matches"]:
+                        window_ok.add(classified_row["id"])
+                    else:
+                        window_bad.append(classified_row["id"])
+                if window_bad:
+                    connection.execute(
+                        text("""
+                        UPDATE zacks.notification_outbox o
+                        SET status = 'cancelled', last_error = :reason, updated_at = :now,
+                            lease_owner = NULL, lease_until = NULL
+                        WHERE o.id = ANY(:ids) AND o.lease_owner = :worker AND o.status = 'processing'
+                          AND o.delivery_claim_id = :claim
+                          AND o.submitted_at IS NULL AND o.message_id IS NULL
+                          AND NOT EXISTS (
+                            SELECT 1 FROM zacks.delivery_attempts a
+                            WHERE a.channel = 'subscriber_email' AND a.queue_ids ? o.id
+                              AND a.phase NOT IN ('retry', 'failed')
+                          )
+                    """),
                         {
-                            "ids": ids,
+                            "ids": window_bad,
                             "worker": worker,
                             "now": now,
-                            "active_venues": sorted(VENUES),
                             "claim": rows[0]["claim_id"],
+                            "reason": IDEAL_WINDOW_CHANGED,
                         },
-                    ).scalars()
-                )
-            invalid = list(set(ids) - valid_ids)
+                    )
+                valid_ids = window_ok
+            invalid = list(set(ids) - valid_ids - set(window_bad))
             if invalid:
                 claim_condition = "" if system else "AND delivery_claim_id = :claim"
                 connection.execute(

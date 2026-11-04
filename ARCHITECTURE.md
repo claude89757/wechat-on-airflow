@@ -146,7 +146,21 @@ Subscriber and system-email outboxes are separate. Workers lease with
 attempt before external I/O. Subscriber groups use actual booking dates and
 current tiers. Weather gating is per booking day, with explicit priority bypass
 and bounded forecast caching. Before dispatch, cancellation, current availability,
-slot start, tier eligibility and intent age are rechecked. Verification messages
+slot start, tier eligibility, intent age, and the subscriber's ideal window are
+rechecked. A window mismatch cancels that unsent intent with
+`ideal_window_changed` instead of expiring it. Changing the window takes the
+exclusive delivery fence before the subscription lock, so the preference cannot
+commit between that read and the dispatch update. Unsent `pending`, `retry`,
+and `processing` mail outside the new window is cancelled and its unused quota
+claim is released. A vendor call that already holds the shared fence finishes;
+after the fence is free, still-unsubmitted `processing` rows can cancel.
+Submitted mail, live provider attempts, and WeChat rows stay as they are.
+PATCH does not put a cancelled ideal-window row back on the queue, because the
+court may no longer be free. The next fresh observation restores only an unsent
+`ideal_window_changed` row when the slot matches again and that playing date is
+not paused. The original event key and `created_at` stay, and `eligible_at`
+bounds the new delivery lifetime. Submitted, uncertain, expired, unsubscribed,
+and rain-suppressed endings are not restored. Verification messages
 expire with their challenge. Stale backlog is not blindly replayed.
 
 Explicit pre-submission connection failures or provider rejection use bounded
