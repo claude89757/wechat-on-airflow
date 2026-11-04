@@ -152,8 +152,9 @@ def run_command(args, check=True):
     result = subprocess.run(
         args,
         cwd=repo_path,
-        text=True,
-        capture_output=True,
+        universal_newlines=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     if check and result.returncode:
         message = redact_text(result.stderr.strip() or result.stdout.strip() or "command failed")
@@ -241,8 +242,9 @@ def create_service(service):
         ["docker", "compose", "up", "-d", "--no-deps", "--no-build", service],
         cwd=repo_path,
         env=env,
-        text=True,
-        capture_output=True,
+        universal_newlines=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     if result.returncode:
         raise RuntimeError(redact_text(result.stderr or result.stdout)[:500])

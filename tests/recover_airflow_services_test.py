@@ -102,6 +102,9 @@ def test_remote_program_only_starts_existing_application_containers():
     assert 'docker", "start"' in program or '["docker", "start"' in program
     assert "--no-deps" in program
     assert "--no-build" in program
+    assert "universal_newlines=True" in program
+    assert "capture_output=" not in program
+    assert "text=True" not in program
     for forbidden in (
         "git checkout",
         "git reset",
