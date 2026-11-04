@@ -29,6 +29,7 @@ on:
         type: choice
         options:
           - health
+          - service_recover
           - crland_inspection_diagnose
           - deploy_preflight
           - deploy_apply
@@ -145,6 +146,10 @@ jobs:
             health)
               PYTHONPATH=src python scripts/production_health.py \
                 --expected-commit "$TARGET_COMMIT" --format json
+              ;;
+            service_recover)
+              PYTHONPATH=scripts python scripts/recover_airflow_services.py \
+                --operation-commit "$TARGET_COMMIT" --format json
               ;;
             crland_inspection_diagnose)
               PYTHONPATH=scripts python scripts/diagnose_crland_inspections.py \

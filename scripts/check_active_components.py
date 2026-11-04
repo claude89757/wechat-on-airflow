@@ -388,6 +388,7 @@ def main() -> None:
         or operations.get("airflow_operations")
         != [
             "health",
+            "service_recover",
             "crland_inspection_diagnose",
             "deploy_preflight",
             "deploy_apply",

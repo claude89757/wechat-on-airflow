@@ -244,6 +244,7 @@ production_operations:
   - publish_immutable_release
   airflow_operations:
   - health
+  - service_recover
   - crland_inspection_diagnose
   - deploy_preflight
   - deploy_apply

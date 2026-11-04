@@ -29,6 +29,24 @@ MARKERS = (
     "ingress",
 )
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_SSH_NOISE = (
+    "post-quantum key exchange",
+    "store now, decrypt later",
+    "openssh.com/pq.html",
+)
+
+
+def ssh_failure_detail(stderr: str, stdout: str) -> str:
+    kept = [
+        line
+        for line in stderr.splitlines()
+        if line.strip() and not any(noise in line for noise in _SSH_NOISE)
+    ]
+    detail = "\n".join(kept).strip()
+    if detail:
+        return detail
+    tail = "\n".join(stdout.splitlines()[-30:]).strip()
+    return tail or "production SSH health command failed"
 
 
 def parse_sections(output: str) -> dict[str, str]:
@@ -300,7 +318,11 @@ compose() {
     fi
 }
 service="$(compose ps --services --status running | awk '/^airflow-api-server$|^web$/{print; exit}')"
-test -n "$service"
+if [ -z "$service" ]; then
+    printf 'airflow-api-server is not running\n' >&2
+    compose ps -a >&2 || true
+    exit 1
+fi
 airflow_python() {
     compose exec -T "$service" sh -c '
         if [ -x /opt/bitnami/airflow/venv/bin/python ]; then
@@ -676,7 +698,7 @@ PY
     ]
     result = run(command, check=False, input_text=remote_script)
     if result.returncode:
-        raise OpsError(result.stderr.strip() or "production SSH health command failed")
+        raise OpsError(ssh_failure_detail(result.stderr, result.stdout))
 
     sections = parse_sections(result.stdout)
     runtime_secrets = parse_json_output(sections["runtime_secrets"], {})

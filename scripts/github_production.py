@@ -140,6 +140,7 @@ def main() -> None:
         },
         "airflow": {
             "health",
+            "service_recover",
             "crland_inspection_diagnose",
             "deploy_preflight",
             "deploy_apply",
