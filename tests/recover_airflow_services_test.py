@@ -81,6 +81,20 @@ def test_crash_loop_and_missing_anchor_do_not_mutate():
     assert all(item["action"] == "report" for item in plan["actions"])
 
 
+def test_tunnel_restarts_only_when_the_connector_is_unreachable():
+    assert recover.tunnel_action("active", [200, 200]) == "keep"
+    assert recover.tunnel_action("active", [502, 200]) == "keep"
+    assert recover.tunnel_action("active", [530, 530]) == "restart"
+    assert recover.tunnel_action("inactive", [530, 530]) == "restart"
+    assert recover.tunnel_action("failed", [None, None]) == "restart"
+    assert recover.tunnel_action("activating", [530, 530]) == "wait"
+    assert recover.tunnel_action("inactive", [530, 530], load_state="not-found") == "report"
+    assert recover.tunnel_restored({"tunnel": {"result": "restarted", "public_after": [200, 200]}})
+    assert not recover.tunnel_restored(
+        {"tunnel": {"result": "restarted", "public_after": [530, 530]}}
+    )
+
+
 def test_healthy_origin_is_left_unchanged_and_closed_origin_restarts_once():
     running = {
         "id": "api",
@@ -105,6 +119,9 @@ def test_remote_program_only_starts_existing_application_containers():
     assert "universal_newlines=True" in program
     assert "capture_output=" not in program
     assert "text=True" not in program
+    assert '["systemctl", "restart", TUNNEL_UNIT]' in program
+    assert "cloudflared.service" in program
+    assert "/etc/cloudflared" not in program
     for forbidden in (
         "git checkout",
         "git reset",

@@ -44,6 +44,22 @@ def origin_blocked_action(action, origin_status):
     return action
 
 
+def tunnel_action(active_state, public_statuses, load_state="loaded"):
+    if str(load_state or "") != "loaded":
+        return "report"
+    state = str(active_state or "")
+    if state in {"activating", "reloading"}:
+        return "wait"
+    codes = list(public_statuses or [])
+    if state == "active" and codes and all(code == 200 for code in codes):
+        return "keep"
+    if state != "active":
+        return "restart"
+    if any(code in (None, 530) for code in codes) or not codes:
+        return "restart"
+    return "keep"
+
+
 def redact_text(value):
     text = str(value or "")
     text = re.sub(
@@ -125,6 +141,7 @@ def remote_script() -> str:
         for function in (
             recovery_action,
             origin_blocked_action,
+            tunnel_action,
             redact_text,
             plan_actions,
         )
@@ -275,6 +292,88 @@ def wait_origin():
     return status
 
 
+TUNNEL_UNIT = "cloudflared.service"
+TUNNEL_PUBLIC_URLS = (
+    "https://airflow.claude89757.cc/api/v2/monitor/health",
+    "https://airflow.claude89757.cc/zacks-api/api/healthz",
+)
+
+
+def http_status(url):
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "wechat-on-airflow-service-recover/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            return response.getcode()
+    except urllib.error.HTTPError as exc:
+        return exc.code
+    except Exception:
+        return None
+
+
+def tunnel_fields():
+    result = run_command(
+        [
+            "systemctl",
+            "show",
+            TUNNEL_UNIT,
+            "--property=LoadState,ActiveState,SubState,UnitFileState,NRestarts,Result",
+        ],
+        check=False,
+    )
+    fields = {}
+    for line in result.stdout.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            fields[key] = value.strip()
+    if result.returncode and not fields:
+        fields["error"] = redact_text(result.stderr.strip() or result.stdout.strip())[:200]
+    return fields
+
+
+def recover_tunnel():
+    try:
+        before_fields = tunnel_fields()
+        active = before_fields.get("ActiveState") or ""
+        before_public = [http_status(url) for url in TUNNEL_PUBLIC_URLS]
+        action = tunnel_action(active, before_public, before_fields.get("LoadState") or "")
+        outcome = action
+        if action == "restart":
+            run_command(["systemctl", "restart", TUNNEL_UNIT])
+            outcome = "restarted"
+        after_public = before_public
+        if action in {"restart", "wait"}:
+            deadline = time.time() + 90
+            while not all(code == 200 for code in after_public) and time.time() < deadline:
+                time.sleep(5)
+                after_public = [http_status(url) for url in TUNNEL_PUBLIC_URLS]
+        after_fields = tunnel_fields()
+        return {
+            "unit": TUNNEL_UNIT,
+            "action": action,
+            "result": outcome,
+            "active_before": active,
+            "active_after": after_fields.get("ActiveState") or "",
+            "load_state": after_fields.get("LoadState") or "",
+            "unit_file_state": after_fields.get("UnitFileState") or "",
+            "n_restarts": after_fields.get("NRestarts") or "",
+            "service_result": after_fields.get("Result") or "",
+            "public_before": before_public,
+            "public_after": after_public,
+        }
+    except Exception as exc:
+        return {
+            "unit": TUNNEL_UNIT,
+            "action": "restart",
+            "result": "error",
+            "error": redact_text(str(exc))[:300],
+            "public_before": [],
+            "public_after": [],
+        }
+
+
 def container_for(inventory, service, container_id):
     for item in inventory.get(service) or []:
         if item.get("id") == container_id:
@@ -350,6 +449,13 @@ try:
         after = origin_status()
     head_after = run_command(["git", "rev-parse", "HEAD"]).stdout.strip()
     api_now = [inspected(container_id) for container_id in service_ids("airflow-api-server")]
+    tunnel = recover_tunnel()
+    public_after = tunnel.get("public_after") or []
+    tunnel_ok = (
+        tunnel.get("result") != "error"
+        and bool(public_after)
+        and all(code == 200 for code in public_after)
+    )
     summary = {
         service: [
             {
@@ -373,6 +479,7 @@ try:
         and not any(
             item["service"] == "airflow-api-server" and item["action"] == "report" for item in results
         )
+        and tunnel_ok
     )
     payload = {
         "ok": ok,
@@ -382,6 +489,7 @@ try:
         "database_unchanged": True,
         "origin_health_before": before,
         "origin_health_after": after,
+        "tunnel": tunnel,
         "blocked_data_services": plan["blocked_data_services"],
         "actions": results,
         "services": summary,
@@ -421,6 +529,16 @@ def parse_remote_result(output: str) -> dict[str, Any]:
     raise OpsError("Airflow service recovery did not return a structured result")
 
 
+def tunnel_restored(payload: dict[str, Any]) -> bool:
+    tunnel = payload.get("tunnel") if isinstance(payload.get("tunnel"), dict) else {}
+    public_after = tunnel.get("public_after") or []
+    return (
+        tunnel.get("result") != "error"
+        and bool(public_after)
+        and all(code == 200 for code in public_after)
+    )
+
+
 def recovery_succeeded(payload: dict[str, Any]) -> bool:
     return (
         payload.get("ok") is True
@@ -428,6 +546,7 @@ def recovery_succeeded(payload: dict[str, Any]) -> bool:
         and payload.get("commit_unchanged") is True
         and payload.get("database_unchanged") is True
         and payload.get("blocked_data_services") == []
+        and tunnel_restored(payload)
     )
 
 
@@ -459,6 +578,8 @@ def main() -> None:
         payload["operation_commit"] = args.operation_commit
         emit(payload, args.format)
     if result.returncode or not recovery_succeeded(payload):
+        if payload and payload.get("origin_health_after") == 200 and not tunnel_restored(payload):
+            raise OpsError("Airflow service recovery did not restore the public tunnel")
         if payload:
             raise OpsError("Airflow service recovery did not restore the API origin")
         raise OpsError(

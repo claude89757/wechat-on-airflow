@@ -27,6 +27,23 @@ container is down, and it does not restart an API container that is already
 crash-looping or OOM-killed. After the origin returns 200, run `health` with
 the deployed SHA.
 
+## Public API Returns 530
+
+HTTP 530 with Cloudflare error 1033 means the edge Worker is up and
+`airflow.claude89757.cc` is configured as a Tunnel, but `cloudflared.service`
+has no live connector. The browser shows `请求失败 (530)` because that response
+has no application `error` field. A 502 on the Airflow UI while
+`/zacks-api/api/healthz` is 200 is a different failure: the connector is up
+and the API process is not accepting connections.
+
+`service_recover` restarts `cloudflared.service` once when the unit is loaded
+but inactive, or when it is active and the public health URLs return 530 or
+cannot be reached. It leaves the unit alone when those URLs return an origin
+status such as 502. It does not rewrite `/etc/cloudflared`, change the tunnel
+identity, or change the host checkout. After public
+`/api/v2/monitor/health` and `/zacks-api/api/healthz` both return 200, run
+`health` with the deployed SHA.
+
 ## DAG Import Error
 
 Run `make test-dags`, then inspect the exact file and traceback. Reusable modules
