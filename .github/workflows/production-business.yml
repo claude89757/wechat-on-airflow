@@ -115,10 +115,11 @@ jobs:
 
   observe:
     needs: activate
-    uses: ./.github/workflows/production-host-core.yml
+    uses: ./.github/workflows/production-webapp.yml
     with:
-      operation: acceptance
+      operation: health
       target_commit: ${{ inputs.target_commit }}
+      request_id: business-${{ github.run_id }}
     secrets: inherit
 
   safe_pause:

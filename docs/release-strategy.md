@@ -4,7 +4,8 @@ Routine venue/business updates use `make release TARGET_COMMIT=<full-main-sha>`;
 see [venue onboarding](runbooks/venue-onboarding.md). A live-runtime diff base
 avoids redeploying unrelated components since an old semantic tag. The protected
 update keeps Host Core, Airflow and Sender aligned, restores consumers, and
-samples acceptance once. Version bumps and ship/tag are optional. The sections
+checks public health. Natural acceptance remains a separate observation.
+Version bumps and ship/tag are optional. The sections
 below describe formal named releases and advanced recovery.
 
 ## Versioning

@@ -35,7 +35,7 @@ base, checks exact-main CI, and reuses the existing protected lifecycle:
 2. Airflow `deploy_recovery`, allowing short interruptions without a long drain;
 3. Sender `apply`, keeping its exact SHA aligned with the consumer;
 4. `activate-workers`, including the transaction-rollback API probe;
-5. one immediate acceptance sample.
+5. an independent read-only public Host Core / edge / catalog health check.
 
 No version bump, tag, separate component dispatches or synthetic notification
 is required. The make command explicitly includes Sender alignment. A failed
@@ -58,7 +58,10 @@ coordinate with other running production operations before dispatch.
 Check public `/api/bootstrap`, find the new venue, and open its subscription
 sheet. Do not send a verification code or create a real test subscription.
 Confirm natural observations and the configured natural cycles. Record exact
-component SHAs, workflow URL and remaining observations in Issue #39. Missing
+component SHAs, workflow URL and remaining observations in Issue #39. Natural
+business acceptance is separate from the deployment workflow: immediately after
+activation even healthy venues may not have a new report in that acceptance
+window. Do not turn that timing into another release gate. Missing
 natural email/WeChat receipts remain `pending`; they do not hold the release,
 disable delivery or justify synthetic sends. Re-run only
 `production-host-core.yml` with `operation=acceptance` and the deployed SHA to
