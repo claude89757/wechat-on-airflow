@@ -27,7 +27,7 @@ commands.
 For an ordinary venue or business update use the shorter supported entry:
 
 ```sh
-make release TARGET_COMMIT=<full-main-sha>
+make release
 ```
 
 See [venue-onboarding.md](venue-onboarding.md). It performs the coupled update

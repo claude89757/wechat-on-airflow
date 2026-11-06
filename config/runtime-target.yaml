@@ -340,7 +340,7 @@ verification:
   - one_delivery_owner
   - all_15_source_tables_reconciled
   - all_27_venues_three_natural_cycles
-  - sender_exact_commit_and_durable_idempotency
+  - sender_protocol_and_durable_idempotency
   - natural_email_provider_delivery
   - natural_wechat_send
   - no_synthetic_email_or_wechat

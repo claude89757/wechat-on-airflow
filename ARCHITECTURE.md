@@ -162,7 +162,7 @@ Venue tasks only persist intents through the local API. The dedicated host
 consumer serializes work with a session advisory lock and stops if that lock
 connection changes. It verifies active venue subscriptions, actual current slot
 coverage, message validity and expiry before device dispatch. No stale remote
-Cloudflare subscription gate participates. The Sender's readiness, exact commit
+Cloudflare subscription gate participates. The Sender's readiness, protocol version
 and durable ledger are checked before use. The ledger binds each idempotency key
 to a payload hash and stores sent/uncertain outcomes across restarts. Known busy
 conditions retry; unknown UI outcomes are quarantined, not replayed. PostgreSQL

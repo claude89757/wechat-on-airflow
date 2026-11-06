@@ -12,6 +12,18 @@ and operational changes.
   check or document pins a venue count. The `all26VenueObservations` health check
   is now `allVenueObservations`, and `expected_venue_count` is gone from
   `config/runtime-target.yaml`.
+- `make release` now updates Airflow and Sender first and switches Host Core last, so
+  consumers keep delivering until the switch and an earlier failure no longer pauses
+  notifications. Activation retries once. A `summary` job states the failed stage, its
+  effect on delivery and the next step, and `make release-resume` continues a run
+  without repeating the stages that succeeded.
+- Sender and the WeChat consumer now check a shared protocol version instead of an
+  identical commit, so Sender deploys only when it or the consumer changed.
+- Changed Pi/MCP runtimes no longer block `make release`; they are listed as not
+  deployed by this workflow.
+- `make release` now runs from a full delivery pause, so a fix can ship after a failed
+  release. Its activation turns delivery back on. The email recovery mode, with WeChat
+  off, still uses `recovery-upgrade`.
 
 ### Removed
 

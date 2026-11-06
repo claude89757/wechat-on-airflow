@@ -16,7 +16,7 @@ from .control import runtime_state
 from .database import transaction
 from .domain import RETIRED_VENUES, VENUES, active_venue_status, utc_now
 from .settings import load_tencent_email_settings
-from .wechat_worker import sender_readiness
+from .wechat_worker import SENDER_PROTOCOL_VERSION, sender_readiness
 
 # Installed wheels resolve under site-packages, not the checked-out source tree.
 # Production ships the immutable manifest alongside the application image.
@@ -345,7 +345,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
         )
     sender = sender_readiness()
     checks["senderReady"] = sender.get("ok") is True
-    checks["exactSenderCommit"] = sender.get("deploymentCommit") == expected_commit
+    checks["senderProtocolCompatible"] = sender.get("protocolVersion") == SENDER_PROTOCOL_VERSION
     checks["senderDurableIdempotency"] = sender.get("durableIdempotency") is True
     checks["senderTransportNotCloudflareProxied"] = sender.get("cloudflareProxyObserved") is False
     if require_delivery:

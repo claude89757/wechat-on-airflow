@@ -1,9 +1,9 @@
 # Release Paths
 
 For routine venue and coupled business updates use
-`make release TARGET_COMMIT=<full-main-sha>` and
-`docs/runbooks/venue-onboarding.md`. It reuses protected component lifecycles,
-keeps Host Core and Sender aligned, and uses the live runtime as the diff base.
+`make release` and `docs/runbooks/venue-onboarding.md`. It reuses protected
+component lifecycles, deploys Sender only when needed, and uses the live runtime as
+the diff base.
 No semantic version or unrelated MCP preflight is needed. The named-release
 instructions below apply when a formal ship/tag is actually requested.
 
