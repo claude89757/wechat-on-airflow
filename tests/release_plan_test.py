@@ -35,6 +35,45 @@ def test_ci_keeps_full_regression_and_scoped_database() -> None:
     assert steps["Fast pull request checks"]["if"] == "github.event_name == 'pull_request'"
     for name in ("Build Airflow image", "Build WeChat sender image", "Airflow 3 DAG imports"):
         assert "ci_images" in steps[name]["if"]
+    for name in (
+        "Install Chromium for focused Web browser checks",
+        "Verify subscription and date-pause browser flows",
+    ):
+        assert steps[name]["if"] == "steps.plan.outputs.ci_browser == 'true'"
+    assert "echo 'ci_browser=true'" in steps["Detect changed component surfaces"]["run"]
+
+
+@pytest.mark.parametrize(
+    "paths,expected",
+    [
+        (["scripts/example.py"], "false"),
+        (["src/wechat_airflow/host_core/health.py"], "false"),
+        (["webapp/qa/public-acceptance.mjs"], "false"),
+        ([".github/workflows/ci.yml", "webapp/src/App.tsx"], "true"),
+        (["webapp/tests/subscription-ux.spec.ts"], "true"),
+        (["webapp/package-lock.json"], "true"),
+        (["unknown.conf"], "true"),
+    ],
+)
+def test_browser_checks_follow_browser_surfaces(tmp_path: Path, paths: list[str], expected: str):
+    repo, base = init_repo(tmp_path)
+    for path in paths:
+        write(repo, path, "changed\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "browser scope")
+    output = tmp_path / "outputs"
+    run_plan(
+        repo,
+        "--base-commit",
+        base,
+        "--target-commit",
+        git(repo, "rev-parse", "HEAD"),
+        "--include-sender",
+        "--github-output",
+        str(output),
+    )
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values["ci_browser"] == expected
 
 
 @pytest.mark.parametrize(

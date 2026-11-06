@@ -419,6 +419,24 @@ def write_github_output(path: Path, plan: Plan) -> None:
             or bool(plan.unknown_files)
             or any(path.endswith(".py") or path.startswith("tests/") for path in plan.changed_files)
         ).lower(),
+        "ci_browser": str(
+            bool(plan.unknown_files)
+            or any(
+                path in WEBAPP_RUNTIME_EXACT
+                or path in WEBAPP_CI_EXACT
+                or path.startswith(
+                    (
+                        "webapp/src/",
+                        "webapp/public/",
+                        "webapp/tests/",
+                        "webapp/worker/",
+                        "webapp/cloudflare/",
+                        "webapp/.openai/",
+                    )
+                )
+                for path in plan.changed_files
+            )
+        ).lower(),
     }
     with path.open("a", encoding="utf-8") as handle:
         for key, value in values.items():

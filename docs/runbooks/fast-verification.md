@@ -1,5 +1,13 @@
 # Scoped Verification
 
+Browser installation and the subscription/date-pause browser suite follow actual
+Web runtime, browser-test, configuration and dependency changes. Backend health,
+release tooling and production-only QA scripts do not install Chromium just
+because they select Web unit/build checks. Mixed frontend/control changes and
+unknown paths still select browser checks. Scheduled and manually dispatched
+full regression always include them. This avoids turning a routine control
+update into an unrelated browser download; exact-main CI remains mandatory.
+
 The main commit's `CI / verify` remains the release gate. Pull requests run only
 `pr-check` (lint, formatting, Python compilation and diff checks); main runs component tests
 once after merge. A green PR is NOT release authorization: main verification must

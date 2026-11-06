@@ -66,7 +66,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            for component in airflow sender webapp pi_mcp remote_ops python images; do
+            for component in airflow sender webapp pi_mcp remote_ops python images browser; do
               echo "ci_${component}=false" >> "$GITHUB_OUTPUT"
             done
           fi
@@ -76,6 +76,7 @@ jobs:
             done
             echo 'ci_python=true' >> "$GITHUB_OUTPUT"
             echo 'ci_images=true' >> "$GITHUB_OUTPUT"
+            echo 'ci_browser=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Fast pull request checks
         if: github.event_name == 'pull_request'
@@ -145,11 +146,11 @@ jobs:
         if: steps.plan.outputs.ci_webapp == 'true'
         run: make webapp-check
       - name: Install Chromium for focused Web browser checks
-        if: steps.plan.outputs.ci_webapp == 'true'
+        if: steps.plan.outputs.ci_browser == 'true'
         working-directory: webapp
         run: npx playwright install --with-deps chromium
       - name: Verify subscription and date-pause browser flows
-        if: steps.plan.outputs.ci_webapp == 'true'
+        if: steps.plan.outputs.ci_browser == 'true'
         working-directory: webapp
         env:
           MOBILE_RUNTIME_TEST_PORT: "4174"
