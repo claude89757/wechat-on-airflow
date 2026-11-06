@@ -5,6 +5,7 @@ import argparse
 import json
 import re
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -257,26 +258,38 @@ def upload_deployment_bundle(
     remote: dict[str, str],
     remote_path: str,
 ) -> None:
-    run(
-        [
-            "scp",
-            "-q",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "PreferredAuthentications=publickey",
-            "-o",
-            "PasswordAuthentication=no",
-            "-o",
-            "StrictHostKeyChecking=yes",
-            "-o",
-            "ConnectTimeout=15",
-            "-P",
-            remote["port"],
-            str(path),
-            f"{remote['username']}@{remote['host']}:{remote_path}",
-        ]
-    )
+    command = [
+        "scp",
+        "-q",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "PreferredAuthentications=publickey",
+        "-o",
+        "PasswordAuthentication=no",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "ConnectTimeout=15",
+        "-P",
+        remote["port"],
+        str(path),
+        f"{remote['username']}@{remote['host']}:{remote_path}",
+    ]
+    # Uploading the same temporary artifact is idempotent. Retry transport loss
+    # here only; never automatically replay remote installation after lost output.
+    for attempt in range(3):
+        try:
+            run(command)
+            return
+        except OpsError as exc:
+            transient = any(
+                marker in str(exc).lower()
+                for marker in ("connection reset", "connection closed", "broken pipe", "timed out")
+            )
+            if not transient or attempt == 2:
+                raise
+            time.sleep(2)
 
 
 def cleanup_deployment_artifacts(remote: dict[str, str], paths: list[str]) -> None:
@@ -1059,6 +1072,7 @@ def main() -> None:
     remote_bundle_path = ""
     remote_wheelhouse_path = ""
     staged_paths: list[str] = []
+    stage = "prepare_artifacts"
     with tempfile.TemporaryDirectory(prefix="wechat-sender-deploy-") as directory:
         try:
             if args.operation in {"dry-run", "apply"}:
@@ -1074,9 +1088,12 @@ def main() -> None:
                 remote_bundle_path = f"{REMOTE_BUNDLE_PREFIX}{transfer_id}.bundle"
                 remote_wheelhouse_path = f"{REMOTE_BUNDLE_PREFIX}{transfer_id}.wheelhouse.zip"
                 staged_paths = [remote_bundle_path, remote_wheelhouse_path]
+                stage = "upload_repository"
                 upload_deployment_bundle(bundle_path, remote, remote_bundle_path)
+                stage = "upload_wheelhouse"
                 upload_deployment_bundle(wheel_path, remote, remote_wheelhouse_path)
 
+            stage = "remote_operation"
             command = [
                 *ssh_command(remote),
                 "sudo",
@@ -1097,7 +1114,9 @@ def main() -> None:
             raise OpsError("sender wheel staging failed: " + kind) from None
         except (OpsError, OSError):
             # Transport errors may contain private hostnames or credential-bearing URLs.
-            raise OpsError("sender deployment transport or staging failed") from None
+            raise OpsError(
+                f"sender deployment failed at {stage}; private transport output withheld"
+            ) from None
         finally:
             cleanup_deployment_artifacts(remote, staged_paths)
     if result.returncode:

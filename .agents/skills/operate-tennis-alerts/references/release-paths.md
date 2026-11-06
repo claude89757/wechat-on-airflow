@@ -1,5 +1,12 @@
 # Release Paths
 
+For routine venue and coupled business updates use
+`make release TARGET_COMMIT=<full-main-sha>` and
+`docs/runbooks/venue-onboarding.md`. It reuses protected component lifecycles,
+keeps Host Core and Sender aligned, and uses the live runtime as the diff base.
+No semantic version or unrelated MCP preflight is needed. The named-release
+instructions below apply when a formal ship/tag is actually requested.
+
 Read `docs/release-strategy.md`, `docs/runbooks/production-deployment.md`,
 `docs/runbooks/webapp-deployment.md`, and `docs/runbooks/rollback.md` before
 applying production changes.
@@ -45,11 +52,12 @@ component. Unknown paths fail conservatively into all component checks.
 
 ## Airflow Application
 
-When Airflow is in scope, apply must drain active tasks, preserve DAG pause
+Routine Airflow updates use `deploy_recovery`, preserve DAG pause
 state, replace only application services, retain database/broker/log volumes,
-and treat deployment plus full production health as one transaction. On health
-failure it restores the previous commit/image/configuration, verifies the
-restored state, and still fails the attempted release.
+and check deployment identity and immediate service health together. Interrupted
+scheduled tasks retain their failed history. Business-update failures pause
+Host Core and require diagnosis and roll-forward; automatic database rollback
+or restoration of a legacy delivery owner is never implied.
 
 Observe the natural schedule-cycle count in `config/runtime-target.yaml`.
 
@@ -80,7 +88,7 @@ send endpoint as a smoke test; a real send requires explicit approval.
 
 Compare Variable names, types, counts, required fields, and protected hashes.
 Never print values. Keep subscriber email credentials and delivery
-configuration in the Worker, not Airflow. Configuration that changes Airflow
+configuration on Host Core, not the stateless Worker. Configuration that changes Airflow
 runtime behavior must enter the Airflow component scope and full health gate.
 
 ## Cloudflare Tunnel

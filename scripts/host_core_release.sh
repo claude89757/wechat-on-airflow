@@ -149,12 +149,13 @@ case "$OPERATION" in
       and (.checks | to_entries | all(.value | type == "boolean"))
       and (.failedChecks | length > 0)
       and (.failedChecks == [.checks | to_entries[] | select(.value == false) | .key])
-      and (.failedChecks | all(. == "naturalEmailProviderDelivered" or . == "naturalWeChatDelivered"))
+      and (.failedChecks | all(. == "naturalEmailProviderDelivered" or . == "naturalWeChatDelivered" or . == "allNaturalDagCycles"))
     ' /tmp/host-core-acceptance.json >/dev/null; then
       acceptance_status=pending
     fi
     # Separate always-running workflow step exports this only after validation.
     printf '%s\n' "$acceptance_status" > /tmp/host-core-acceptance-status
+    if [[ "$acceptance_status" == failed ]]; then exit 1; fi
     ;;
   pause) remote pause-host-delivery ;;
   *) echo "Unsupported Host Core operation" >&2; exit 2 ;;

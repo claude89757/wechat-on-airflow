@@ -1,0 +1,134 @@
+name: Production Business Update
+run-name: production/business/${{ inputs.target_commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Exact verified main SHA for a venue or business update
+        required: true
+        type: string
+      include_sender:
+        description: Align the durable Sender with the Host Core consumer
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  checks: read
+
+# Serialize with the existing unified release entry.
+concurrency:
+  group: production-release-v3
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.target_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Check the live baseline and affected components
+        env:
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+          INCLUDE_SENDER: ${{ inputs.include_sender }}
+        run: |
+          set -euo pipefail
+          test "$INCLUDE_SENDER" = true
+          curl --fail --silent --show-error --retry 2 --max-time 20 \
+            https://courts.zacks.vision/api/healthz > /tmp/business-baseline.json
+          PYTHONPATH=scripts python - <<'PY'
+          import json, os, re
+          from release_plan import make_plan, resolve_commit, run_git
+          target = os.environ['TARGET_COMMIT']
+          assert re.fullmatch(r'[0-9a-f]{40}', target), 'Full target SHA required'
+          assert resolve_commit('HEAD') == target
+          run_git('fetch', '--quiet', 'origin', 'main')
+          assert resolve_commit('origin/main') == target, 'Target must be current main'
+          with open('/tmp/business-baseline.json') as source:
+              live = json.load(source)
+          assert live.get('ok') is True and live.get('runtime') == 'airflow-host'
+          base = live.get('deploymentCommit', '')
+          assert re.fullmatch(r'[0-9a-f]{40}', base), 'Live Host Core identity unavailable'
+          run_git('merge-base', '--is-ancestor', base, target)
+          plan = make_plan(base, target, 'auto', include_sender=True)
+          assert not plan.unknown_files, 'Unknown paths require a reviewed component release'
+          assert set(plan.runtime_components) <= {'webapp', 'airflow', 'sender'}, (
+              'Pi or MCP runtime changes need their component lifecycle first'
+          )
+          print(json.dumps({'baseCommit': base, 'targetCommit': target,
+                            'changedComponents': plan.runtime_components,
+                            'updatedComponents': ['host_core', 'webapp', 'airflow', 'sender']}))
+          PY
+      - name: Require exact main CI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_COMMIT: ${{ inputs.target_commit }}
+        run: |
+          PYTHONPATH=scripts python scripts/github_release_gate.py \
+            --target-commit "$TARGET_COMMIT" --required-check verify \
+            --wait-seconds 1800 --missing-check-wait-seconds 0 \
+            --main-head-missing-check-wait-seconds 60 --poll-seconds 10 --format json
+
+  host_core:
+    needs: gate
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: routine-upgrade
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  airflow:
+    needs: host_core
+    uses: ./.github/workflows/production-airflow.yml
+    with:
+      operation: deploy_recovery
+      target_commit: ${{ inputs.target_commit }}
+      request_id: business-${{ github.run_id }}
+      confirm_real_send: false
+      probe_target_membership: all
+    secrets: inherit
+
+  sender:
+    needs: airflow
+    uses: ./.github/workflows/production-wechat-sender.yml
+    with:
+      operation: apply
+      target_commit: ${{ inputs.target_commit }}
+      request_id: business-${{ github.run_id }}
+    secrets: inherit
+
+  activate:
+    needs: sender
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: activate-workers
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  observe:
+    needs: activate
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: acceptance
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit
+
+  safe_pause:
+    needs: [host_core, airflow, sender, activate]
+    if: >-
+      always() && needs.host_core.result == 'success' &&
+      (needs.airflow.result != 'success' || needs.sender.result != 'success' ||
+       needs.activate.result != 'success')
+    uses: ./.github/workflows/production-host-core.yml
+    with:
+      operation: pause
+      target_commit: ${{ inputs.target_commit }}
+    secrets: inherit

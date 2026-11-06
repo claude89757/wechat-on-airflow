@@ -75,6 +75,14 @@ def test_retired_venue_is_preserved_but_excluded_from_active_catalog_and_health(
     assert stored == before
 
 
+def test_adding_an_active_venue_does_not_require_a_historical_health_count(monkeypatch):
+    monkeypatch.setitem(VENUES, "future_venue", "Future venue")
+    monkeypatch.setitem(DURABLE_VENUES, "future_venue", "Future venue")
+    result = report(rows())
+    assert result["ok"] is True
+    assert result["checkedVenueCount"] == len(VENUES)
+
+
 @pytest.mark.parametrize("missing", [False, True])
 def test_unknown_extra_venue_cannot_replace_a_missing_active_venue_or_be_silently_hidden(missing):
     stored = rows()[int(missing) :] + [

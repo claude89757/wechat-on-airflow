@@ -39,7 +39,8 @@ def report(*failed):
         (("naturalWeChatDelivered",), "pending"),
         (("naturalEmailProviderDelivered", "naturalWeChatDelivered"), "pending"),
         (("senderReady",), "failed"),
-        (("naturalWeChatDelivered", "allNaturalDagCycles"), "failed"),
+        (("naturalWeChatDelivered", "allNaturalDagCycles"), "pending"),
+        (("allNaturalDagCycles",), "pending"),
         (("unexpectedNewCheck",), "failed"),
     ],
 )
@@ -72,6 +73,7 @@ def test_unknown_or_inconsistent_report_is_failure(mutation):
     [
         ((), 0, "accepted"),
         (("naturalEmailProviderDelivered",), 75, "pending"),
+        (("allNaturalDagCycles",), 75, "pending"),
         (("senderReady",), 1, "failed"),
     ],
 )
@@ -102,6 +104,7 @@ def test_cli_preserves_non_success_and_report_completeness(failed, code, status,
     [
         ((), 0, "accepted"),
         (("naturalEmailProviderDelivered",), 75, "pending"),
+        (("allNaturalDagCycles",), 75, "pending"),
         (("naturalWeChatDelivered",), 1, "failed"),  # unknown remote failure is not pending
         (("senderReady",), 75, "failed"),  # forged exit alone is insufficient
     ],
@@ -130,7 +133,7 @@ def test_real_shell_exit_and_always_exported_job_output(tmp_path, failed, remote
     result = subprocess.run(
         ["bash", "-c", setup + control], env=env, capture_output=True, text=True
     )
-    assert result.returncode == 0
+    assert result.returncode == (1 if expected == "failed" else 0)
     # Execute actual independent always() output step after the failed operation,
     # rather than assuming a failed step itself exposes its outputs.
     workflow = yaml.safe_load((ROOT / ".github/workflows/production-host-core.yml").read_text())

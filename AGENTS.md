@@ -29,6 +29,15 @@ protected deployments and high-risk approval rules are unchanged.
 
 ## Primary Operations Entry
 
+For routine venue or coupled business updates, use
+`make release TARGET_COMMIT=<full-main-sha>` after exact-main `CI / verify`.
+Follow `docs/runbooks/venue-onboarding.md`. One protected workflow coordinates
+Host Core/edge, interruptible Airflow, Sender alignment, activation and immediate
+observation, using the live Host Core SHA as the diff base. No version/tag or
+unrelated MCP/Pi preflight is required. Changed Pi/MCP runtimes still use their
+component lifecycle; unknown paths are rejected. Natural delivery receipts stay
+asynchronous and never justify synthetic notifications.
+
 Use agent conversation + MCP for daily inspection; GitHub remains the release,
 fallback and audit center. Follow `docs/runbooks/agent-operations.md`.
 Start with `ops_status` and `ops_diagnose` (phones: `phone_devices`). These tools

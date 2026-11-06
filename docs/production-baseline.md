@@ -1,5 +1,27 @@
 # Production Baseline
 
+## 深湾竞界 closeout and routine release entry, 2026-11-07
+
+The pre-change public API and browser check observed Host Core
+`ece95c223a9389ab55af6ce55124a1d76de6a52b`, 27 active venue cards, and a healthy
+`swjj` row. Clicking 深湾竞界 opens its subscription verification sheet with
+the correct venue selected. No verification code or real subscription was sent.
+The previous component rollout and remaining natural-mail observation are
+recorded in [Issue #39](https://github.com/claude89757/wechat-on-airflow/issues/39#issuecomment-6689101374).
+Protected [acceptance refresh](https://github.com/claude89757/wechat-on-airflow/actions/runs/42249552094)
+preserves the existing window; lack of a natural mail receipt is not a service
+health guarantee or a reason to send a synthetic notification.
+
+Routine venue/business updates now have one protected entry:
+`make release TARGET_COMMIT=<full-main-sha>`, documented in
+[venue onboarding](runbooks/venue-onboarding.md). It uses the live Host Core diff
+base and aligns Host Core/edge, interruptible Airflow and Sender before worker
+activation. Unrelated phone MCP preflight no longer participates. Exact-main CI,
+authentication, single delivery ownership, durable queues and separate approval
+for destructive work remain. The final deployment identity and workflow result
+for this change must be recorded in Issue #39; the pre-change SHA above is not
+that release identity.
+
 ## All configured WeChat routes restored by owner request on 2026-11-01
 
 PR #253 deliberately paused shared groups by filtering every recipient found in
