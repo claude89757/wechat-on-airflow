@@ -36,7 +36,8 @@ Airflow 或 Web。小程序里的任何 Token、Cookie、openid 或 session key 
 - 项目列表返回 `网球` 与 `匹克球` 两个项目。
 - 2026-11-07 至 2026-11-12 均返回 `success`，每天 136 个时段、8 片场地。
 - 场地为：网球标准场 1/2/3/7 号、VIP 网球风雨场 4/5/6 号、网球单打场 8 号。
-- 可预约窗口为「今天 + 7 天」，第 8 天起 `validClassRooms` 与 `slots` 均为空。
+- 可预约窗口为「今天 + 7 天」。靠后的日期逐日开售，未开售时 `validClassRooms`
+  与 `slots` 均为空；2026-11-06 晚间复核时该日之后第 4 天起为空。
 - 时段为 07:00–23:59，每格 60 分钟；`apptInfo.canApptOrNot` 为唯一可约判据。
 - 价格：标准场 125 / 185 / 145，单打场 80 / 120 / 90，VIP 风雨场 180 / 268 / 180
   （工作日日间 / 晚间与周末日间 / 深夜三档）。
@@ -53,9 +54,10 @@ Airflow 或 Web。小程序里的任何 Token、Cookie、openid 或 session key 
 统一 `strip()`，避免制表符进入 Web 观测键或微信消息文本。
 
 PosPal 对未知 `projectUid` 或错配 `STOREID` 仍返回 `successed: true` 且
-`validClassRooms` 为空。本场地为此启用 `require_rooms_when_in_window`：
-窗口内没有教室时抛出 `PosPalEmptyInventoryError`，把「配置失效」从
-「健康空结果」中区分出来。其他 PosPal 场地保持既有语义不变。
+`validClassRooms` 为空。请求层为此抛出 `PosPalEmptyInventoryError`，但单日
+为空并不等于配置失效：靠后的日期尚未开售时同样为空。巡检层因此只在
+「整个 7 天窗口都没有教室且没有任何请求错误」时才把本轮标记为不健康并写入
+`validClassRooms` 为空的说明；其他 PosPal 场地保持既有语义不变。
 
 首次完整成功巡检会先发布 Web 原始观测、写入微信通知去重缓存并建立
 `SWJJ_NOTIFICATION_BASELINE` 初始化标记，该轮不发送微信，避免把上线时的
