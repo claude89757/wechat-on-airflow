@@ -29,14 +29,15 @@ protected deployments and high-risk approval rules are unchanged.
 
 ## Primary Operations Entry
 
-For routine venue or coupled business updates, use
-`make release TARGET_COMMIT=<full-main-sha>` after exact-main `CI / verify`.
-Follow `docs/runbooks/venue-onboarding.md`. One protected workflow coordinates
-Host Core/edge, interruptible Airflow, Sender alignment, activation and immediate
-observation, using the live Host Core SHA as the diff base. No version/tag or
-unrelated MCP/Pi preflight is required. Changed Pi/MCP runtimes still use their
-component lifecycle; unknown paths are rejected. Natural delivery receipts stay
-asynchronous and never justify synthetic notifications.
+For routine venue or coupled business updates, use `make release` after
+exact-main `CI / verify`. Follow `docs/runbooks/venue-onboarding.md`. One protected
+workflow runs interruptible Airflow, Sender (only when it or the consumer changed),
+Host Core/edge, activation and immediate observation, using the live Host Core SHA
+as the diff base. Consumers keep delivering until the Host Core step. After a
+failure, read the run's `summary` job and resume with `make release-resume`. No
+version/tag or unrelated MCP/Pi preflight is required. Changed Pi/MCP runtimes still
+use their component lifecycle; unknown paths are rejected. Natural delivery receipts
+stay asynchronous and never justify synthetic notifications.
 
 Use agent conversation + MCP for daily inspection; GitHub remains the release,
 fallback and audit center. Follow `docs/runbooks/agent-operations.md`.
@@ -353,8 +354,11 @@ update a contract/runbook when an incident teaches a new operational fact.
 
 The approved 0.7.0 hardening supersedes all earlier instructions to dual-write
 observations, keep a legacy API backend, or automatically restore Cloudflare
-delivery. PostgreSQL `runtime_control` is the only delivery switch. A failed
-release pauses host delivery and rolls forward. D1 is retained as an unbound
+delivery. PostgreSQL `runtime_control` is the only delivery switch. A release that
+fails after stopping the consumers stays paused and rolls forward; a failure before
+that leaves them delivering. `make release` also runs from a full pause and its
+activation turns delivery back on, so do not run an unrelated release while delivery
+is paused on purpose. D1 is retained as an unbound
 migration archive, not a rollback backend; deleting it still requires separate
 approval. Never import a D1 snapshot after `activated_at` is set.
 

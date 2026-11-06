@@ -31,11 +31,10 @@ records, notification deduplication and single-consumer fences intact. Formal
 ship/tag is optional bookkeeping for routine repairs, not a prerequisite.
 
 For a venue or coupled business update use
-`make release TARGET_COMMIT=<full-main-sha>` once. **Production Business Update**
-uses the live Host Core commit as its diff base and coordinates Host Core/edge,
-interruptible Airflow, Sender alignment, activation and immediate observation.
-It excludes unrelated MCP/Pi runtimes and rejects changes that need those
-lifecycles. See [venue-onboarding.md](venue-onboarding.md).
+`make release` once. **Production Business Update** uses the live Host Core commit
+as its diff base and coordinates interruptible Airflow, Sender when needed, Host
+Core/edge, activation and immediate observation. It does not deploy MCP/Pi runtimes,
+and lists any that changed. See [venue-onboarding.md](venue-onboarding.md).
 
 Use [scoped verification](fast-verification.md) to avoid unrelated local and CI
 checks. Daily full regression is separate from the normal exact-SHA gate.

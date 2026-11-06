@@ -227,7 +227,12 @@ def test_worker_retries_only_proven_unsent_and_bounds_attempts(
         patch.object(
             wechat_worker,
             "sender_readiness",
-            return_value={"ok": True, "durableIdempotency": True, "deploymentCommit": "a" * 40},
+            return_value={
+                "ok": True,
+                "durableIdempotency": True,
+                "protocolVersion": 1,
+                "deploymentCommit": "a" * 40,
+            },
         ),
         patch.object(wechat_worker, "_prepare", return_value=True),
         patch.object(

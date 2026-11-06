@@ -22,6 +22,9 @@ from wechat_sender import (
 )
 from wechat_sender.appium_text_sender import SendProgress
 
+# Bump together with SENDER_PROTOCOL_VERSION in the Host Core WeChat worker whenever
+# a change is incompatible with the consumer already running in production.
+PROTOCOL_VERSION = 1
 APP_NAME = "wechat-sender-agent"
 DEFAULT_APPIUM_URL = "http://127.0.0.1:6002"
 DEVICE_LOCK_WAIT_SECONDS = 150
@@ -203,6 +206,7 @@ def healthz():
         "service": APP_NAME,
         "configured": configured,
         "deploymentCommit": os.environ.get("DEPLOYMENT_COMMIT", "unknown"),
+        "protocolVersion": PROTOCOL_VERSION,
         "durableIdempotency": ledger.ready(),
     }
 
@@ -244,6 +248,7 @@ def readyz():
     return {
         "ok": True,
         "deploymentCommit": os.environ.get("DEPLOYMENT_COMMIT", "unknown"),
+        "protocolVersion": PROTOCOL_VERSION,
         "durableIdempotency": True,
         "service": APP_NAME,
         "appium_ready": True,

@@ -4,31 +4,42 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 
 
-def test_business_update_preserves_coupled_lifecycle_and_failure_pause():
+def test_business_update_switches_host_core_last_and_pauses_only_after_it():
     import yaml
 
     jobs = yaml.safe_load((WORKFLOWS / "production-business.yml").read_text())["jobs"]
-    for job, predecessor, operation in (
-        ("host_core", "gate", "routine-upgrade"),
-        ("airflow", "host_core", "deploy_recovery"),
-        ("sender", "airflow", "apply"),
-        ("activate", "sender", "activate-workers"),
-        ("observe", "activate", "health"),
+    for job, operation in (
+        ("airflow", "deploy_recovery"),
+        ("sender", "apply"),
+        ("host_core", "routine-upgrade"),
+        ("activate", "activate-workers"),
+        ("activate_retry", "activate-workers"),
+        ("observe", "health"),
     ):
-        assert jobs[job]["needs"] == predecessor
         assert jobs[job]["with"]["operation"] == operation
         assert jobs[job]["with"]["target_commit"] == "${{ inputs.target_commit }}"
+    assert jobs["airflow"]["needs"] == "gate"
+    assert jobs["sender"]["needs"] == ["gate", "airflow"]
+    assert jobs["sender"]["if"] == "needs.gate.outputs.deploy_sender == 'true'"
+    assert jobs["host_core"]["needs"] == ["airflow", "sender"]
+    assert "needs.sender.result == 'skipped'" in jobs["host_core"]["if"]
+    assert jobs["activate"]["needs"] == "host_core"
+    assert "needs.activate.result == 'failure'" in jobs["activate_retry"]["if"]
+
     pause = jobs["safe_pause"]
     assert pause["with"]["operation"] == "pause"
-    for component in ("airflow", "sender", "activate"):
-        assert f"needs.{component}.result != 'success'" in pause["if"]
+    assert "needs.host_core.result == 'success'" in pause["if"]
+    assert "needs.activate_retry.result != 'success'" in pause["if"]
+    assert "airflow" not in pause["needs"] and "sender" not in pause["needs"]
     assert "observe" not in pause["needs"]
     assert jobs["observe"]["uses"] == "./.github/workflows/production-webapp.yml"
+
     baseline = jobs["gate"]["steps"][2]["run"]
     assert "make_plan(base, target" in baseline
     assert "plan.unknown_files" in baseline
-    assert "set(plan.runtime_components) <= {'webapp', 'airflow', 'sender'}" in baseline
+    assert "deploy_sender" in baseline
     assert not any("production-mcp.yml" in job.get("uses", "") for job in jobs.values())
+    assert "scripts/release_summary.py" in jobs["summary"]["steps"][-1]["run"]
 
 
 def test_only_one_workflow_listens_to_issue_comments():
