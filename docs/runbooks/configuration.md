@@ -163,7 +163,7 @@ not an active required configuration or producer.
 
 ## Web Subscription Publisher
 
-All 27 active venue DAGs require:
+All active venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in

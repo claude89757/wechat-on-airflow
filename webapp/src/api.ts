@@ -1,34 +1,8 @@
-export const VENUE_IDS = [
-  "szw",
-  "gba",
-  "dsh_free",
-  "dsh",
-  "sysh",
-  "tops",
-  "fsb",
-  "fsb_shenyun",
-  "fsb_shekou",
-  "fsb_xinan",
-  "fsb_zhengzhong",
-  "fsb_atuoshan",
-  "fsb_zonglvquan",
-  "fsb_guanhu",
-  "fsb_bantian",
-  "fsb_shahe",
-  "fsb_baoshui",
-  "fsb_nanyou",
-  "fsb_xinqiao",
-  "fsb_yifangcheng",
-  "fsb_qilin",
-  "fsb_maozhouhe",
-  "fft_qianhai",
-  "ppba",
-  "tyzx",
-  "jdwx",
-  "swjj",
-] as const;
+import catalog from "../../src/wechat_airflow/venue_catalog.json" with { type: "json" };
 
-export type VenueId = (typeof VENUE_IDS)[number];
+export const VENUE_IDS: readonly string[] = catalog.map((venue) => venue.id);
+
+export type VenueId = string;
 export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 export type DeliveryTier = "standard" | "priority";
@@ -217,35 +191,23 @@ let dashboardCache: DashboardClientCache | null = null;
 let dashboardRequest: DashboardClientRequest | null = null;
 let dashboardCacheEpoch = 0;
 
-const FALLBACK_VENUES: VenueStatus[] = [
-  { id: "szw", name: "深圳湾", healthy: true, subscriberCount: 28, lastInspectionAt: "2026-07-29T10:41:40+08:00", lastNotificationAt: null },
-  { id: "gba", name: "大湾区网球场", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:34+08:00", lastNotificationAt: null },
-  { id: "dsh_free", name: "大沙河免费场", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:31+08:00", lastNotificationAt: null },
-  { id: "dsh", name: "大沙河国际网球中心", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:31+08:00", lastNotificationAt: null },
-  { id: "sysh", name: "上越沙河", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:41:28+08:00", lastNotificationAt: null },
-  { id: "tops", name: "TOPS 科技园", healthy: true, subscriberCount: 22, lastInspectionAt: "2026-07-29T10:41:12+08:00", lastNotificationAt: null },
-  { id: "fsb", name: "泛思博特福中福", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_shenyun", name: "泛思博特深云", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_shekou", name: "泛思博特蛇口", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_xinan", name: "泛思博特新安", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_zhengzhong", name: "泛思博特正中", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_atuoshan", name: "泛思博特安托山", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_zonglvquan", name: "泛思博特棕榈泉", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_guanhu", name: "泛思博特观湖", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_bantian", name: "泛思博特坂田", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_shahe", name: "泛思博特沙河", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_baoshui", name: "泛思博特保税", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_nanyou", name: "泛思博特南油", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_xinqiao", name: "泛思博特新桥", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_yifangcheng", name: "泛思博特壹方城", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_qilin", name: "泛思博特麒麟", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fsb_maozhouhe", name: "泛思博特茅洲河", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "fft_qianhai", name: "FFTENNIS前海国际网球中心", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-08-30T10:30:08+08:00", lastNotificationAt: null },
-  { id: "ppba", name: "PICKLE POP宝安", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
-  { id: "tyzx", name: "深圳市体育中心", healthy: true, subscriberCount: 30, lastInspectionAt: "2026-07-29T10:40:55+08:00", lastNotificationAt: null },
-  { id: "jdwx", name: "金地威新", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:40:42+08:00", lastNotificationAt: null },
-  { id: "swjj", name: "深湾竞界", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-11-06T21:00:00+08:00", lastNotificationAt: null },
-];
+// Sample data for the dev preview. Any other venue simply starts at zero.
+const FALLBACK_SUBSCRIBERS: Readonly<Record<string, number>> = {
+  szw: 28,
+  sysh: 24,
+  tops: 22,
+  tyzx: 30,
+  jdwx: 24,
+};
+
+const FALLBACK_VENUES: VenueStatus[] = catalog.map((venue) => ({
+  id: venue.id,
+  name: venue.name,
+  healthy: true,
+  subscriberCount: FALLBACK_SUBSCRIBERS[venue.id] ?? 0,
+  lastInspectionAt: "2026-07-29T10:41:08+08:00",
+  lastNotificationAt: null,
+}));
 
 const DEFAULT_TERMS: Dashboard["subscriptionTerms"] = {
   standard: ["7d", "8d", "9d", "10d", "11d", "12d", "13d", "14d"],

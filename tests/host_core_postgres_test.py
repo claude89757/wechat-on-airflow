@@ -668,7 +668,7 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
     sql(
         "INSERT INTO zacks.venue_status(venue_id,venue_name,healthy,last_inspection_at,updated_at) VALUES ('unknown','Unknown',true,now(),now())"
     )
-    assert not health.business_report("a" * 40)["checks"]["all26VenueObservations"]
+    assert not health.business_report("a" * 40)["checks"]["allVenueObservations"]
 
 
 def test_bootstrap_hides_only_retired_venue_and_preserves_existing_subscriptions_and_history():

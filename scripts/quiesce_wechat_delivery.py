@@ -5,38 +5,18 @@ import argparse
 import base64
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from _ops import OpsError, airflow_remote, emit, run, ssh_command
 
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-WECHAT_DAG_IDS = (
-    "深圳湾网球场巡检",
-    "大湾区网球场巡检",
-    "深圳金地网球场巡检",
-    "上越沙河网球场巡检",
-    "TOPS科技园网球场巡检",
-    "泛思博特福中福网球场巡检",
-    "泛思博特深云网球场巡检",
-    "泛思博特蛇口网球场巡检",
-    "泛思博特新安网球场巡检",
-    "泛思博特正中网球场巡检",
-    "泛思博特安托山网球场巡检",
-    "泛思博特棕榈泉网球场巡检",
-    "泛思博特观湖网球场巡检",
-    "泛思博特坂田网球场巡检",
-    "泛思博特沙河网球场巡检",
-    "泛思博特保税网球场巡检",
-    "泛思博特南油网球场巡检",
-    "泛思博特新桥网球场巡检",
-    "泛思博特壹方城网球场巡检",
-    "泛思博特麒麟网球场巡检",
-    "泛思博特茅洲河网球场巡检",
-    "FFTENNIS前海国际网球中心巡检",
-    "深湾竞界网球场巡检",
-    "PICKLEPOP宝安网球场巡检",
-    "深圳市体育中心网球场巡检",
-    "大沙河国际网球中心巡检",
+CATALOG_PATH = Path(__file__).resolve().parents[1] / "src/wechat_airflow/venue_catalog.json"
+# The free-court DAG has never been part of this operation.
+WECHAT_DAG_IDS = tuple(
+    venue["dagId"]
+    for venue in json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    if venue["id"] != "dsh_free"
 )
 
 
@@ -252,15 +232,16 @@ print(
 PY
 )"
 
-STATE_RESULT="$state_result" VERIFICATION="$verification" python3 - \
+WECHAT_DAG_IDS_B64="$wechat_dag_ids_b64" STATE_RESULT="$state_result" VERIFICATION="$verification" python3 - \
     "$current_commit" "$operation_commit" "$purged_broker_keys" <<'PY'
+import base64
 import json
 import os
 import sys
 
 state = json.loads(os.environ.pop("STATE_RESULT"))
 verification = json.loads(os.environ.pop("VERIFICATION"))
-expected_paused = 26
+expected_paused = len(json.loads(base64.b64decode(os.environ.pop("WECHAT_DAG_IDS_B64"))))
 ok = (
     verification.get("paused_wechat_dags") == expected_paused
     and verification.get("active_wechat_task_instances") == 0

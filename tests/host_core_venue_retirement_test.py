@@ -45,14 +45,13 @@ def report(venues):
 
 def test_date_pause_upgrade_keeps_retired_venue_seed_identity():
     # 0.10.0 adds date preferences and delivery-qualification DDL; 深湾竞界 adds
-    # a 28th durable venue row. The seed is idempotent, so withdrawing a producer
+    # one extra durable venue row. The seed is idempotent, so withdrawing a producer
     # still never deletes its durable business identity.
     assert database.SCHEMA_REVISION == (
         "0.7.0-host-core-v1:adf05226885324def98b56c165295d23b0432c06bcd776a73f3c6ebb886d84a1"
     )
-    assert len(VENUES) == 27
     assert RETIRED_VENUES == {"baoti": "宝安网球中心"}
-    assert len(DURABLE_VENUES) == 28
+    assert len(DURABLE_VENUES) == len(VENUES) + 1
     assert DURABLE_VENUES["baoti"] == "宝安网球中心"
 
 

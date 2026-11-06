@@ -5,6 +5,14 @@ and operational changes.
 
 ## [Unreleased]
 
+### Changed
+
+- Adding a venue now takes one line in `src/wechat_airflow/venue_catalog.json`.
+  Python, the web app, production health and browser QA read that file, and no
+  check or document pins a venue count. The `all26VenueObservations` health check
+  is now `allVenueObservations`, and `expected_venue_count` is gone from
+  `config/runtime-target.yaml`.
+
 ### Removed
 
 - Remove the named 理想时段 presets (工作日晚间, 午休局, 周末上午, 周末下午,

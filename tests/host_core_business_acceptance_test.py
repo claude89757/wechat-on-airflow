@@ -36,8 +36,8 @@ def test_acceptance_checks_records_not_sleep_or_successful_restart():
     controller = read("scripts/host_core_production.py")
     assert "required = 3 if is_venue else 1" in health
     assert "len(venue_components) == len(VENUES)" in health
-    assert '"all26VenueObservations"' in health
-    assert '"all26VenueObservations"' in controller
+    assert '"allVenueObservations"' in health
+    assert '"allVenueObservations"' in controller
     assert '"all27VenueObservations"' not in controller
     assert "naturalEmailProviderDelivered" in health
     assert "naturalWeChatDelivered" in health

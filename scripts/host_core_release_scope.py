@@ -15,6 +15,7 @@ COUPLED_PREFIXES = (
     "docker/sender/",
 )
 COUPLED_FILES = {
+    "src/wechat_airflow/venue_catalog.json",
     "deploy/systemd/wechat-sender.service",
     "docker-compose.sender.yml",
     "scripts/install_wechat_sender.sh",

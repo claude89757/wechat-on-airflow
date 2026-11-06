@@ -9,12 +9,11 @@ declare exceptions in `config/venue-schedule-policy.yaml`.
 1. Add adapter configuration and the wiring-only DAG. Update
    `config/active-components.yaml`, `config/config-contracts.yaml` and the
    schedule policy. Preserve existing recipient routes and deduplication.
-2. Add the venue ID/name to `src/wechat_airflow/host_core/domain.py`,
-   `webapp/cloudflare/domain.ts` and `webapp/src/api.ts`. Add the card icon/color
-   in `webapp/src/Prototype.tsx`, booking link and notification name if needed.
-   Keep `managed_services.webapp.expected_venue_count` in
-   `config/runtime-target.yaml` consistent. Business acceptance and browser QA
-   derive their active venue set from the catalogs.
+2. Add one line to `src/wechat_airflow/venue_catalog.json`: `id`, display `name`,
+   `wechatName` (the WeChat dedupe key) and `dagId`. Python, the web app, production
+   health and browser QA all read this file, and there is no venue count to
+   update. A card icon or color in `webapp/src/Prototype.tsx` and a booking link
+   in `src/wechat_airflow/notifications/booking_links.py` are optional.
 3. Cover new parsing/filtering behavior with focused mock tests. For PosPal,
    unopened future dates can have no classrooms; only an entirely empty scan
    window with no request errors means invalid classroom configuration.

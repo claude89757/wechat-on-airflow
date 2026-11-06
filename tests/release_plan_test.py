@@ -247,6 +247,21 @@ def test_cloudflare_worker_source_is_webapp_runtime_only(tmp_path: Path):
     assert payload["resolved_scope"] == "webapp"
 
 
+def test_venue_catalog_ships_python_and_web_together(tmp_path: Path):
+    repo, _ = init_repo(tmp_path)
+    target = commit_change(
+        repo,
+        "src/wechat_airflow/venue_catalog.json",
+        "[]\n",
+        "add a venue",
+    )
+
+    payload = json.loads(run_plan(repo, "--target-commit", target).stdout)
+
+    assert payload["runtime_components"] == ["airflow", "webapp"]
+    assert payload["ci_components"] == ["airflow", "webapp"]
+
+
 def test_web_test_tooling_runs_web_ci_without_runtime_deploy(tmp_path: Path):
     repo, _ = init_repo(tmp_path)
     target = commit_change(
