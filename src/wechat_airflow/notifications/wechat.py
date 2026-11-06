@@ -14,6 +14,7 @@ from wechat_airflow.notifications.booking_links import (
     plan_booking_link,
     restore_sent,
 )
+from wechat_airflow.venue_catalog import VENUE_CATALOG
 
 JsonDict = dict[str, Any]
 
@@ -31,33 +32,7 @@ DEVICE_BUSY_RETRY_LIMIT = 4
 DEVICE_BUSY_RETRY_DELAY_SECONDS = 15.0
 
 VENUE_DEDUPE_CACHE_KEYS: dict[str, str] = {
-    "szw": "深圳湾网球场",
-    "gba": "大湾区网球场",
-    "dsh_free": "大沙河免费场",
-    "dsh": "大沙河国际网球中心",
-    "sysh": "上越沙河网球场",
-    "tops": "TOPS科技园网球场",
-    "fsb": "泛思博特福中福网球场",
-    "jdwx": "金地威新网球场",
-    "ppba": "PICKLEPOP宝安网球场",
-    "tyzx": "深圳市体育中心网球场",
-    "fsb_shenyun": "泛思博特深云网球场",
-    "fsb_shekou": "泛思博特蛇口网球场",
-    "fsb_xinan": "泛思博特新安网球场",
-    "fsb_zhengzhong": "泛思博特正中网球场",
-    "fsb_atuoshan": "泛思博特安托山网球场",
-    "fsb_zonglvquan": "泛思博特棕榈泉网球场",
-    "fsb_guanhu": "泛思博特观湖网球场",
-    "fsb_bantian": "泛思博特坂田网球场",
-    "fsb_shahe": "泛思博特沙河网球场",
-    "fsb_baoshui": "泛思博特保税网球场",
-    "fsb_nanyou": "泛思博特南油网球场",
-    "fsb_xinqiao": "泛思博特新桥网球场",
-    "fsb_yifangcheng": "泛思博特壹方城网球场",
-    "fsb_qilin": "泛思博特麒麟网球场",
-    "fsb_maozhouhe": "泛思博特茅洲河网球场",
-    "fft_qianhai": "FFTENNIS前海国际网球中心",
-    "swjj": "深湾竞界网球场",
+    venue["id"]: venue["wechatName"] for venue in VENUE_CATALOG
 }
 
 

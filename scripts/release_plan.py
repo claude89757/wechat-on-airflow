@@ -38,6 +38,7 @@ MCP_SURFACES = {
     ),
 }
 
+VENUE_CATALOG = "src/wechat_airflow/venue_catalog.json"
 WEBAPP_RUNTIME_EXACT = {
     "webapp/index.html",
     "webapp/package.json",
@@ -245,6 +246,10 @@ def classify_file(
         base, target, path
     ):
         return runtime, ci, control, True, unknown
+
+    # Python and the web app both read the catalog, so a venue change ships both.
+    if path == VENUE_CATALOG:
+        return {"webapp", "airflow"}, {"webapp", "airflow"}, control, metadata, unknown
 
     if path in WEBAPP_RUNTIME_EXACT or starts_with_any(path, WEBAPP_RUNTIME_PREFIXES):
         if path.endswith((".test.ts", ".spec.ts", ".test.tsx", ".spec.tsx")):

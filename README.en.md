@@ -14,7 +14,7 @@ Operations: [Agent-first routing and fallback](docs/runbooks/agent-operations.md
 
 ## ✨ Features
 
-- **Multi-venue polling**: 27 Shenzhen venue DAGs. Shenzhen Bay polls every two minutes and Greater Bay Area every three minutes, from 08:00 inclusive to 21:00 exclusive in Asia/Shanghai. Three CRLand accounts rotate independently by each venue's scheduled round. Dashah International uses a single-slot browser pool and polls every two minutes. Other venues use the one-minute default or an explicit policy exception.
+- **Multi-venue polling**: One DAG per Shenzhen venue. Shenzhen Bay polls every two minutes and Greater Bay Area every three minutes, from 08:00 inclusive to 21:00 exclusive in Asia/Shanghai. Three CRLand accounts rotate independently by each venue's scheduled round. Dashah International uses a single-slot browser pool and polls every two minutes. Other venues use the one-minute default or an explicit policy exception.
 - **Host-owned subscription core**: local `zacks-api` accepts observations and Web requests; PostgreSQL schema `zacks` stores identities, subscriptions, dedupe state, Outboxes, quotas, and delivery results.
 - **Subscriber email**: `zacks-notification-worker` performs matching, digesting, tier limits, weather policy, Tencent SES submission, retries, and delivery reconciliation.
 - **WeChat alerts**: venue tasks only write durable WeChat intents. The separate `zacks-wechat-worker` calls the Android Sender, and device-side durable idempotency avoids duplicate sends after a restart.
@@ -77,7 +77,7 @@ flowchart TB
 5. **Cloudflare is only the edge.** It serves static assets, TLS/WAF, stateless API forwarding, and Tunnel ingress. It does not query D1, run a notification Cron, or own a notification decision.
 6. **Failure pauses delivery and rolls forward.** The first cutover uses a maintenance window, encrypted secret transfer, bulk import, and per-table verification. After activation, D1 is not imported again, the old path is not restored automatically, and the original business data is not deleted.
 
-Current production status is established only by an exact-commit acceptance report from the protected workflow. This page does not by itself show that migration is complete. Acceptance includes three natural inspection cycles for all 27 venues, the production transaction-rollback subscription probe, and real natural email and WeChat delivery records.
+Current production status is established only by an exact-commit acceptance report from the protected workflow. This page does not by itself show that migration is complete. Acceptance includes three natural inspection cycles for all venues, the production transaction-rollback subscription probe, and real natural email and WeChat delivery records.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) and [ADR 0013](./docs/adr/0013-host-core-only-reliable-delivery.md).
 

@@ -142,7 +142,6 @@ managed_services:
     additional_public_base_urls:
     - https://zacks.claude89757.cc
     health_path: /api/healthz
-    expected_venue_count: 27
     deployment_owner: github_actions
     static_assets: webapp/dist/client
     api_proxy:

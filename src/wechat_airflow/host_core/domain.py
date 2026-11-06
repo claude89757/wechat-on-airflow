@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from wechat_airflow.venue_catalog import VENUE_CATALOG
+
 SHANGHAI: Final = ZoneInfo("Asia/Shanghai")
 EMAIL_PATTERN: Final = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 TIME_PATTERN: Final = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
@@ -22,35 +24,7 @@ UUID_PATTERN: Final = re.compile(
 )
 ALL_WEEKDAY_MASK: Final = 127
 
-VENUES: Final[dict[str, str]] = {
-    "szw": "深圳湾",
-    "gba": "大湾区网球场",
-    "dsh_free": "大沙河免费场",
-    "dsh": "大沙河国际网球中心",
-    "sysh": "上越沙河",
-    "tops": "TOPS 科技园",
-    "fsb": "泛思博特福中福",
-    "fsb_shenyun": "泛思博特深云",
-    "fsb_shekou": "泛思博特蛇口",
-    "fsb_xinan": "泛思博特新安",
-    "fsb_zhengzhong": "泛思博特正中",
-    "fsb_atuoshan": "泛思博特安托山",
-    "fsb_zonglvquan": "泛思博特棕榈泉",
-    "fsb_guanhu": "泛思博特观湖",
-    "fsb_bantian": "泛思博特坂田",
-    "fsb_shahe": "泛思博特沙河",
-    "fsb_baoshui": "泛思博特保税",
-    "fsb_nanyou": "泛思博特南油",
-    "fsb_xinqiao": "泛思博特新桥",
-    "fsb_yifangcheng": "泛思博特壹方城",
-    "fsb_qilin": "泛思博特麒麟",
-    "fsb_maozhouhe": "泛思博特茅洲河",
-    "fft_qianhai": "FFTENNIS前海国际网球中心",
-    "ppba": "PICKLE POP宝安",
-    "tyzx": "深圳市体育中心",
-    "jdwx": "金地威新",
-    "swjj": "深湾竞界",
-}
+VENUES: Final[dict[str, str]] = {venue["id"]: venue["name"] for venue in VENUE_CATALOG}
 
 # The owner withdrew the Baoan integration on 2026-11-01. Historical rows,
 # subscriptions and delivery identities remain durable; it is no longer an

@@ -1,34 +1,10 @@
-export const VENUES = {
-  szw: "深圳湾",
-  gba: "大湾区网球场",
-  dsh_free: "大沙河免费场",
-  dsh: "大沙河国际网球中心",
-  sysh: "上越沙河",
-  tops: "TOPS 科技园",
-  fsb: "泛思博特福中福",
-  fsb_shenyun: "泛思博特深云",
-  fsb_shekou: "泛思博特蛇口",
-  fsb_xinan: "泛思博特新安",
-  fsb_zhengzhong: "泛思博特正中",
-  fsb_atuoshan: "泛思博特安托山",
-  fsb_zonglvquan: "泛思博特棕榈泉",
-  fsb_guanhu: "泛思博特观湖",
-  fsb_bantian: "泛思博特坂田",
-  fsb_shahe: "泛思博特沙河",
-  fsb_baoshui: "泛思博特保税",
-  fsb_nanyou: "泛思博特南油",
-  fsb_xinqiao: "泛思博特新桥",
-  fsb_yifangcheng: "泛思博特壹方城",
-  fsb_qilin: "泛思博特麒麟",
-  fsb_maozhouhe: "泛思博特茅洲河",
-  fft_qianhai: "FFTENNIS前海国际网球中心",
-  ppba: "PICKLE POP宝安",
-  tyzx: "深圳市体育中心",
-  jdwx: "金地威新",
-  swjj: "深湾竞界",
-} as const;
+import catalog from "../../src/wechat_airflow/venue_catalog.json" with { type: "json" };
 
-export type VenueId = keyof typeof VENUES;
+export const VENUES: Readonly<Record<string, string>> = Object.fromEntries(
+  catalog.map((venue) => [venue.id, venue.name]),
+);
+
+export type VenueId = string;
 
 export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 export type Weekday = (typeof WEEKDAYS)[number];

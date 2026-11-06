@@ -512,13 +512,13 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
     def test_quiesce_is_scoped_and_preserves_incident_outbox(self):
         script = quiesce_wechat_delivery.remote_script()
 
-        self.assertEqual(len(quiesce_wechat_delivery.WECHAT_DAG_IDS), 26)
+        self.assertNotIn("大沙河免费场巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
         self.assertIn("大沙河国际网球中心巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
         self.assertIn("泛思博特深云网球场巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
         self.assertIn("FFTENNIS前海国际网球中心巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
         self.assertIn("深湾竞界网球场巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
         self.assertIn("PICKLEPOP宝安网球场巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
-        self.assertIn("expected_paused = 26", script)
+        self.assertIn("expected_paused = len(json.loads(base64.b64decode(", script)
         self.assertIn(
             "compose stop -t 15 airflow-scheduler airflow-worker airflow-triggerer",
             script,

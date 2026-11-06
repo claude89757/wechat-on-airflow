@@ -194,7 +194,8 @@ def main() -> None:
     )
     target = runtime_target["managed_services"]["webapp"]
     base_url = str(target["public_base_url"]).rstrip("/")
-    expected_venue_count = int(target["expected_venue_count"])
+    catalog = REPO_ROOT / "src/wechat_airflow/venue_catalog.json"
+    expected_venue_count = len(json.loads(catalog.read_text(encoding="utf-8")))
     stateless_edge = target.get("runtime") == "cloudflare_worker_stateless_edge"
 
     reports = []

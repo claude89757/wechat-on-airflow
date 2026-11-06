@@ -175,8 +175,7 @@ describe("subscription domain", () => {
     ).toEqual(["ppba"]);
   });
 
-  it("registers twenty-seven venues including Fansibote chain, FFTENNIS Qianhai and Shenwan Jingjie", () => {
-    expect(Object.keys(VENUES)).toHaveLength(27);
+  it("reads venues from the shared catalog, including Fansibote chain, FFTENNIS Qianhai and Shenwan Jingjie", () => {
     expect(VENUES.ppba).toBe("PICKLE POP宝安");
     expect(VENUES.dsh).toBe("大沙河国际网球中心");
     expect(VENUES.fsb_shenyun).toBe("泛思博特深云");

@@ -93,6 +93,8 @@ const WEEKDAY_PRESETS: Array<{ label: string; weekdays: Weekday[] }> = [
   { label: "周末", weekdays: [6, 7] },
 ];
 
+// Optional per-venue styling; a venue left out gets the defaults below.
+const DEFAULT_VENUE_ACCENT = "teal";
 const VENUE_ACCENTS: Record<VenueId, string> = {
   szw: "teal",
   gba: "cyan",
@@ -484,7 +486,7 @@ export default function Prototype() {
   const quickVenue = useMemo(() => quickVenueId
     ? popularVenues.find((venue) => venue.id === quickVenueId) ?? null
     : null, [popularVenues, quickVenueId]);
-  const QuickVenueIcon = quickVenue ? VENUE_ICONS[quickVenue.id] : TennisBallIcon;
+  const QuickVenueIcon = (quickVenue && VENUE_ICONS[quickVenue.id]) || TennisBallIcon;
   const quickVenueSubscriptions = useMemo(() => quickVenue
     ? dashboard.subscriptions.filter((subscription) =>
         subscription.active
@@ -1262,7 +1264,7 @@ export default function Prototype() {
                 <fieldset className="quick-venue-selection">
                   <legend>已选场地 <span>快速创建</span></legend>
                   <div className="quick-venue-chip">
-                    <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id]}`} aria-hidden="true">
+                    <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id] ?? DEFAULT_VENUE_ACCENT}`} aria-hidden="true">
                       <QuickVenueIcon size={20} weight="duotone" />
                     </span>
                     <span className="quick-venue-copy">
@@ -1451,7 +1453,7 @@ export default function Prototype() {
               </> : null}
               {!verificationReturn && quickVenue ? (
                 <div className="quick-verification-context">
-                  <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id]}`} aria-hidden="true">
+                  <span className={`quick-venue-icon venue-icon-${VENUE_ACCENTS[quickVenue.id] ?? DEFAULT_VENUE_ACCENT}`} aria-hidden="true">
                     <QuickVenueIcon size={20} weight="duotone" />
                   </span>
                   <div>

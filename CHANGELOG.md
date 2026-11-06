@@ -7,6 +7,11 @@ and operational changes.
 
 ### Changed
 
+- Adding a venue now takes one line in `src/wechat_airflow/venue_catalog.json`.
+  Python, the web app, production health and browser QA read that file, and no
+  check or document pins a venue count. The `all26VenueObservations` health check
+  is now `allVenueObservations`, and `expected_venue_count` is gone from
+  `config/runtime-target.yaml`.
 - Operations MCP now runs commands as root straight after Cloudflare OAuth through
   `ops_exec`, replacing `ops_request` and its browser approval page. Commands can
   run for up to an hour and in parallel, and the audit log records their text.

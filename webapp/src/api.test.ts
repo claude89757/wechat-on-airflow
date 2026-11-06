@@ -94,9 +94,9 @@ describe("dashboard client cache", () => {
     });
     saveDashboardSnapshot("historical-user", historical);
     const restored = loadDashboardSnapshot("historical-user")!;
-    expect(restored.venues).toHaveLength(26);
+    expect(restored.venues).toHaveLength(FALLBACK_DASHBOARD.venues.length);
     expect(restored.venues.some(venue => String(venue.id) === "baoti")).toBe(false);
-    expect(restored.metrics.totalVenues).toBe(26);
+    expect(restored.metrics.totalVenues).toBe(FALLBACK_DASHBOARD.venues.length);
     expect(restored.subscriptions).toEqual(historical.subscriptions);
   });
 

@@ -86,7 +86,7 @@ This is email incident recovery only. It does not set release acceptance,
 enable WeChat, change venue schedules, restart Airflow, deploy Pi/Sender/edge,
 rotate credentials, reimport D1, restore a database, or create a release tag.
 All existing full-release requirements remain, including exact component
-identities, all 27 venues and their natural cycles, the transaction-rollback
+identities, all venues and their natural cycles, the transaction-rollback
 API probe, and independent natural email/WeChat receipts.
 
 Report any incomplete Baoan/Pi collection or older Sender deployment separately.

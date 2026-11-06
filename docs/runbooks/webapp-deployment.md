@@ -47,8 +47,8 @@ Public checks must establish:
 - desktop and mobile controls remain usable, without a device picker or overflow.
 
 `webapp/qa/public-acceptance.mjs` compares actual card IDs with
-`webapp/cloudflare/domain.ts`, so adding a venue does not require editing a
-hardcoded historical count. It blocks writes and checks the verification button
+`src/wechat_airflow/venue_catalog.json`, so adding a venue does not require
+editing a hardcoded count. It blocks writes and checks the verification button
 with a trial click only. Never create a real subscription, send a verification
 email or inject availability for routine acceptance.
 

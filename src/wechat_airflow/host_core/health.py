@@ -233,7 +233,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
         venue_health = venue_observation_health(
             venues, manifest=manifest, contract=contract, now=now, since=since
         )
-        checks["all26VenueObservations"] = venue_health["ok"]
+        checks["allVenueObservations"] = venue_health["ok"]
         scopes = [
             dict(row)
             for row in connection.execute(
