@@ -4,6 +4,32 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 
 
+def test_business_update_preserves_coupled_lifecycle_and_failure_pause():
+    import yaml
+
+    jobs = yaml.safe_load((WORKFLOWS / "production-business.yml").read_text())["jobs"]
+    for job, predecessor, operation in (
+        ("host_core", "gate", "routine-upgrade"),
+        ("airflow", "host_core", "deploy_recovery"),
+        ("sender", "airflow", "apply"),
+        ("activate", "sender", "activate-workers"),
+        ("observe", "activate", "acceptance"),
+    ):
+        assert jobs[job]["needs"] == predecessor
+        assert jobs[job]["with"]["operation"] == operation
+        assert jobs[job]["with"]["target_commit"] == "${{ inputs.target_commit }}"
+    pause = jobs["safe_pause"]
+    assert pause["with"]["operation"] == "pause"
+    for component in ("airflow", "sender", "activate"):
+        assert f"needs.{component}.result != 'success'" in pause["if"]
+    assert "observe" not in pause["needs"]
+    baseline = jobs["gate"]["steps"][2]["run"]
+    assert "make_plan(base, target" in baseline
+    assert "plan.unknown_files" in baseline
+    assert "set(plan.runtime_components) <= {'webapp', 'airflow', 'sender'}" in baseline
+    assert not any("production-mcp.yml" in job.get("uses", "") for job in jobs.values())
+
+
 def test_only_one_workflow_listens_to_issue_comments():
     listeners = []
     for path in WORKFLOWS.glob("*.yml"):

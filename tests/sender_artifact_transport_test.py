@@ -112,6 +112,13 @@ def test_runner_stages_verified_wheel_and_cleans_exact_paths_on_all_outcomes(
         with pytest.raises(deploy.OpsError) as stopped:
             deploy.main()
         assert "PRIVATE" not in str(stopped.value)
+        expected_stage = {
+            "bundle_upload": "upload_repository",
+            "wheel_upload": "upload_wheelhouse",
+            "ssh": "remote_operation",
+        }.get(failure)
+        if expected_stage:
+            assert expected_stage in str(stopped.value)
     else:
         deploy.main()
         assert emitted == [{"ok": True}]
@@ -123,6 +130,36 @@ def test_runner_stages_verified_wheel_and_cleans_exact_paths_on_all_outcomes(
         assert emitted[0]["candidate_staged_artifact_verified"] is False
         assert emitted[0]["candidate_artifact_failure_kind"] == "sha256_mismatch"
     assert "PRIVATE" not in json.dumps(emitted)
+
+
+@pytest.mark.parametrize(
+    ("error", "failures", "attempts"),
+    [("Connection reset by peer", 1, 2), ("Broken pipe", 4, 3), ("Permission denied", 1, 1)],
+)
+def test_only_artifact_transfer_retries_transient_errors(
+    monkeypatch, tmp_path, error, failures, attempts
+):
+    calls = []
+
+    def run(command):
+        calls.append(command)
+        if len(calls) <= failures:
+            raise deploy.OpsError(error)
+
+    monkeypatch.setattr(deploy, "run", run)
+    monkeypatch.setattr(deploy.time, "sleep", lambda seconds: None)
+    args = (
+        tmp_path / "bundle",
+        {"host": "sender.invalid", "username": "deployer", "port": "22"},
+        "/tmp/bundle",
+    )
+    if failures >= attempts:
+        with pytest.raises(deploy.OpsError):
+            deploy.upload_deployment_bundle(*args)
+    else:
+        deploy.upload_deployment_bundle(*args)
+    assert len(calls) == attempts
+    assert all(command == calls[0] and command[0] == "scp" for command in calls)
 
 
 def test_health_does_not_download_upload_or_require_an_artifact(monkeypatch):

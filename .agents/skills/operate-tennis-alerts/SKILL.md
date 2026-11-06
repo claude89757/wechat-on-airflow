@@ -12,6 +12,14 @@ lint/typecheck/Python tests, not unrelated image builds. Prefer interruptible
 Airflow updates; never clear durable business outboxes or bypass authentication.
 These rules supersede blanket full-verify and uninterrupted-service requirements.
 
+For venue/coupled business updates read `docs/runbooks/venue-onboarding.md` and
+use `make release TARGET_COMMIT=<full-main-sha>`. It coordinates the existing
+protected Host Core/edge, interruptible Airflow, Sender and activation stages.
+The diff base is the live Host Core SHA, not an old semantic tag. Do not send an
+ordinary venue update through `scope=all` just to satisfy the legacy coupled
+release guard; unrelated MCP services must not block it. Natural receipts remain
+asynchronous observations, with no synthetic sends.
+
 For verification scope follow `docs/runbooks/fast-verification.md`. Focused local
 checks replace blanket full verification for documentation, frontend and MCP-only
 work; shared or release-control changes still require `make verify`. The exact

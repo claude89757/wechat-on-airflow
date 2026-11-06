@@ -1,5 +1,12 @@
 # Release Strategy
 
+Routine venue/business updates use `make release TARGET_COMMIT=<full-main-sha>`;
+see [venue onboarding](runbooks/venue-onboarding.md). A live-runtime diff base
+avoids redeploying unrelated components since an old semantic tag. The protected
+update keeps Host Core, Airflow and Sender aligned, restores consumers, and
+samples acceptance once. Version bumps and ship/tag are optional. The sections
+below describe formal named releases and advanced recovery.
+
 ## Versioning
 
 The project follows Semantic Versioning. While the package remains below 1.0:
@@ -169,12 +176,13 @@ separate high-risk operations requiring explicit approval.
 
 A completed business report is not necessarily a successful release. When all
 technical checks pass and only natural email/WeChat delivery evidence is absent,
-acceptance reports `pending`, exits 75, creates no tag/release, and keeps the healthy
-single delivery owner active. A missing/malformed report, any other failed check,
-or missing evidence upload remains a failure and uses the safety-stop path.
-Resume by re-running **failed jobs on the same ship run**, not by starting a new
-ship: successful deployment/activation ancestors must not rerun or reset the
-acceptance window. Completion still requires all original natural-delivery checks.
+acceptance reports `pending`, exits 75 remotely, and keeps the healthy single
+delivery owner active. Missing three-cycle history is also pending observation.
+The protected workflow validates and records pending evidence without failing
+the deployment or holding the tag. A missing/malformed report, technical failure
+or missing evidence upload still fails the observation job; it does not rerun
+deployment or disable already activated delivery. Refresh evidence with the
+deployed SHA and `operation=acceptance`, preserving the acceptance window.
 No synthetic notifications may be sent to satisfy acceptance.
 
 Release preflight now diagnoses a dirty Airflow worktree instead of automatically

@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
+import { VENUES } from '../cloudflare/domain.ts';
 import { acceptanceRequestPolicy } from './public-request-policy.mjs';
 import { observeGearPromo, verifyAutomaticGearPromo, verifyManualGearPromo, verifyMobileFirstVisitGearPromo } from './gear-promo-acceptance.mjs';
 
 const expected = process.argv[2];
 assert.match(expected ?? '', /^[0-9a-f]{40}$/, 'exact Web deployment SHA is required');
 const config = JSON.parse(await readFile('wrangler.jsonc', 'utf8'));
+// Compare the deployed directory with the checked-in catalog, not a historical count.
+const expectedVenueIds = Object.keys(VENUES).sort();
+assert.ok(expectedVenueIds.length > 0);
 const origins = config.routes.filter(route => route.custom_domain).map(route => `https://${route.pattern}`);
 assert.deepEqual(origins, ['https://courts.zacks.vision', 'https://zacks.claude89757.cc']);
 const output = 'qa-output';
@@ -62,7 +66,8 @@ try {
     assert.equal(health.edge.legacyRuntime, false);
     assert.equal(health.host.ok, true);
     assert.equal(health.host.runtime, 'airflow-host');
-    assert.equal(await page.locator('.venue-card').count(), 26);
+    const actualVenueIds = await page.locator('.venue-card').evaluateAll(cards => cards.map(card => card.getAttribute('data-testid')?.replace('venue-card-', '')).sort());
+    assert.deepEqual(actualVenueIds, expectedVenueIds);
     assert.equal(await page.locator('.phone-device-picker:visible').count(), 0);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     assert.ok(overflow <= 1);
@@ -78,7 +83,7 @@ try {
     await page.getByLabel('搜索场地').fill('no-such-court-studio-acceptance');
     await page.getByText('没有找到这个场地', { exact: true }).waitFor();
     await page.getByRole('button', { name: '查看全部场地', exact: true }).click();
-    assert.equal(await page.locator('.venue-card').count(), 26);
+    assert.equal(await page.locator('.venue-card').count(), expectedVenueIds.length);
     assert.equal(await page.getByTestId('venue-card-baoti').count(), 0);
     await page.getByTestId('venue-card-tops').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}/${name}-directory.png` });
@@ -151,7 +156,7 @@ try {
       prolonged: origin === origins[0] && view === 'desktop',
     });
     assert.deepEqual(errors, []);
-    report.views.push({ origin, name, width, height, overflow, cards: 26, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, gearPromo, passed: true });
+    report.views.push({ origin, name, width, height, overflow, cards: expectedVenueIds.length, hostCommit: health.host.deploymentCommit, edgeCommit: health.edge.deploymentCommit, errors, stableVerificationControls: true, wechatGroup: true, copyWechat: true, qrDownload: true, qrSha256, gearPromo, passed: true });
     await context.close();
   }
   }

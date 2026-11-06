@@ -24,6 +24,16 @@ commands.
 
 ## Routine Named Release
 
+For an ordinary venue or business update use the shorter supported entry:
+
+```sh
+make release TARGET_COMMIT=<full-main-sha>
+```
+
+See [venue-onboarding.md](venue-onboarding.md). It performs the coupled update
+without a version/tag, long drain, or unrelated MCP deployment. The named ship
+path below is optional formal-release bookkeeping.
+
 Use one command:
 
 ```text
@@ -142,7 +152,7 @@ or unclassified runtime paths conservatively expand to all components.
 
 ## Airflow Transaction
 
-Airflow apply builds a commit-tagged image, drains active task instances,
+Routine Airflow apply builds a commit-tagged image, interrupts in-flight scheduled tasks,
 preserves each already-declared DAG's pause state, restores newly introduced
 target DAGs as unpaused even if leftover metadata marked them paused, replaces
 only application services, and retains PostgreSQL, Redis, log, and other
@@ -179,10 +189,8 @@ Web apply performs:
 
 1. deterministic production build;
 2. Wrangler deploy dry-run with the target deployment commit;
-3. remote D1 migration listing;
-4. D1 migration apply;
-5. Worker deployment;
-6. exact-commit `/api/healthz` verification.
+3. stateless Worker deployment without D1 bindings or Cron;
+4. exact-commit `/api/edge-healthz` and forwarded `/api/healthz` verification.
 
 Never use workstation Wrangler credentials for a production migration or
 deployment. For a Web-only release, Airflow remains on its existing healthy

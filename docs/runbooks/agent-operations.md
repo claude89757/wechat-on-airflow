@@ -30,6 +30,13 @@ Airflow uses `deploy_recovery`, not a long natural-drain wait. Keep database
 records, notification deduplication and single-consumer fences intact. Formal
 ship/tag is optional bookkeeping for routine repairs, not a prerequisite.
 
+For a venue or coupled business update use
+`make release TARGET_COMMIT=<full-main-sha>` once. **Production Business Update**
+uses the live Host Core commit as its diff base and coordinates Host Core/edge,
+interruptible Airflow, Sender alignment, activation and immediate observation.
+It excludes unrelated MCP/Pi runtimes and rejects changes that need those
+lifecycles. See [venue-onboarding.md](venue-onboarding.md).
+
 Use [scoped verification](fast-verification.md) to avoid unrelated local and CI
 checks. Daily full regression is separate from the normal exact-SHA gate.
 
@@ -45,8 +52,9 @@ on the first failure. Pi host is completed before VPS. The phone bridge is not
 restarted for a host-only patch. The existing protected `production` Environment,
 main-ancestry/CI gates and scoped credentials remain in each component worker.
 
-For business releases retain `/release ship` and its Host Core, Sender alignment,
-natural-cycle and delivery acceptance gates. Do not pass the latest repository
+Named `/release ship` remains available for formal versioned releases. Routine
+business updates use the entry above, without waiting for natural receipts or
+creating a tag. Do not pass the latest repository
 SHA as a deployed business identity: each component has its own release identity.
 Never deploy via MCP shell commands or approve one's own operation.
 

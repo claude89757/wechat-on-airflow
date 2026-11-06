@@ -118,7 +118,11 @@ def main() -> None:
     ).stdout.strip()
     operation = args.operation
     if args.component in {"airflow", "webapp"} and operation == "deploy":
-        operation = "deploy_apply" if args.apply else "deploy_preflight"
+        operation = (
+            ("deploy_recovery" if args.component == "airflow" else "deploy_apply")
+            if args.apply
+            else "deploy_preflight"
+        )
     if args.component == "sender" and operation == "deploy":
         operation = "apply" if args.apply else "dry_run"
     if args.component in {"pi_mcp", "pi_ydmap"} and operation == "deploy":

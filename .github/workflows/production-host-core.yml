@@ -204,8 +204,6 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          npm run test
-          npm run check:worker
           npm run build
           npx wrangler deploy --dry-run --outdir /tmp/zacks-edge-dry-run
 

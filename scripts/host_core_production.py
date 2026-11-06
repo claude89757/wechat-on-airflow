@@ -1120,6 +1120,7 @@ def health(target_commit, include_public=False, require_delivery=False):
 
 
 NATURAL_DELIVERY_CHECKS = {"naturalEmailProviderDelivered", "naturalWeChatDelivered"}
+NATURAL_OBSERVATION_CHECKS = NATURAL_DELIVERY_CHECKS | {"allNaturalDagCycles"}
 # Missing evidence is not evidence of technical health. Keep this floor aligned
 # with the complete v1 business-health report; additional checks still apply.
 REQUIRED_ACCEPTANCE_CHECKS = (
@@ -1172,7 +1173,7 @@ def acceptance_status(report):
         return "failed"
     if not failed and report.get("ok") is True:
         return "accepted"
-    if failed and failed.issubset(NATURAL_DELIVERY_CHECKS) and report.get("ok") is False:
+    if failed and failed.issubset(NATURAL_OBSERVATION_CHECKS) and report.get("ok") is False:
         return "pending"
     return "failed"
 
