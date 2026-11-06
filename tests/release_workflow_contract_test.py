@@ -13,7 +13,7 @@ def test_business_update_preserves_coupled_lifecycle_and_failure_pause():
         ("airflow", "host_core", "deploy_recovery"),
         ("sender", "airflow", "apply"),
         ("activate", "sender", "activate-workers"),
-        ("observe", "activate", "acceptance"),
+        ("observe", "activate", "health"),
     ):
         assert jobs[job]["needs"] == predecessor
         assert jobs[job]["with"]["operation"] == operation
@@ -23,6 +23,7 @@ def test_business_update_preserves_coupled_lifecycle_and_failure_pause():
     for component in ("airflow", "sender", "activate"):
         assert f"needs.{component}.result != 'success'" in pause["if"]
     assert "observe" not in pause["needs"]
+    assert jobs["observe"]["uses"] == "./.github/workflows/production-webapp.yml"
     baseline = jobs["gate"]["steps"][2]["run"]
     assert "make_plan(base, target" in baseline
     assert "plan.unknown_files" in baseline
