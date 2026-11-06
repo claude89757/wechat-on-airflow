@@ -613,6 +613,7 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
             "ok": True,
             "deploymentCommit": "a" * 40,
             "durableIdempotency": True,
+            "protocolVersion": 1,
             "cloudflareProxyObserved": False,
         },
     )

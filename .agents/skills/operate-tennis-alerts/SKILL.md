@@ -13,8 +13,8 @@ Airflow updates; never clear durable business outboxes or bypass authentication.
 These rules supersede blanket full-verify and uninterrupted-service requirements.
 
 For venue/coupled business updates read `docs/runbooks/venue-onboarding.md` and
-use `make release TARGET_COMMIT=<full-main-sha>`. It coordinates the existing
-protected Host Core/edge, interruptible Airflow, Sender and activation stages.
+use `make release`. It coordinates the existing protected interruptible Airflow,
+Sender, Host Core/edge and activation stages; resume with `make release-resume`.
 The diff base is the live Host Core SHA, not an old semantic tag. Do not send an
 ordinary venue update through `scope=all` just to satisfy the legacy coupled
 release guard; unrelated MCP services must not block it. Natural receipts remain

@@ -370,8 +370,13 @@ def routine_preflight(target_commit):
         or checkpoint.get("migrationComplete") is not True
     ):
         raise RuntimeError("routine upgrade requires an activated, verified migration checkpoint")
-    if checkpoint.get("deliveryEnabled") is not True or checkpoint.get("wechatEnabled") is not True:
-        raise RuntimeError("routine upgrade requires an operational delivery baseline")
+    delivery = checkpoint.get("deliveryEnabled")
+    wechat = checkpoint.get("wechatEnabled")
+    # A full pause can roll forward, because shipping a fix may be the only way out.
+    # Activating this release turns delivery back on. Delivery on with WeChat off is
+    # the email recovery mode, which keeps its own recovery-upgrade path.
+    if type(delivery) is not bool or type(wechat) is not bool or (delivery and not wechat):
+        raise RuntimeError("routine upgrade requires full delivery or a full pause")
     token = variable_get("WEBAPP_OBSERVATION_API_TOKEN")
     token_path = (
         Path(os.environ.get("AIRFLOW_SECRET_DIR", "/etc/wechat-on-airflow/secrets"))
@@ -387,6 +392,7 @@ def routine_preflight(target_commit):
     result.update(
         {
             "routineUpgrade": True,
+            "deliveryWasPaused": not delivery,
             "existingConfigurationPreserved": True,
             "currentDeploymentCommit": checkpoint.get("deploymentCommit"),
             "migrationComplete": True,
@@ -1040,17 +1046,18 @@ def activate_workers(target_commit):
             raise RuntimeError("runtime commit mismatch for " + component)
     sender = _last_json(
         host_python(
-            "import json; from wechat_airflow.host_core.wechat_worker import sender_readiness; "
-            "print(json.dumps(sender_readiness()))",
+            "import json; from wechat_airflow.host_core.wechat_worker import "
+            "SENDER_PROTOCOL_VERSION, sender_readiness; "
+            "print(json.dumps({**sender_readiness(), 'expectedProtocol': SENDER_PROTOCOL_VERSION}))",
             capture=True,
         )
     )
     if (
         not sender.get("ok")
-        or sender.get("deploymentCommit") != target_commit
+        or sender.get("protocolVersion") != sender.get("expectedProtocol")
         or not sender.get("durableIdempotency")
     ):
-        raise RuntimeError("exact-commit durable WeChat sender is not ready")
+        raise RuntimeError("compatible durable WeChat sender is not ready")
     probe = _last_json(
         compose_exec(
             "zacks-api", "python", "-m", "wechat_airflow.host_core.api_probe", capture=True
@@ -1141,7 +1148,7 @@ REQUIRED_ACCEPTANCE_CHECKS = (
         "allRequiredDagsUnpaused",
         "wechatEnqueueIncidentsResolved",
         "senderReady",
-        "exactSenderCommit",
+        "senderProtocolCompatible",
         "senderDurableIdempotency",
         "senderTransportNotCloudflareProxied",
         "pureEdgeExactCommit",
