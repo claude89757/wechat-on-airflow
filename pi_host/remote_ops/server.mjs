@@ -83,9 +83,11 @@ const http = createServer(async (req, res) => {
     if (approval) {
       // An MCP OAuth Bearer token is not a browser approval credential.
       const cookie = cookies(req);
-      if (!user.human || req.headers.authorization || !cookie.CF_Authorization) throw Error("browser_login_required");
-      const { payload } = await jwtVerify(cookie.CF_Authorization, keys, { issuer: config.issuer, audience: config.audience, algorithms: ["RS256"], requiredClaims: ["exp", "iat"] });
-      if (typeof payload.sub !== "string" || hash(config.issuer + payload.sub) !== user.principal) throw Error("browser_identity_mismatch");
+      if (!user.human || req.headers.authorization) throw Error("browser_login_required");
+      if (cookie.CF_Authorization) {
+        const { payload } = await jwtVerify(cookie.CF_Authorization, keys, { issuer: config.issuer, audience: config.audience, algorithms: ["RS256"], requiredClaims: ["exp", "iat"] });
+        if (typeof payload.sub !== "string" || hash(config.issuer + payload.sub) !== user.principal) throw Error("browser_identity_mismatch");
+      }
       if (req.method === "GET") {
         const { item, nonce } = requests.challenge(approval[1], user.principal);
         res.setHeader("set-cookie", `ops_csrf=${nonce}; Secure; HttpOnly; SameSite=Strict; Path=/approve/${item.id}; Max-Age=300`);

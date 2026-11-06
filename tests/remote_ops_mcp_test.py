@@ -148,7 +148,8 @@ def test_production_workflow_has_exact_sha_and_environment_gates():
 def test_mcp_never_registers_approval_tool():
     source = (ROOT / "pi_host/remote_ops/server.mjs").read_text()
     assert 'registerTool("approve' not in source
-    assert "req.headers.authorization || !cookie.CF_Authorization" in source
+    assert "!user.human || req.headers.authorization" in source
+    assert "cookie.CF_Authorization" in source
     assert 'algorithms: ["RS256"]' in source
     assert "audience: config.audience" in source
     assert '.listen(config.port || 3340, "127.0.0.1")' in source
