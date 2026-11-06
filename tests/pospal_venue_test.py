@@ -46,6 +46,16 @@ class FakeVariable:
         cls.values[key] = value
 
 
+def _slot(court_name: str, start: str) -> dict[str, object]:
+    end_hour, end_minute = (int(part) for part in start.split(":"))
+    return {
+        "classRoomName": court_name,
+        "beginDatetime": f"2026-11-07 {start}:00",
+        "endDatetime": f"2026-11-07 {end_hour:02d}:59:00",
+        "apptInfo": {"canApptOrNot": True},
+    }
+
+
 def install_import_stubs() -> None:
     airflow_module = types.ModuleType("airflow")
     airflow_sdk_module = types.ModuleType("airflow.sdk")
@@ -71,6 +81,7 @@ pospal_venue = importlib.import_module("wechat_airflow.venues.pospal_venue")
 pospal_venue.Variable = FakeVariable
 fsb_shenyun_watcher = importlib.import_module("wechat_airflow.venues.fsb_shenyun_watcher")
 fft_qianhai_watcher = importlib.import_module("wechat_airflow.venues.fft_qianhai_watcher")
+swjj_watcher = importlib.import_module("wechat_airflow.venues.swjj_watcher")
 
 
 class PosPalVenueTest(unittest.TestCase):
@@ -241,6 +252,162 @@ class PosPalVenueTest(unittest.TestCase):
         self.assertEqual(headers["APPTYPE"], "1")
         self.assertEqual(headers["VERSIONINFO"], "NC|2026.07.25")
 
+    def test_swjj_configuration_matches_verified_public_ids(self) -> None:
+        venue = pospal_venue.SWJJ
+
+        self.assertEqual(venue.venue_id, "swjj")
+        self.assertEqual(venue.venue_name, "深湾竞界")
+        self.assertEqual(venue.store_id, "6149033")
+        self.assertEqual(venue.project_uid, "1793192927642251816")
+        self.assertEqual(venue.cache_key, "深湾竞界网球场")
+        self.assertEqual(venue.dag_id, "深湾竞界网球场巡检")
+        self.assertEqual(venue.proxy_cache_key, "SWJJ_PROXY_CACHE")
+        self.assertTrue(venue.try_direct_first)
+        self.assertTrue(venue.verify_tls)
+        self.assertTrue(venue.include_user_id)
+        self.assertEqual(venue.notification_baseline_key, "SWJJ_NOTIFICATION_BASELINE")
+        self.assertEqual(venue.lookahead_days, 7)
+        self.assertTrue(venue.require_rooms_when_in_window)
+        self.assertGreaterEqual(venue.max_cached_messages, 280)
+        # The store names courts with a trailing number, so the shared
+        # prefix-number allowlist cannot express its court set.
+        self.assertIsNone(venue.allowed_court_numbers)
+        self.assertIn("单打", venue.excluded_court_tokens)
+        for token in ("小场", "匹克", "练习", "非标", "发球机"):
+            self.assertIn(token, venue.excluded_court_tokens)
+
+    def test_swjj_trims_court_names_and_drops_the_singles_court(self) -> None:
+        payload = {
+            "successed": True,
+            "status": "success",
+            "result": {
+                "slots": [
+                    _slot("网球标准场1号", "18:00"),
+                    _slot("网球标准场2号\t", "18:00"),
+                    _slot("VIP网球风雨场5号\t", "18:00"),
+                    _slot("网球单打场8号", "18:00"),
+                ]
+            },
+        }
+
+        self.assertEqual(
+            pospal_venue.parse_availability(
+                payload,
+                pospal_venue.SWJJ.excluded_court_tokens,
+                pospal_venue.SWJJ.allowed_court_numbers,
+            ),
+            {
+                "网球标准场1号": [["18:00", "19:00"]],
+                "网球标准场2号": [["18:00", "19:00"]],
+                "VIP网球风雨场5号": [["18:00", "19:00"]],
+            },
+        )
+
+    def test_swjj_empty_inventory_is_not_a_healthy_empty_result(self) -> None:
+        original_post = pospal_venue.requests.post
+
+        class EmptyResponse:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {
+                    "successed": True,
+                    "status": "success",
+                    "result": {"slots": [], "validClassRooms": []},
+                }
+
+        pospal_venue.requests.post = lambda *args, **kwargs: EmptyResponse()
+        try:
+            with self.assertRaises(pospal_venue.PosPalEmptyInventoryError):
+                pospal_venue.get_tennis_court_availability(
+                    pospal_venue.SWJJ, "2026-11-07", ["https://proxy.invalid"]
+                )
+        finally:
+            pospal_venue.requests.post = original_post
+
+    def test_legacy_venues_still_treat_empty_inventory_as_healthy(self) -> None:
+        original_post = pospal_venue.requests.post
+
+        class EmptyResponse:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {
+                    "successed": True,
+                    "status": "success",
+                    "result": {"slots": [], "validClassRooms": []},
+                }
+
+        original_sleep = pospal_venue.time.sleep
+        pospal_venue.requests.post = lambda *args, **kwargs: EmptyResponse()
+        pospal_venue.time.sleep = lambda *_args, **_kwargs: None
+        try:
+            self.assertEqual(
+                pospal_venue.get_tennis_court_availability(
+                    pospal_venue.FSB_SHENYUN, "2026-11-07", ["https://proxy.invalid"]
+                ),
+                {},
+            )
+        finally:
+            pospal_venue.requests.post = original_post
+            pospal_venue.time.sleep = original_sleep
+
+    def test_swjj_direct_query_uses_the_store_contract(self) -> None:
+        original_post = pospal_venue.requests.post
+        original_sleep = pospal_venue.time.sleep
+        captured: dict[str, object] = {}
+
+        class FakeResponse:
+            status_code = 200
+
+            @staticmethod
+            def json() -> dict[str, object]:
+                return {
+                    "successed": True,
+                    "status": "success",
+                    "result": {
+                        "validClassRooms": [{"name": "网球标准场1号"}],
+                        "slots": [_slot("网球标准场1号", "18:00")],
+                    },
+                }
+
+        def fake_post(url: str, **kwargs: object) -> FakeResponse:
+            captured["url"] = url
+            captured.update(kwargs)
+            return FakeResponse()
+
+        pospal_venue.requests.post = fake_post
+        pospal_venue.time.sleep = lambda *_args, **_kwargs: None
+        try:
+            result = pospal_venue.get_tennis_court_availability(
+                pospal_venue.SWJJ, "2026-11-07", ["https://proxy.invalid"]
+            )
+        finally:
+            pospal_venue.requests.post = original_post
+            pospal_venue.time.sleep = original_sleep
+
+        self.assertEqual(result, {"网球标准场1号": [["18:00", "19:00"]]})
+        self.assertEqual(captured["url"], pospal_venue.POSPAL_API_URL)
+        self.assertNotIn("proxies", captured)
+        self.assertIs(captured["verify"], True)
+        self.assertEqual(
+            captured["json"],
+            {
+                "dateTime": "2026-11-07",
+                "projectUid": "1793192927642251816",
+                "userId": 6149033,
+            },
+        )
+        headers = captured["headers"]
+        self.assertIsInstance(headers, dict)
+        assert isinstance(headers, dict)
+        self.assertEqual(headers["STOREID"], "6149033")
+        self.assertEqual(headers["PSPLVISITORAUTO"], "API")
+        self.assertEqual(headers["APPTYPE"], "1")
+        self.assertEqual(headers["VERSIONINFO"], "NC|2026.10.28")
+
     def test_empty_proxy_list_does_not_call_api_directly(self) -> None:
         original_post = pospal_venue.requests.post
 
@@ -359,6 +526,73 @@ class PosPalVenueTest(unittest.TestCase):
         self.assertEqual(events, ["webapp"])
         self.assertIn(expected_msg, FakeVariable.values[pospal_venue.FFT_QIANHAI.cache_key])
         marker = FakeVariable.values[pospal_venue.FFT_NOTIFICATION_BASELINE_KEY]
+        self.assertIsInstance(marker, dict)
+        assert isinstance(marker, dict)
+        self.assertTrue(marker["initialized"])
+
+    def test_swjj_warm_start_covers_seven_days_without_wechat(self) -> None:
+        original_load_proxy = pospal_venue.load_proxy_list
+        original_get_availability = pospal_venue.get_tennis_court_availability
+        original_publish = pospal_venue.publish_venue_observation
+        original_enqueue = pospal_venue.enqueue_wechat_message
+        original_datetime = pospal_venue.datetime
+        original_sleep = pospal_venue.time.sleep
+
+        class FixedDatetime(original_datetime.datetime):
+            @classmethod
+            def now(cls, tz: object = None) -> FixedDatetime:
+                return cls(2026, 11, 7, 13, 0, 0)
+
+        class FixedDatetimeModule:
+            datetime = FixedDatetime
+            time = original_datetime.time
+            timedelta = original_datetime.timedelta
+
+        requested_dates: list[str] = []
+
+        def fake_get_availability(
+            venue: object, date: str, proxy_list: list[str]
+        ) -> dict[str, list[list[str]]]:
+            self.assertEqual(venue, pospal_venue.SWJJ)
+            requested_dates.append(date)
+            if date == "2026-11-07":
+                return {"网球标准场1号": [["16:00", "18:00"]]}
+            return {}
+
+        events: list[str] = []
+
+        def fake_publish(*_args: object, **_kwargs: object) -> dict[str, bool]:
+            events.append("webapp")
+            return {"success": True}
+
+        def unexpected_wechat(_venue: object, _msg: str) -> object:
+            events.append("wechat")
+            raise AssertionError("warm-start must not send WeChat")
+
+        pospal_venue.load_proxy_list = lambda: []
+        pospal_venue.get_tennis_court_availability = fake_get_availability
+        pospal_venue.publish_venue_observation = fake_publish
+        pospal_venue.enqueue_wechat_message = unexpected_wechat
+        pospal_venue.datetime = FixedDatetimeModule
+        pospal_venue.time.sleep = lambda *_args, **_kwargs: None
+        try:
+            swjj_watcher.run_check_tennis_courts()
+        finally:
+            pospal_venue.load_proxy_list = original_load_proxy
+            pospal_venue.get_tennis_court_availability = original_get_availability
+            pospal_venue.publish_venue_observation = original_publish
+            pospal_venue.enqueue_wechat_message = original_enqueue
+            pospal_venue.datetime = original_datetime
+            pospal_venue.time.sleep = original_sleep
+
+        self.assertEqual(
+            requested_dates,
+            [f"2026-11-{day:02d}" for day in range(7, 14)],
+        )
+        self.assertEqual(events, ["webapp"])
+        expected_msg = "【深湾竞界网球标准场1号】星期六(11-07)空场: 16:00-18:00"
+        self.assertIn(expected_msg, FakeVariable.values[pospal_venue.SWJJ.cache_key])
+        marker = FakeVariable.values[pospal_venue.SWJJ_NOTIFICATION_BASELINE_KEY]
         self.assertIsInstance(marker, dict)
         assert isinstance(marker, dict)
         self.assertTrue(marker["initialized"])

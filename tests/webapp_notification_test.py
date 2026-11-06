@@ -31,6 +31,7 @@ class WebappNotificationTest(TestCase):
             "fsb_qilin_watcher.py": "run_check_tennis_courts",
             "fsb_maozhouhe_watcher.py": "run_check_tennis_courts",
             "fft_qianhai_watcher.py": "run_check_tennis_courts",
+            "swjj_watcher.py": "run_check_tennis_courts",
             "ppba_watcher.py": "run_check_tennis_courts",
             "tyzx_watcher.py": "run_check_tennis_courts",
             "dashahe_free_watcher.py": "run_check_dashahe_free_courts",
@@ -53,6 +54,7 @@ class WebappNotificationTest(TestCase):
             "fsb_qilin_watcher.py",
             "fsb_maozhouhe_watcher.py",
             "fft_qianhai_watcher.py",
+            "swjj_watcher.py",
         }
         watcher_root = Path(__file__).parents[1] / "src" / "wechat_airflow" / "venues"
         self.assertEqual(

@@ -25,6 +25,7 @@ export const VENUE_IDS = [
   "ppba",
   "tyzx",
   "jdwx",
+  "swjj",
 ] as const;
 
 export type VenueId = (typeof VENUE_IDS)[number];
@@ -245,6 +246,7 @@ const FALLBACK_VENUES: VenueStatus[] = [
   { id: "ppba", name: "PICKLE POP宝安", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-07-29T10:41:08+08:00", lastNotificationAt: null },
   { id: "tyzx", name: "深圳市体育中心", healthy: true, subscriberCount: 30, lastInspectionAt: "2026-07-29T10:40:55+08:00", lastNotificationAt: null },
   { id: "jdwx", name: "金地威新", healthy: true, subscriberCount: 24, lastInspectionAt: "2026-07-29T10:40:42+08:00", lastNotificationAt: null },
+  { id: "swjj", name: "深湾竞界", healthy: true, subscriberCount: 0, lastInspectionAt: "2026-11-06T21:00:00+08:00", lastNotificationAt: null },
 ];
 
 const DEFAULT_TERMS: Dashboard["subscriptionTerms"] = {

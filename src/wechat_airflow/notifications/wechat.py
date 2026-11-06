@@ -57,6 +57,7 @@ VENUE_DEDUPE_CACHE_KEYS: dict[str, str] = {
     "fsb_qilin": "泛思博特麒麟网球场",
     "fsb_maozhouhe": "泛思博特茅洲河网球场",
     "fft_qianhai": "FFTENNIS前海国际网球中心",
+    "swjj": "深湾竞界网球场",
 }
 
 

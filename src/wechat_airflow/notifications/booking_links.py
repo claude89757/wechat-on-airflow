@@ -52,6 +52,10 @@ PPBA_PROGRAM = BookingMiniProgram(
     program_id="ppba",
     link="#小程序://PICKLEPOP宝安摩天轮馆/PK3I72u2dNFoA2b",
 )
+SWJJ_PROGRAM = BookingMiniProgram(
+    program_id="swjj",
+    link="#小程序://深湾竞界智享订场/sPHQZElfQM9p8ie",
+)
 
 VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "szw": WEILAIHUI,
@@ -79,6 +83,7 @@ VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "fsb_maozhouhe": FSB_PROGRAM,
     "ppba": PPBA_PROGRAM,
     "tyzx": TYZX_PROGRAM,
+    "swjj": SWJJ_PROGRAM,
 }
 
 BookingLinkCache = dict[str, dict[str, str]]
