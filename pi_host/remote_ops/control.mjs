@@ -1,8 +1,8 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 
+const MAX_OUTPUT = 262144;
 export const hash = value => createHash("sha256").update(value).digest("hex");
-export const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 export function redact(value) {
   return String(value)
     .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, "[private key redacted]")
@@ -11,55 +11,44 @@ export function redact(value) {
     .replace(/((?:password|secret|token|authorization|api[_-]?key)\s*[=:]\s*)[^\s,;]+/gi, "$1[redacted]");
 }
 
-export class Requests {
-  constructor({ now = Date.now, audit, execute, maximum = 100 }) {
-    this.now = now; this.audit = audit; this.execute = execute; this.maximum = maximum;
+export class Operations {
+  constructor({ now = Date.now, audit, execute, maximum = 100, maxRunning = 8 }) {
+    this.now = now; this.audit = audit; this.execute = execute;
+    this.maximum = maximum; this.maxRunning = maxRunning;
     this.items = new Map();
+  }
+  running() {
+    return [...this.items.values()].filter(item => item.state === "running").length;
   }
   sweep() {
     for (const [id, item] of this.items) {
-      if (item.expires < this.now() && item.state !== "running") this.items.delete(id);
+      if (item.state !== "running" && item.expires < this.now()) this.items.delete(id);
     }
   }
-  create(principal, command, reason, timeout) {
+  start(principal, command, reason, timeout) {
     this.sweep();
     if (!principal || this.items.size >= this.maximum) throw Error("request_limit");
+    if (this.running() >= this.maxRunning) throw Error("host_operation_busy");
     const id = randomBytes(24).toString("hex");
-    const item = { id, principal, command, reason, timeout, state: "pending",
-      digest: hash(command), expires: this.now() + 300000 };
-    this.audit({ event: "requested", id, principal, digest: item.digest });
+    const item = { id, principal, state: "running", expires: Infinity };
+    // Authentication is the only gate, so an unrecorded root command never runs.
+    this.audit({ event: "started", id, principal, command: redact(command), reason: redact(reason), timeout });
     this.items.set(id, item);
+    const record = event => { try { this.audit({ id, principal, ...event }); } catch {} };
+    item.done = Promise.resolve().then(() => this.execute(command, timeout)).then(result => {
+      item.result = result; item.state = "finished";
+      record({ event: "finished", exitCode: result.exitCode, timedOut: result.timedOut === true });
+    }).catch(() => {
+      // An interrupted command is never replayed automatically.
+      item.state = "unknown";
+      record({ event: "unknown" });
+    }).finally(() => { item.expires = this.now() + 900000; });
     return item;
   }
   get(id, principal) {
     const item = this.items.get(id);
-    if (!item || item.principal !== principal || (item.expires < this.now() && item.state !== "running")) throw Error("request_unavailable");
+    if (!item || item.principal !== principal || (item.state !== "running" && item.expires < this.now())) throw Error("request_unavailable");
     return item;
-  }
-  challenge(id, principal) {
-    const item = this.get(id, principal);
-    if (item.state !== "pending") throw Error("request_not_pending");
-    const nonce = randomBytes(32).toString("hex");
-    item.nonceHash = hash(nonce);
-    return { item, nonce };
-  }
-  approve(id, principal, nonce, cookie) {
-    const item = this.get(id, principal);
-    if ([...this.items.values()].some(x => x.state === "running")) throw Error("host_operation_busy");
-    if (item.state !== "pending" || typeof nonce !== "string" || !/^[a-f0-9]{64}$/.test(nonce)
-      || nonce !== cookie || !item.nonceHash
-      || !timingSafeEqual(Buffer.from(hash(nonce)), Buffer.from(item.nonceHash))) throw Error("confirmation_invalid");
-    // Consume before any asynchronous work. A failed/unknown operation is never replayed.
-    this.audit({ event: "approved", id, principal, digest: item.digest });
-    item.state = "running"; delete item.nonceHash;
-    item.expires = this.now() + 900000;
-    Promise.resolve().then(() => this.execute(item.command, item.timeout)).then(result => {
-      item.result = result; item.state = "finished";
-      this.audit({ event: "finished", id, principal, digest: item.digest, exitCode: result.exitCode });
-    }).catch(() => {
-      item.state = "unknown";
-      try { this.audit({ event: "unknown", id, principal, digest: item.digest }); } catch {}
-    });
   }
 }
 
@@ -69,9 +58,10 @@ export function executeCommand(command, seconds) {
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", command], { cwd: "/", detached: true,
       env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", HOME: "/root", LANG: "C.UTF-8" },
       stdio: ["ignore", "pipe", "pipe"] });
+    // Keep the end of the output: that is where failures are reported.
     const collect = chunk => {
-      if (output.length < 65536) output += chunk.toString().slice(0, 65536 - output.length);
-      else truncated = true;
+      output += chunk.toString();
+      if (output.length > MAX_OUTPUT) { output = output.slice(-MAX_OUTPUT); truncated = true; }
     };
     child.stdout.on("data", collect); child.stderr.on("data", collect);
     const timer = setTimeout(() => { timedOut = true; try { process.kill(-child.pid, "SIGKILL"); } catch {} }, seconds * 1000);

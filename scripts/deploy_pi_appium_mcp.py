@@ -59,7 +59,6 @@ OAUTH_CONFIGURATION = {
 }
 HEALTH_ERROR_CODES = {
     "sender_service_inactive",
-    "agent_service_inactive",
     "legacy_tunnel_inactive",
     "appium_6001_unhealthy",
     "appium_6002_unhealthy",
@@ -92,7 +91,6 @@ FAILURE_DIAGNOSTICS = {
 }
 SERVICE_ERROR_CODES = {
     "sender_service_inactive",
-    "agent_service_inactive",
     "legacy_tunnel_inactive",
 }
 SERVICE_STATUS_ENUMS = {

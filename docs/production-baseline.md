@@ -611,7 +611,7 @@ and business commit `9cca72d73eb05c502446bd1d947c4307d7f73f35` at inspection.
 This observation is not a replacement for exact-SHA production acceptance.
 
 The new [operations runbook](runbooks/remote-operations-mcp.md) defines independent
-Pi/VPS administrator applications, browser-confirmed privileged operations,
+Pi/VPS administrator applications, authenticated privileged operations,
 author-managed groups and official Cloudflare API MCP. Runtime activation and
 collaborator policy acceptance require protected workflow evidence. No synthetic
 notifications, phone sessions or production administrator commands are permitted

@@ -11,10 +11,10 @@ need to choose among component workflow files.
 | Service / container states | MCP `ops_diagnose` | Protected GitHub diagnostics |
 | Available phones | Phone MCP `phone_devices` | Protected phone diagnosis |
 | Missing email / WeChat | MCP service inspection, then structured business diagnostics | Existing protected email / delivery diagnostics |
-| One necessary host command | MCP `ops_request`, human approval, `ops_result` | Protected operation, never automated approval |
+| One necessary host command | MCP `ops_exec`, then `ops_result` if still running | Protected operation |
 | Code release | GitHub exact-commit CI and protected deployment | Issue #39 and Actions evidence |
 | MCP release | `production-mcp.yml` | Existing component workflows for recovery |
-| MCP unavailable | GitHub protected diagnostics | Do not disable Access or share tokens |
+| MCP unavailable or not configured in this client | Say so, point to the [client configuration](remote-operations-mcp.md), then use GitHub protected diagnostics | Do not disable Access or share tokens |
 
 `ops_diagnose` runs only fixed `systemctl show` queries and, on VPS, a bounded
 Docker container-state query. It returns allowlisted states, not logs, arbitrary
@@ -56,7 +56,7 @@ Named `/release ship` remains available for formal versioned releases. Routine
 business updates use the entry above, without waiting for natural receipts or
 creating a tag. Do not pass the latest repository
 SHA as a deployed business identity: each component has its own release identity.
-Never deploy via MCP shell commands or approve one's own operation.
+Never deploy via MCP shell commands.
 
 ## Coordination And Audit
 
@@ -67,15 +67,14 @@ An enabled email gate with a disabled WeChat gate is a partial recovery, not a
 healthy notification platform. Verify worker activation and natural WeChat
 receipts after aligning Host Core, Airflow and Sender versions.
 
-MCP command serialization applies only inside that MCP process. It is not a
-shared lock with GitHub deployment workers. Before requesting a mutation, check
-Actions for a running release on the same host; wait until it completes. Do not
-start another release while an approved MCP mutation is running. This is an
+MCP commands share no lock with GitHub deployment workers. Before a mutation,
+check Actions for a running release on the same host; wait until it completes. Do
+not start another release while an MCP mutation is running. This is an
 operating restriction, not a claim of technical exclusion against root admins.
 
 Record meaningful incidents, approved changes and releases in Issue #39 with:
 component, exact runtime identity, bounded result, workflow link (when applicable),
-remaining risks and follow-up. Never publish secrets, raw logs, approval cookies,
+remaining risks and follow-up. Never publish secrets, raw logs,
 OAuth grant material or phone content. Fixed read-only inspections need not spam
 the issue. High-risk actions retain their explicit approval requirements.
 

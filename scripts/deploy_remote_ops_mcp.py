@@ -314,7 +314,7 @@ def public_health(credentials, commit):
     tools = call("tools/list", {})["tools"]
     if {tool["name"] for tool in tools} != {
         "ops_status",
-        "ops_request",
+        "ops_exec",
         "ops_result",
         "ops_github",
         "ops_diagnose",
@@ -323,7 +323,7 @@ def public_health(credentials, commit):
     status = json.loads(
         call("tools/call", {"name": "ops_status", "arguments": {}})["content"][0]["text"]
     )
-    if status.get("commit") != commit or not status.get("approvalRequired"):
+    if status.get("commit") != commit or status.get("executionMode") != "direct":
         raise RuntimeError("runtime_identity_mismatch")
     diagnosis = json.loads(
         call("tools/call", {"name": "ops_diagnose", "arguments": {}})["content"][0]["text"]

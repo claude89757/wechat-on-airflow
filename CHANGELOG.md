@@ -5,6 +5,16 @@ and operational changes.
 
 ## [Unreleased]
 
+### Changed
+
+- Operations MCP now runs commands as root straight after Cloudflare OAuth through
+  `ops_exec`, replacing `ops_request` and its browser approval page. Commands can
+  run for up to an hour and in parallel, and the audit log records their text.
+- Clients without MCP tools now say so and point to the setup before falling back
+  to GitHub diagnostics.
+- Phone MCP preflight no longer requires `zacks-agent.service`, which no component
+  uses and which has been disabled since 2026-11-02. The unit itself is untouched.
+
 ### Removed
 
 - Remove the named 理想时段 presets (工作日晚间, 午休局, 周末上午, 周末下午,

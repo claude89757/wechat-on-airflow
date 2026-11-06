@@ -133,9 +133,9 @@ Never treat a restart alone as a root-cause fix.
 For daily operations, prefer the MCP-first routing in
 `docs/runbooks/agent-operations.md`: `ops_status`, `ops_diagnose` or
 `phone_devices` first; protected GitHub diagnostics remain the fallback and
-business-acceptance implementation. MCP command execution requires individual
-human approval and must not replace protected releases. Check for active releases
-on the host before requesting a mutation; there is no cross-channel shell lock.
+business-acceptance implementation. After OAuth, `ops_exec` runs as root with no
+per-command confirmation; it must not replace protected releases. Check for active
+releases on the host before a mutation; there is no cross-channel shell lock.
 
 Use the `Makefile` as the supported interface. Prefer:
 
