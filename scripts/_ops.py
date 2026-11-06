@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
 import subprocess
+import tempfile
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -87,27 +91,104 @@ def sender_remote() -> dict[str, str]:
     }
 
 
+SSH_BASE_OPTIONS = [
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "PreferredAuthentications=publickey",
+    "-o",
+    "PasswordAuthentication=no",
+    "-o",
+    "StrictHostKeyChecking=yes",
+    "-o",
+    "ConnectTimeout=15",
+    "-o",
+    "ServerAliveInterval=30",
+    "-o",
+    "ServerAliveCountMax=20",
+]
+SSH_CONNECT_ATTEMPTS = 8
+# Options that reuse the shared connection while one is open. Scripts run one
+# operation at a time, so a module-level list is enough.
+_shared_options: list[str] = []
+
+
+def ssh_options() -> list[str]:
+    """Extra ssh/scp options that reuse the shared connection; empty when none is open."""
+    return list(_shared_options)
+
+
 def ssh_command(remote: dict[str, str]) -> list[str]:
     return [
         "ssh",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "PreferredAuthentications=publickey",
-        "-o",
-        "PasswordAuthentication=no",
-        "-o",
-        "StrictHostKeyChecking=yes",
-        "-o",
-        "ConnectTimeout=15",
-        "-o",
-        "ServerAliveInterval=30",
-        "-o",
-        "ServerAliveCountMax=20",
+        *SSH_BASE_OPTIONS,
+        *_shared_options,
         "-p",
         remote["port"],
         f"{remote['username']}@{remote['host']}",
     ]
+
+
+@contextlib.contextmanager
+def shared_ssh_connection(
+    remote: dict[str, str],
+    *,
+    attempts: int = SSH_CONNECT_ATTEMPTS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Iterator[None]:
+    """Hold one SSH connection for a whole operation; every ssh/scp call reuses it.
+
+    A host whose sshd is being probed with failed logins throttles new connections
+    (MaxStartups) and drops some of them, including the one that runs a deployment.
+    Opening the connection is the only step that retries, and it runs `true`, so no
+    remote command is ever replayed. If the shared connection is lost later, calls
+    fall back to ordinary connections.
+    """
+    if _shared_options:
+        yield
+        return
+    directory = tempfile.mkdtemp(prefix="zs-")
+    control = ["-o", f"ControlPath={os.path.join(directory, 'c')}"]
+    target = ["-p", remote["port"], f"{remote['username']}@{remote['host']}"]
+    probe = [
+        "ssh",
+        *SSH_BASE_OPTIONS,
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=900",
+        *control,
+        *target,
+        "true",
+    ]
+    connected = False
+    try:
+        for attempt in range(1, attempts + 1):
+            try:
+                code = subprocess.run(probe, capture_output=True, check=False).returncode
+            except OSError:
+                raise OpsError("ssh is unavailable") from None
+            if code == 0:
+                connected = True
+                break
+            # 255 means the connection itself failed; anything else is a real answer.
+            if code != 255:
+                raise OpsError(f"ssh connection check failed with exit code {code}")
+            if attempt < attempts:
+                sleep(min(3 * attempt, 15))
+        if not connected:
+            raise OpsError(f"could not open an SSH connection after {attempts} attempts")
+        _shared_options[:] = control
+        yield
+    finally:
+        _shared_options.clear()
+        if connected:
+            subprocess.run(
+                ["ssh", "-O", "exit", *SSH_BASE_OPTIONS, *control, *target],
+                capture_output=True,
+                check=False,
+            )
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def docker_compose_command() -> list[str]:

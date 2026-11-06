@@ -11,7 +11,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from _ops import REPO_ROOT, OpsError, emit, run, sender_remote, ssh_command
+from _ops import (
+    REPO_ROOT,
+    OpsError,
+    emit,
+    run,
+    sender_remote,
+    shared_ssh_connection,
+    ssh_command,
+    ssh_options,
+)
 from sender_wheelhouse import (
     ARCHIVE_NAME,
     FAILURE_KINDS,
@@ -296,6 +305,7 @@ def upload_deployment_bundle(
         "StrictHostKeyChecking=yes",
         "-o",
         "ConnectTimeout=15",
+        *ssh_options(),
         "-P",
         remote["port"],
         str(path),
@@ -1110,7 +1120,11 @@ def main() -> None:
     remote_wheelhouse_path = ""
     staged_paths: list[str] = []
     stage = "prepare_artifacts"
-    with tempfile.TemporaryDirectory(prefix="wechat-sender-deploy-") as directory:
+    # One connection for the whole operation: the host's sshd throttles new ones.
+    with (
+        shared_ssh_connection(remote),
+        tempfile.TemporaryDirectory(prefix="wechat-sender-deploy-") as directory,
+    ):
         try:
             if args.operation in {"dry-run", "apply"}:
                 bundle_path = Path(directory) / "repository.bundle"

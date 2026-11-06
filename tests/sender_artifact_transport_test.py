@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import shlex
 import subprocess
@@ -14,6 +15,12 @@ from tests.sender_preflight_test import remote_shell
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import deploy_wechat_sender as deploy  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def no_real_ssh_connection(monkeypatch):
+    """These tests replace ssh itself; the shared connection must not dial out."""
+    monkeypatch.setattr(deploy, "shared_ssh_connection", lambda remote: contextlib.nullcontext())
 
 
 @pytest.mark.parametrize("operation", ["dry-run", "apply"])
