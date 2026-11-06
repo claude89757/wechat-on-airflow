@@ -45,6 +45,7 @@ class BookingLinksTest(unittest.TestCase):
             "ppba": booking_links.PPBA_PROGRAM,
             "tyzx": booking_links.TYZX_PROGRAM,
             "jdwx": booking_links.JDWX_PROGRAM,
+            "swjj": booking_links.SWJJ_PROGRAM,
         }
         self.assertEqual(set(catalog), set(booking_links.VENUE_BOOKING_PROGRAMS))
         for venue_id, program in catalog.items():

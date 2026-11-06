@@ -30,9 +30,12 @@ PROXY_LIST_URL = (
 )
 FSB_CHAIN_PROJECT_UID = "1768357901249380361"
 FFT_QIANHAI_PROJECT_UID = "1756717886546691955"
+SWJJ_PROJECT_UID = "1793192927642251816"
 FSB_PROXY_CACHE_KEY = "FSB_PROXY_CACHE"
 FFT_PROXY_CACHE_KEY = "FFT_PROXY_CACHE"
+SWJJ_PROXY_CACHE_KEY = "SWJJ_PROXY_CACHE"
 FFT_NOTIFICATION_BASELINE_KEY = "FFT_QIANHAI_NOTIFICATION_BASELINE"
+SWJJ_NOTIFICATION_BASELINE_KEY = "SWJJ_NOTIFICATION_BASELINE"
 LOOKAHEAD_DAYS = 3
 MAX_CACHED_PROXIES = 10
 MAX_CACHED_MESSAGES = 100
@@ -47,6 +50,16 @@ class NotificationCourt(TypedDict):
 
 
 CourtAvailability = dict[str, list[list[str]]]
+
+
+class PosPalEmptyInventoryError(Exception):
+    """Raised when an in-window query returns no classrooms at all.
+
+    PosPal answers an unknown ``projectUid`` or a mismatched ``STOREID`` header
+    with ``successed: true`` and an empty ``validClassRooms`` list. Treating
+    that as a healthy empty result would hide a stale venue configuration
+    forever, so venues that opt in fail the observation instead.
+    """
 
 
 @dataclass(frozen=True)
@@ -65,6 +78,11 @@ class PosPalVenue:
     include_user_id: bool = False
     extra_headers: tuple[tuple[str, str], ...] = ()
     notification_baseline_key: str | None = None
+    lookahead_days: int = LOOKAHEAD_DAYS
+    require_rooms_when_in_window: bool = False
+    # The dedupe cache must be large enough to hold every message that one
+    # lookahead sweep can produce. Evicting a still-free slot re-alerts it.
+    max_cached_messages: int = MAX_CACHED_MESSAGES
 
 
 FSB_SHENYUN = PosPalVenue(
@@ -209,6 +227,35 @@ FFT_QIANHAI = PosPalVenue(
     notification_baseline_key=FFT_NOTIFICATION_BASELINE_KEY,
 )
 
+# 深湾竞界网匹中心 (Store 6149033). Court names carry the number as a suffix
+# (e.g. "网球标准场1号"), so ``allowed_court_numbers`` cannot be used here;
+# the singles court is dropped by the ``单打`` token instead. The store's
+# booking window is today plus seven days, so it looks one week ahead.
+SWJJ = PosPalVenue(
+    venue_id="swjj",
+    venue_name="深湾竞界",
+    store_id="6149033",
+    project_uid=SWJJ_PROJECT_UID,
+    cache_key="深湾竞界网球场",
+    dag_id="深湾竞界网球场巡检",
+    proxy_cache_key=SWJJ_PROXY_CACHE_KEY,
+    excluded_court_tokens=(*EXCLUDED_COURT_TOKENS, "单打"),
+    try_direct_first=True,
+    verify_tls=True,
+    include_user_id=True,
+    extra_headers=(
+        ("PSPLVISITORAUTO", "API"),
+        ("APPTYPE", "1"),
+        ("VERSIONINFO", "NC|2026.10.28"),
+    ),
+    notification_baseline_key=SWJJ_NOTIFICATION_BASELINE_KEY,
+    lookahead_days=7,
+    require_rooms_when_in_window=True,
+    # Seven days x seven courts x up to six evening cells per day exceeds the
+    # shared 100-entry default; keep the whole sweep so nothing re-alerts.
+    max_cached_messages=400,
+)
+
 CHAIN_VENUES: dict[str, PosPalVenue] = {
     venue.venue_id: venue
     for venue in (
@@ -312,7 +359,9 @@ def parse_availability(
     court_availability: dict[str, list[list[str]]] = {}
 
     for slot in directly_bookable_slots(json_data):
-        court_name = str(slot.get("classRoomName") or "未知场地")
+        # PosPal pads some classroom names with trailing tabs; the tab must not
+        # become part of the court key or the WeChat message.
+        court_name = str(slot.get("classRoomName") or "未知场地").strip()
         if not is_standard_tennis_court(court_name, excluded_court_tokens, allowed_court_numbers):
             print(f"skip non-standard court: {court_name}")
             continue
@@ -486,7 +535,13 @@ def _request_availability(
             f"slots={len(slots) if isinstance(slots, list) else 0}, "
             f"rooms={len(rooms) if isinstance(rooms, list) else 0}"
         )
+        if venue.require_rooms_when_in_window and not (isinstance(rooms, list) and len(rooms) > 0):
+            raise PosPalEmptyInventoryError(
+                f"{venue.venue_name} {date} 返回空的 validClassRooms，门店或项目配置可能已失效"
+            )
         return candidate
+    except PosPalEmptyInventoryError:
+        raise
     except Exception as error:
         print(f"请求异常: {target_name}, 错误: {error}")
         if proxy is not None:
@@ -594,7 +649,7 @@ def run_check(venue: PosPalVenue) -> None:
     up_for_send_data_list: list[NotificationCourt] = []
     webapp_slots: list[dict[str, str]] = []
     webapp_errors: list[str] = []
-    for index in range(LOOKAHEAD_DAYS):
+    for index in range(venue.lookahead_days):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%Y-%m-%d")
         print(f"checking {input_date}...")
         try:
@@ -637,7 +692,7 @@ def run_check(venue: PosPalVenue) -> None:
             sended_msg_list.extend(up_for_send_msg_list)
             Variable.set(
                 key=venue.cache_key,
-                value=sended_msg_list[-MAX_CACHED_MESSAGES:],
+                value=sended_msg_list[-venue.max_cached_messages :],
                 description=(
                     f"{venue.venue_name}网球场场地通知 - 最后更新: "
                     f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

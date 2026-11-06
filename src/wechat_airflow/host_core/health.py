@@ -67,7 +67,7 @@ def venue_observation_health(
     active = [row for row in venues if row["venue_id"] not in RETIRED_VENUES]
     try:
         active_venue_status(venues)
-        catalog_matches = len(VENUES) == 26
+        catalog_matches = len(VENUES) == 27
     except ValueError:
         catalog_matches = False
     return {

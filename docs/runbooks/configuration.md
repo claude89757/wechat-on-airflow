@@ -113,22 +113,30 @@ not an email event. Only zero-price slices with `status=200` are published.
 
 ## PosPal Venue Booking
 
-TOPS, 泛思博特福中福, PICKLE POP宝安, FFTENNIS前海国际网球中心, and the
-fifteen Fansibote chain courts (深云, 蛇口, 新安, 正中, 安托山, 棕榈泉,
-观湖, 坂田, 沙河, 保税, 南油, 新桥, 壹方城, 麒麟, 茅洲河) query the same
-public PosPal appointment service with a store ID and project UID that live in
-the adapter. No login token, cookie, openid, or session key is required.
-FFTENNIS uses the mini-program's public request headers and performs a
-TLS-verified direct request first, falling back to the shared HTTPS proxy pool
-only on failure. It publishes only courts 1–6 and drops non-standard singles
-and ball-machine rooms. The shared chain-court adapter keeps only standard
-tennis / 风雨场 names and drops 小场, 匹克, 练习, 非标, and 发球机 courts. A
-successful V2 payload with zero bookable rooms is a healthy empty result.
-PICKLE POP宝安 publishes tennis courts only and drops pickleball rooms. WeChat
-alerts use the shared `SZ_TENNIS_CHATROOMS` list. Application-managed
-`TOPS_PROXY_CACHE`, `FSB_PROXY_CACHE`, `FFT_PROXY_CACHE`, `PPBA_PROXY_CACHE`,
-notification baseline, and venue dedupe caches are created on first successful
-use.
+TOPS, 泛思博特福中福, PICKLE POP宝安, FFTENNIS前海国际网球中心,
+深湾竞界网匹中心, and the fifteen Fansibote chain courts (深云, 蛇口, 新安, 正中,
+安托山, 棕榈泉, 观湖, 坂田, 沙河, 保税, 南油, 新桥, 壹方城, 麒麟, 茅洲河) query
+the same public PosPal appointment service with a store ID and project UID that
+live in the adapter. No login token, cookie, openid, or session key is
+required. FFTENNIS and 深湾竞界 use the mini-program's public request headers
+and perform a TLS-verified direct request first, falling back to the shared
+HTTPS proxy pool only on failure. FFTENNIS publishes only courts 1–6 and drops
+non-standard singles and ball-machine rooms. 深湾竞界 publishes its seven
+standard and VIP wind-rain courts, drops the `网球单打场8号` singles court by
+the `单打` token, and looks seven days ahead instead of three. Because PosPal
+answers a stale `projectUid` or `STOREID` with `successed: true` and no
+classrooms, 深湾竞界 enables `require_rooms_when_in_window` so an empty in-window
+response fails the observation instead of reporting a healthy empty venue; the
+other venues keep the historical empty-is-healthy semantics. The shared
+chain-court adapter keeps only standard tennis / 风雨场 names and drops 小场,
+匹克, 练习, 非标, and 发球机 courts. A successful V2 payload with zero bookable
+rooms is a healthy empty result. PICKLE POP宝安 publishes tennis courts only and
+drops pickleball rooms. WeChat alerts use the shared `SZ_TENNIS_CHATROOMS` list.
+Application-managed `TOPS_PROXY_CACHE`, `FSB_PROXY_CACHE`, `FFT_PROXY_CACHE`,
+`PPBA_PROXY_CACHE`, `SWJJ_PROXY_CACHE`, notification baseline, and venue dedupe
+caches are created on first successful use. A venue's dedupe cache must hold one
+complete lookahead sweep: 深湾竞界 raises `max_cached_messages` to 400 because
+seven days of seven courts can exceed the shared 100-entry default.
 
 ## Raspberry Pi YDMap Scraper
 
@@ -155,7 +163,7 @@ not an active required configuration or producer.
 
 ## Web Subscription Publisher
 
-All 26 active venue DAGs require:
+All 27 active venue DAGs require:
 
 - `WEBAPP_OBSERVATION_API_URL`: the Worker ingestion endpoint;
 - `WEBAPP_OBSERVATION_API_TOKEN`: a random shared secret stored only in

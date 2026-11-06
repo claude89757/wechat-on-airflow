@@ -49,6 +49,7 @@ VENUES: Final[dict[str, str]] = {
     "ppba": "PICKLE POP宝安",
     "tyzx": "深圳市体育中心",
     "jdwx": "金地威新",
+    "swjj": "深湾竞界",
 }
 
 # The owner withdrew the Baoan integration on 2026-11-01. Historical rows,

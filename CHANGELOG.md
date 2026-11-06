@@ -3,34 +3,7 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
-## [Unreleased]
-
-### Added
-
-- Productize the existing subscription window as named ideal-time presets.
-  New subscriptions created in the web app default to 工作日晚间
-  (Monday–Friday, 19:00–22:00), narrower than the previous every-day evening
-  default. The other presets are 午休局 (Monday–Friday 12:00–14:00), 周末上午
-  (Saturday–Sunday 08:00–12:00), 周末下午 (Saturday–Sunday 14:00–18:00), and
-  自定义. Button copy and `preferenceLabel` use these same words.
-- Email is sent only when a free slot overlaps that personal window. WeChat
-  group delivery stays venue-level: any active subscription for the venue
-  opens the gate, and group messages are not filtered by the personal window.
-- This phase adds no subscription column and no multi-window jsonb. A second
-  window is a second subscription. Labels are derived from the stored weekday
-  mask and clock.
-- Changing an existing window from the subscription list asks for confirmation
-  first, because the change can cancel pending or retry reminder email.
-  Submitted mail and WeChat rows are left as they are.
-
-### Changed
-
-- Show only the email-subscription link on a group's first morning WeChat alert;
-  omit its venue booking link without consuming the booking-link cooldown.
-  Other alerts keep their booking links, including safe retries that no longer
-  qualify for the morning guide, subject to the existing cooldown.
-
-## [0.10.0] - 2026-11-02
+## [0.10.0] - 2026-11-06
 
 ### Added
 
@@ -53,6 +26,34 @@ and operational changes.
   prevents repeats across venues and restarts; safe retries and uncertain sends
   retain the existing delivery safeguards. No extra message is sent.
 
+- Productize the existing subscription window as named ideal-time presets.
+  New subscriptions created in the web app default to 工作日晚间
+  (Monday–Friday, 19:00–22:00), narrower than the previous every-day evening
+  default. The other presets are 午休局 (Monday–Friday 12:00–14:00), 周末上午
+  (Saturday–Sunday 08:00–12:00), 周末下午 (Saturday–Sunday 14:00–18:00), and
+  自定义. Button copy and `preferenceLabel` use these same words.
+- Email is sent only when a free slot overlaps that personal window. WeChat
+  group delivery stays venue-level: any active subscription for the venue
+  opens the gate, and group messages are not filtered by the personal window.
+- This phase adds no subscription column and no multi-window jsonb. A second
+  window is a second subscription. Labels are derived from the stored weekday
+  mask and clock.
+- Changing an existing window from the subscription list asks for confirmation
+  first, because the change can cancel pending or retry reminder email.
+  Submitted mail and WeChat rows are left as they are.
+- Integrate 深湾竞界网匹中心 (`swjj`, PosPal store `6149033`) as a one-minute
+  venue DAG. Publish its seven standard and VIP wind-rain courts across the
+  store's full seven-day booking window, drop the singles court, and append the
+  `深湾竞界智享订场` mini-program link to WeChat alerts. This raises the active
+  catalogue to 27 venues.
+- Register `swjj` in the Host Core venue catalog, the Worker and Vite venue
+  catalogs, the WeChat dedupe map and the quiesce scope. First successful
+  observation seeds `SWJJ_NOTIFICATION_BASELINE` without delivering.
+- Make `lookahead_days` and the dedupe cache capacity per venue. 深湾竞界 looks
+  seven days ahead and needs a larger cache because the shared 100-entry default
+  cannot hold one sweep; an evicted still-free slot would re-alert on the next
+  run.
+
 ### Fixed
 
 - Include allowlisted systemd state when a protected phone check finds an
@@ -66,6 +67,13 @@ and operational changes.
   older image. The live API and email worker must still match, and no WeChat
   consumer may be running. A failed recovery check now reports its fixed guard
   name instead of only `RuntimeError`.
+
+- Trim PosPal classroom names before they become court keys. Four 深湾竞界 courts
+  arrive with a trailing tab, which previously would have reached WeChat text.
+- Treat an in-window PosPal response with no `validClassRooms` as a failure for
+  venues that opt in. PosPal answers a stale `projectUid` or `STOREID` with
+  `successed: true`, so the empty payload used to look like a healthy empty
+  venue forever.
 
 ### Changed
 
@@ -85,6 +93,11 @@ and operational changes.
   stay closed to the merge queue.
 - Type the shared HTTPS proxy watcher and remove it from the strict mypy
   exclusion list. The remaining six adapters stay the bounded typing backlog.
+
+- Show only the email-subscription link on a group's first morning WeChat alert;
+  omit its venue booking link without consuming the booking-link cooldown.
+  Other alerts keep their booking links, including safe retries that no longer
+  qualify for the morning guide, subject to the existing cooldown.
 
 ## [0.9.1] - 2026-11-01
 

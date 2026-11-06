@@ -127,6 +127,7 @@ const VENUE_ACCENTS: Record<VenueId, string> = {
   ppba: "royal",
   tyzx: "cyan",
   jdwx: "green",
+  swjj: "teal",
 };
 
 const VENUE_ICONS: Record<VenueId, React.ElementType> = {
@@ -156,6 +157,7 @@ const VENUE_ICONS: Record<VenueId, React.ElementType> = {
   ppba: TennisBallIcon,
   tyzx: CourtBasketballIcon,
   jdwx: BuildingApartmentIcon,
+  swjj: TennisBallIcon,
 };
 
 const TIME_OPTIONS = [

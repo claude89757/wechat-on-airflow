@@ -354,7 +354,7 @@ explicitly scoped MCP administration exception above permits other operational
 access.
 
 A ship tags after the exact commit is on the host, edge and Sender and the
-workers are activated. Three natural cycles for all 26 active venue DAGs, and
+workers are activated. Three natural cycles for all 27 active venue DAGs, and
 natural email or WeChat receipts, are production observations. They do not hold
 the pipeline, block the tag, or pause delivery. The transaction-rollback API probe still runs before
 workers are enabled. It is not a public browser test or a real verification
