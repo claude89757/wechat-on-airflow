@@ -354,7 +354,9 @@ The approved 0.7.0 hardening supersedes all earlier instructions to dual-write
 observations, keep a legacy API backend, or automatically restore Cloudflare
 delivery. PostgreSQL `runtime_control` is the only delivery switch. A release that
 fails after stopping the consumers stays paused and rolls forward; a failure before
-that leaves them delivering. D1 is retained as an unbound
+that leaves them delivering. `make release` also runs from a full pause and its
+activation turns delivery back on, so do not run an unrelated release while delivery
+is paused on purpose. D1 is retained as an unbound
 migration archive, not a rollback backend; deleting it still requires separate
 approval. Never import a D1 snapshot after `activated_at` is set.
 

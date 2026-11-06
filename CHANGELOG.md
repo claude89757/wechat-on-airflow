@@ -16,6 +16,9 @@ and operational changes.
   identical commit, so Sender deploys only when it or the consumer changed.
 - Changed Pi/MCP runtimes no longer block `make release`; they are listed as not
   deployed by this workflow.
+- `make release` now runs from a full delivery pause, so a fix can ship after a failed
+  release. Its activation turns delivery back on. The email recovery mode, with WeChat
+  off, still uses `recovery-upgrade`.
 
 ### Removed
 

@@ -35,6 +35,7 @@ def test_failure_states_its_effect_and_how_to_resume(stage, phrase):
     assert result["failedStage"] == stage
     assert phrase in result["effect"]
     assert "make release-resume RUN_ID=42" in result["nextStep"]
+    assert "run `make release`" in result["nextStep"]
 
 
 def test_failed_activation_retry_reports_paused_delivery():

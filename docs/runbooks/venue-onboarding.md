@@ -49,7 +49,12 @@ not replay an uncertain installation or delivery. Only inert artifact uploads
 retry transient transport loss automatically, at most three attempts.
 
 The run's `summary` job states the failed stage, its effect on delivery and the
-next step. Resume without repeating the stages that succeeded:
+next step. A fix can also ship from a full pause: merge it and run `make release`.
+Activation turns delivery back on, so do not run an unrelated release while delivery
+is paused on purpose. Delivery on with WeChat off is the email recovery mode and
+still uses `recovery-upgrade`.
+
+Resume without repeating the stages that succeeded:
 
 ```sh
 make release-resume RUN_ID=<run-id>

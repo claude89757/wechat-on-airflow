@@ -127,6 +127,41 @@ def test_routine_preflight_uses_live_checkpoint_and_fails_closed(tmp_path, missi
     assert "a" * 40 not in script
 
 
+@pytest.mark.parametrize(
+    "delivery, wechat, allowed",
+    [
+        (True, True, True),
+        (False, False, True),
+        (False, True, True),
+        (True, False, False),
+    ],
+)
+def test_routine_preflight_rolls_forward_from_a_full_pause(tmp_path, delivery, wechat, allowed):
+    checkpoint = {
+        "everActivated": True,
+        "migrationComplete": True,
+        "deliveryEnabled": delivery,
+        "wechatEnabled": wechat,
+        "deploymentCommit": "b" * 40,
+    }
+    (tmp_path / "zacks_edge_token").write_text("existing-identity-value")
+    with (
+        patch.dict(os.environ, {"AIRFLOW_SECRET_DIR": str(tmp_path)}),
+        patch.object(MODULE, "preflight", return_value={}),
+        patch.object(MODULE, "host_python", return_value=json.dumps(checkpoint)),
+        patch.object(MODULE, "variable_get", return_value="existing-identity-value"),
+        patch.object(MODULE, "verify_existing_configuration"),
+        patch.object(MODULE, "local_health"),
+        patch.object(MODULE, "local_ready"),
+    ):
+        if allowed:
+            result = MODULE.routine_preflight("a" * 40)
+            assert result["deliveryWasPaused"] is (not delivery)
+        else:
+            with pytest.raises(RuntimeError, match="routine upgrade"):
+                MODULE.routine_preflight("a" * 40)
+
+
 def test_routine_routing_cannot_fall_back_to_initial_migration():
     with (
         patch.object(MODULE, "assert_target"),

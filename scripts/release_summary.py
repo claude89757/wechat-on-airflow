@@ -38,8 +38,9 @@ def report(results: dict[str, str], run_id: str, target: str) -> dict[str, Any]:
         "effect": EFFECTS[stage] if stage else "Released; delivery is running.",
         "stages": {name: results.get(name, "unknown") for name in STAGES},
         "nextStep": (
-            f"Read `gh run view {run_id} --log-failed`, fix the cause, then resume "
-            f"with `make release-resume RUN_ID={run_id}`."
+            f"Read `gh run view {run_id} --log-failed`. If the cause was transient, resume "
+            f"with `make release-resume RUN_ID={run_id}`. If it needs a code fix, merge the "
+            "fix and run `make release`, which also works while delivery is paused."
             if stage
             else None
         ),
