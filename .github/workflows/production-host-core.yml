@@ -109,7 +109,7 @@ jobs:
           [[ "$operation" =~ ^(preflight|full-cutover|routine-upgrade|recovery-upgrade|health|activate-workers|acceptance|pause)$ ]]
           [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
           git fetch --quiet origin main
-          if [[ "$operation" == health || "$operation" == acceptance || "$operation" == pause ]]; then
+          if [[ "$operation" == health || "$operation" == acceptance || "$operation" == pause || "$operation" == activate-workers ]]; then
             git merge-base --is-ancestor "$target_commit" origin/main
           else
             [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
@@ -275,7 +275,7 @@ jobs:
             [[ "$live" =~ ^[0-9a-f]{40}$ ]]
           fi
           test -z "$(git status --porcelain --untracked-files=no)"
-          if [[ "$operation" == acceptance || "$operation" == health || "$operation" == pause ]]; then
+          if [[ "$operation" == acceptance || "$operation" == health || "$operation" == pause || "$operation" == activate-workers ]]; then
             # An old observation/recovery run must never move newer production backward.
             test "$previous" = "$target"
             live="$(docker compose exec -T zacks-api python -c 'import os; print(os.environ.get("DEPLOYMENT_COMMIT", "unknown"))' </dev/null)"

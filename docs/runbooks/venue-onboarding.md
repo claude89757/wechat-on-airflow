@@ -45,6 +45,14 @@ reports do not turn off already activated delivery. Do not replay an uncertain
 installation or delivery. Only inert artifact uploads retry transient transport
 loss automatically, at most three attempts.
 
+If main advances after installation, activation still targets the exact deployed,
+CI-verified main ancestor. It never checks out source: source and live Host Core
+must already match, then every Airflow runtime and Sender is checked again.
+After a failure at activation, resume with `production-host-core.yml`,
+`operation=activate-workers` and that deployed SHA; do not reinstall successful
+components just because another PR merged. A changed production identity fails
+closed instead of activating the stale target.
+
 The entry rejects unknown paths and changed Pi/MCP runtimes instead of silently
 omitting them. Deploy those surfaces with their existing protected component
 lifecycle; use the general release path when that diff includes multiple runtime

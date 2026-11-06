@@ -10,7 +10,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("operation", ["acceptance", "health", "pause"])
+@pytest.mark.parametrize("operation", ["acceptance", "health", "pause", "activate-workers"])
 @pytest.mark.parametrize("state", ["same_release", "source_drift", "runtime_drift", "dirty"])
 def test_observation_and_pause_never_checkout_or_operate_on_another_release(
     tmp_path, operation, state
@@ -62,3 +62,53 @@ docker() {
         assert result.stdout == ""
     if state in {"source_drift", "dirty"}:
         assert "docker " not in calls.read_text()
+
+
+@pytest.mark.parametrize(
+    "operation,ancestor,allowed",
+    [
+        ("activate-workers", True, True),
+        ("activate-workers", False, False),
+        ("routine-upgrade", True, False),
+    ],
+)
+def test_activation_targets_verified_deployed_ancestor_when_main_advances(
+    tmp_path, operation, ancestor, allowed
+):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/production-host-core.yml").read_text())
+    step = next(
+        step for step in workflow["jobs"]["resolve"]["steps"] if step.get("id") == "resolve"
+    )
+    target = "a" * 40
+    output = tmp_path / "output"
+    setup = """
+git() {
+    case "$*" in
+        'fetch --quiet origin main') return 0 ;;
+        'rev-parse origin/main') printf '%s\\n' "$MAIN_SHA" ;;
+        'merge-base --is-ancestor '*) test "$ANCESTOR" = true ;;
+        *) return 99 ;;
+    esac
+}
+"""
+    result = subprocess.run(
+        ["bash", "-e", "-c", setup + step["run"]],
+        env={
+            **os.environ,
+            "INPUT_OPERATION": operation,
+            "INPUT_TARGET": target,
+            "MAIN_SHA": "b" * 40,
+            "ANCESTOR": str(ancestor).lower(),
+            "RECOVERY_RUNTIME_COMMIT": "",
+            "RECOVERY_CONTROL_UPDATED_AT": "",
+            "RECOVERY_DELIVERY_ENABLED": "false",
+            "RECOVERY_WECHAT_ENABLED": "false",
+            "GITHUB_OUTPUT": str(output),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is allowed, result.stderr
+    if allowed:
+        assert f"target_commit={target}" in output.read_text()
