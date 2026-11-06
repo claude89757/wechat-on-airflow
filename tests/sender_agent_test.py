@@ -102,6 +102,7 @@ class SenderAgentTest(unittest.TestCase):
             {
                 "ok": True,
                 "service": "wechat-sender-agent",
+                "protocolVersion": 1,
                 "configured": True,
                 "deploymentCommit": "a" * 40,
                 "durableIdempotency": True,

@@ -1,4 +1,4 @@
-"""Keep the exact-version Host Core consumer and Android Sender in one release."""
+"""Keep Host Core and Android Sender changes in one coordinated release."""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ import argparse
 
 from release_plan import diff_files, previous_release_commit, resolve_commit
 
-# The consumer compares Sender deploymentCommit with its own commit before every
-# send. A healthy Sender-only upgrade therefore blocks all natural notifications.
+# These surfaces share a wire protocol, so an incompatible change must reach both sides.
 COUPLED_PREFIXES = (
     "src/wechat_airflow/host_core/",
     "sender_agent/",

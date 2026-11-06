@@ -49,6 +49,11 @@ SENDER_ERRORS = {
 }
 
 
+# Bump together with PROTOCOL_VERSION in sender_agent/app.py whenever a change is
+# incompatible with the Sender already running in production.
+SENDER_PROTOCOL_VERSION = 1
+
+
 def sender_readiness() -> dict[str, Any]:
     endpoint = _first_value("WECHAT_SEND_API_URL") or ""
     device = _first_value("WECHAT_SEND_DEVICE_NAME") or ""
@@ -64,6 +69,7 @@ def sender_readiness() -> dict[str, Any]:
             "appiumReady": body.get("appium_ready") is True,
             "deviceReady": body.get("device_ready") is True,
             "deploymentCommit": body.get("deploymentCommit"),
+            "protocolVersion": body.get("protocolVersion"),
             "durableIdempotency": body.get("durableIdempotency") is True,
             "cloudflareProxyObserved": bool(response.headers.get("cf-ray")),
         }
@@ -271,7 +277,7 @@ def deliver(row: dict[str, Any], worker: str) -> None:
         if (
             not readiness["ok"]
             or not readiness.get("durableIdempotency")
-            or readiness.get("deploymentCommit") != os.environ.get("DEPLOYMENT_COMMIT")
+            or readiness.get("protocolVersion") != SENDER_PROTOCOL_VERSION
         ):
             _retry(row, worker, "sender_not_ready")
             return

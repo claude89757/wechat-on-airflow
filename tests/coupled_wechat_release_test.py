@@ -102,3 +102,15 @@ def test_incident_inventory_preserves_history_and_never_reads_message_content():
         "SELECT *",
     ):
         assert forbidden not in queue_section
+
+
+def test_sender_and_consumer_share_one_protocol_version():
+    import re
+
+    consumer = (ROOT / "src/wechat_airflow/host_core/wechat_worker.py").read_text()
+    sender = (ROOT / "sender_agent/app.py").read_text()
+    assert re.search(r"^SENDER_PROTOCOL_VERSION = (\d+)$", consumer, re.M).group(1) == re.search(
+        r"^PROTOCOL_VERSION = (\d+)$", sender, re.M
+    ).group(1)
+    assert 'readiness.get("protocolVersion") != SENDER_PROTOCOL_VERSION' in consumer
+    assert 'readiness.get("deploymentCommit")' not in consumer

@@ -69,7 +69,9 @@ docker() {
     [
         ("activate-workers", True, True),
         ("activate-workers", False, False),
-        ("routine-upgrade", True, False),
+        ("routine-upgrade", True, True),
+        ("routine-upgrade", False, False),
+        ("full-cutover", True, False),
     ],
 )
 def test_activation_targets_verified_deployed_ancestor_when_main_advances(
@@ -112,3 +114,8 @@ git() {
     assert (result.returncode == 0) is allowed, result.stderr
     if allowed:
         assert f"target_commit={target}" in output.read_text()
+
+
+def test_routine_upgrade_never_moves_production_backward():
+    source = (ROOT / ".github/workflows/production-host-core.yml").read_text()
+    assert 'git merge-base --is-ancestor "$live" "$target"' in source

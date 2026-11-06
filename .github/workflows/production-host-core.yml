@@ -109,7 +109,7 @@ jobs:
           [[ "$operation" =~ ^(preflight|full-cutover|routine-upgrade|recovery-upgrade|health|activate-workers|acceptance|pause)$ ]]
           [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]]
           git fetch --quiet origin main
-          if [[ "$operation" == health || "$operation" == acceptance || "$operation" == pause || "$operation" == activate-workers ]]; then
+          if [[ "$operation" == health || "$operation" == acceptance || "$operation" == pause || "$operation" == activate-workers || "$operation" == routine-upgrade ]]; then
             git merge-base --is-ancestor "$target_commit" origin/main
           else
             [[ "$(git rev-parse origin/main)" == "$target_commit" ]]
@@ -282,6 +282,10 @@ jobs:
             test "$live" = "$target"
           else
             git fetch --prune origin main
+            if [[ "$operation" == routine-upgrade ]]; then
+              # A release keeps its target when main advances, but never downgrades.
+              git merge-base --is-ancestor "$live" "$target"
+            fi
             git checkout --detach "$target"
             test "$(git rev-parse HEAD)" = "$target"
           fi

@@ -1040,17 +1040,18 @@ def activate_workers(target_commit):
             raise RuntimeError("runtime commit mismatch for " + component)
     sender = _last_json(
         host_python(
-            "import json; from wechat_airflow.host_core.wechat_worker import sender_readiness; "
-            "print(json.dumps(sender_readiness()))",
+            "import json; from wechat_airflow.host_core.wechat_worker import "
+            "SENDER_PROTOCOL_VERSION, sender_readiness; "
+            "print(json.dumps({**sender_readiness(), 'expectedProtocol': SENDER_PROTOCOL_VERSION}))",
             capture=True,
         )
     )
     if (
         not sender.get("ok")
-        or sender.get("deploymentCommit") != target_commit
+        or sender.get("protocolVersion") != sender.get("expectedProtocol")
         or not sender.get("durableIdempotency")
     ):
-        raise RuntimeError("exact-commit durable WeChat sender is not ready")
+        raise RuntimeError("compatible durable WeChat sender is not ready")
     probe = _last_json(
         compose_exec(
             "zacks-api", "python", "-m", "wechat_airflow.host_core.api_probe", capture=True
@@ -1141,7 +1142,7 @@ REQUIRED_ACCEPTANCE_CHECKS = (
         "allRequiredDagsUnpaused",
         "wechatEnqueueIncidentsResolved",
         "senderReady",
-        "exactSenderCommit",
+        "senderProtocolCompatible",
         "senderDurableIdempotency",
         "senderTransportNotCloudflareProxied",
         "pureEdgeExactCommit",
