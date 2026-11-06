@@ -281,7 +281,7 @@ def business_report(expected_commit: str, *, require_delivery: bool = False) -> 
                     "recentRuns": relevant,
                 }
             )
-        checks["allNaturalDagCycles"] = len(venue_components) == 26 and all(
+        checks["allNaturalDagCycles"] = len(venue_components) == len(VENUES) and all(
             r["passed"] for r in dag_results
         )
         paused = connection.execute(

@@ -618,7 +618,7 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
     )
     report = health.business_report("a" * 40, require_delivery=False)
     assert report["complete"] and report["ok"], report["failedChecks"]
-    assert report["venueObservationHealth"]["checkedVenueCount"] == 26
+    assert report["venueObservationHealth"]["checkedVenueCount"] == 27
     assert report["venueObservationHealth"]["retiredVenueCount"] == 1
     assert any(row["venue_id"] == "baoti" and not row["healthy"] for row in report["venues"])
     retired_key = "szw:check_and_notify_day_3"
@@ -689,7 +689,7 @@ def test_bootstrap_hides_only_retired_venue_and_preserves_existing_subscriptions
         response = c.get(PREFIX + "/bootstrap", headers=headers)
         assert response.status_code == 200
         data = response.json()
-        assert len(data["venues"]) == data["metrics"]["totalVenues"] == 26
+        assert len(data["venues"]) == data["metrics"]["totalVenues"] == 27
         assert "baoti" not in {venue["id"] for venue in data["venues"]}
         assert data["subscriptions"][0]["venueIds"] == ["tops", "baoti"]
         assert sql("SELECT * FROM zacks.venue_status WHERE venue_id='baoti'")[0] == before
@@ -702,7 +702,7 @@ def test_bootstrap_hides_only_retired_venue_and_preserves_existing_subscriptions
             "INSERT INTO zacks.venue_status(venue_id,venue_name,healthy,updated_at) VALUES ('unknown','Unknown',true,now())"
         )
         assert c.get(PREFIX + "/bootstrap", headers=headers).status_code == 503
-        assert sql("SELECT count(*) AS count FROM zacks.venue_status")[0]["count"] == 28
+        assert sql("SELECT count(*) AS count FROM zacks.venue_status")[0]["count"] == 29
 
 
 def test_retired_pending_email_is_expired_without_provider_send_or_history_deletion(monkeypatch):
