@@ -364,6 +364,7 @@ CUSTOM_PREFERENCE_LABEL: Final = "自定义"
 SUBSCRIBER_DIGEST_NOTE: Final = (
     "这些空场与你订阅的理想时段有交叠。微信群消息仍按场地发送，不按个人时段过滤。"
 )
+IDEAL_WINDOW_CHANGED: Final = "ideal_window_changed"
 
 
 def describe_preference(weekdays: Iterable[int], start_time: str, end_time: str) -> tuple[str, str]:

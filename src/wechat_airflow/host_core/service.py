@@ -19,6 +19,7 @@ from .date_pauses import (
     rule_allows_observation,
 )
 from .domain import (
+    IDEAL_WINDOW_CHANGED,
     SHANGHAI,
     VENUES,
     VenueObservation,
@@ -168,6 +169,63 @@ def _gate(allowed: bool, now: datetime) -> dict[str, Any]:
         "validUntil": valid_until.isoformat(),
         "revision": int(now.timestamp() * 1_000),
     }
+
+
+def restore_ideal_window_notification(
+    connection: Connection,
+    subscription_id: str,
+    event_key: str,
+    checked_at: datetime,
+    now: datetime,
+    tier: str,
+) -> bool:
+    """Requalify one unsent ideal-window cancellation on a later fresh observation.
+
+    The caller has already required a current slot match and a playing date that
+    is not paused. PATCH must not call this: the court may no longer be free.
+    The original subscription event and created_at stay; eligible_at starts a
+    new delivery lifetime from this observation.
+    """
+    if checked_at <= now - timedelta(minutes=15):
+        return False
+    restored = connection.execute(
+        text("""
+        UPDATE zacks.notification_outbox o
+        SET status = 'pending', last_error = NULL, eligible_at = :seen,
+            next_attempt_at = :due, updated_at = :now, tier = :tier,
+            lease_owner = NULL, lease_until = NULL, delivery_claim_id = NULL
+        WHERE o.subscription_id = :subscription AND o.event_key = :event
+          AND o.status = 'cancelled' AND o.last_error = :reason
+          AND o.submitted_at IS NULL AND o.message_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM zacks.delivery_attempts a
+            WHERE a.channel = 'subscriber_email' AND a.queue_ids ? o.id
+              AND a.phase NOT IN ('retry', 'failed')
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM zacks.notification_date_pauses pause
+            JOIN zacks.observed_slots slot ON slot.event_key = o.event_key
+            WHERE pause.email = o.email AND pause.booking_date = slot.booking_date
+              AND pause.paused
+          )
+          AND EXISTS (
+            SELECT 1 FROM zacks.subscriptions s
+            WHERE s.id = o.subscription_id AND s.active AND s.active_until > :now
+              AND s.updated_at < :seen
+          )
+        RETURNING o.id
+        """),
+        {
+            "subscription": subscription_id,
+            "event": event_key,
+            "reason": IDEAL_WINDOW_CHANGED,
+            "seen": checked_at,
+            "now": now,
+            "tier": tier,
+            "due": now if tier == "priority" else now + timedelta(seconds=10),
+        },
+    ).scalar_one_or_none()
+    return restored is not None
 
 
 def ingest_observation(payload: object) -> dict[str, Any]:
@@ -327,7 +385,15 @@ def ingest_observation(payload: object) -> dict[str, Any]:
                         },
                     ).scalar_one_or_none()
                     if not inserted:
-                        if pause_rule is not None and restore_paused_notification(
+                        restored = pause_rule is not None and restore_paused_notification(
+                            connection,
+                            str(subscription["id"]),
+                            event_key,
+                            observation.checked_at,
+                            now,
+                            str(subscription["tier"]),
+                        )
+                        if not restored and restore_ideal_window_notification(
                             connection,
                             str(subscription["id"]),
                             event_key,
@@ -335,6 +401,8 @@ def ingest_observation(payload: object) -> dict[str, Any]:
                             now,
                             str(subscription["tier"]),
                         ):
+                            restored = True
+                        if restored:
                             matched_notifications += 1
                         continue
                     line = format_slot_line(observation.venue_name, slot)

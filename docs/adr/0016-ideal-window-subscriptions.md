@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-31
+- Updated: 2026-11-04
 
 ## Context
 
@@ -34,10 +35,13 @@ Productize the existing columns as named ideal-window presets:
   the preset keeps the previous contract, including "missing weekdays means
   every day".
 - `PATCH /api/subscriptions/{id}` changes only that window, recomputes the
-  existing dedupe key, bumps the venue subscription generation, and cancels
-  pending or retry email rows that no longer overlap. Submitted mail and
-  WeChat outbox rows are not rewritten. An unchanged window does not bump
-  generation.
+  existing dedupe key, and bumps the venue subscription generation. An
+  unchanged window does not bump generation. The change takes the exclusive
+  delivery fence before the subscription hash lock. It cancels unsent
+  `pending`, `retry`, and `processing` email that no longer overlaps, with
+  `last_error = ideal_window_changed`, and releases unused quota claims.
+  Submitted mail, a live non-retry/failed provider attempt, `dispatching` mail
+  already inside the vendor call, and WeChat outbox rows are not rewritten.
 - Subscriber digests append one note that email was overlap-filtered and that
   WeChat groups remain venue-level. The note is not a slot line and does not
   change the subject count.
@@ -46,7 +50,7 @@ Productize the existing columns as named ideal-window presets:
   two subscriptions.
 - WeChat enqueue stays venue-level.
 - A one-click change from the subscription list asks for confirmation before
-  it can cancel pending or retry email.
+  it can cancel unsent email outside the new window.
 
 ## Consequences
 
@@ -54,20 +58,20 @@ Productize the existing columns as named ideal-window presets:
   slots no longer become email.
 - An explicit "custom" choice whose clock happens to equal a preset is read
   back as that preset, because the label is derived rather than stored.
-- Narrowing a window can cancel not-yet-sent email. It does not delete
-  `subscription_events`, so those event keys are not sent again if the window
-  is later widened.
-- In-flight `processing` or `dispatching` rows are not cancelled.
+- Narrowing a window cancels unsent email outside the new window, including a
+  row already claimed into `processing`. It does not delete
+  `subscription_events`.
+- Widening the window does not restore mail by itself. The next fresh
+  observation may return the same `(subscription_id, event_key)` to `pending`
+  only when that row is `cancelled` with `ideal_window_changed`, was never
+  submitted, has no live provider attempt, the slot matches again, and that
+  playing date is not paused. `created_at` stays; `eligible_at` is the new
+  observation time.
+- Dispatch rechecks the weekday and clock. A mismatch uses the same
+  cancellation, not `expired` / `not_eligible_at_dispatch`, so the later
+  observation can restore it. Mail already inside the shared vendor call is
+  delivered.
+- Submitted, `submission_unknown`, expired, unsubscribed, and rain-suppressed
+  endings are not revived.
 - Multi-window subscriptions, minimum slot length, and WeChat gating by a
   personal window remain out of scope.
-
-## Follow-ups
-
-These are deferred and are not part of this change:
-
-- Recheck weekday and clock before send for rows already in `processing` or
-  `dispatching`. A window change can still let a claimed mail go out.
-- Decide whether widening the window should allow the same
-  `(subscription_id, event_key)` to be enqueued again after an
-  `ideal_window_changed` cancellation. Those event rows are kept today, so the
-  key is not sent again.

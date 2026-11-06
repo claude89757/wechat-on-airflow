@@ -17,8 +17,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .database import ensure_schema, ping, transaction
-from .date_pauses import read_pauses, update_pauses
+from .date_pauses import read_pauses, release_unused_claims, update_pauses
 from .domain import (
+    IDEAL_WINDOW_CHANGED,
     PRIORITY_TERMS,
     STANDARD_TERMS,
     active_venue_status,
@@ -875,9 +876,12 @@ def update_subscription_window(
 ) -> JSONResponse:
     """Replace the single ideal window. Venues, term, and dedupe identity stay compatible.
 
-    Already delivered mail is left alone. Pending rows outside the new window are
-    cancelled so a narrower preset does not send a previously queued mismatch.
-    Event keys already recorded are not inserted again.
+    The delivery fence is taken before the subscription lock, same as unsubscribe.
+    Unsent pending, retry, and processing mail outside the new window is cancelled
+    with ideal_window_changed and its unused claim is released. Submitted mail, a
+    live provider attempt, and anything already dispatching stay unchanged; the
+    in-flight vendor call finishes, then leftover processing rows can cancel.
+    WeChat is not rewritten. Event keys stay recorded and are not restored here.
     """
     identity = _identity(request, required=True)
     assert identity is not None
@@ -885,6 +889,9 @@ def update_subscription_window(
     mask = weekday_mask(weekdays)
     now = utc_now()
     with transaction() as connection:
+        from .control import DELIVERY_LOCK
+
+        connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": DELIVERY_LOCK})
         connection.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
             {"key": "zacks-subscriptions:" + identity["email"]},
@@ -957,34 +964,49 @@ def update_subscription_window(
                     "email": identity["email"],
                 },
             )
-            connection.execute(
-                text(
-                    """
-                    UPDATE zacks.notification_outbox AS outbox
-                    SET status = 'cancelled', updated_at = :now, lease_owner = NULL,
-                        lease_until = NULL, last_error = 'ideal_window_changed'
-                    WHERE outbox.subscription_id = :id
-                      AND outbox.status IN ('pending', 'retry')
-                      AND NOT EXISTS (
-                        SELECT 1 FROM zacks.observed_slots AS slot
-                        WHERE slot.event_key = outbox.event_key
-                          AND (
-                            CAST(:mask AS integer)
-                            & (1 << (EXTRACT(ISODOW FROM slot.booking_date)::integer - 1))
-                          ) <> 0
-                          AND slot.start_time < :end_time
-                          AND slot.end_time > :start_time
-                      )
-                    """
-                ),
-                {
-                    "now": now,
-                    "id": subscription_id,
-                    "mask": mask,
-                    "start_time": start_time,
-                    "end_time": end_time,
-                },
+            cancelled = (
+                connection.execute(
+                    text(
+                        """
+                        UPDATE zacks.notification_outbox AS outbox
+                        SET status = 'cancelled', updated_at = :now, lease_owner = NULL,
+                            lease_until = NULL, last_error = :reason
+                        WHERE outbox.subscription_id = :id
+                          AND outbox.status IN ('pending', 'retry', 'processing')
+                          AND outbox.submitted_at IS NULL
+                          AND outbox.message_id IS NULL
+                          AND NOT EXISTS (
+                            SELECT 1 FROM zacks.delivery_attempts AS attempt
+                            WHERE attempt.channel = 'subscriber_email'
+                              AND attempt.queue_ids ? outbox.id
+                              AND attempt.phase NOT IN ('retry', 'failed')
+                          )
+                          AND NOT EXISTS (
+                            SELECT 1 FROM zacks.observed_slots AS slot
+                            WHERE slot.event_key = outbox.event_key
+                              AND (
+                                CAST(:mask AS integer)
+                                & (1 << (EXTRACT(ISODOW FROM slot.booking_date)::integer - 1))
+                              ) <> 0
+                              AND slot.start_time < :end_time
+                              AND slot.end_time > :start_time
+                          )
+                        RETURNING outbox.delivery_claim_id
+                        """
+                    ),
+                    {
+                        "now": now,
+                        "id": subscription_id,
+                        "mask": mask,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "reason": IDEAL_WINDOW_CHANGED,
+                    },
+                )
+                .scalars()
+                .all()
             )
+            release_unused_claims(connection, sorted({claim for claim in cancelled if claim}), now)
             increment_subscription_generations(connection, list(venue_ids))
     preference_preset, preference_label = describe_preference(weekdays, start_time, end_time)
     return JSONResponse(
