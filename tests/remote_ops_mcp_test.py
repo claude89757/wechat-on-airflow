@@ -145,14 +145,15 @@ def test_production_workflow_has_exact_sha_and_environment_gates():
     assert "merge-base --is-ancestor" in gate["run"]
 
 
-def test_mcp_never_registers_approval_tool():
+def test_mcp_runs_commands_only_for_authenticated_humans():
     source = (ROOT / "pi_host/remote_ops/server.mjs").read_text()
-    assert 'registerTool("approve' not in source
-    assert "req.headers.authorization || !cookie.CF_Authorization" in source
+    assert 'registerTool("ops_exec"' in source
+    assert "/approve" not in source
+    assert source.count('throw Error("human_identity_required")') == 2
     assert 'algorithms: ["RS256"]' in source
     assert "audience: config.audience" in source
     assert '.listen(config.port || 3340, "127.0.0.1")' in source
-    assert "req.headers.origin === config.origin" in source
+    assert "req.headers.origin !== config.origin" in source
 
 
 def test_cloudflare_admin_credential_not_installed_on_hosts():

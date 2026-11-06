@@ -161,7 +161,7 @@ def activate(args, value):
     temp.symlink_to(candidate)
     os.replace(temp, BASE / "current")
     unit = f"""[Unit]
-Description=Zacks human-confirmed administrator MCP
+Description=Zacks administrator MCP
 After=network-online.target
 Wants=network-online.target
 [Service]
