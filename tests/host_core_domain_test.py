@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -126,6 +128,45 @@ def test_preset_rejects_a_conflicting_clock_or_unknown_id() -> None:
         )
     with pytest.raises(ValueError, match="预设无效"):
         resolve_subscription_window({"preferencePreset": "all_day"})
+
+
+def _quoted_preset_field(body: str, name: str) -> str:
+    match = re.search(rf'{name}:\s*"([^"]+)"', body)
+    if match is None:
+        raise AssertionError(f"ideal-windows.ts preset is missing {name}")
+    return match.group(1)
+
+
+def _webapp_ideal_window_presets() -> list[tuple[str, tuple[int, ...], str, str]]:
+    """Read preset id, weekdays, and clock from the webapp source of truth."""
+    source_path = Path(__file__).resolve().parents[1] / "webapp" / "src" / "ideal-windows.ts"
+    source = source_path.read_text(encoding="utf-8")
+    start = source.index("export const IDEAL_WINDOW_PRESETS = [")
+    end = source.index("] as const;", start)
+    presets: list[tuple[str, tuple[int, ...], str, str]] = []
+    for obj in re.findall(r"\{[^{}]*\}", source[start:end]):
+        weekdays_match = re.search(r"weekdays:\s*\[([^\]]*)\]", obj)
+        if weekdays_match is None:
+            raise AssertionError("ideal-windows.ts preset is missing weekdays")
+        weekdays = tuple(int(part) for part in weekdays_match.group(1).split(",") if part.strip())
+        presets.append(
+            (
+                _quoted_preset_field(obj, "id"),
+                weekdays,
+                _quoted_preset_field(obj, "startTime"),
+                _quoted_preset_field(obj, "endTime"),
+            )
+        )
+    if not presets:
+        raise AssertionError("ideal-windows.ts did not contain any ideal-window presets")
+    return presets
+
+
+def test_webapp_ideal_window_presets_match_domain() -> None:
+    assert _webapp_ideal_window_presets() == [
+        (window.preset_id, window.weekdays, window.start_time, window.end_time)
+        for window in IDEAL_WINDOWS
+    ]
 
 
 def test_ideal_windows_drop_email_slots_outside_the_preset() -> None:

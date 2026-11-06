@@ -45,8 +45,10 @@ Productize the existing columns as named ideal-window presets:
   and `preferenceLabel` use that same wording. Covering two presets still means
   two subscriptions.
 - WeChat enqueue stays venue-level.
-- A one-click change from the subscription list asks for confirmation before
-  it can cancel pending or retry email.
+- The subscription list can change a window onto any other named preset. The
+  current preset is omitted, and a custom window can move onto a named preset.
+  Each change asks for confirmation before it can cancel pending or retry email.
+  The request body is only `preferencePreset`.
 
 ## Consequences
 

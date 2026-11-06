@@ -783,10 +783,16 @@
   color: #087f7c;
 }
 
+.ideal-window-retargets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 .ideal-window-retarget {
   justify-self: start;
   min-height: 32px;
-  margin-top: 2px;
   padding: 0 10px;
   border: 1px solid #dce1e6;
   border-radius: 999px;

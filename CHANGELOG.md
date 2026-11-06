@@ -19,9 +19,12 @@ and operational changes.
 - This phase adds no subscription column and no multi-window jsonb. A second
   window is a second subscription. Labels are derived from the stored weekday
   mask and clock.
-- Changing an existing window from the subscription list asks for confirmation
-  first, because the change can cancel pending or retry reminder email.
-  Submitted mail and WeChat rows are left as they are.
+- Changing an existing window from the subscription list offers every other
+  named preset (工作日晚间, 午休局, 周末上午, 周末下午). The current preset is
+  omitted, and a custom window can move onto a named preset. Confirmation is
+  still required, because the change can cancel pending or retry reminder email.
+  The request sends only `preferencePreset`. Submitted mail and WeChat rows are
+  left as they are.
 
 ### Changed
 
