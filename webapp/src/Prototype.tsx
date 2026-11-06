@@ -20,7 +20,6 @@ import {
   cancelSubscription,
   claimCoffeeInvite,
   createSubscription,
-  updateSubscriptionWindow,
   EMPTY_DASHBOARD,
   FALLBACK_DASHBOARD,
   getDashboard,
@@ -39,12 +38,6 @@ import {
   verifyEmail,
 } from "./api";
 import { resolveDashboardAvailability } from "./dashboard-state";
-import {
-  DEFAULT_IDEAL_WINDOW,
-  describeIdealWindow,
-  IDEAL_WINDOW_PRESETS,
-  type IdealWindowPresetId,
-} from "./ideal-windows";
 import { resolveLuluState } from "./lulu";
 import { AdminPanel, CommunityPanel } from "./OperationsPanel";
 import { BottomSheet, KeyboardInput, MobileScroll, useKeyboard } from "./mobile";
@@ -303,10 +296,9 @@ export default function Prototype() {
   const [venueIds, setVenueIds] = useState<VenueId[]>(["szw", "tops"]);
   const [quickVenueId, setQuickVenueId] = useState<VenueId | null>(null);
   const [highlightedVenueId, setHighlightedVenueId] = useState<VenueId | null>(null);
-  const [preferenceMode, setPreferenceMode] = useState<IdealWindowPresetId>(DEFAULT_IDEAL_WINDOW.id);
-  const [weekdays, setWeekdays] = useState<Weekday[]>([...DEFAULT_IDEAL_WINDOW.weekdays]);
-  const [startTime, setStartTime] = useState<string>(DEFAULT_IDEAL_WINDOW.startTime);
-  const [endTime, setEndTime] = useState<string>(DEFAULT_IDEAL_WINDOW.endTime);
+  const [weekdays, setWeekdays] = useState<Weekday[]>([1, 2, 3, 4, 5]);
+  const [startTime, setStartTime] = useState<string>("19:00");
+  const [endTime, setEndTime] = useState<string>("22:00");
   const [subscriptionTerm, setSubscriptionTerm] = useState<SubscriptionTerm>("7d");
   const [inviteCode, setInviteCode] = useState("");
   const [coffeeImageKey, setCoffeeImageKey] = useState(0);
@@ -843,7 +835,6 @@ export default function Prototype() {
   };
 
   const toggleWeekday = (weekday: Weekday) => {
-    setPreferenceMode("custom");
     setWeekdays((current) => {
       const next = current.includes(weekday)
         ? current.filter((item) => item !== weekday)
@@ -853,21 +844,8 @@ export default function Prototype() {
     });
   };
 
-  const markWindowCustom = () => {
-    setPreferenceMode("custom");
-  };
-
-  const applyIdealPreset = (preset: (typeof IDEAL_WINDOW_PRESETS)[number]) => {
-    setPreferenceMode(preset.id);
-    setWeekdays([...preset.weekdays]);
-    setStartTime(preset.startTime);
-    setEndTime(preset.endTime);
-    setFormError("");
-  };
-
   const applyWeekdayPreset = (preset: readonly Weekday[]) => {
     setWeekdays([...preset]);
-    setPreferenceMode("custom");
     setFormError("");
   };
 
@@ -907,7 +885,6 @@ export default function Prototype() {
         startTime,
         endTime,
         termCode: subscriptionTerm,
-        preferencePreset: preferenceMode,
       });
       const createdQuickVenue = quickVenue;
       setPanel(null);
@@ -921,25 +898,6 @@ export default function Prototype() {
       await refresh();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "订阅创建失败");
-    } finally {
-      setFormBusy(false);
-    }
-  };
-
-  const retargetSubscription = async (subscriptionId: string) => {
-    if (!receipt || formBusy) return;
-    const confirmed = window.confirm(
-      "确认把这个订阅改成周末上午（星期六、星期日 08:00–12:00）吗？尚未发出或等待重试的提醒邮件可能会被取消。",
-    );
-    if (!confirmed) return;
-    setFormBusy(true);
-    setFormError("");
-    try {
-      await updateSubscriptionWindow(receipt, subscriptionId, { preferencePreset: "weekend_morning" });
-      setToast("已改为周末上午 · 08:00–12:00");
-      await refresh();
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : "理想时段更新失败");
     } finally {
       setFormBusy(false);
     }
@@ -1121,7 +1079,7 @@ export default function Prototype() {
             </div>
             <div className="help-row">
               <span>3</span>
-              <div><strong>命中后发邮件</strong><p>只发送与理想时段有交叠的空场，同一轮合并为一封摘要。微信群仍按场地推送，不会按个人时段过滤。</p></div>
+              <div><strong>命中后发邮件</strong><p>只发送与所选星期和打球时间段有交叠的空场，同一轮合并为一封摘要。微信群仍按场地推送，不会按个人时段过滤。</p></div>
             </div>
             <div className="help-row">
               <span>4</span>
@@ -1168,27 +1126,8 @@ export default function Prototype() {
                       .filter(Boolean)
                       .join("、")}
                   </strong>
-                  <span>
-                    {subscription.preferenceLabel
-                      || describeIdealWindow(subscription.weekdays, subscription.startTime, subscription.endTime).label}
-                  </span>
                   <span>{formatWeekdays(subscription.weekdays)}</span>
                   <span>{subscription.startTime}–{subscription.endTime}</span>
-                  {describeIdealWindow(
-                    subscription.weekdays,
-                    subscription.startTime,
-                    subscription.endTime,
-                  ).id === "weekend_morning" ? null : (
-                    <button
-                      type="button"
-                      className="ideal-window-retarget"
-                      disabled={formBusy}
-                      title="改成周末上午（需要确认）"
-                      onClick={() => void retargetSubscription(subscription.id)}
-                    >
-                      改成周末上午
-                    </button>
-                  )}
                   <span>{!subscription.eligible ? "优先资格已失效，长期订阅已暂停"
                     : subscription.autoRenew ? "长期有效 · 自动续期"
                     : `有效至 ${subscription.activeUntil.slice(0, 10)}`}</span>
@@ -1377,34 +1316,6 @@ export default function Prototype() {
                 </fieldset>
               )}
 
-              <fieldset aria-describedby="ideal-window-help">
-                <legend>理想时段 <span>一键填入星期和时刻</span></legend>
-                <div className="ideal-window-presets" role="group" aria-label="理想时段预设">
-                  {IDEAL_WINDOW_PRESETS.map((preset) => (
-                    <button
-                      type="button"
-                      key={preset.id}
-                      aria-pressed={preferenceMode === preset.id}
-                      onClick={() => applyIdealPreset(preset)}
-                    >
-                      {preset.label}
-                      <small>{preset.detail} {preset.startTime}–{preset.endTime}</small>
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    aria-pressed={preferenceMode === "custom"}
-                    onClick={markWindowCustom}
-                  >
-                    自定义
-                    <small>逐日和任意时刻</small>
-                  </button>
-                </div>
-                <p className="field-help" id="ideal-window-help">
-                  邮件只在空场与这个时段有交叠时发送。微信群仍按场地推送，不会按你的个人时段过滤。想同时覆盖工作日晚和周末上午时，请创建两条订阅。
-                </p>
-              </fieldset>
-
               <fieldset aria-describedby="weekday-help">
                 <legend>选择打球星期 <span>至少选择一天</span></legend>
                 <div className="weekday-presets" aria-label="星期快捷选择">
@@ -1446,7 +1357,7 @@ export default function Prototype() {
                 </p>
               </fieldset>
 
-              <fieldset>
+              <fieldset aria-describedby="time-window-help">
                 <legend>希望打球的时间段</legend>
                 <div className="studio-time-presets" role="group" aria-label="打球时段快捷选择">
                   {[
@@ -1454,8 +1365,8 @@ export default function Prototype() {
                     { label: "午后", start: "12:00", end: "18:00" },
                     { label: "下班后", start: "18:00", end: "22:00" },
                   ].map(preset => <button type="button" key={preset.label}
-                    aria-pressed={preferenceMode === "custom" && startTime === preset.start && endTime === preset.end}
-                    onClick={() => { setStartTime(preset.start); setEndTime(preset.end); markWindowCustom(); setFormError(""); }}>
+                    aria-pressed={startTime === preset.start && endTime === preset.end}
+                    onClick={() => { setStartTime(preset.start); setEndTime(preset.end); setFormError(""); }}>
                     {preset.label}<small>{preset.start}–{preset.end}</small>
                   </button>)}
                 </div>
@@ -1464,7 +1375,6 @@ export default function Prototype() {
                     <span>开始</span>
                     <select value={startTime} onChange={(event) => {
                       setStartTime(event.target.value);
-                      markWindowCustom();
                       setFormError("");
                     }}>
                       {TIME_OPTIONS.slice(0, -1).map((time) => <option key={time}>{time}</option>)}
@@ -1475,13 +1385,15 @@ export default function Prototype() {
                     <span>结束</span>
                     <select value={endTime} onChange={(event) => {
                       setEndTime(event.target.value);
-                      markWindowCustom();
                       setFormError("");
                     }}>
                       {TIME_OPTIONS.slice(1).map((time) => <option key={time}>{time}</option>)}
                     </select>
                   </label>
                 </div>
+                <p className="field-help" id="time-window-help">
+                  邮件只在空场与这个时段有交叠时发送。微信群仍按场地推送，不会按你的个人时段过滤。想覆盖多个时段，请创建多条订阅。
+                </p>
               </fieldset>
 
               <fieldset>

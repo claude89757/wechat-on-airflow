@@ -3,6 +3,20 @@
 This project follows Semantic Versioning. Entries describe user-visible runtime
 and operational changes.
 
+## [Unreleased]
+
+### Removed
+
+- Remove the named 理想时段 presets (工作日晚间, 午休局, 周末上午, 周末下午,
+  自定义). The create form now sets a reminder with 选择打球星期 and
+  希望打球的时间段 only, still starting at Monday–Friday 19:00–22:00.
+- Remove the preset label and the 改成周末上午 action from My Subscriptions, along
+  with `PATCH /api/subscriptions/{id}` and the `preferencePreset` and
+  `preferenceLabel` API fields. To change a window, cancel the reminder and
+  create another.
+- Existing subscriptions and email matching are unchanged. Reminder email now
+  refers to 打球时间段 instead of 理想时段.
+
 ## [0.10.0] - 2026-11-06
 
 ### Added

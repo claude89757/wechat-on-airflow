@@ -130,8 +130,6 @@ test("marks existing venue subscriptions and blocks an exact duplicate", async (
       weekdays: [1, 2, 3, 4, 5],
       startTime: "19:00",
       endTime: "22:00",
-      preferencePreset: "weekday_evening",
-      preferenceLabel: "工作日晚间",
       durationDays: 7,
       termCode: "7d",
       autoRenew: false,
@@ -328,7 +326,7 @@ test("requires confirmation before cancelling a subscription", async ({ page }) 
   await expect(page.locator(".app-toast")).toContainText("订阅已取消");
 });
 
-test("submits a weekend-morning ideal window", async ({ page }) => {
+test("creates a reminder from the chosen weekdays and time window only", async ({ page }) => {
   let created: Record<string, unknown> | null = null;
   await page.route("**/api/subscriptions", async (route) => {
     created = route.request().postDataJSON() as Record<string, unknown>;
@@ -342,35 +340,36 @@ test("submits a weekend-morning ideal window", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "创建订阅", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "周末上午" }).click();
-  await expect(dialog.locator(".subscription-summary")).toContainText("周末 · 08:00–12:00");
-  await expect(dialog.getByRole("button", { name: "星期六" })).toHaveAttribute("aria-pressed", "true");
-  await expect(dialog.getByRole("button", { name: "星期一" })).toHaveAttribute("aria-pressed", "false");
+  await expect(dialog.getByText("希望打球的时间段")).toBeVisible();
+  await expect(dialog.getByText("理想时段")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /工作日晚间|午休局|周末上午|周末下午|自定义/ })).toHaveCount(0);
+  await expect(dialog.locator(".subscription-summary")).toContainText("工作日 · 19:00–22:00");
+
+  await dialog.getByRole("button", { name: "周末", exact: true }).click();
+  const earlyMorning = dialog.getByRole("button", { name: /^清晨/ });
+  await expect(earlyMorning).toHaveAttribute("aria-pressed", "false");
+  await earlyMorning.click();
+  await expect(earlyMorning).toHaveAttribute("aria-pressed", "true");
+  await expect(dialog.locator(".subscription-summary")).toContainText("周末 · 06:00–09:00");
+
   await dialog.getByRole("button", { name: "确认创建订阅" }).click();
   await expect.poll(() => created).not.toBeNull();
-  expect(created).toMatchObject({
-    preferencePreset: "weekend_morning",
-    weekdays: [6, 7],
-    startTime: "08:00",
-    endTime: "12:00",
-  });
+  expect(created).toMatchObject({ weekdays: [6, 7], startTime: "06:00", endTime: "09:00" });
+  expect(created).not.toHaveProperty("preferencePreset");
 });
 
-test("retargets an existing reminder to weekend morning without creating another subscription", async ({ page }) => {
-  const subscriptionId = "9d1aca70-e4de-4c91-b3eb-1f4b26ce9181";
+test("lists a reminder by weekdays and time without a preset label or retarget action", async ({ page }) => {
   await page.route("**/api/bootstrap", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         ...dashboard,
         subscriptions: [{
-          id: subscriptionId,
+          id: "9d1aca70-e4de-4c91-b3eb-1f4b26ce9181",
           venueIds: ["tops"],
           weekdays: [1, 2, 3, 4, 5],
           startTime: "19:00",
           endTime: "22:00",
-          preferencePreset: "weekday_evening",
-          preferenceLabel: "工作日晚间",
           durationDays: 7,
           termCode: "7d",
           autoRenew: false,
@@ -382,34 +381,11 @@ test("retargets an existing reminder to weekend morning without creating another
       }),
     });
   });
-  let patched: Record<string, unknown> | null = null;
-  await page.route("**/api/subscriptions/" + subscriptionId, async (route) => {
-    expect(route.request().method()).toBe("PATCH");
-    patched = route.request().postDataJSON() as Record<string, unknown>;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ preferencePreset: "weekend_morning" }),
-    });
-  });
 
   await page.goto("/");
   await page.getByRole("button", { name: "更多功能" }).click();
   await page.getByRole("menuitem", { name: "我的订阅" }).click();
-  await expect(page.getByText("工作日晚间", { exact: true })).toBeVisible();
-  const retarget = page.getByRole("button", { name: "改成周末上午", exact: true });
-
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("周末上午");
-    expect(dialog.message()).toContain("可能会被取消");
-    await dialog.dismiss();
-  });
-  await retarget.click();
-  expect(patched).toBeNull();
-
-  page.once("dialog", async (dialog) => dialog.accept());
-  await retarget.click();
-  await expect.poll(() => patched).not.toBeNull();
-  expect(patched).toEqual({ preferencePreset: "weekend_morning" });
-  await expect(page.locator(".app-toast")).toContainText("已改为周末上午");
+  await expect(page.getByText("19:00–22:00", { exact: true })).toBeVisible();
+  await expect(page.getByText("工作日晚间", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "改成周末上午" })).toHaveCount(0);
 });
