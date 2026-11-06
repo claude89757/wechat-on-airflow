@@ -56,3 +56,12 @@ export function describeIdealWindow(
     ? { id: match.id, label: match.label }
     : { id: "custom", label: "自定义" };
 }
+
+export function alternativeIdealWindowPresets(
+  weekdays: readonly number[],
+  startTime: string,
+  endTime: string,
+): IdealWindowPreset[] {
+  const currentId = describeIdealWindow(weekdays, startTime, endTime).id;
+  return IDEAL_WINDOW_PRESETS.filter((preset) => preset.id !== currentId);
+}

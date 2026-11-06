@@ -40,9 +40,11 @@ import {
 } from "./api";
 import { resolveDashboardAvailability } from "./dashboard-state";
 import {
+  alternativeIdealWindowPresets,
   DEFAULT_IDEAL_WINDOW,
   describeIdealWindow,
   IDEAL_WINDOW_PRESETS,
+  type IdealWindowPreset,
   type IdealWindowPresetId,
 } from "./ideal-windows";
 import { resolveLuluState } from "./lulu";
@@ -191,6 +193,11 @@ function formatWeekdays(value: readonly Weekday[] | undefined): string {
   if (weekdays.join(",") === "1,2,3,4,5") return "工作日";
   if (weekdays.join(",") === "6,7") return "周末";
   return weekdays.map((weekday) => WEEKDAY_LABELS[weekday].replace("星期", "周")).join("、");
+}
+
+function idealWindowConfirmMessage(preset: IdealWindowPreset): string {
+  const days = preset.weekdays.map((weekday) => WEEKDAY_LABELS[weekday]).join("、");
+  return `确认把这个订阅改成${preset.label}（${days} ${preset.startTime}–${preset.endTime}）吗？尚未发出或等待重试的提醒邮件可能会被取消。`;
 }
 
 function SubscriptionCelebration({ celebrationId }: { celebrationId: number }) {
@@ -924,17 +931,15 @@ export default function Prototype() {
     }
   };
 
-  const retargetSubscription = async (subscriptionId: string) => {
+  const retargetSubscription = async (subscriptionId: string, preset: IdealWindowPreset) => {
     if (!receipt || formBusy) return;
-    const confirmed = window.confirm(
-      "确认把这个订阅改成周末上午（星期六、星期日 08:00–12:00）吗？尚未发出或等待重试的提醒邮件可能会被取消。",
-    );
+    const confirmed = window.confirm(idealWindowConfirmMessage(preset));
     if (!confirmed) return;
     setFormBusy(true);
     setFormError("");
     try {
-      await updateSubscriptionWindow(receipt, subscriptionId, { preferencePreset: "weekend_morning" });
-      setToast("已改为周末上午 · 08:00–12:00");
+      await updateSubscriptionWindow(receipt, subscriptionId, { preferencePreset: preset.id });
+      setToast(`已改为${preset.label} · ${preset.startTime}–${preset.endTime}`);
       await refresh();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "理想时段更新失败");
@@ -1172,21 +1177,24 @@ export default function Prototype() {
                   </span>
                   <span>{formatWeekdays(subscription.weekdays)}</span>
                   <span>{subscription.startTime}–{subscription.endTime}</span>
-                  {describeIdealWindow(
-                    subscription.weekdays,
-                    subscription.startTime,
-                    subscription.endTime,
-                  ).id === "weekend_morning" ? null : (
-                    <button
-                      type="button"
-                      className="ideal-window-retarget"
-                      disabled={formBusy}
-                      title="改成周末上午（需要确认）"
-                      onClick={() => void retargetSubscription(subscription.id)}
-                    >
-                      改成周末上午
-                    </button>
-                  )}
+                  <div className="ideal-window-retargets" role="group" aria-label="更改理想时段">
+                    {alternativeIdealWindowPresets(
+                      subscription.weekdays,
+                      subscription.startTime,
+                      subscription.endTime,
+                    ).map((preset) => (
+                      <button
+                        type="button"
+                        key={preset.id}
+                        className="ideal-window-retarget"
+                        disabled={formBusy}
+                        title={`改成${preset.label}（需要确认）`}
+                        onClick={() => void retargetSubscription(subscription.id, preset)}
+                      >
+                        改成{preset.label}
+                      </button>
+                    ))}
+                  </div>
                   <span>{!subscription.eligible ? "优先资格已失效，长期订阅已暂停"
                     : subscription.autoRenew ? "长期有效 · 自动续期"
                     : `有效至 ${subscription.activeUntil.slice(0, 10)}`}</span>
