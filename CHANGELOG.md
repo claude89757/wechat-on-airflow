@@ -12,6 +12,13 @@ and operational changes.
   check or document pins a venue count. The `all26VenueObservations` health check
   is now `allVenueObservations`, and `expected_venue_count` is gone from
   `config/runtime-target.yaml`.
+- Operations MCP now runs commands as root straight after Cloudflare OAuth through
+  `ops_exec`, replacing `ops_request` and its browser approval page. Commands can
+  run for up to an hour and in parallel, and the audit log records their text.
+- Clients without MCP tools now say so and point to the setup before falling back
+  to GitHub diagnostics.
+- Phone MCP preflight no longer requires `zacks-agent.service`, which no component
+  uses and which has been disabled since 2026-11-02. The unit itself is untouched.
 - `make release` now updates Airflow and Sender first and switches Host Core last, so
   consumers keep delivering until the switch and an earlier failure no longer pauses
   notifications. Activation retries once. A `summary` job states the failed stage, its

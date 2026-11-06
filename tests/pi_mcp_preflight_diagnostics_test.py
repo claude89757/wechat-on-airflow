@@ -79,7 +79,7 @@ def preflight(monkeypatch, tmp_path):
         if argv[0] == "systemctl":
             if argv[-1] == "wechat-sender.service":
                 state["health_round"] += 1
-            if argv[-1] == "zacks-agent.service" and (
+            if argv[-1] == "cloudflared-dsh.service" and (
                 (point == "existing_health" and state["health_round"] == 1)
                 or (point == "post_preflight_health" and state["health_round"] == 2)
             ):
@@ -165,7 +165,7 @@ def preflight(monkeypatch, tmp_path):
     ("point", "stage", "code"),
     [
         ("validation", "validation", "invalid_operation"),
-        ("existing_health", "existing_health", "agent_service_inactive"),
+        ("existing_health", "existing_health", "legacy_tunnel_inactive"),
         ("node_archive", "node_archive", "node_archive_invalid"),
         ("candidate_reclaim", "candidate_reclaim", "candidate_reclaim_failed"),
         ("candidate_disk", "candidate_disk", "candidate_disk_insufficient"),
@@ -181,7 +181,7 @@ def preflight(monkeypatch, tmp_path):
         ("offline_dependencies", "offline_dependencies", "offline_dependency_install_failed"),
         ("candidate_tests", "candidate_tests", "candidate_tests_failed"),
         ("candidate_cleanup", "candidate_cleanup", "candidate_cleanup_failed"),
-        ("post_preflight_health", "post_preflight_health", "agent_service_inactive"),
+        ("post_preflight_health", "post_preflight_health", "legacy_tunnel_inactive"),
     ],
 )
 def test_preflight_failures_are_located_without_skipping_checks_or_leaking_messages(
@@ -242,7 +242,7 @@ def test_failure_context_crosses_remote_boundary_only_for_valid_fixed_pairs():
         {**valid, "errorCode": PRIVATE},
         {**valid, "stage": []},
         {**valid, "errorCode": True},
-        {**valid, "errorCode": "agent_service_inactive"},
+        {**valid, "errorCode": "legacy_tunnel_inactive"},
     ]
     for diagnostic in [valid, *malformed]:
         report = {
@@ -269,7 +269,7 @@ def test_failure_context_crosses_remote_boundary_only_for_valid_fixed_pairs():
 def test_runner_prints_only_sanitized_remote_diagnostics(monkeypatch, capsys, operation):
     valid = {
         "stage": "existing_health",
-        "errorCode": "agent_service_inactive",
+        "errorCode": "legacy_tunnel_inactive",
         "serviceStatus": INACTIVE_SERVICE,
     }
     for key, value in {
@@ -357,17 +357,17 @@ def test_failed_service_state_survives_installer_and_runner_without_later_checks
     assert report["errorClass"] == "RuntimeError"
     assert report["failureDiagnostic"] == {
         "stage": "existing_health",
-        "errorCode": "agent_service_inactive",
+        "errorCode": "legacy_tunnel_inactive",
         "serviceStatus": status,
     }
     calls = preflight["calls"]
     assert calls[:2] == [
         ["systemctl", "is-active", "--quiet", "wechat-sender.service"],
-        ["systemctl", "is-active", "--quiet", "zacks-agent.service"],
+        ["systemctl", "is-active", "--quiet", "cloudflared-dsh.service"],
     ]
     assert len(calls) == 3
     assert calls[-1][:3] == ["systemctl", "show", "--all"]
-    assert calls[-1][-1] == "zacks-agent.service"
+    assert calls[-1][-1] == "cloudflared-dsh.service"
     assert set(calls[-1][3].removeprefix("--property=").split(",")) == set(status)
     assert not preflight["base"].exists()
     with pytest.raises(DEPLOY.RemoteOperationError) as remote:
@@ -388,7 +388,7 @@ def test_service_status_filters_unrecognized_fields_and_sensitive_values(preflig
     report = INSTALL.failure_report(caught.value)
     diagnostic = report["failureDiagnostic"]
     assert diagnostic["stage"] == failure_point
-    assert diagnostic["errorCode"] == "agent_service_inactive"
+    assert diagnostic["errorCode"] == "legacy_tunnel_inactive"
     assert diagnostic["serviceStatus"] == {
         **dict.fromkeys(INSTALL.SERVICE_STATUS_ENUMS, "unknown"),
         **dict.fromkeys(INSTALL.SERVICE_STATUS_LIMITS),
@@ -420,13 +420,13 @@ def test_failed_service_diagnostic_read_never_obscures_original_error(preflight,
     assert report["errorClass"] == "RuntimeError"
     assert report["failureDiagnostic"] == {
         "stage": "existing_health",
-        "errorCode": "agent_service_inactive",
+        "errorCode": "legacy_tunnel_inactive",
     }
     assert "PRIVATE" not in json.dumps(report)
 
 
 def test_runner_revalidates_service_state_and_binds_it_to_failed_service():
-    basic = {"stage": "existing_health", "errorCode": "agent_service_inactive"}
+    basic = {"stage": "existing_health", "errorCode": "legacy_tunnel_inactive"}
     invalid_states = [
         None,
         [],
@@ -465,3 +465,7 @@ def test_service_status_query_rejects_unfixed_units_without_execution(monkeypatc
     monkeypatch.setattr(INSTALL.subprocess, "run", lambda *a, **k: calls.append(a))
     assert INSTALL.failed_service_status(PRIVATE) is None
     assert calls == []
+
+
+def test_preflight_does_not_require_the_disabled_agent_service():
+    assert INSTALL.EXISTING == ("wechat-sender.service", "cloudflared-dsh.service")

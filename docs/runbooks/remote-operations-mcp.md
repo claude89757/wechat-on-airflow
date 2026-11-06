@@ -40,8 +40,9 @@ a correlation ID, fixed category and status, never tokens or exception text.
 Protected host installation and independent health verify three fresh public-key
 resolvers, in addition to authenticated MCP calls and anonymous/invalid-token
 denial. This prevents a warm key cache from masking outbound network failures.
-Machine health does not certify a particular user's OAuth grant or human command
-approval. Never replay an uncertain administrator command automatically.
+Machine health does not certify a particular user's OAuth grant, and machine
+identities cannot run commands. Never replay an uncertain administrator command
+automatically.
 Phone MCP uses its existing Tunnel Access validation, not this Node verifier;
 check its independent public health without creating sessions or notifications.
 
@@ -68,31 +69,31 @@ Share only authorized destinations. Initial tests list tools and call
 
 - `ops_status`: resource health and exact operations runtime identity.
 - `ops_diagnose`: allowlisted service/container states; no logs, secrets or changes.
-- `ops_request`: command, reason and timeout (maximum 120 seconds); returns a
-  five-minute browser approval URL without executing anything.
-- `ops_result`: the requesting identity's bounded operation result.
+- `ops_exec`: runs a command as root immediately. `timeoutSeconds` is at most 3600;
+  a command still running after `waitSeconds` (at most 90) returns `state=running`.
+- `ops_result`: the requesting identity's state and output, kept for 15 minutes.
 - `ops_github`: protected GitHub release/operations entry points.
 
-The requesting human opens the approval URL, logs in as the same identity,
-reviews the exact command and explicitly confirms. Approval requires a signed
-Access browser cookie, matching identity, same-origin POST and a one-use CSRF
-challenge. OAuth Bearer requests and machine health credentials cannot approve.
-Agents must never automate the approval page. Operations are serialized; an
-expired, lost or uncertain request is never blindly retried. Restart discards
-pending requests and ephemeral results, never replays them.
+Completing Cloudflare OAuth as a human member of the host's Access group is the
+only gate; there is no per-command confirmation ([ADR 0018](../adr/0018-authenticated-direct-mcp-administration.md)).
+Machine identities cannot run or read commands. Up to eight commands run in
+parallel. Restart discards results and kills running commands, which are never
+replayed; treat a lost or `unknown` command as uncertain and inspect the host.
 
-This is **root administrator access**, not a sandbox. Approved commands can
+This is **root administrator access**, not a sandbox. Commands can
 affect the whole host, detach processes or change the controls themselves.
 Only trusted administrators belong in these groups. Result redaction covers
 obvious credentials but cannot guarantee arbitrary output is secret-free.
 Never request secrets or bulk raw configuration/log dumps. Review results before
 sharing. Database deletion/restore, key rotation and real notification sends
-still require explicit approval of the exact action. Repository releases remain
+still require the owner's explicit consent, now as a rule the agent must follow
+rather than a technical control. Repository releases remain
 subject to exact-SHA CI and protected GitHub deployment.
 
 Audit records persist under `/var/log/zacks-ops-mcp/audit.jsonl`: timestamp,
-hashed identity, request ID, command digest, state and exit code. They do not
-contain raw commands/output. Results are ephemeral and bounded to 64 KiB.
+hashed identity, request ID, command text and reason with obvious credentials
+redacted, state and exit code. A command does not run if its audit record cannot
+be written. Output is not recorded; results keep the last 256 KiB.
 
 ## Collaborators
 

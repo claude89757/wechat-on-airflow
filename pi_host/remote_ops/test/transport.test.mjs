@@ -40,50 +40,65 @@ test("systemd-style symlink entrypoint actually starts the HTTP server", { timeo
   }
 });
 
-test("real HTTP MCP verifies JWT, isolates users and requires browser-only confirmation", async () => {
+test("real HTTP MCP verifies JWT, then runs commands directly for authenticated humans", async () => {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   const jwk = { ...await exportJWK(publicKey), kid: "test" };
   const config = { origin: "https://pi-mcp.zacks.vision", target: "pi", commit: "a".repeat(40),
     issuer: "https://zacks-vision-ops.cloudflareaccess.com", audience: "isolated-audience" };
-  let executions = 0;
+  const commands = [];
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
   const server = createOpsServer(config, { keys: createLocalJWKSet({ keys: [jwk] }), audit: () => {},
-    execute: async () => { executions++; return { exitCode: 0, output: "fake-only" }; } });
+    execute: async command => {
+      commands.push(command);
+      if (command === "slow") await gate;
+      return { exitCode: 0, output: `fake-only ${command}` };
+    } });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
   const origin = `http://127.0.0.1:${server.address().port}`;
   const token = (sub, aud = config.audience, exp = "5m", human = true) => new SignJWT(human ? { email: "test@example.invalid" } : {})
     .setProtectedHeader({ alg: "RS256", kid: "test" }).setIssuer(config.issuer).setAudience(aud)
     .setSubject(sub).setIssuedAt().setExpirationTime(exp).sign(privateKey);
-  const alice = await token("alice"), bob = await token("bob");
-  const client = new Client({ name: "isolated", version: "1" });
-  const transport = new StreamableHTTPClientTransport(new URL(origin + "/mcp"), {
-    requestInit: { headers: { "cf-access-jwt-assertion": alice } } });
+  const connect = async assertion => {
+    const client = new Client({ name: "isolated", version: "1" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(origin + "/mcp"), {
+      requestInit: { headers: { "cf-access-jwt-assertion": assertion } } }));
+    return client;
+  };
+  const payload = response => JSON.parse(response.content[0].text);
+  const alice = await connect(await token("alice")), bob = await connect(await token("bob"));
+  const machine = await connect(await token("machine", config.audience, "5m", false));
   try {
     for (const assertion of ["invalid", await token("alice", "foreign"), await token("alice", config.audience, "-1h")]) {
       assert.equal((await fetch(origin + "/mcp", { method: "POST", headers: { "cf-access-jwt-assertion": assertion } })).status, 403);
     }
-    await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length, 5);
-    const requested = await client.callTool({ name: "ops_request", arguments: { command: "printf isolated", reason: "test" } });
-    const request = JSON.parse(requested.content[0].text);
-    assert.equal(executions, 0);
-    const path = new URL(request.approvalUrl).pathname;
-    const headers = { "cf-access-jwt-assertion": alice, cookie: `CF_Authorization=${alice}` };
-    assert.equal((await fetch(origin + path, { headers: { ...headers, authorization: "Bearer any" } })).status, 403);
-    assert.equal((await fetch(origin + path, { headers: { "cf-access-jwt-assertion": bob, cookie: `CF_Authorization=${bob}` } })).status, 403);
-    const page = await fetch(origin + path, { headers });
-    assert.equal(page.status, 200);
-    const nonce = /name="nonce" value="([a-f0-9]+)"/.exec(await page.text())[1];
-    const post = { ...headers, origin: config.origin, "content-type": "application/x-www-form-urlencoded",
-      cookie: headers.cookie + `; ops_csrf=${nonce}` };
-    const form = new URLSearchParams({ nonce, confirmed: "yes" });
-    assert.equal((await fetch(origin + path, { method: "POST", headers: { ...post, origin: "https://attacker.invalid" }, body: form })).status, 403);
-    assert.equal((await fetch(origin + path, { method: "POST", headers: post, body: form })).status, 200);
+    assert.equal((await fetch(origin + "/mcp", { method: "POST" })).status, 403);
+    assert.deepEqual((await alice.listTools()).tools.map(tool => tool.name).sort(),
+      ["ops_diagnose", "ops_exec", "ops_github", "ops_result", "ops_status"]);
+    assert.equal(payload(await alice.callTool({ name: "ops_status", arguments: {} })).executionMode, "direct");
+
+    const denied = await machine.callTool({ name: "ops_exec", arguments: { command: "printf machine" } });
+    assert.equal(denied.isError, true);
+    assert.equal(commands.length, 0);
+
+    const finished = payload(await alice.callTool({ name: "ops_exec", arguments: { command: "printf direct" } }));
+    assert.equal(finished.state, "finished");
+    assert.equal(finished.result.output, "fake-only printf direct");
+    assert.deepEqual(commands, ["printf direct"]);
+    const foreign = await bob.callTool({ name: "ops_result", arguments: { requestId: finished.requestId } });
+    assert.equal(foreign.isError, true);
+
+    const running = payload(await alice.callTool({ name: "ops_exec", arguments: { command: "slow", waitSeconds: 0 } }));
+    assert.equal(running.state, "running");
+    release();
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(executions, 1);
-    assert.equal((await fetch(origin + path, { method: "POST", headers: post, body: form })).status, 403);
-    const result = await client.callTool({ name: "ops_result", arguments: { requestId: request.requestId } });
-    assert.equal(JSON.parse(result.content[0].text).result.output, "fake-only");
+    const done = payload(await alice.callTool({ name: "ops_result", arguments: { requestId: running.requestId } }));
+    assert.equal(done.result.output, "fake-only slow");
+
+    const assertion = await token("alice");
+    assert.equal((await fetch(`${origin}/approve/${"a".repeat(48)}`, { headers: { "cf-access-jwt-assertion": assertion } })).status, 404);
   } finally {
-    await client.close(); server.closeAllConnections(); server.close(); await once(server, "close");
+    await Promise.all([alice.close(), bob.close(), machine.close()]);
+    server.closeAllConnections(); server.close(); await once(server, "close");
   }
 });

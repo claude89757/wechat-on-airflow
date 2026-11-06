@@ -83,9 +83,8 @@ managed_services:
     origin: http://127.0.0.1:3340/mcp
     authentication: cloudflare_managed_oauth_and_signed_access_assertion
     membership_owner: cloudflare_access_groups_managed_by_author
-    execution_privilege: root_after_same_identity_browser_confirmation
-    approval_expiry_seconds: 300
-    maximum_command_seconds: 120
+    execution_privilege: root_after_authenticated_human_identity
+    maximum_command_seconds: 3600
     test_executes_production_commands: false
   pi_ydmap_scraper:
     runtime: systemd

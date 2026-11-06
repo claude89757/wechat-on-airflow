@@ -42,15 +42,18 @@ stay asynchronous and never justify synthetic notifications.
 Use agent conversation + MCP for daily inspection; GitHub remains the release,
 fallback and audit center. Follow `docs/runbooks/agent-operations.md`.
 Start with `ops_status` and `ops_diagnose` (phones: `phone_devices`). These tools
-do not require command approval and do not certify actual notification delivery.
-Use protected GitHub diagnostics if MCP is unavailable or deeper business checks
-are needed. Do not replace those checks with raw shell/log dumps.
+are read-only and do not certify actual notification delivery. Use protected
+GitHub diagnostics if MCP is unavailable or deeper business checks are needed. Do
+not replace those checks with raw shell/log dumps. If this client has no MCP tools,
+say so when the work starts and point to the client configuration in
+`docs/runbooks/remote-operations-mcp.md` (the user completes OAuth), then continue
+through GitHub instead of waiting.
 
 Use `production-mcp.yml` for MCP releases: one apply dispatch performs protected
 preflight, apply and independent health. Business releases keep the existing
 protected release lifecycle. Record outcomes in Issue #39. Historical component
 workflows remain implementation/fallback interfaces, not competing daily entrypoints.
-Before a human-confirmed MCP mutation, ensure no protected release is active for
+Before an MCP mutation, ensure no protected release is active for
 the same host. MCP's in-process serialization is not a cross-channel deployment
 lock; never claim otherwise. Agents must not perform repository deployments via
 MCP shell commands.
@@ -81,22 +84,21 @@ Agent workflow:
    Initial checks must not create phone sessions, execute shell commands or
    send notifications. Recheck device availability; do not assume two phones
    are configured or online.
-2. For a necessary host command, call `ops_request` with the exact command,
-   reason and timeout (maximum 120 seconds). This returns a five-minute approval
-   URL without executing the command.
-3. Give the URL to the requesting human. They must log in as the same identity,
-   review the exact command and explicitly approve it. Agents must never
-   automate approval, obtain approval cookies or approve their own requests.
-4. Use `ops_result` to retrieve the bounded result. Never blindly replay a lost,
-   expired or uncertain operation. Use `ops_github` for protected release links.
+2. For a necessary host command, call `ops_exec`. Authentication is the only
+   gate: the command runs immediately with no per-command confirmation.
+   `timeoutSeconds` is at most 3600; a command still running after `waitSeconds`
+   returns `state=running`.
+3. Use `ops_result` to read a running command. Never blindly replay a lost,
+   unknown or uncertain operation. Use `ops_github` for protected release links.
 
-Approved host commands have **root privileges**, not sandboxed access. Only
+Host commands have **root privileges**, not sandboxed access, and the audit log
+records each command's text, identity and exit code. Only
 trusted administrators belong in these groups. Do not request secrets or bulk
 raw configuration/log dumps; output redaction is not a confidentiality guarantee.
 Connecting does not authorize database deletion, secret rotation, real test
 notifications or bypassing device locks. Repository installation, upgrades and
 releases still require exact-SHA CI and protected GitHub workflows. This MCP
-exception covers individually human-confirmed administration, not deployments.
+exception covers authenticated administration, not deployments.
 
 The author manages each Access group's explicit members in Cloudflare. A
 collaborator also needs accepted Cloudflare account membership with minimal

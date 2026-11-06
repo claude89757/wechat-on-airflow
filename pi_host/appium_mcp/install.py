@@ -26,10 +26,9 @@ CONNECTOR_UNIT = Path("/etc/systemd/system/cloudflared-appium-mcp.service")
 CONNECTOR_READY = "http://127.0.0.1:49393/ready"
 NODE_SHA = "c9057c6a3b8fbb9651ed115c1e96d4a7281b7b9c9ca89fa05865c98ed7ffd437"
 NODE_DIR = "node-v22.23.4-linux-armv7l"
-EXISTING = ("wechat-sender.service", "zacks-agent.service", "cloudflared-dsh.service")
+EXISTING = ("wechat-sender.service", "cloudflared-dsh.service")
 HEALTH_ERROR_CODES = {
     "sender_service_inactive",
-    "agent_service_inactive",
     "legacy_tunnel_inactive",
     "appium_6001_unhealthy",
     "appium_6002_unhealthy",
@@ -62,7 +61,6 @@ FAILURE_DIAGNOSTICS = {
 }
 SERVICE_ERROR_CODES = {
     "sender_service_inactive",
-    "agent_service_inactive",
     "legacy_tunnel_inactive",
 }
 SERVICE_STATUS_ENUMS = {
@@ -396,7 +394,6 @@ def health(*, stage="existing_health"):
         EXISTING,
         (
             "sender_service_inactive",
-            "agent_service_inactive",
             "legacy_tunnel_inactive",
         ),
         strict=True,
