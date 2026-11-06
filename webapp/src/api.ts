@@ -52,8 +52,6 @@ export type Subscription = {
   weekdays: Weekday[];
   startTime: string;
   endTime: string;
-  preferencePreset?: string;
-  preferenceLabel?: string;
   durationDays: number;
   termCode: SubscriptionTerm;
   autoRenew: boolean;
@@ -594,27 +592,12 @@ export async function createSubscription(
     startTime: string;
     endTime: string;
     termCode: SubscriptionTerm;
-    preferencePreset?: string;
   },
 ): Promise<{ subscription: Subscription }> {
   const result = await jsonRequest<{ subscription: Subscription }>("/api/subscriptions", {
     method: "POST",
     body: JSON.stringify(payload),
   }, receipt);
-  invalidateDashboardCache();
-  return result;
-}
-
-export async function updateSubscriptionWindow(
-  receipt: VerificationReceipt,
-  subscriptionId: string,
-  payload: { preferencePreset: string },
-): Promise<Subscription> {
-  const result = await jsonRequest<Subscription>(
-    `/api/subscriptions/${encodeURIComponent(subscriptionId)}`,
-    { method: "PATCH", body: JSON.stringify(payload) },
-    receipt,
-  );
   invalidateDashboardCache();
   return result;
 }

@@ -1,6 +1,6 @@
 # ADR 0016: Ideal-window subscriptions
 
-- Status: Accepted
+- Status: Superseded by [ADR 0017](0017-remove-named-ideal-windows.md)
 - Date: 2026-10-31
 
 ## Context
