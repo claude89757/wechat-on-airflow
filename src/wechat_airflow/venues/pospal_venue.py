@@ -649,6 +649,7 @@ def run_check(venue: PosPalVenue) -> None:
     up_for_send_data_list: list[NotificationCourt] = []
     webapp_slots: list[dict[str, str]] = []
     webapp_errors: list[str] = []
+    empty_inventory_dates: list[str] = []
     for index in range(venue.lookahead_days):
         input_date = (datetime.datetime.now() + datetime.timedelta(days=index)).strftime("%Y-%m-%d")
         print(f"checking {input_date}...")
@@ -660,9 +661,27 @@ def run_check(venue: PosPalVenue) -> None:
             up_for_send_data_list.extend(
                 filter_court_data_for_notification(venue, input_date, court_data)
             )
+        except PosPalEmptyInventoryError as error:
+            # The venue publishes only the next few days, so a date beyond that
+            # horizon legitimately returns no rooms. Only an entire empty window
+            # proves the store/project configuration is stale.
+            print(f"Empty inventory for {input_date}: {error}")
+            empty_inventory_dates.append(input_date)
         except Exception as error:
             print(f"Error checking date {input_date}: {error}")
             webapp_errors.append(str(error))
+
+    if (
+        venue.require_rooms_when_in_window
+        and not webapp_errors
+        and len(empty_inventory_dates) == venue.lookahead_days
+    ):
+        stale = (
+            f"{venue.venue_name} 未来 {venue.lookahead_days} 天均返回空 validClassRooms，"
+            "门店或项目配置可能已失效"
+        )
+        print(stale)
+        webapp_errors.append(stale)
 
     observation_result = publish_venue_observation(
         venue.venue_id,

@@ -326,6 +326,101 @@ class PosPalVenueTest(unittest.TestCase):
         finally:
             pospal_venue.requests.post = original_post
 
+    def test_swjj_short_publishing_horizon_stays_healthy(self) -> None:
+        original_load_proxy = pospal_venue.load_proxy_list
+        original_get_availability = pospal_venue.get_tennis_court_availability
+        original_publish = pospal_venue.publish_venue_observation
+        original_datetime = pospal_venue.datetime
+        original_sleep = pospal_venue.time.sleep
+
+        class FixedDatetime(original_datetime.datetime):
+            @classmethod
+            def now(cls, tz: object = None) -> FixedDatetime:
+                return cls(2026, 11, 7, 13, 0, 0)
+
+        class FixedDatetimeModule:
+            datetime = FixedDatetime
+            time = original_datetime.time
+            timedelta = original_datetime.timedelta
+
+        def fake_get_availability(
+            venue: object, date: str, proxy_list: list[str]
+        ) -> dict[str, list[list[str]]]:
+            # The store publishes three days; later days return no rooms.
+            if date <= "2026-11-09":
+                return {"网球标准场1号": [["16:00", "18:00"]]}
+            raise pospal_venue.PosPalEmptyInventoryError(f"empty {date}")
+
+        captured: dict[str, object] = {}
+
+        def fake_publish(*args: object, **kwargs: object) -> dict[str, bool]:
+            captured["healthy"] = kwargs.get("healthy")
+            captured["error"] = kwargs.get("error")
+            return {"success": True}
+
+        pospal_venue.load_proxy_list = lambda: []
+        pospal_venue.get_tennis_court_availability = fake_get_availability
+        pospal_venue.publish_venue_observation = fake_publish
+        pospal_venue.datetime = FixedDatetimeModule
+        pospal_venue.time.sleep = lambda *_args, **_kwargs: None
+        try:
+            swjj_watcher.run_check_tennis_courts()
+        finally:
+            pospal_venue.load_proxy_list = original_load_proxy
+            pospal_venue.get_tennis_court_availability = original_get_availability
+            pospal_venue.publish_venue_observation = original_publish
+            pospal_venue.datetime = original_datetime
+            pospal_venue.time.sleep = original_sleep
+
+        self.assertTrue(captured["healthy"])
+        self.assertIsNone(captured["error"])
+
+    def test_swjj_entire_empty_window_is_reported_unhealthy(self) -> None:
+        original_load_proxy = pospal_venue.load_proxy_list
+        original_get_availability = pospal_venue.get_tennis_court_availability
+        original_publish = pospal_venue.publish_venue_observation
+        original_datetime = pospal_venue.datetime
+        original_sleep = pospal_venue.time.sleep
+
+        class FixedDatetime(original_datetime.datetime):
+            @classmethod
+            def now(cls, tz: object = None) -> FixedDatetime:
+                return cls(2026, 11, 7, 13, 0, 0)
+
+        class FixedDatetimeModule:
+            datetime = FixedDatetime
+            time = original_datetime.time
+            timedelta = original_datetime.timedelta
+
+        def fake_get_availability(venue: object, date: str, proxy_list: list[str]) -> object:
+            raise pospal_venue.PosPalEmptyInventoryError(f"empty {date}")
+
+        captured: dict[str, object] = {}
+
+        def fake_publish(*args: object, **kwargs: object) -> dict[str, bool]:
+            captured["healthy"] = kwargs.get("healthy")
+            captured["error"] = kwargs.get("error")
+            return {"success": True}
+
+        pospal_venue.load_proxy_list = lambda: []
+        pospal_venue.get_tennis_court_availability = fake_get_availability
+        pospal_venue.publish_venue_observation = fake_publish
+        pospal_venue.datetime = FixedDatetimeModule
+        pospal_venue.time.sleep = lambda *_args, **_kwargs: None
+        try:
+            swjj_watcher.run_check_tennis_courts()
+        finally:
+            pospal_venue.load_proxy_list = original_load_proxy
+            pospal_venue.get_tennis_court_availability = original_get_availability
+            pospal_venue.publish_venue_observation = original_publish
+            pospal_venue.datetime = original_datetime
+            pospal_venue.time.sleep = original_sleep
+
+        self.assertFalse(captured["healthy"])
+        error = captured["error"]
+        assert isinstance(error, str)
+        self.assertIn("未来 7 天均返回空 validClassRooms", error)
+
     def test_legacy_venues_still_treat_empty_inventory_as_healthy(self) -> None:
         original_post = pospal_venue.requests.post
 
