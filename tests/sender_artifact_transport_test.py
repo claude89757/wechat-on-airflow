@@ -305,7 +305,7 @@ health() { test ! -e "$wheelhouse_path"; test ! -e "$bundle_path"; printf 'healt
             check=False,
         )
         assert result.returncode == 0, result.stderr
-        assert result.stdout.strip() == "healthy"
+        assert result.stdout.strip().splitlines()[-1] == "healthy"
         assert len(calls.read_text().splitlines()) == 2
         assert all("--wheelhouse " + str(wheel) in line for line in calls.read_text().splitlines())
     finally:

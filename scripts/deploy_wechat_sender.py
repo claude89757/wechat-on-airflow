@@ -42,6 +42,10 @@ def resolve_target_commit(revision: str) -> str:
     return commit
 
 
+STEP_MARKER = re.compile(r"^sender-step: ([a-z_]+)$", re.MULTILINE)
+INSTALL_MESSAGE = re.compile(r"wechat-sender deploy: [\x20-\x7e]{1,200}")
+
+
 def parse_remote_result(output: str) -> dict[str, Any]:
     for line in reversed(output.splitlines()):
         try:
@@ -51,6 +55,27 @@ def parse_remote_result(output: str) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
     raise OpsError("sender operation returned no structured result")
+
+
+def remote_failure_evidence(returncode: int, stdout: str, stderr: str) -> dict[str, Any]:
+    """Say where a remote operation stopped without publishing arbitrary remote text.
+
+    Step names are fixed by remote_script. Install messages are the fixed `fail` texts
+    of install_wechat_sender.sh; anything resembling a URL or address is dropped.
+    """
+    steps = STEP_MARKER.findall(stdout)
+    messages = [
+        line
+        for line in stderr.splitlines()
+        if INSTALL_MESSAGE.fullmatch(line) and "://" not in line and "@" not in line
+    ]
+    return {
+        "stage": "sender_remote_failure",
+        # 255 means ssh itself failed, not a command on the host.
+        "exit_code": returncode,
+        "last_step": steps[-1] if steps else None,
+        "install_message": messages[-1] if messages else None,
+    }
 
 
 def safe_dependency_preflight(value: dict[str, Any]) -> dict[str, Any] | None:
@@ -330,6 +355,10 @@ if [ -n "$wheelhouse_path" ]; then
     [[ "$wheelhouse_path" =~ ^/tmp/wechat-sender-[0-9a-f]{32}\.wheelhouse\.zip$ ]] || exit 2
 fi
 trap cleanup_bundle EXIT HUP INT TERM
+
+step() {
+    printf 'sender-step: %s\n' "$1"
+}
 
 current_commit=""
 if [ -d "$install_dir/.git" ]; then
@@ -989,8 +1018,11 @@ fi
 test "$mode" = "apply"
 test "$(id -u)" = 0
 test "$credentials_ready" = true
+step fetch_target
 fetch_target
+step dependency_preflight
 dependency_preflight
+step prepare_rollback
 
 # A retained .previous may belong to an earlier successful release. Restore it
 # only after this attempt has actually moved/replaced the active environment.
@@ -1037,15 +1069,20 @@ trap 'rollback 129' HUP
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
 
+step preserve_drift
 legacy_backup="$(preserve_reviewed_drift)"
+step checkout
 git -C "$install_dir" checkout --quiet --detach "$target_commit"
+step install_preflight
 "$install_dir/scripts/install_wechat_sender.sh" --wheelhouse "$wheelhouse_path" --target-commit "$target_commit" </dev/null
+step install_apply
 "$install_dir/scripts/install_wechat_sender.sh" --wheelhouse "$wheelhouse_path" --apply --target-commit "$target_commit" </dev/null
 
 current_commit="$target_commit"
 rm -f "$unit_backup"
 cleanup_bundle
 trap - EXIT HUP INT TERM
+step health
 health
 """
     helper = Path(__file__).with_name("preserve_sender_legacy_patch.py").read_text()
@@ -1127,6 +1164,10 @@ def main() -> None:
         evidence = safe_dependency_preflight(failure)
         if evidence is not None:
             emit(evidence, args.format)
+        emit(
+            remote_failure_evidence(result.returncode, result.stdout, result.stderr),
+            args.format,
+        )
         # Remote stderr can include private hosts, package index URLs, or secrets.
         raise OpsError("sender operation failed; inspect sanitized preflight evidence when present")
     payload = parse_remote_result(result.stdout)

@@ -7,6 +7,8 @@ and operational changes.
 
 ### Changed
 
+- A failed Sender operation now reports the step it stopped at, its exit code and the
+  install script's fixed error message. Other remote output stays withheld.
 - Adding a venue now takes one line in `src/wechat_airflow/venue_catalog.json`.
   Python, the web app, production health and browser QA read that file, and no
   check or document pins a venue count. The `all26VenueObservations` health check
