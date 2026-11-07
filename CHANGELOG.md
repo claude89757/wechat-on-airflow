@@ -7,6 +7,12 @@ and operational changes.
 
 ### Changed
 
+- A failed Sender operation now reports the step it stopped at, its exit code and the
+  install script's fixed error message. Other remote output stays withheld.
+- The Sender deploy now opens one SSH connection and reuses it for every upload,
+  the remote operation and cleanup. Opening it retries, because the host's sshd
+  drops new connections while it is being probed with failed logins. No remote
+  command is replayed.
 - Adding a venue now takes one line in `src/wechat_airflow/venue_catalog.json`.
   Python, the web app, production health and browser QA read that file, and no
   check or document pins a venue count. The `all26VenueObservations` health check

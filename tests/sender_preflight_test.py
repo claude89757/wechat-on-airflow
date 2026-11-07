@@ -326,7 +326,8 @@ def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage)
         node
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
-        and node.name in {"parse_remote_result", "safe_dependency_preflight"}
+        and node.name
+        in {"parse_remote_result", "safe_dependency_preflight", "remote_failure_evidence"}
     ]
     emitted = []
 
@@ -340,6 +341,8 @@ def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage)
         "OpsError": OpsError,
         "COMMIT_PATTERN": re.compile(r"^[0-9a-f]{40}$"),
         "FAILURE_KINDS": FAILURE_KINDS,
+        "STEP_MARKER": re.compile(r"^sender-step: ([a-z_]+)$", re.MULTILINE),
+        "INSTALL_MESSAGE": re.compile(r"wechat-sender deploy: [\x20-\x7e]{1,200}"),
     }
     exec(compile(ast.Module(body=functions, type_ignores=[]), "helpers", "exec"), namespace)
     report = {
@@ -366,12 +369,18 @@ def test_remote_failure_emits_only_allowlisted_inventory_not_stderr(known_stage)
         exec(compile(body, "failure-emission", "exec"), namespace)
     assert "PRIVATE" not in str(error.value)
     assert "PRIVATE" not in json.dumps(emitted)
+    assert emitted[-1] == {
+        "stage": "sender_remote_failure",
+        "exit_code": 1,
+        "last_step": None,
+        "install_message": None,
+    }
     if known_stage:
         assert emitted[0]["failure_category"] == "unsupported_service_python"
         assert emitted[0]["active_python"] == "3.6.9"
         assert emitted[0]["distribution"] == {"ID": "ubuntu", "VERSION_ID": "18.04"}
     else:
-        assert emitted == []
+        assert len(emitted) == 1
 
 
 def diagnostic_helpers():
