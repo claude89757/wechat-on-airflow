@@ -6,5 +6,5 @@ apache-airflow-providers-standard==1.15.0
 cryptography==50.0.1
 gcloud-aio-auth==5.5.0
 pyOpenSSL==26.4.0
-paramiko==3.5.1
+paramiko==5.0.0
 requests==2.34.2
