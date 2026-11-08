@@ -89,6 +89,19 @@ class PiDeviceSshSyncTest(unittest.TestCase):
 
         with self.assertRaisesRegex(_ops.OpsError, "missing required SSH fields"):
             sync_pi_device_ssh.validated_config({"host": "203.0.113.10", "port": "6000"})
+        # The password is only a migration fallback: without it the Variable keeps the key.
+        keyless = json.loads(
+            sync_pi_device_ssh.validated_config(
+                {
+                    "host": "203.0.113.10",
+                    "port": "6000",
+                    "username": "pi-user",
+                    "password": "",
+                    "host_key_sha256": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                }
+            )
+        )
+        self.assertNotIn("password", keyless)
         with self.assertRaisesRegex(_ops.OpsError, "must be an integer"):
             sync_pi_device_ssh.validated_config(
                 {

@@ -63,6 +63,7 @@ jobs:
       - name: Read actual identities and test pinned new route without sending
         env:
           PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PRIVATE_KEY: ${{ secrets.PI_DEVICE_SSH_PRIVATE_KEY }}
           PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
           PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
           TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.DEVICE_TUNNEL_ACCESS_CLIENT_ID }}

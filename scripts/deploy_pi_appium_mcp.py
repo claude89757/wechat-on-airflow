@@ -20,6 +20,7 @@ import uuid
 from pathlib import Path
 
 import paramiko
+from pi_ssh_auth import connect_from_env
 
 HOSTNAME = "appium-mcp.zacks.vision"
 PREVIOUS_HOSTNAME = "appium-mcp.claude89757.cc"
@@ -1162,13 +1163,11 @@ def main():
                 cf("GET", prefix + path)
             cf("GET", f"/zones/{ZONE_ID}/dns_records?name={HOSTNAME}")
         phase = "pinned_ssh"
-        client.connect(
+        connect_from_env(
+            client,
             os.environ["PI_DEVICE_SSH_HOST"],
-            port=int(os.environ["PI_DEVICE_SSH_PORT"]),
-            username=os.environ["PI_DEVICE_SSH_USER"],
-            password=os.environ["PI_DEVICE_SSH_PASSWORD"],
-            look_for_keys=False,
-            allow_agent=False,
+            int(os.environ["PI_DEVICE_SSH_PORT"]),
+            os.environ["PI_DEVICE_SSH_USER"],
             timeout=15,
             auth_timeout=15,
             banner_timeout=15,

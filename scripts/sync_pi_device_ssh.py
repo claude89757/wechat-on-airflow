@@ -13,9 +13,11 @@ REQUIRED_ENV = {
     "host": "PI_DEVICE_SSH_HOST",
     "port": "PI_DEVICE_SSH_PORT",
     "username": "PI_DEVICE_SSH_USER",
-    "password": "PI_DEVICE_SSH_PASSWORD",
     "host_key_sha256": "PI_DEVICE_SSH_HOST_KEY_SHA256",
 }
+# The password is only the migration fallback. Once the key is stored in the Airflow
+# Variable, removing the GitHub secret removes the password from the Variable too.
+OPTIONAL_ENV = {"password": "PI_DEVICE_SSH_PASSWORD"}
 REQUIRED_FIELDS = tuple(REQUIRED_ENV)
 
 
@@ -29,19 +31,17 @@ def validated_config(raw_fields: dict[str, str]) -> str:
         port = int(raw_port)
     except ValueError as exc:
         raise OpsError("PI_DEVICE_SSH.port must be an integer") from exc
-    if not host or not username or not password or not host_key or port <= 0:
+    if not host or not username or not host_key or port <= 0:
         raise OpsError("PI_DEVICE_SSH is missing required SSH fields")
-    return json.dumps(
-        {
-            "host": host,
-            "port": port,
-            "username": username,
-            "password": password,
-            "host_key_sha256": host_key,
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+    value: dict[str, object] = {
+        "host": host,
+        "port": port,
+        "username": username,
+        "host_key_sha256": host_key,
+    }
+    if password:
+        value["password"] = password
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def sync(config_json: str) -> dict[str, object]:
@@ -108,7 +108,10 @@ def config_from_environment() -> dict[str, str]:
     )
     if missing:
         raise OpsError("missing required environment keys: " + ", ".join(missing))
-    return {field: os.environ[env_name] for field, env_name in REQUIRED_ENV.items()}
+    fields = {field: os.environ[env_name] for field, env_name in REQUIRED_ENV.items()}
+    for field, env_name in OPTIONAL_ENV.items():
+        fields[field] = os.environ.get(env_name, "")
+    return fields
 
 
 def main() -> None:
