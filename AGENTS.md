@@ -61,9 +61,16 @@ MCP shell commands.
 ## Owner-Authorized MCP Administration
 
 The owner authorized administrator-capable remote MCP channels on 2026-10-31.
-Use these endpoints with **Streamable HTTP + OAuth**; each user completes their
-own Cloudflare login. Never distribute service-token headers, SSH credentials,
-browser cookies or Cloudflare management tokens to agents or collaborators.
+Use these endpoints with **Streamable HTTP + OAuth**. Sign-in is automatic: do
+not ask the person to log in or paste a link first. A client without MCP tools
+runs `scripts/ops_mcp.py`, which reuses or refreshes its stored token and
+otherwise opens the Access authorization page in the workstation's browser; a
+browser that already holds the person's Cloudflare Access session completes it
+with no click. Only a browser without a session shows the Cloudflare login page,
+and the person signs in there once. Agents never type passwords, read or export
+browser cookies, or sign in as another identity. Never distribute service-token
+headers, SSH credentials, browser cookies or Cloudflare management tokens to
+agents or collaborators.
 
 | Resource | MCP endpoint | Authorization |
 | --- | --- | --- |
@@ -79,7 +86,8 @@ device connectivity. These components have independent deployment identities.
 
 Agent workflow:
 
-1. List tools and call `ops_status` for a host, or `phone_devices` for phones.
+1. List tools and call `ops_status` for a host, or `phone_devices` for phones
+   (without MCP tools: `python scripts/ops_mcp.py call pi ops_status '{}'`).
    Use `ops_diagnose` for allowlisted systemd and container states.
    Initial checks must not create phone sessions, execute shell commands or
    send notifications. Recheck device availability; do not assume two phones
