@@ -335,6 +335,7 @@ def test_unknown_phone_state_aborts_rollout_and_restores_ingress(monkeypatch):
 def test_public_probe_never_inherits_production_management_credentials(monkeypatch):
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "fake-management-secret")
     monkeypatch.setenv("PI_DEVICE_SSH_PASSWORD", "fake-ssh-secret")
+    monkeypatch.setenv("PI_DEVICE_SSH_PRIVATE_KEY", "fake-ssh-key")
     monkeypatch.setattr(
         DEPLOY.urllib.request,
         "build_opener",
@@ -346,6 +347,7 @@ def test_public_probe_never_inherits_production_management_credentials(monkeypat
     def command(argv, **kwargs):
         assert "CLOUDFLARE_API_TOKEN" not in kwargs["env"]
         assert "PI_DEVICE_SSH_PASSWORD" not in kwargs["env"]
+        assert "PI_DEVICE_SSH_PRIVATE_KEY" not in kwargs["env"]
         assert kwargs["env"]["CF_ACCESS_CLIENT_SECRET"] == "fake-client-secret"
         return SimpleNamespace(returncode=0, stdout=b'{"ok":true}')
 

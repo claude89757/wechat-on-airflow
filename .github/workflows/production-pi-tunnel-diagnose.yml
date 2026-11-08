@@ -50,6 +50,7 @@ jobs:
           PI_DEVICE_SSH_HOST: ${{ secrets.PI_DEVICE_SSH_HOST }}
           PI_DEVICE_SSH_PORT: ${{ secrets.PI_DEVICE_SSH_PORT }}
           PI_DEVICE_SSH_USER: ${{ secrets.PI_DEVICE_SSH_USER }}
+          PI_DEVICE_SSH_PRIVATE_KEY: ${{ secrets.PI_DEVICE_SSH_PRIVATE_KEY }}
           PI_DEVICE_SSH_PASSWORD: ${{ secrets.PI_DEVICE_SSH_PASSWORD }}
           PI_DEVICE_SSH_HOST_KEY_SHA256: ${{ secrets.PI_DEVICE_SSH_HOST_KEY_SHA256 }}
         run: python scripts/diagnose_pi_tunnel.py

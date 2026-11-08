@@ -157,32 +157,31 @@ def read_channel_health(transport: Any, port: int) -> dict[str, Any]:
 
 def tunnel_inventory(hostname: str) -> dict[str, Any]:
     import paramiko
+    from pi_ssh_auth import connect_from_env, has_credentials
 
     from wechat_airflow.clients.android_device import PinnedSHA256HostKeyPolicy
 
     if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?", hostname):
         raise OpsError("invalid public SSH hostname")
-    required = ("PI_DEVICE_SSH_USER", "PI_DEVICE_SSH_PASSWORD", "PI_DEVICE_SSH_HOST_KEY_SHA256")
-    if any(not os.environ.get(name) for name in required):
+    required = ("PI_DEVICE_SSH_USER", "PI_DEVICE_SSH_HOST_KEY_SHA256")
+    if any(not os.environ.get(name) for name in required) or not has_credentials():
         return {"ok": False, "reason": "protected_pi_credentials_missing"}
     logging.getLogger("paramiko").setLevel(logging.CRITICAL)
     proxy = None
     client = paramiko.SSHClient()
     report: dict[str, Any] = {"ok": False, "externalTestSends": 0}
     try:
-        client.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(os.environ[required[2]]))
+        client.set_missing_host_key_policy(PinnedSHA256HostKeyPolicy(os.environ[required[1]]))
         proxy = paramiko.ProxyCommand(f"cloudflared access ssh --hostname {shlex.quote(hostname)}")
-        client.connect(
+        connect_from_env(
+            client,
             hostname,
-            port=22,
-            username=os.environ[required[0]],
-            password=os.environ[required[1]],
+            22,
+            os.environ[required[0]],
             sock=proxy,
             timeout=15,
             auth_timeout=15,
             banner_timeout=15,
-            allow_agent=False,
-            look_for_keys=False,
         )
         report["pinnedSshAuthenticated"] = True
         transport = client.get_transport()

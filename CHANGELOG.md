@@ -7,6 +7,14 @@ and operational changes.
 
 ### Changed
 
+- The Raspberry Pi deployment and diagnostic workflows log in with an SSH key.
+  `PI_DEVICE_SSH_PRIVATE_KEY` in the protected `production` Environment is tried
+  first by `scripts/pi_ssh_auth.py`; `PI_DEVICE_SSH_PASSWORD` is only the migration
+  fallback, used when the key is missing, unusable or rejected. A network or
+  host-key failure is never retried with the password. This covers the YDMap and
+  Appium MCP deployments, the remote-operations MCP deployment, tunnel diagnosis and
+  the device-network preflight. `pi_device_ssh_sync` no longer requires the password.
+  Turning off the Pi's SSH password login now needs only the key authorized there.
 - Operations MCP sign-in is automatic for agents. `scripts/ops_mcp.py` opens the
   Cloudflare Access authorization in the workstation's browser, which completes it
   without a click when it already holds a session, then reuses and refreshes the

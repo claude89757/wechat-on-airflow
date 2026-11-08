@@ -241,6 +241,7 @@ def safe_report(value: object) -> dict[str, object]:
 
 def main() -> int:
     import paramiko
+    from pi_ssh_auth import connect_from_env, has_credentials
 
     class PinnedHostKey(paramiko.MissingHostKeyPolicy):
         def missing_host_key(self, client, hostname, key):
@@ -254,7 +255,6 @@ def main() -> int:
         "PI_DEVICE_SSH_HOST",
         "PI_DEVICE_SSH_PORT",
         "PI_DEVICE_SSH_USER",
-        "PI_DEVICE_SSH_PASSWORD",
         "PI_DEVICE_SSH_HOST_KEY_SHA256",
     )
     report: dict[str, object] = {
@@ -265,22 +265,20 @@ def main() -> int:
     client = paramiko.SSHClient()
     logging.getLogger("paramiko").setLevel(logging.CRITICAL)
     try:
-        if any(not os.environ.get(key) for key in required):
+        if any(not os.environ.get(key) for key in required) or not has_credentials():
             raise ValueError("protected configuration missing")
-        fingerprint = os.environ[required[4]].strip().rstrip("=")
+        fingerprint = os.environ[required[3]].strip().rstrip("=")
         if not re.fullmatch(r"SHA256:[A-Za-z0-9+/]{43}", fingerprint):
             raise ValueError("invalid fingerprint")
         port = int(os.environ[required[1]])
         if not 1 <= port <= 65535:
             raise ValueError("invalid port")
         client.set_missing_host_key_policy(PinnedHostKey())
-        client.connect(
-            hostname=os.environ[required[0]],
-            port=port,
-            username=os.environ[required[2]],
-            password=os.environ[required[3]],
-            look_for_keys=False,
-            allow_agent=False,
+        connect_from_env(
+            client,
+            os.environ[required[0]],
+            port,
+            os.environ[required[2]],
             timeout=15,
             auth_timeout=15,
             banner_timeout=15,

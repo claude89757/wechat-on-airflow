@@ -17,6 +17,7 @@ from pathlib import Path
 
 import deploy_pi_appium_mcp as phone
 import paramiko
+from pi_ssh_auth import connect_from_env
 
 TARGETS = {
     "pi": ("pi-mcp.zacks.vision", "Zacks Pi administrators"),
@@ -73,13 +74,11 @@ def connect(target):
     client = paramiko.SSHClient()
     if target in {"pi", "phone"}:
         client.set_missing_host_key_policy(phone.PinnedHostKey())
-        client.connect(
+        connect_from_env(
+            client,
             os.environ["PI_DEVICE_SSH_HOST"],
-            port=int(os.environ["PI_DEVICE_SSH_PORT"]),
-            username=os.environ["PI_DEVICE_SSH_USER"],
-            password=os.environ["PI_DEVICE_SSH_PASSWORD"],
-            look_for_keys=False,
-            allow_agent=False,
+            int(os.environ["PI_DEVICE_SSH_PORT"]),
+            os.environ["PI_DEVICE_SSH_USER"],
             timeout=15,
             auth_timeout=15,
         )
