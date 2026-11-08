@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
 
@@ -20,9 +20,10 @@ class PiDeviceConfig:
     host: str
     port: int
     username: str
-    password: str
+    password: str = field(repr=False)
     host_key_sha256: str
     scrape_url: str = DEFAULT_SCRAPE_URL
+    private_key: str = field(default="", repr=False)
 
     @classmethod
     def from_value(cls, value: object) -> PiDeviceConfig:
@@ -31,6 +32,7 @@ class PiDeviceConfig:
         host = str(value.get("host") or "").strip()
         username = str(value.get("username") or "").strip()
         password = str(value.get("password") or "")
+        private_key = str(value.get("private_key") or "").strip()
         host_key = str(value.get("host_key_sha256") or "").strip()
         scrape_url = str(value.get("scrape_url") or DEFAULT_SCRAPE_URL).strip()
         raw_port = value.get("port")
@@ -40,7 +42,7 @@ class PiDeviceConfig:
             port = int(raw_port)
         except (TypeError, ValueError) as exc:
             raise ValueError("PI_DEVICE_SSH.port must be an integer") from exc
-        if not host or not username or not password or not host_key or port <= 0:
+        if not host or not username or not (password or private_key) or not host_key or port <= 0:
             raise ValueError("PI_DEVICE_SSH is missing required SSH fields")
         if not scrape_url.startswith("http://") and not scrape_url.startswith("https://"):
             raise ValueError("PI_DEVICE_SSH.scrape_url must be an HTTP URL")
@@ -51,6 +53,7 @@ class PiDeviceConfig:
             password=password,
             host_key_sha256=host_key,
             scrape_url=scrape_url,
+            private_key=private_key,
         )
 
 
@@ -118,6 +121,7 @@ def fetch_inspect_payload(config: PiDeviceConfig, *, days: int = DEFAULT_DAYS) -
         config.password,
         config.host_key_sha256,
         command,
+        private_key=config.private_key,
     )
     if status != 0 or not output:
         raise RuntimeError(error or "pi scrape command failed")

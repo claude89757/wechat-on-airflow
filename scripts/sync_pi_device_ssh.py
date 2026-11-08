@@ -66,6 +66,13 @@ import sys
 from airflow.models.variable import Variable
 
 value = json.load(sys.stdin)
+try:
+    existing = json.loads(Variable.get("PI_DEVICE_SSH"))
+except Exception:
+    existing = {}
+# The key is added on the host, not through GitHub: keep it across a password rotation.
+if existing.get("private_key") and not value.get("private_key"):
+    value["private_key"] = existing["private_key"]
 Variable.set("PI_DEVICE_SSH", json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 '
 compose exec -T "$service" python -c '
@@ -73,8 +80,9 @@ import json
 from airflow.models.variable import Variable
 
 value = json.loads(Variable.get("PI_DEVICE_SSH"))
-required = ("host", "port", "username", "password", "host_key_sha256")
+required = ("host", "port", "username", "host_key_sha256")
 assert all(value.get(field) for field in required)
+assert value.get("password") or value.get("private_key")
 assert int(value["port"]) > 0
 print(json.dumps({"ok": True, "fields": sorted(value.keys())}))
 '

@@ -37,8 +37,11 @@ variables:
       - host
       - port
       - username
-      - password
       - host_key_sha256
+    # At least one login credential; the key is tried first, the password is the fallback.
+    credential_fields_any_of:
+      - private_key
+      - password
   SZW_API_AUTHORIZATION:
     type: string
     required_by: [深圳湾网球场巡检, 大湾区网球场巡检]

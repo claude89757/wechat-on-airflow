@@ -141,9 +141,28 @@ seven days of seven courts can exceed the shared 100-entry default.
 ## Raspberry Pi YDMap Scraper
 
 `PI_DEVICE_SSH` is the sensitive JSON object used by the Dashah International
-Tennis Center DAG. It requires `host`, `port`,
-`username`, `password`, and `host_key_sha256`. Optional `scrape_url` defaults to
-`http://127.0.0.1:8788/inspect`. Never log or commit its value.
+Tennis Center DAG. It requires `host`, `port`, `username`, `host_key_sha256` and at
+least one credential: `private_key` (an unencrypted OpenSSH or PEM key) or
+`password`. The DAG tries the key first and uses the password only when the key is
+unusable or rejected, so the key can be added without a cutover. Optional `scrape_url`
+defaults to `http://127.0.0.1:8788/inspect`. Never log or commit its value.
+
+Moving the DAG to key login (the key is created on the Airflow host and never
+leaves it, and is not a GitHub secret):
+
+1. Generate an ed25519 key pair in a private temporary directory on the Airflow
+   host, append the public half to the scrape-host login's `authorized_keys`, store
+   the private half as `private_key` in `PI_DEVICE_SSH`, then delete the temporary
+   files. Do not print the private half.
+2. The next 2-minute run should log `Accepted publickey` in the Pi's sshd journal
+   instead of `Accepted password`. The DAG logs `pi_host_ssh_authenticated
+   method=publickey`.
+3. `pi_device_ssh_sync` keeps an existing `private_key` when it rewrites the other
+   fields from GitHub, so a password rotation cannot drop the key.
+
+Turning off the Pi's SSH password login additionally needs every other password
+user moved first: the Pi deploy and diagnostic workflows still log in with
+`PI_DEVICE_SSH_PASSWORD`.
 
 The GitHub `production` Environment stores the scrape-host login as
 `PI_DEVICE_SSH_*` names. Rotate them there, then run the protected

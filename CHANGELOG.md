@@ -7,6 +7,11 @@ and operational changes.
 
 ### Changed
 
+- The Dashah inspection DAG can log into the Raspberry Pi with an SSH key. When
+  `PI_DEVICE_SSH` carries a `private_key` it is tried first, and the password is used
+  only if the key is unusable or rejected; a network failure is never retried with
+  the password. `pi_device_ssh_sync` keeps an existing `private_key`. With no key
+  configured nothing changes.
 - A failed Sender operation now reports the step it stopped at, its exit code and the
   install script's fixed error message. Other remote output stays withheld.
 - The Sender deploy now opens one SSH connection and reuses it for every upload,
