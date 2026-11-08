@@ -62,6 +62,23 @@ Example client configuration (OAuth is completed in the client's login UI):
 }}
 ```
 
+Agents whose client has no MCP tools use the repository client instead. It needs
+no human step when the browser already holds a Cloudflare Access session:
+
+```text
+python scripts/ops_mcp.py login pi        # pi, vps or phone
+python scripts/ops_mcp.py call vps ops_status '{}'
+python scripts/ops_mcp.py exec pi --reason "read-only check" check.sh
+```
+
+It registers a public client, opens the authorization URL with PKCE in the
+default browser (`--browser chrome` picks one) and receives the code on a
+one-shot localhost listener. The token is stored per endpoint in
+`~/.config/zacks-ops-mcp/` (mode 0600, override with `ZACKS_OPS_MCP_TOKEN_DIR`),
+reused while valid and refreshed when rejected. It is never printed and never
+leaves the workstation. A browser without a session shows the Cloudflare login
+page; the person signs in there, and the agent never types credentials.
+
 Share only authorized destinations. Initial tests list tools and call
 `ops_status` or `phone_devices`; they never run commands or create phone sessions.
 

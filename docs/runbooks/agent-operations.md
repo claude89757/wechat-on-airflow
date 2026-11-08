@@ -14,7 +14,7 @@ need to choose among component workflow files.
 | One necessary host command | MCP `ops_exec`, then `ops_result` if still running | Protected operation |
 | Code release | GitHub exact-commit CI and protected deployment | Issue #39 and Actions evidence |
 | MCP release | `production-mcp.yml` | Existing component workflows for recovery |
-| MCP unavailable or not configured in this client | Say so, point to the [client configuration](remote-operations-mcp.md), then use GitHub protected diagnostics | Do not disable Access or share tokens |
+| MCP not configured in this client | Use `scripts/ops_mcp.py` (automatic browser sign-in, see [client configuration](remote-operations-mcp.md)) | GitHub protected diagnostics if the endpoint itself is down; do not disable Access or share tokens |
 
 `ops_diagnose` runs only fixed `systemctl show` queries and, on VPS, a bounded
 Docker container-state query. It returns allowlisted states, not logs, arbitrary

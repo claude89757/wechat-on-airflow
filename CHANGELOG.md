@@ -7,6 +7,10 @@ and operational changes.
 
 ### Changed
 
+- Operations MCP sign-in is automatic for agents. `scripts/ops_mcp.py` opens the
+  Cloudflare Access authorization in the workstation's browser, which completes it
+  without a click when it already holds a session, then reuses and refreshes the
+  stored token. Agents no longer ask the person to log in or paste links first.
 - The Dashah inspection DAG can log into the Raspberry Pi with an SSH key. When
   `PI_DEVICE_SSH` carries a `private_key` it is tried first, and the password is used
   only if the key is unusable or rejected; a network failure is never retried with
