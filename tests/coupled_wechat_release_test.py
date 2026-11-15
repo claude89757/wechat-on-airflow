@@ -112,5 +112,6 @@ def test_sender_and_consumer_share_one_protocol_version():
     assert re.search(r"^SENDER_PROTOCOL_VERSION = (\d+)$", consumer, re.M).group(1) == re.search(
         r"^PROTOCOL_VERSION = (\d+)$", sender, re.M
     ).group(1)
-    assert 'readiness.get("protocolVersion") != SENDER_PROTOCOL_VERSION' in consumer
+    assert "sender_is_ready" in consumer
+    assert "_defer_without_budget" in consumer
     assert 'readiness.get("deploymentCommit")' not in consumer

@@ -267,6 +267,36 @@ def _retry(row: dict[str, Any], worker: str, reason: str) -> None:
     _finish(row, worker, "retry" if row["attempt_count"] < MAX_ATTEMPTS else "failed", reason)
 
 
+def _defer_without_budget(row: dict[str, Any], worker: str, reason: str) -> None:
+    """Retry without consuming the permanent-failure budget.
+
+    Business releases apply the Sender while old Host Core consumers keep
+    delivering. A Sender restart (or brief protocol cutover) can leave
+    `/readyz` down for minutes; counting those waits toward MAX_ATTEMPTS would
+    mark pending court alerts `failed` with no auto-requeue.
+    """
+    with transaction() as connection:
+        connection.execute(
+            text("""
+            UPDATE zacks.wechat_outbox SET status = 'retry', last_error = :reason,
+                attempt_count = GREATEST(attempt_count - 1, 0),
+                next_attempt_at = now() + interval '15 seconds',
+                lease_owner = NULL, lease_until = NULL, updated_at = now()
+            WHERE id = :id AND lease_owner = :worker
+        """),
+            {"reason": reason, "id": row["id"], "worker": worker},
+        )
+
+
+def sender_is_ready(readiness: dict[str, Any] | None = None) -> bool:
+    state = readiness if readiness is not None else sender_readiness()
+    return (
+        state.get("ok") is True
+        and state.get("durableIdempotency") is True
+        and state.get("protocolVersion") == SENDER_PROTOCOL_VERSION
+    )
+
+
 def deliver(row: dict[str, Any], worker: str) -> None:
     # Pause/cancel takes the exclusive lock; it waits for this bounded call to finish.
     with delivery_guard() as enabled:
@@ -274,12 +304,8 @@ def deliver(row: dict[str, Any], worker: str) -> None:
             _finish(row, worker, "retry", "delivery_paused")
             return
         readiness = sender_readiness()
-        if (
-            not readiness["ok"]
-            or not readiness.get("durableIdempotency")
-            or readiness.get("protocolVersion") != SENDER_PROTOCOL_VERSION
-        ):
-            _retry(row, worker, "sender_not_ready")
+        if not sender_is_ready(readiness):
+            _defer_without_budget(row, worker, "sender_not_ready")
             return
         if not _prepare(row, worker):
             return
@@ -445,9 +471,13 @@ def main() -> None:
                     settings.deployment_commit,
                     {"mode": settings.delivery_owner},
                 )
+                # Do not claim while the Sender is down: business releases keep
+                # consumers live during Sender apply, and claims burn attempt_count.
                 row = (
                     _claim(worker)
-                    if settings.host_owns_delivery and runtime_state()["wechat_enabled"]
+                    if settings.host_owns_delivery
+                    and runtime_state()["wechat_enabled"]
+                    and sender_is_ready()
                     else None
                 )
                 if row:

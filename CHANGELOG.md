@@ -5,6 +5,14 @@ and operational changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- WeChat outbox rows no longer burn their permanent-failure budget while the
+  Sender is down or protocol-mismatched. Business releases apply Sender before
+  Host Core, so consumers stay live during that restart; those waits now defer
+  without counting toward `MAX_ATTEMPTS`, and the consumer skips claiming until
+  `/readyz` is ready again.
+
 ### Changed
 
 - Operations MCP sign-in is automatic for agents. `scripts/ops_mcp.py` opens the

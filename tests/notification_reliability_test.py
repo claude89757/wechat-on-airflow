@@ -249,6 +249,49 @@ def test_worker_retries_only_proven_unsent_and_bounds_attempts(
     finish.assert_called_once_with(row, "worker", expected, "contact_not_found")
 
 
+@pytest.mark.parametrize("attempt", [1, 3, 30])
+@pytest.mark.parametrize(
+    "readiness",
+    [
+        {"ok": False, "reason": "ConnectTimeout"},
+        {"ok": True, "durableIdempotency": False, "protocolVersion": 1},
+        {"ok": True, "durableIdempotency": True, "protocolVersion": 0},
+    ],
+)
+def test_sender_not_ready_never_burns_failure_budget(attempt, readiness, monkeypatch):
+    """Sender apply keeps consumers live; unreadiness must not mark outbox failed."""
+    monkeypatch.setenv("DEPLOYMENT_COMMIT", "a" * 40)
+    row = {
+        "id": "id",
+        "venue_id": "dsh_free",
+        "receiver": "isolated",
+        "device_name": "isolated",
+        "outbound_message": FUTURE,
+        "attempt_count": attempt,
+    }
+    with (
+        patch.object(wechat_worker, "delivery_guard", enabled_guard),
+        patch.object(wechat_worker, "sender_readiness", return_value=readiness),
+        patch.object(wechat_worker, "_defer_without_budget") as defer,
+        patch.object(wechat_worker, "_finish") as finish,
+        patch.object(wechat_worker, "_prepare") as prepare,
+    ):
+        wechat_worker.deliver(row, "worker")
+    defer.assert_called_once_with(row, "worker", "sender_not_ready")
+    finish.assert_not_called()
+    prepare.assert_not_called()
+
+
+def test_sender_is_ready_requires_ok_durable_matching_protocol():
+    assert wechat_worker.sender_is_ready(
+        {"ok": True, "durableIdempotency": True, "protocolVersion": 1}
+    )
+    assert not wechat_worker.sender_is_ready(
+        {"ok": True, "durableIdempotency": True, "protocolVersion": 2}
+    )
+    assert not wechat_worker.sender_is_ready({"ok": False})
+
+
 def test_host_core_changes_cannot_bypass_the_full_lifecycle():
     import importlib.util
     import sys
