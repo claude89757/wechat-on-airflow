@@ -757,6 +757,22 @@ class PosPalVenueTest(unittest.TestCase):
             pospal_venue.datetime = original_datetime
             pospal_venue.time.sleep = original_sleep
 
+    def test_year_boundary_lookahead_keeps_real_weekday(self) -> None:
+        # Dec 31 2026 is Thursday; Jan 1 2027 is Friday. Rebuilding mm-dd with
+        # datetime.now().year=2026 would label Jan 1 as 星期四 (2026-01-01).
+        filtered = pospal_venue.filter_court_data_for_notification(
+            pospal_venue.SWJJ,
+            "2027-01-01",
+            {"网球标准场1号": [["18:00", "19:00"]]},
+        )
+        self.assertEqual(filtered[0]["booking_date"], "2027-01-01")
+        self.assertEqual(filtered[0]["date"], "01-01")
+        messages = pospal_venue.build_new_notifications(filtered, [], current_year=2026)
+        self.assertEqual(
+            messages,
+            ["【深湾竞界网球标准场1号】星期五(01-01)空场: 18:00-19:00"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

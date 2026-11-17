@@ -47,6 +47,18 @@ and operational changes.
   release. Its activation turns delivery back on. The email recovery mode, with WeChat
   off, still uses `recovery-upgrade`.
 
+### Fixed
+
+- WeChat delivery treats `requests.ConnectionError` on the Sender POST as a safe
+  pre-submission retry, matching `ConnectTimeout`. Under the #336 release order the
+  consumer can pass `/readyz`, spend time in `_prepare`, then hit a refused/reset
+  socket while Sender restarts; quarantining that as `submission_unknown` permanently
+  dropped the court alert because reconcile only clears ledger-confirmed sends.
+- PosPal/SWJJ WeChat weekday labels keep the ISO booking date through notification
+  build. Reconstructing `星期X` from `%m-%d` with `datetime.now().year` mislabeled
+  next-year lookahead around Dec 31 (SWJJ's 7-day window) and re-alerted on Jan 1
+  when the weekday string changed.
+
 ### Removed
 
 - Remove the named 理想时段 presets (工作日晚间, 午休局, 周末上午, 周末下午,

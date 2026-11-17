@@ -44,6 +44,7 @@ COURT_NUMBER_PATTERN = re.compile(r"^\s*(\d+)\s*号")
 
 
 class NotificationCourt(TypedDict):
+    booking_date: str
     date: str
     court_name: str
     free_slot_list: list[list[str]]
@@ -397,8 +398,8 @@ def filter_court_data_for_notification(
     venue: PosPalVenue, input_date: str, court_data: CourtAvailability
 ) -> list[NotificationCourt]:
     up_for_send_data_list: list[NotificationCourt] = []
-    inform_date = datetime.datetime.strptime(input_date, "%Y-%m-%d").strftime("%m-%d")
     check_date = datetime.datetime.strptime(input_date, "%Y-%m-%d")
+    inform_date = check_date.strftime("%m-%d")
     is_weekend = check_date.weekday() >= 5
     if is_weekend:
         target_start = datetime.datetime.strptime("16:00", "%H:%M")
@@ -429,6 +430,8 @@ def filter_court_data_for_notification(
         if filtered_slots:
             up_for_send_data_list.append(
                 {
+                    # Keep ISO booking date for weekday; mm-dd is only the display form.
+                    "booking_date": input_date,
                     "date": inform_date,
                     "court_name": f"{venue.venue_name}{court_name}",
                     "free_slot_list": filtered_slots,
@@ -446,11 +449,19 @@ def build_new_notifications(
         current_year = datetime.datetime.now().year
     up_for_send_msg_list: list[str] = []
     for data in up_for_send_data_list:
-        date_obj = datetime.datetime.strptime(f"{current_year}-{data['date']}", "%Y-%m-%d")
+        # Prefer the ISO booking date retained by the filter. Reconstructing from
+        # mm-dd with datetime.now().year labels next-year lookahead (SWJJ's 7-day
+        # window crossing Dec 31) with the wrong 星期X and re-alerts on Jan 1.
+        iso_date = str(data.get("booking_date") or "")
+        if len(iso_date) == 10:
+            date_obj = datetime.datetime.strptime(iso_date, "%Y-%m-%d")
+        else:
+            date_obj = datetime.datetime.strptime(f"{current_year}-{data['date']}", "%Y-%m-%d")
+        display_date = date_obj.strftime("%m-%d")
         weekday_str = ["一", "二", "三", "四", "五", "六", "日"][date_obj.weekday()]
         for free_slot in data["free_slot_list"]:
             notification = (
-                f"【{data['court_name']}】星期{weekday_str}({data['date']})空场: "
+                f"【{data['court_name']}】星期{weekday_str}({display_date})空场: "
                 f"{free_slot[0]}-{free_slot[1]}"
             )
             if notification not in sended_msg_list:

@@ -249,6 +249,49 @@ def test_worker_retries_only_proven_unsent_and_bounds_attempts(
     finish.assert_called_once_with(row, "worker", expected, "contact_not_found")
 
 
+@pytest.mark.parametrize(
+    "error,reason",
+    [
+        (wechat_worker.requests.ConnectTimeout("slow"), "connection_timeout_before_submission"),
+        (wechat_worker.requests.ConnectionError("refused"), "connection_error_before_submission"),
+    ],
+)
+def test_pre_submission_transport_errors_retry_instead_of_quarantine(
+    error, reason, monkeypatch
+):
+    """Sender apply can drop the socket after /readyz; never-submitted must retry."""
+    monkeypatch.setenv("DEPLOYMENT_COMMIT", "a" * 40)
+    row = {
+        "id": "id",
+        "venue_id": "dsh_free",
+        "receiver": "isolated",
+        "device_name": "isolated",
+        "outbound_message": FUTURE,
+        "attempt_count": 1,
+    }
+    with (
+        patch.object(wechat_worker, "delivery_guard", enabled_guard),
+        patch.object(
+            wechat_worker,
+            "sender_readiness",
+            return_value={
+                "ok": True,
+                "durableIdempotency": True,
+                "protocolVersion": 1,
+                "deploymentCommit": "a" * 40,
+            },
+        ),
+        patch.object(wechat_worker, "_prepare", return_value=True),
+        patch.object(
+            wechat_worker, "_first_value", return_value="http://isolated.invalid/v1/wechat/send"
+        ),
+        patch.object(wechat_worker.requests, "post", side_effect=error),
+        patch.object(wechat_worker, "_finish") as finish,
+    ):
+        wechat_worker.deliver(row, "worker")
+    finish.assert_called_once_with(row, "worker", "retry", reason)
+
+
 def test_host_core_changes_cannot_bypass_the_full_lifecycle():
     import importlib.util
     import sys

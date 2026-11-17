@@ -325,7 +325,15 @@ def deliver(row: dict[str, Any], worker: str) -> None:
                 # Unknown/partial UI send is NOT retried automatically.
                 _finish(row, worker, "submission_unknown", error)
         except requests.ConnectTimeout:
+            # TCP never completed; the Sender UI path was not entered.
             _retry(row, worker, "connection_timeout_before_submission")
+        except requests.ConnectionError:
+            # Same pre-submission class as ConnectTimeout: connection refused /
+            # reset while /readyz was still OK (Sender apply under #336 keeps
+            # consumers live through that window; _prepare also widens it).
+            # Quarantining as submission_unknown would drop the court alert
+            # forever — reconcile only clears ledger-confirmed sends.
+            _retry(row, worker, "connection_error_before_submission")
         except Exception as exc:
             _finish(row, worker, "submission_unknown", type(exc).__name__)
 
