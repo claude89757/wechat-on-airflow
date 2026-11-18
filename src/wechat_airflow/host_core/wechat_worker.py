@@ -86,6 +86,49 @@ def _claim(worker_id: str) -> dict[str, Any] | None:
             WHERE status = 'dispatching' AND lease_until < now()
         """)
         )
+        # Host Core prepare keeps zacks-api up while this consumer is stopped.
+        # Venue DAGs can still durable-enqueue; a 5-minute TTL then buries the
+        # same outbox id under `expired`, and the watcher Variable preclaim never
+        # releases — still-free courts stay silent for the rest of the release.
+        # Extend only when current availability still covers the intent; stale
+        # rows fall through to expire below. Final coverage is re-checked in
+        # `_prepare` before any Sender call.
+        connection.execute(
+            text("""
+            UPDATE zacks.wechat_outbox AS o
+            SET expires_at = LEAST(
+                    now() + interval '5 minutes',
+                    (
+                        SELECT max(
+                            (s.booking_date + CAST(s.start_time AS time))
+                            AT TIME ZONE 'Asia/Shanghai'
+                        )
+                        FROM zacks.observed_slots s
+                        JOIN zacks.current_availability c ON c.event_key = s.event_key
+                        WHERE s.event_key IN (
+                            SELECT jsonb_array_elements_text(o.event_keys)
+                        )
+                          AND (s.booking_date + CAST(s.start_time AS time))
+                              AT TIME ZONE 'Asia/Shanghai' > now()
+                          AND c.last_seen_at > now() - interval '15 minutes'
+                    )
+                ),
+                updated_at = now()
+            WHERE o.status IN ('pending','retry','processing')
+              AND o.expires_at <= now()
+              AND EXISTS (
+                SELECT 1
+                FROM zacks.observed_slots s
+                JOIN zacks.current_availability c ON c.event_key = s.event_key
+                WHERE s.event_key IN (
+                    SELECT jsonb_array_elements_text(o.event_keys)
+                )
+                  AND (s.booking_date + CAST(s.start_time AS time))
+                      AT TIME ZONE 'Asia/Shanghai' > now()
+                  AND c.last_seen_at > now() - interval '15 minutes'
+              )
+        """)
+        )
         connection.execute(
             text("""
             UPDATE zacks.wechat_outbox SET status = 'expired', updated_at = now()

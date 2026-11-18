@@ -410,6 +410,55 @@ def test_wechat_changed_availability_is_expired_without_external_send():
     assert sql("SELECT status FROM zacks.wechat_outbox")[0]["status"] == "expired"
 
 
+def test_wechat_ttl_extends_when_availability_survives_consumer_gap():
+    """Still-free courts must survive Host Core prepare→activate consumer gaps."""
+    from wechat_airflow.host_core import wechat_queue, wechat_worker
+
+    with client() as c:
+        assert subscription(c, identity()).status_code == 201
+        payload = observation()
+        service.ingest_observation(payload)
+    day = payload["slots"][0]["date"]
+    wechat_queue.enqueue(
+        {
+            "venue_id": "tops",
+            "receivers": ["test-only-group"],
+            "device_name": "test-only-device",
+            "message": f"【1号场】星期日({day[5:]})空场: 18:00-19:00",
+            "source": "test",
+        }
+    )
+    sql("UPDATE zacks.wechat_outbox SET expires_at = now() - interval '1 second'")
+    row = wechat_worker._claim("test-worker")
+    assert row is not None
+    saved = sql("SELECT status, expires_at FROM zacks.wechat_outbox")[0]
+    assert saved["status"] == "processing"
+    assert saved["expires_at"] > utc_now()
+
+
+def test_wechat_ttl_still_expires_when_availability_is_gone():
+    from wechat_airflow.host_core import wechat_queue, wechat_worker
+
+    with client() as c:
+        assert subscription(c, identity()).status_code == 201
+        payload = observation()
+        service.ingest_observation(payload)
+    day = payload["slots"][0]["date"]
+    wechat_queue.enqueue(
+        {
+            "venue_id": "tops",
+            "receivers": ["test-only-group"],
+            "device_name": "test-only-device",
+            "message": f"【1号场】星期日({day[5:]})空场: 18:00-19:00",
+            "source": "test",
+        }
+    )
+    service.ingest_observation(observation(slots=[]))
+    sql("UPDATE zacks.wechat_outbox SET expires_at = now() - interval '1 second'")
+    assert wechat_worker._claim("test-worker") is None
+    assert sql("SELECT status FROM zacks.wechat_outbox")[0]["status"] == "expired"
+
+
 def test_api_probe_uses_real_database_but_rolls_back_every_test_write():
     from wechat_airflow.host_core.api_probe import run_probe
 

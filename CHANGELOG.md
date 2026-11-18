@@ -5,6 +5,13 @@ and operational changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- WeChat outbox no longer permanently buries still-free courts when the consumer
+  was stopped longer than the 5-minute TTL (Host Core prepare→activate). Rows whose
+  event keys are still in `current_availability` are extended on claim instead of
+  marked `expired`, so the watcher preclaim and durable outbox id can still deliver.
+
 ### Changed
 
 - Operations MCP sign-in is automatic for agents. `scripts/ops_mcp.py` opens the
