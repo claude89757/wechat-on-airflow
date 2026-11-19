@@ -692,6 +692,96 @@ class PosPalVenueTest(unittest.TestCase):
         assert isinstance(marker, dict)
         self.assertTrue(marker["initialized"])
 
+    def test_swjj_unhealthy_observation_does_not_preclaim_warm_start_cache(self) -> None:
+        """Partial day failures must not seed the WeChat dedupe cache before baseline."""
+        original_load_proxy = pospal_venue.load_proxy_list
+        original_get_availability = pospal_venue.get_tennis_court_availability
+        original_publish = pospal_venue.publish_venue_observation
+        original_enqueue = pospal_venue.enqueue_wechat_message
+        original_datetime = pospal_venue.datetime
+        original_sleep = pospal_venue.time.sleep
+
+        class FixedDatetime(original_datetime.datetime):
+            @classmethod
+            def now(cls, tz: object = None) -> FixedDatetime:
+                return cls(2026, 11, 7, 13, 0, 0)
+
+        class FixedDatetimeModule:
+            datetime = FixedDatetime
+            time = original_datetime.time
+            timedelta = original_datetime.timedelta
+
+        def fake_get_availability(
+            venue: object, date: str, proxy_list: list[str]
+        ) -> dict[str, list[list[str]]]:
+            self.assertEqual(venue, pospal_venue.SWJJ)
+            if date == "2026-11-07":
+                return {"网球标准场1号": [["16:00", "18:00"]]}
+            if date == "2026-11-08":
+                raise RuntimeError("proxy timeout")
+            return {}
+
+        events: list[str] = []
+        wechat_messages: list[str] = []
+
+        def fake_publish(*_args: object, **kwargs: object) -> dict[str, bool]:
+            events.append("webapp")
+            self.assertFalse(kwargs.get("healthy", True))
+            return {"success": True}
+
+        def capture_wechat(_venue: object, msg: str) -> list[dict[str, object]]:
+            events.append("wechat")
+            wechat_messages.append(msg)
+            return [{"success": True}]
+
+        pospal_venue.load_proxy_list = lambda: []
+        pospal_venue.get_tennis_court_availability = fake_get_availability
+        pospal_venue.publish_venue_observation = fake_publish
+        pospal_venue.enqueue_wechat_message = capture_wechat
+        pospal_venue.datetime = FixedDatetimeModule
+        pospal_venue.time.sleep = lambda *_args, **_kwargs: None
+        expected_msg = "【深湾竞界网球标准场1号】星期六(11-07)空场: 16:00-18:00"
+        try:
+            swjj_watcher.run_check_tennis_courts()
+            self.assertEqual(events, ["webapp"])
+            self.assertNotIn(pospal_venue.SWJJ.cache_key, FakeVariable.values)
+            self.assertNotIn(pospal_venue.SWJJ_NOTIFICATION_BASELINE_KEY, FakeVariable.values)
+
+            # Healthy follow-up with the same free court must warm-start (no WeChat)
+            # rather than permanently silencing the slot via a stale preclaim.
+            def healthy_get_availability(
+                venue: object, date: str, proxy_list: list[str]
+            ) -> dict[str, list[list[str]]]:
+                self.assertEqual(venue, pospal_venue.SWJJ)
+                if date == "2026-11-07":
+                    return {"网球标准场1号": [["16:00", "18:00"]]}
+                return {}
+
+            def healthy_publish(*_args: object, **kwargs: object) -> dict[str, bool]:
+                events.append("webapp")
+                self.assertTrue(kwargs.get("healthy", False))
+                return {"success": True}
+
+            pospal_venue.get_tennis_court_availability = healthy_get_availability
+            pospal_venue.publish_venue_observation = healthy_publish
+            events.clear()
+            swjj_watcher.run_check_tennis_courts()
+        finally:
+            pospal_venue.load_proxy_list = original_load_proxy
+            pospal_venue.get_tennis_court_availability = original_get_availability
+            pospal_venue.publish_venue_observation = original_publish
+            pospal_venue.enqueue_wechat_message = original_enqueue
+            pospal_venue.datetime = original_datetime
+            pospal_venue.time.sleep = original_sleep
+
+        self.assertEqual(events, ["webapp"])
+        self.assertEqual(wechat_messages, [])
+        self.assertIn(expected_msg, FakeVariable.values[pospal_venue.SWJJ.cache_key])
+        marker = FakeVariable.values[pospal_venue.SWJJ_NOTIFICATION_BASELINE_KEY]
+        self.assertIsInstance(marker, dict)
+        assert isinstance(marker, dict)
+        self.assertTrue(marker["initialized"])
+
     def test_check_publishes_webapp_before_wechat_and_filters_courts(self) -> None:
         expected_msg = "【泛思博特深云1号场】星期六(08-29)空场: 16:00-18:00"
         original_load_proxy = pospal_venue.load_proxy_list

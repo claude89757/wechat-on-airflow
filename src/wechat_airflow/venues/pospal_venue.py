@@ -702,7 +702,14 @@ def run_check(venue: PosPalVenue) -> None:
         )
         baseline_initialized = baseline_state.get("initialized") is True
 
-    if up_for_send_data_list:
+    observation_ok = not webapp_errors and observation_result.get("success") is True
+    # Warm-start may seed the dedupe cache without sending, but only on a fully
+    # healthy observation. A partial sweep (some days error) must not preclaim
+    # still-free courts: otherwise the next healthy run treats them as already
+    # notified and permanently silences WeChat alerts for those slots.
+    may_seed_notification_cache = baseline_initialized or observation_ok
+
+    if up_for_send_data_list and may_seed_notification_cache:
         sended_msg_list = _as_str_list(
             Variable.get(venue.cache_key, deserialize_json=True, default=[])
         )
@@ -729,8 +736,7 @@ def run_check(venue: PosPalVenue) -> None:
     if (
         venue.notification_baseline_key
         and not baseline_initialized
-        and not webapp_errors
-        and observation_result.get("success") is True
+        and observation_ok
     ):
         Variable.set(
             key=venue.notification_baseline_key,
