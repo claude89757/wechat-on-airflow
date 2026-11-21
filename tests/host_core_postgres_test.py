@@ -254,6 +254,37 @@ def test_empty_poll_invalidates_current_and_old_poll_cannot_resurrect():
     assert sql("SELECT count(*) n FROM zacks.current_availability")[0]["n"] == 0
 
 
+def test_unhealthy_observation_preserves_current_availability_and_marks_venue():
+    """Partial multi-day failures publish healthy=False with leftover slots.
+
+    Wiping current_availability would expire pending alerts while
+    subscription_events already claimed the event_key, permanently silencing
+    still-free courts. Keep last-good availability; freshness still ages out.
+    """
+    first = observation()
+    service.ingest_observation(first)
+    assert sql("SELECT count(*) n FROM zacks.current_availability")[0]["n"] == 1
+    day = first["slots"][0]["date"]
+    unhealthy = observation(
+        healthy=False,
+        slots=[
+            {"date": day, "court_name": "1号场", "start_time": "18:00", "end_time": "19:00"},
+            {"date": day, "court_name": "2号场", "start_time": "19:00", "end_time": "20:00"},
+        ],
+        seen=utc_now() + timedelta(seconds=1),
+    )
+    result = service.ingest_observation(unhealthy)
+    assert result["success"] is True
+    assert result["matchedNotifications"] == 0
+    assert sql("SELECT count(*) n FROM zacks.current_availability")[0]["n"] == 1
+    status = sql("SELECT healthy, last_error FROM zacks.venue_status WHERE venue_id='tops'")[0]
+    assert status["healthy"] is False
+    state = sql(
+        "SELECT healthy FROM zacks.observation_state WHERE observation_key='tops:day-1'"
+    )[0]
+    assert state["healthy"] is False
+
+
 def test_fake_email_submission_records_attempt_and_message_id(monkeypatch):
     calls = []
 

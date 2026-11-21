@@ -208,11 +208,18 @@ def ingest_observation(payload: object) -> dict[str, Any]:
                 ),
             }
         # Current rows are ephemeral observation state, not historical delivery records.
-        connection.execute(
-            text("DELETE FROM zacks.current_availability WHERE observation_key = :key"),
-            {"key": observation_key},
-        )
+        # Only a healthy observation may rewrite them. Multi-day single-scope watchers
+        # (PosPal/TOPS/FSB/…) publish one venue key; a single day failure used to set
+        # healthy=False and DELETE every successful day's free courts, which expired
+        # pending alerts as availability_changed / not_eligible_at_dispatch. Rematch
+        # then stayed silent because subscription_events already claimed the event_key.
+        # Unhealthy polls still mark venue_status / observation_state unhealthy; the
+        # last good availability ages out via the 15-minute freshness gate instead.
         if observation.healthy:
+            connection.execute(
+                text("DELETE FROM zacks.current_availability WHERE observation_key = :key"),
+                {"key": observation_key},
+            )
             for slot in observation.slots:
                 event_key = slot_event_key(observation.venue_id, slot)
                 connection.execute(

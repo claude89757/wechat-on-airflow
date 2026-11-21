@@ -102,3 +102,14 @@ def test_cutover_uses_quota_independent_sql_export_and_one_delivery_owner() -> N
     assert "ServerAliveInterval=15" in release
     assert "set -Eeuo pipefail" in release
     assert "migration" in read("docs/runbooks/host-core-cutover.md").lower()
+
+
+def test_unhealthy_observation_does_not_delete_current_availability() -> None:
+    """Partial multi-day failures must not wipe last-good free courts."""
+    source = read("src/wechat_airflow/host_core/service.py")
+    older = source.index("older_observation")
+    healthy = source.index("if observation.healthy:", older)
+    delete = source.index("DELETE FROM zacks.current_availability", healthy)
+    assert "DELETE FROM zacks.current_availability" not in source[older:healthy]
+    assert delete > healthy
+    assert "subscription_events already claimed" in source[healthy - 500 : healthy]
