@@ -28,11 +28,18 @@ dag = DAG(
     tags=["深圳"],
 )
 
-# User-approved inspection coverage: today and the next two calendar days.
+# Today and the next two calendar days. Day tasks share one WeChat dedupe
+# Variable (read-modify-write preclaim + release). Run them in series so a
+# sibling cannot resurrect a line that an enqueue failure just released —
+# that lost-update permanently silences still-free courts.
+previous = None
 for day_offset in range(3):
-    PythonOperator(
+    task = PythonOperator(
         task_id=f"check_and_notify_day_{day_offset}",
         python_callable=check_and_notify_for_day,
         op_kwargs={"day_offset": day_offset},
         dag=dag,
     )
+    if previous is not None:
+        previous >> task
+    previous = task

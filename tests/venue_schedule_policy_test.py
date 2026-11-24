@@ -72,6 +72,49 @@ class VenueSchedulePolicyTest(TestCase):
                 self.assertEqual(ast.literal_eval(dag_kwargs["max_active_runs"]), 1)
                 self.assertIs(ast.literal_eval(dag_kwargs["catchup"]), False)
 
+    def test_crland_day_tasks_are_serialized_to_protect_wechat_dedupe(self) -> None:
+        for filename in ("szw_watcher.py", "gba_watcher.py"):
+            with self.subTest(filename=filename):
+                source = (ROOT / "dags" / "tennis_dags" / "sz_tennis" / filename).read_text(
+                    encoding="utf-8"
+                )
+                tree = ast.parse(source)
+                rshift_ops = [
+                    node
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.RShift)
+                ]
+                self.assertEqual(len(rshift_ops), 1)
+                self.assertIn("previous >> task", source)
+
+    def test_shared_wechat_dedupe_lost_update_resurrects_released_line(self) -> None:
+        # Simulate the Variable.get / Variable.set race across day tasks that
+        # share one WeChat dedupe list: day0 releases L0 after enqueue failure,
+        # then day1 writes from a stale snapshot that still contains L0.
+        shared: dict[str, list[str]] = {"lines": []}
+
+        def get_lines() -> list[str]:
+            return list(shared["lines"])
+
+        def set_lines(lines: list[str]) -> None:
+            shared["lines"] = list(lines)
+
+        day0_snapshot = get_lines()
+        day0_snapshot.append("L0")
+        set_lines(day0_snapshot)
+
+        day1_stale_snapshot = get_lines()
+
+        day0_after_release = get_lines()
+        day0_after_release.remove("L0")
+        set_lines(day0_after_release)
+        self.assertNotIn("L0", shared["lines"])
+
+        day1_stale_snapshot.append("L1")
+        set_lines(day1_stale_snapshot)
+        self.assertIn("L0", shared["lines"])
+        self.assertIn("L1", shared["lines"])
+
     def test_active_venue_dags_follow_the_one_minute_default(self) -> None:
         manifest = load_mapping(MANIFEST_PATH)
         policy = load_mapping(POLICY_PATH)

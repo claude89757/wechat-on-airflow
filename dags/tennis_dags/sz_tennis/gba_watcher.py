@@ -20,7 +20,7 @@ DEFAULT_ARGS = {
 dag = DAG(
     "大湾区网球场巡检",
     default_args=DEFAULT_ARGS,
-    description="大湾区网球场巡检（北京时间08:00-21:00，每3分钟，并行多天）",
+    description="大湾区网球场巡检（北京时间08:00-21:00，每3分钟，串行多天）",
     schedule=timedelta(minutes=3),
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
@@ -28,11 +28,18 @@ dag = DAG(
     tags=["深圳"],
 )
 
-# The upstream API exposes today plus the next two calendar days.
+# Today and the next two calendar days. Day tasks share one WeChat dedupe
+# Variable (read-modify-write preclaim + release). Run them in series so a
+# sibling cannot resurrect a line that an enqueue failure just released —
+# that lost-update permanently silences still-free courts.
+previous = None
 for day_offset in range(3):
-    PythonOperator(
+    task = PythonOperator(
         task_id=f"check_and_notify_day_{day_offset}",
         python_callable=check_and_notify_for_day,
         op_kwargs={"day_offset": day_offset, "venue_key": "gba"},
         dag=dag,
     )
+    if previous is not None:
+        previous >> task
+    previous = task
