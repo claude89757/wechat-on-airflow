@@ -23,6 +23,33 @@ class AvailabilityChanged(ValueError):
     """One well-formed interval no longer has complete current coverage."""
 
 
+def court_name_matches(advertised: str, observed: str) -> bool:
+    """Bind a WeChat line court to an observed slot without digit-suffix collisions.
+
+    Messages often prefix the venue (`大沙河免费场11号场`) while `observed_slots`
+    store the short API name (`11号场` / `1号场`). A bare `endswith` also makes
+    `…11号场` accept `1号场`, so enqueue/`_prepare` can bind the higher-number
+    court to the lower-number event_key and permanently silence the still-free
+    court once the wrong key books away.
+    """
+    advertised_name = str(advertised).strip()
+    observed_name = str(observed).strip()
+    if not advertised_name or not observed_name:
+        return False
+    if advertised_name == observed_name:
+        return True
+
+    def _suffix_ok(full: str, suffix: str) -> bool:
+        if not full.endswith(suffix):
+            return False
+        cut = len(full) - len(suffix)
+        return cut == 0 or not full[cut - 1].isdigit()
+
+    return _suffix_ok(advertised_name, observed_name) or _suffix_ok(
+        observed_name, advertised_name
+    )
+
+
 def covered_events(message: str, slots: list[dict[str, Any]]) -> list[str]:
     """Require every advertised interval to be covered by current source slots."""
     result: set[str] = set()
@@ -40,7 +67,7 @@ def covered_events(message: str, slots: list[dict[str, Any]]) -> list[str]:
                 s
                 for s in slots
                 if s["booking_date"].strftime("%m-%d") == day
-                and (court.endswith(str(s["court_name"])) or str(s["court_name"]).endswith(court))
+                and court_name_matches(court, s["court_name"])
                 and s["start_time"] < end
                 and s["end_time"] > start
             ),

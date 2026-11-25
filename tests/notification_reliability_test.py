@@ -17,7 +17,12 @@ from fastapi.testclient import TestClient
 import sender_agent.app as sender
 from sender_agent import ledger
 from wechat_airflow.host_core import wechat_worker
-from wechat_airflow.host_core.wechat_queue import current_message
+from wechat_airflow.host_core.wechat_queue import (
+    AvailabilityChanged,
+    covered_events,
+    court_name_matches,
+    current_message,
+)
 from wechat_airflow.notifications import webapp, wechat
 from wechat_airflow.venues import dashahe_free_watcher as free
 from wechat_sender import SendFailedError
@@ -34,6 +39,22 @@ CURRENT = {
     "end_time": "17:00",
     "event_key": "future",
 }
+COURT_1 = {
+    "booking_date": date(2026, 9, 7),
+    "court_name": "1号场",
+    "start_time": "18:00",
+    "end_time": "20:00",
+    "event_key": "key-1",
+}
+COURT_11 = {
+    "booking_date": date(2026, 9, 7),
+    "court_name": "11号场",
+    "start_time": "18:00",
+    "end_time": "20:00",
+    "event_key": "key-11",
+}
+MSG_1 = "【大沙河免费场1号场】星期一(09-07)空场: 18:00-20:00"
+MSG_11 = "【大沙河免费场11号场】星期一(09-07)空场: 18:00-20:00"
 
 
 def test_started_line_cannot_poison_valid_line_or_depend_on_order():
@@ -50,6 +71,28 @@ def test_all_stale_has_no_send_and_malformed_is_not_silently_hidden():
 def test_partly_covered_interval_does_not_invent_a_shorter_slot():
     long_line = FUTURE.replace("16:00-17:00", "15:00-17:00")
     assert current_message(long_line, [CURRENT]) == ("", [], [long_line])
+
+
+def test_court_name_rejects_digit_suffix_collision():
+    assert court_name_matches("大沙河免费场11号场", "11号场")
+    assert court_name_matches("大沙河免费场1号场", "1号场")
+    assert not court_name_matches("大沙河免费场11号场", "1号场")
+    assert not court_name_matches("体育中心12号场", "2号场")
+    assert court_name_matches("体育中心11号场", "体育中心11号场")
+
+
+def test_higher_number_court_line_does_not_bind_lower_number_event_key():
+    assert covered_events(MSG_11, [COURT_1, COURT_11]) == ["key-11"]
+    assert covered_events(MSG_1, [COURT_1, COURT_11]) == ["key-1"]
+    retained, keys, rejected = current_message(MSG_1 + "\n" + MSG_11, [COURT_1, COURT_11])
+    assert rejected == []
+    assert set(retained.splitlines()) == {MSG_1, MSG_11}
+    assert keys == ["key-1", "key-11"]
+    # Once court 1 books away, prepare must still cover the 11 line via key-11 —
+    # not die because enqueue had only recorded key-1.
+    assert covered_events(MSG_11, [COURT_11]) == ["key-11"]
+    with pytest.raises(AvailabilityChanged):
+        covered_events(MSG_1, [COURT_11])
 
 
 @pytest.mark.parametrize(
