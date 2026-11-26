@@ -36,6 +36,7 @@ variables:
       - 香蜜体育中心网球场巡检
       - 黄木岗网球中心巡检
       - 莲花体育中心网球场巡检
+      - 宝安网球中心巡检
     sensitive: true
     required_fields:
       - host
@@ -159,6 +160,7 @@ variables:
       - 香蜜体育中心网球场巡检
       - 黄木岗网球中心巡检
       - 莲花体育中心网球场巡检
+      - 宝安网球中心巡检
     sensitive: true
   SZ_TYZX_TENNIS_CHATROOMS:
     type: newline_separated_string
@@ -413,6 +415,13 @@ variables:
   莲花体育中心网球场:
     type: json_list
     required_by: [莲花体育中心网球场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  宝安网球中心:
+    type: json_list
+    required_by: [宝安网球中心巡检]
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve

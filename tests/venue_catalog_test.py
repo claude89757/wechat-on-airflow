@@ -39,7 +39,7 @@ def test_every_venue_dag_has_exactly_one_catalog_entry() -> None:
     venue_dags = {item["dag_id"] for item in active_dags()} - NON_VENUE_DAGS
 
     assert {venue["dagId"] for venue in VENUE_CATALOG} == venue_dags
-    assert "宝安网球中心巡检" not in venue_dags
+    assert "宝安网球中心巡检" in venue_dags
 
 
 def test_python_readers_follow_the_catalog() -> None:

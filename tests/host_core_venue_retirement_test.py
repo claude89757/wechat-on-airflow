@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from wechat_airflow.host_core import database, service, wechat_worker
+from wechat_airflow.host_core import database, domain, health, service, wechat_worker
 from wechat_airflow.host_core.domain import (
     DURABLE_VENUES,
     RETIRED_VENUES,
@@ -43,19 +43,55 @@ def report(venues):
     )
 
 
-def test_date_pause_upgrade_keeps_retired_venue_seed_identity():
-    # 0.10.0 adds date preferences and delivery-qualification DDL; 深湾竞界 and the
-    # three Futian YDMap venues add durable venue rows. The seed is idempotent, so
-    # withdrawing a producer still never deletes its durable business identity.
+@pytest.fixture(autouse=True)
+def _restore_venue_dicts():
+    original_venues = dict(VENUES)
+    original_retired = dict(RETIRED_VENUES)
+    try:
+        yield
+    finally:
+        VENUES.clear()
+        VENUES.update(original_venues)
+        RETIRED_VENUES.clear()
+        RETIRED_VENUES.update(original_retired)
+
+
+def _simulate_retired_baoti(monkeypatch):
+    manifest, contract = policy()
+    manifest["active_dags"] = [
+        entry for entry in manifest["active_dags"] if entry["dag_id"] != "宝安网球中心巡检"
+    ]
+    contract["retired_venues"] = {
+        "baoti": {
+            "venue_name": "宝安网球中心",
+            "dag_id": "宝安网球中心巡检",
+            "approved_on": "2026-11-01",
+            "reason": "Simulated retirement for contract verification.",
+        }
+    }
+    reduced_venues = {k: v for k, v in VENUES.items() if k != "baoti"}
+    VENUES.clear()
+    VENUES.update(reduced_venues)
+    RETIRED_VENUES.clear()
+    RETIRED_VENUES["baoti"] = "宝安网球中心"
+    monkeypatch.setattr(health, "RETIRED_VENUES", RETIRED_VENUES)
+    monkeypatch.setattr(domain, "RETIRED_VENUES", RETIRED_VENUES)
+    return manifest, contract
+
+
+def test_date_pause_upgrade_keeps_active_catalog_and_schema_identity():
+    # 0.10.0 adds date preferences and delivery-qualification DDL; 深湾竞界, the
+    # three Futian YDMap venues, and restored Bao'an share the durable catalog.
     assert database.SCHEMA_REVISION == (
         "0.7.0-host-core-v1:8099acfe44f8d02baca75244a1bf0c096761e77d3bf06a369b0316a0bc93ee7d"
     )
-    assert RETIRED_VENUES == {"baoti": "宝安网球中心"}
-    assert len(DURABLE_VENUES) == len(VENUES) + 1
-    assert DURABLE_VENUES["baoti"] == "宝安网球中心"
+    assert RETIRED_VENUES == {}
+    assert "baoti" in VENUES
+    assert DURABLE_VENUES == VENUES
 
 
-def test_retired_venue_is_preserved_but_excluded_from_active_catalog_and_health():
+def test_retired_venue_is_preserved_but_excluded_from_active_catalog_and_health(monkeypatch):
+    manifest, contract = _simulate_retired_baoti(monkeypatch)
     retired = {
         "venue_id": "baoti",
         "healthy": False,
@@ -63,10 +99,12 @@ def test_retired_venue_is_preserved_but_excluded_from_active_catalog_and_health(
     }
     stored = [*rows(), retired]
     before = deepcopy(stored)
-    result = report(stored)
+    result = venue_observation_health(
+        stored, manifest=manifest, contract=contract, now=NOW, since=NOW - timedelta(minutes=1)
+    )
     assert result["ok"] is True
-    assert result["storedVenueCount"] == 31
-    assert result["checkedVenueCount"] == 30
+    assert result["storedVenueCount"] == len(VENUES) + 1
+    assert result["checkedVenueCount"] == len(VENUES)
     assert result["retiredVenueCount"] == 1
     assert result["retiredVenues"][0]["last_inspection_at"] == retired["last_inspection_at"]
     assert result["retiredVenues"][0]["retirement"]["approved_on"] == "2026-11-01"
@@ -113,19 +151,20 @@ def test_retirement_does_not_relax_active_venue_health_or_freshness(unhealthy, s
 
 
 @pytest.mark.parametrize("change", ["extra_retirement", "reactivation", "approval_date"])
-def test_only_the_exact_approved_venue_retirement_is_allowed(change):
-    manifest, contract = policy()
+def test_only_the_exact_approved_venue_retirement_is_allowed(monkeypatch, change):
+    manifest, contract = _simulate_retired_baoti(monkeypatch)
     if change == "extra_retirement":
         contract["retired_venues"]["tops"] = dict(contract["retired_venues"]["baoti"])
     elif change == "reactivation":
         manifest["active_dags"].append({"dag_id": "宝安网球中心巡检"})
     else:
-        contract["retired_venues"]["baoti"]["approved_on"] = "2026-10-31"
+        contract["retired_venues"]["baoti"]["approved_on"] = ""
     with pytest.raises(ValueError, match="approved venue policy"):
         venue_observation_health(rows(), manifest=manifest, contract=contract, now=NOW, since=NOW)
 
 
-def test_retired_venue_rejects_new_subscriptions_and_observations():
+def test_retired_venue_rejects_new_subscriptions_and_observations(monkeypatch):
+    _simulate_retired_baoti(monkeypatch)
     with pytest.raises(ValueError, match="场地"):
         validate_subscription(
             {"venueIds": ["baoti"], "startTime": "18:00", "endTime": "20:00"},
@@ -136,6 +175,7 @@ def test_retired_venue_rejects_new_subscriptions_and_observations():
 
 
 def test_retired_wechat_intent_is_cancelled_before_any_database_or_sender_call(monkeypatch):
+    _simulate_retired_baoti(monkeypatch)
     forbidden = Mock(side_effect=AssertionError("retired venue must not request delivery"))
     finished = Mock()
     monkeypatch.setattr(service, "transaction", forbidden)

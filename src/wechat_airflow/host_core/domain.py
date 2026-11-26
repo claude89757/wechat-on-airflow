@@ -26,10 +26,12 @@ ALL_WEEKDAY_MASK: Final = 127
 
 VENUES: Final[dict[str, str]] = {venue["id"]: venue["name"] for venue in VENUE_CATALOG}
 
-# The owner withdrew the Baoan integration on 2026-11-01. Historical rows,
-# subscriptions and delivery identities remain durable; it is no longer an
-# observation producer or an eligible new subscription/delivery target.
-RETIRED_VENUES: Final[dict[str, str]] = {"baoti": "宝安网球中心"}
+# A retired venue keeps its durable rows, subscriptions and delivery identities
+# but is no longer an observation producer or an eligible new subscription or
+# delivery target. Each entry must match `retired_venues` in the Host Core
+# contract. Baoan (baoti) was withdrawn on 2026-11-01 and restored on 2026-11-26
+# via proxy-pool scraping with its original identity, so none is retired now.
+RETIRED_VENUES: Final[dict[str, str]] = {}
 DURABLE_VENUES: Final[dict[str, str]] = {**VENUES, **RETIRED_VENUES}
 
 

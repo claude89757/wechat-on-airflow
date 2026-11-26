@@ -18,11 +18,14 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
         "香蜜体育中心网球场巡检": "xmty",
         "黄木岗网球中心巡检": "hmg",
         "莲花体育中心网球场巡检": "lhty",
+        "宝安网球中心巡检": "baoti",
     }
     assert set(policy["exceptions"]) == set(exception_ids)
     for dag_id, venue_id in exception_ids.items():
         interval = policy["exceptions"][dag_id]["interval_seconds"]
-        assert f"{venue_id}: {interval}" in source
+        # Bao'an ticks every 2 minutes and rotates across 3 products, so each product refreshes every 6 minutes.
+        expected_cadence = interval * 3 if venue_id == "baoti" else interval
+        assert f"{venue_id}: {expected_cadence}" in source
 
 
 def test_web_labels_last_report_and_manual_refresh_without_adding_an_api_path() -> None:

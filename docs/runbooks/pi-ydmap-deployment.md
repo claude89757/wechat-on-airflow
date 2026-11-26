@@ -1,24 +1,31 @@
 # Pi YDMap scraper deployment
 
-The private Pi scraper serves Dashah (`dsh`, wxsports.ydmap.cn) and, since
-2026-11-26, three Futian venues on ftty.ydmap.cn: 香蜜体育中心 (`xmty`),
-黄木岗网球中心 (`hmg`) and 莲花体育中心 (`lhty`). Each venue opens its own
-supported booking URL in its own private profile; the single scrape lock and
-the one-slot Airflow `ydmap_browser` pool serialize them. The Futian venues
-release the next day at 09:00 and show today and tomorrow, so their DAGs and the
-installer's inspections skip them before 09:00 Asia/Shanghai and read two dates
-afterwards. They share one host, which showed its slider challenge on the third
-back-to-back load during the 2026-11-26 preflight. Their DAGs therefore run every
-six minutes at minute offsets 0/2/4 (one ftty page load every two minutes, the
-cadence Dashah sustains), and one installer inspection reads only one of them,
-rotating by hour. 黄木岗's training walls are scraped but dropped by its Airflow
-watcher. The owner withdrew the
-Baoan feature from PR #263 on 2026-11-01 after its upstream access verification
-blocked the partial release. Baoan is no longer a registered scraper source,
-inspection target or DAG drain target. Its old browser profiles and historical
-observations are preserved; rollback does not delete them.
+The private Pi scraper serves Dashah (`dsh`, wxsports.ydmap.cn), three Futian
+venues on ftty.ydmap.cn (`xmty`, `hmg`, `lhty`), and Bao'an Tennis Center on
+bawtt.ydmap.cn (`baoti_outdoor`, `baoti_indoor`, `baoti_covered`). Each venue
+opens its own supported booking URL in its own private profile; the single
+scrape lock and the one-slot Airflow `ydmap_browser` pool serialize them. The
+Futian venues release the next day at 09:00 and show today and tomorrow, so their
+DAGs and the installer's inspections skip them before 09:00 Asia/Shanghai and
+read two dates afterwards. They share one host, which showed its slider
+challenge on the third back-to-back load during the 2026-11-26 preflight. Their
+DAGs therefore run every six minutes at minute offsets 0/2/4 (one ftty page load
+every two minutes, the cadence Dashah sustains), and one installer inspection
+reads only one of them, rotating by hour. 黄木岗's training walls are scraped
+but dropped by its Airflow watcher.
 
-The protected Pi deployment path serves all four venues. Changing
+Bao'an Tennis Center (`baoti`) was withdrawn on 2026-11-01 and restored on
+2026-11-26 using the `isz_https_proxies.txt` HTTPS proxy pool. The Pi service
+validates candidate proxies via explicit HTTP/1.1 `CONNECT` + strict TLS before
+launching Chromium with `--proxy-server=http://<ip>:<port>` and never falls back
+to a direct connection or weakens TLS checks. Bao'an releases the next day at
+08:00 and shows today and tomorrow; its DAG runs on odd minutes (`1-59/2 * * * *`)
+and rotates one product per run (outdoor, indoor, covered — skipping kids'
+short court `111318`) so each product refreshes every six minutes and never
+collides with Dashah/Futian on even minutes.
+
+The protected Pi deployment path serves all seven scraper keys (`dsh`, `xmty`,
+`hmg`, `lhty`, `baoti_outdoor`, `baoti_indoor`, `baoti_covered`). Changing
 pi_host/dsh_ydmap/ is still a runtime change: the release planner selects
 pi_ydmap, and production-release.yml deploys it before Web/Airflow. The Appium
 MCP, Sender, phone agent and tunnels remain separate services.
@@ -42,11 +49,9 @@ The owner-only Issue #39 router supports:
 These commands dispatch protected GitHub workflows. Do not use workstation SSH,
 copy credentials into artifacts, or run a candidate outside the documented guard.
 
-Baoan product-order diagnostics and the one-shot verification interaction were
-removed. Legacy requests for either option fail before host access. Scraper
-requests for Baoan or a verification gesture are rejected before a browser starts.
-An upstream access challenge remains a failed inspection; the service performs
-no automatic verification interaction.
+The one-shot verification interaction remains removed; legacy requests for
+`verification` fail before host access. An upstream access challenge remains a
+failed inspection; the service performs no automatic verification interaction.
 
 ## Candidate and activation
 
@@ -56,11 +61,10 @@ pausing Dashah or running candidate browser cycles. A manual workflow can still
 set `drain_preflight=true` for a deep candidate check. Separate
 ports and profiles do not isolate Pi CPU, desktop focus or upstream traffic.
 The scoped Airflow guard waits for YDMap work to finish, saves and pauses only
-the Dashah and Futian DAGs, then restores and verifies their original pause flags
-after the operation, including after a reported candidate failure. A Futian DAG
-that Airflow does not have yet (the first Pi release) is simply absent from the
-proof; Dashah must be present. Retired Baoan and unrelated DAGs are outside this
-guard.
+the Dashah, Futian and Bao'an YDMap DAGs, then restores and verifies their original pause flags
+after the operation, including after a reported candidate failure. A venue DAG
+that Airflow does not have yet (during an initial Pi release) is simply absent from the
+proof; Dashah must be present. Unrelated DAGs are outside this guard.
 
 Guarded preflight and apply require the same target-bound, expiring drain proof.
 Both active tasks and active DAG runs must be zero. The lease is checked again
@@ -75,14 +79,17 @@ The candidate uses HTTP port 18788 and debug port 19224. The live service retain
 HTTP port 8788 and debug port 9224.
 
 The candidate must report protocol version 2, the exact deployment commit and
-source hash, and exactly the supported venues dsh, hmg, lhty and xmty. During the
-first upgrade the live service may still report only dsh; readiness accepts that
-set, while candidate and installed health require all four. Each inspection
-independently verifies the released Dashah horizon (four dates before noon in
-Asia/Shanghai, five from noon onward) and, from 09:00, two dates for one Futian
-venue (rotating by hour) against its own booking host and salesId. Selected date, query date, source arrays, product identity,
-court inventory and provider bookability must agree. Empty availability is valid
-only when the complete dated court inventory is verified.
+source hash, and all seven supported keys (`baoti_covered`, `baoti_indoor`,
+`baoti_outdoor`, `dsh`, `hmg`, `lhty`, `xmty`). During an upgrade the live
+service may still report an earlier subset (`dsh` or `dsh/hmg/lhty/xmty`);
+readiness accepts those sets, while candidate and installed health require all
+seven. Each inspection independently verifies the released Dashah horizon (four
+dates before noon in Asia/Shanghai, five from noon onward), from 09:00 two dates
+for one Futian venue (rotating by hour), and from 08:00 two dates for one
+Bao'an product (rotating by hour) against its own booking host and salesId.
+Selected date, query date, source arrays, product identity, court inventory
+and provider bookability must agree. Empty availability is valid only when the
+complete dated court inventory is verified.
 
 A manual guarded preflight can still run three read-only candidate cycles on
 the same service profile, with starts at least 120 seconds apart. The release

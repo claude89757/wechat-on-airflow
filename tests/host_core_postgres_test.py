@@ -587,9 +587,6 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
     )
     sql("UPDATE zacks.venue_status SET healthy=true,last_inspection_at=now()")
     sql(
-        "UPDATE zacks.venue_status SET healthy=false,last_inspection_at=NULL WHERE venue_id='baoti'"
-    )
-    sql(
         "INSERT INTO zacks.observation_state(observation_key,venue_id,fingerprint,healthy,last_seen_at,updated_at) VALUES ('tops:day','tops','fingerprint',true,now(),now())"
     )
     # These mock Airflow metadata tables are ONLY in the guarded disposable test DB.
@@ -625,8 +622,8 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
     report = health.business_report("a" * 40, require_delivery=False)
     assert report["complete"] and report["ok"], report["failedChecks"]
     assert report["venueObservationHealth"]["checkedVenueCount"] == len(VENUES)
-    assert report["venueObservationHealth"]["retiredVenueCount"] == 1
-    assert any(row["venue_id"] == "baoti" and not row["healthy"] for row in report["venues"])
+    assert report["venueObservationHealth"]["retiredVenueCount"] == 0
+    assert any(row["venue_id"] == "baoti" and row["healthy"] for row in report["venues"])
     retired_key = "szw:check_and_notify_day_3"
     sql(
         "INSERT INTO zacks.observation_state(observation_key,venue_id,fingerprint,healthy,last_seen_at,updated_at) VALUES (:key,'szw','historical',false,now()-interval '7 days',now()-interval '7 days')",
@@ -677,7 +674,7 @@ def test_business_acceptance_requires_real_cycles_and_delivery(monkeypatch):
     assert not health.business_report("a" * 40)["checks"]["allVenueObservations"]
 
 
-def test_bootstrap_hides_only_retired_venue_and_preserves_existing_subscriptions_and_history():
+def test_bootstrap_exposes_restored_baoti_and_preserves_existing_subscriptions_and_history():
     with client() as c:
         headers = identity()
         created = subscription(c, headers)
@@ -696,27 +693,31 @@ def test_bootstrap_hides_only_retired_venue_and_preserves_existing_subscriptions
         assert response.status_code == 200
         data = response.json()
         assert len(data["venues"]) == data["metrics"]["totalVenues"] == len(VENUES)
-        assert "baoti" not in {venue["id"] for venue in data["venues"]}
+        assert "baoti" in {venue["id"] for venue in data["venues"]}
         assert data["subscriptions"][0]["venueIds"] == ["tops", "baoti"]
         assert sql("SELECT * FROM zacks.venue_status WHERE venue_id='baoti'")[0] == before
         assert sql(
             "SELECT venue_id FROM zacks.subscription_venues WHERE subscription_id=:id ORDER BY venue_id",
             {"id": sub_id},
         ) == [{"venue_id": "baoti"}, {"venue_id": "tops"}]
-        assert subscription(c, headers, venues=["baoti"]).status_code == 400
+        assert subscription(c, headers, venues=["baoti"]).status_code == 201
         sql(
             "INSERT INTO zacks.venue_status(venue_id,venue_name,healthy,updated_at) VALUES ('unknown','Unknown',true,now())"
         )
         assert c.get(PREFIX + "/bootstrap", headers=headers).status_code == 503
-        # Every durable venue (active plus retired Baoan) and the injected unknown row.
+        # Every durable venue (including restored Baoan) and the injected unknown row.
         assert sql("SELECT count(*) AS count FROM zacks.venue_status")[0]["count"] == (
             len(DURABLE_VENUES) + 1
         )
 
 
 def test_retired_pending_email_is_expired_without_provider_send_or_history_deletion(monkeypatch):
+    from wechat_airflow.host_core import domain as host_domain
+
     sent = []
     monkeypatch.setattr(worker, "send_template_email", lambda *args, **kwargs: sent.append(1))
+    monkeypatch.delitem(VENUES, "baoti")
+    monkeypatch.setitem(host_domain.RETIRED_VENUES, "baoti", "宝安网球中心")
     with client() as c:
         make_pending(c, identity())
         enable_for_test()

@@ -49,10 +49,19 @@ class BookingLinksTest(unittest.TestCase):
             "xmty": booking_links.XMTY_PROGRAM,
             "hmg": booking_links.HMG_PROGRAM,
             "lhty": booking_links.LHTY_PROGRAM,
+            "baoti": booking_links.BAOTI_PROGRAM,
         }
         self.assertEqual(set(catalog), set(booking_links.VENUE_BOOKING_PROGRAMS))
         for venue_id, program in catalog.items():
             self.assertEqual(booking_links.program_for_venue(venue_id), program)
+
+    def test_baoti_links_its_own_booking_page(self):
+        program = booking_links.program_for_venue("baoti")
+        self.assertEqual(program, booking_links.BAOTI_PROGRAM)
+        self.assertEqual(
+            program.link,
+            "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+        )
 
     def test_ftty_venues_link_their_own_booking_page(self):
         links = {

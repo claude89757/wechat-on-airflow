@@ -92,7 +92,7 @@ for (const width of [320, 390, 768, 900, 1440]) {
   });
 }
 
-test("retired Baoan subscriptions stay visible and cancellable without offering a new venue", async ({ page }) => {
+test("existing Baoan subscriptions stay visible and cancellable with active venue card", async ({ page }) => {
   const { dashboard } = await fixture(page, true);
   dashboard.subscriptions = [{
     id: "offline-subscription", venueIds: ["baoti"], weekdays: [1, 2, 3, 4, 5, 6, 7],
@@ -102,10 +102,10 @@ test("retired Baoan subscriptions stay visible and cancellable without offering 
   }];
   await page.goto("/");
   await expect(page.locator(".venue-card")).toHaveCount(VENUE_COUNT);
-  await expect(page.getByTestId("venue-card-baoti")).toHaveCount(0);
+  await expect(page.getByTestId("venue-card-baoti")).toHaveCount(1);
   await page.locator(".more-button").click();
   await page.getByRole("menuitem", { name: "我的订阅", exact: true }).click();
-  await expect(page.getByText("宝安网球中心（已停用）", { exact: true })).toBeVisible();
+  await expect(page.getByText("宝安网球中心", { exact: true }).last()).toBeVisible();
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "取消订阅", exact: true }).click();
   await expect(page.getByText("还没有订阅", { exact: true })).toBeVisible();
@@ -124,8 +124,8 @@ test("search and filters stay local and have recoverable empty states", async ({
   await page.getByRole("button", { name: "查看全部场地", exact: true }).click();
   await expect(page.locator(".venue-card")).toHaveCount(VENUE_COUNT);
   await page.getByLabel("搜索场地").fill("宝安网球中心");
-  await expect(page.locator(".venue-card")).toHaveCount(0);
-  await expect(page.getByText("没有找到这个场地", { exact: true })).toBeVisible();
+  await expect(page.locator(".venue-card")).toHaveCount(1);
+  await expect(page.locator(".venue-card-name")).toHaveText("宝安网球中心");
   await page.getByLabel("搜索场地").fill("");
   await expect(page.locator(".venue-card")).toHaveCount(VENUE_COUNT);
   await page.getByRole("button", { name: "我已订阅", exact: true }).click();

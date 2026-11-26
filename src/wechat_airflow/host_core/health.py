@@ -30,27 +30,30 @@ ROOT = Path(
 )
 COMPONENT_MAX_AGE = {"zacks-notification-worker": 120, "zacks-wechat-worker": 300}
 RETIRED_OBSERVATION_SCOPE = "szw:check_and_notify_day_3"
+# Baoan's combined scope from the withdrawn integration. The restored producer
+# reads one product per run and publishes baoti:outdoor/indoor/covered instead.
 RETIRED_BAOTI_SCOPE = "baoti:check_tennis_courts"
 
 
-def _venue_retirement_policy(manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
-    retirements = contract.get("retired_venues", {})
-    if not isinstance(retirements, dict):
+def _venue_retirement_policy(
+    manifest: dict[str, Any], contract: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Retirements must match the code exactly; a retired venue has no active DAG."""
+    retirements = contract.get("retired_venues") or {}
+    active_dags = {entry["dag_id"] for entry in manifest["active_dags"]}
+    if not isinstance(retirements, dict) or set(retirements) != set(RETIRED_VENUES):
         raise ValueError("Venue retirement does not match the approved venue policy")
-    retirement = retirements.get("baoti", {})
-    if not isinstance(retirement, dict):
-        raise ValueError("Venue retirement does not match the approved venue policy")
-    if (
-        set(retirements) != {"baoti"}
-        or RETIRED_VENUES != {"baoti": "宝安网球中心"}
-        or "baoti" in VENUES
-        or retirement.get("venue_name") != "宝安网球中心"
-        or retirement.get("dag_id") != "宝安网球中心巡检"
-        or retirement.get("approved_on") != "2026-11-01"
-        or any(entry["dag_id"] == "宝安网球中心巡检" for entry in manifest["active_dags"])
-    ):
-        raise ValueError("Venue retirement does not match the approved venue policy")
-    return retirement
+    for venue_id, retirement in retirements.items():
+        if (
+            not isinstance(retirement, dict)
+            or venue_id in VENUES
+            or retirement.get("venue_name") != RETIRED_VENUES[venue_id]
+            or not retirement.get("dag_id")
+            or retirement["dag_id"] in active_dags
+            or not retirement.get("approved_on")
+        ):
+            raise ValueError("Venue retirement does not match the approved venue policy")
+    return retirements
 
 
 def venue_observation_health(
@@ -62,7 +65,7 @@ def venue_observation_health(
     since: datetime,
 ) -> dict[str, Any]:
     """Check the exact active catalog while preserving withdrawn venue evidence."""
-    retirement = _venue_retirement_policy(manifest, contract)
+    retirements = _venue_retirement_policy(manifest, contract)
     retired = [row for row in venues if row["venue_id"] in RETIRED_VENUES]
     active = [row for row in venues if row["venue_id"] not in RETIRED_VENUES]
     try:
@@ -83,7 +86,7 @@ def venue_observation_health(
         "storedVenueCount": len(venues),
         "checkedVenueCount": len(active),
         "retiredVenueCount": len(retired),
-        "retiredVenues": [{**row, "retirement": retirement} for row in retired],
+        "retiredVenues": [{**row, "retirement": retirements[row["venue_id"]]} for row in retired],
         "unknownVenueIds": sorted(
             {row["venue_id"] for row in active if row["venue_id"] not in VENUES}
         ),

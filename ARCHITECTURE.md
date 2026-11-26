@@ -123,21 +123,16 @@ default and other explicit exceptions remain in force.
 Business acceptance retains the retired `szw:check_and_notify_day_3` scope
 (approved 2026-10-20) and `baoti:check_tennis_courts` scope (approved 2026-11-01)
 as historical evidence under the exact policies in `host-core-contract.yaml`.
-The owner withdrew the Baoan integration, so `baoti` is absent from the 26
-active venue producers and new subscription/delivery targets. Its catalog row,
-existing subscriptions, observations, queue history and deduplication identities
-remain durable. Schema fingerprints and seed identity retain the historical
-27-row catalog; retirement performs no migration or deletion. Existing user
-subscriptions remain visible and cancellable, with the retired selection labeled.
-
-Only these approved scopes are exempt from ongoing scope health/freshness,
+Baoan (`baoti`) was restored on 2026-11-26 via HTTPS proxy-pool scraping with
+its original venue ID, publishing per-product scopes (`baoti:outdoor`,
+`baoti:indoor`, `baoti:covered`) instead of the withdrawn single scope. Only
+these approved retired scopes are exempt from ongoing scope health/freshness,
 and only while the manifest excludes their retired producers. Every other
 stored scope remains checked, and an empty active set fails. Venue acceptance
-requires the exact 26 active IDs; missing, duplicate or unknown catalog entries
-fail rather than being silently filtered. Reports retain original historical
-rows and separate checked/retired counts. Email dispatch and WeChat eligibility
-reject withdrawn venues without deleting or replaying their records. All active
-venue natural cycles and real natural delivery receipts remain mandatory.
+requires the exact active catalog IDs; missing, duplicate or unknown catalog
+entries fail rather than being silently filtered. Reports retain original
+historical rows and separate checked/retired counts. All active venue natural
+cycles and real natural delivery receipts remain mandatory.
 
 ## Email delivery
 

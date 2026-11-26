@@ -49,6 +49,16 @@ exceptions:
       host, which challenged three back-to-back loads. Each runs every six
       minutes at offsets 0/2/4, so the host sees one page load every two
       minutes, the cadence Dashah has sustained.
+  宝安网球中心巡检:
+    schedule: "1-59/2 * * * *"
+    interval_seconds: 120
+    reason: >-
+      Restored on 2026-11-26 via the isz_https_proxies.txt HTTPS proxy pool:
+      reading all three products in one scrape challenged the second or third
+      product, so each run reads one product on odd minutes, rotating outdoor,
+      indoor and wind/rain; bawtt.ydmap.cn sees one page load every two minutes
+      and each product refreshes every six, while Futian and Dashah run on even
+      minutes.
 change_control:
   new_venues_use_default: true
   exceptions_require:

@@ -7,6 +7,13 @@ and operational changes.
 
 ### Added
 
+- Restored 宝安网球中心 (`baoti`, `bawtt.ydmap.cn`) via the Pi YDMap Chromium
+  scraper routed through the `isz_https_proxies.txt` HTTPS proxy pool (with
+  explicit HTTP/1.1 `CONNECT` + strict TLS pre-checking and automatic failover).
+  Runs every two minutes on odd minutes from 08:00 Asia/Shanghai, rotating one
+  product tab per run (`室外网球场`, `室内网球场`, `风雨球场`; kids' short court
+  excluded), publishing per-product observation scopes and attaching its booking
+  URL to WeChat alerts.
 - WeChat alerts for 香蜜体育中心, 黄木岗网球中心 and 莲花体育中心 end with that
   venue's own ftty.ydmap.cn booking page, which opens in WeChat's browser. Each
   venue has its own two-hour per-chat cooldown, like the mini-program links.

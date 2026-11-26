@@ -244,6 +244,16 @@ def test_client_selects_the_venue_and_keeps_the_dashah_request(monkeypatch) -> N
         "http://127.0.0.1:8788/inspect?venue=xmty&days=2",
     ]
     assert _shell_words(commands[1])[-1] == "http://127.0.0.1:8788/inspect?days=5"
+    client.fetch_inspect_payload(
+        config,
+        days=2,
+        venue="baoti_outdoor",
+        proxies=["127.0.0.1:8080", "36.147.78.166:443", "36.147.78.166:443"],
+    )
+    assert (
+        _shell_words(commands[2])[-1]
+        == "http://127.0.0.1:8788/inspect?venue=baoti_outdoor&days=2&proxies=36.147.78.166:443"
+    )
     with pytest.raises(ValueError):
         client.fetch_inspect_payload(config, days=2, venue="xmty;id")
 
