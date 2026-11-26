@@ -50,16 +50,21 @@ BAOTI_PROXY_LIST_URL = os.environ.get(
     "YDMAP_BAOTI_PROXY_LIST_URL",
     "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/isz_https_proxies.txt",
 )
-PROXY_PROBE_TIMEOUT = 5.0
+BAOTI_FALLBACK_PROXY_LIST_URL = os.environ.get(
+    "YDMAP_BAOTI_FALLBACK_PROXY_LIST_URL",
+    "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt",
+)
+PROXY_PROBE_TIMEOUT = 7.0
 PROXY_FETCH_TIMEOUT = 8.0
 PROXY_LIST_TTL_SECONDS = 60.0
-PROXY_FAILURE_COOLDOWN_SECONDS = 300.0
+PROXY_FAILURE_COOLDOWN_SECONDS = 120.0
 PROXY_CHALLENGE_COOLDOWN_SECONDS = 900.0
-PROXY_MAX_CANDIDATES = 24
+PROXY_MAX_CANDIDATES = 48
+PROXY_FALLBACK_MAX_CANDIDATES = 24
 _PROXY_STATE_LOCK = threading.Lock()
 _STICKY_PROXY: str | None = None
 _PROXY_LIST_CACHE: tuple[float, list[str]] = (0.0, [])
-_PROXY_COOLDOWNS: dict[str, float] = {}
+_PROXY_COOLDOWNS: dict[str, tuple[float, bool] | float] = {}
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
 PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
@@ -517,7 +522,9 @@ def _validate_proxy(raw: object) -> str | None:
     return f"{addr}:{port}"
 
 
-def _normalize_proxy_candidates(candidates: Sequence[str] | None) -> list[str]:
+def _normalize_proxy_candidates(
+    candidates: Sequence[str] | None, *, limit: int = PROXY_MAX_CANDIDATES
+) -> list[str]:
     valid: list[str] = []
     seen: set[str] = set()
     for item in candidates or ():
@@ -525,14 +532,19 @@ def _normalize_proxy_candidates(candidates: Sequence[str] | None) -> list[str]:
         if proxy and proxy not in seen:
             seen.add(proxy)
             valid.append(proxy)
-            if len(valid) >= PROXY_MAX_CANDIDATES:
+            if len(valid) >= limit:
                 break
     return valid
 
 
-def _fetch_remote_proxy_list(timeout: float = PROXY_FETCH_TIMEOUT) -> list[str]:
+def _fetch_remote_proxy_list(
+    url: str = BAOTI_PROXY_LIST_URL,
+    *,
+    timeout: float = PROXY_FETCH_TIMEOUT,
+    max_candidates: int = PROXY_MAX_CANDIDATES,
+) -> list[str]:
     request = urllib.request.Request(
-        BAOTI_PROXY_LIST_URL,
+        url,
         headers={
             "User-Agent": "pi-ydmap/2",
             "Cache-Control": "no-cache",
@@ -544,7 +556,7 @@ def _fetch_remote_proxy_list(timeout: float = PROXY_FETCH_TIMEOUT) -> list[str]:
             text = response.read(256 * 1024).decode("utf-8", errors="ignore")
     except Exception:
         return []
-    return _normalize_proxy_candidates(text.splitlines())
+    return _normalize_proxy_candidates(text.splitlines(), limit=max_candidates)
 
 
 def _probe_proxy(
@@ -617,7 +629,8 @@ def _probe_proxy(
             return False, float("inf")
         head_text = body[:4096].decode("utf-8", errors="ignore")
         if re.search(
-            r"(?:Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证)",
+            r"(?:Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证|"
+            r"999998|频次过快|请求过于频繁|too\s+many\s+requests|rate\s+limit)",
             head_text,
             re.IGNORECASE,
         ):
@@ -647,14 +660,44 @@ def _mark_proxy_failure(proxy: str, *, challenge: bool = False) -> None:
     with _PROXY_STATE_LOCK:
         if _STICKY_PROXY == proxy:
             _STICKY_PROXY = None
-        _PROXY_COOLDOWNS[proxy] = now + cooldown
+        _PROXY_COOLDOWNS[proxy] = (now + cooldown, challenge)
+
+
+def _cooldown_entry(value: tuple[float, bool] | float) -> tuple[float, bool]:
+    if isinstance(value, tuple):
+        return float(value[0]), bool(value[1])
+    return float(value), False
+
+
+def _probe_pool(
+    pool: Sequence[str],
+    url: str,
+    *,
+    sticky: str | None,
+    tier: int,
+) -> list[str]:
+    if not pool:
+        return []
+    results: list[tuple[int, int, float, str]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, len(pool))) as executor:
+        futures = {executor.submit(_probe_proxy, proxy, url): proxy for proxy in pool}
+        for future in concurrent.futures.as_completed(futures):
+            proxy = futures[future]
+            try:
+                ok, elapsed = future.result()
+            except Exception:
+                ok, elapsed = False, float("inf")
+            if ok:
+                results.append((tier, 0 if proxy == sticky else 1, elapsed, proxy))
+    results.sort()
+    return [proxy for _, _, _, proxy in results]
 
 
 def _select_working_proxies(
     url: str,
     candidates: Sequence[str] | None = None,
     *,
-    limit: int = 2,
+    limit: int = 3,
 ) -> list[str]:
     global _PROXY_LIST_CACHE
     passed = _normalize_proxy_candidates(candidates)
@@ -662,10 +705,13 @@ def _select_working_proxies(
     with _PROXY_STATE_LOCK:
         sticky = _STICKY_PROXY
         cached_at, cached_list = _PROXY_LIST_CACHE
-        expired = [p for p, until in _PROXY_COOLDOWNS.items() if until <= now]
-        for p in expired:
-            _PROXY_COOLDOWNS.pop(p, None)
-        cooldowns = dict(_PROXY_COOLDOWNS)
+        active_cooldowns: dict[str, tuple[float, bool]] = {}
+        for p, raw_entry in list(_PROXY_COOLDOWNS.items()):
+            until, is_challenge = _cooldown_entry(raw_entry)
+            if until <= now:
+                _PROXY_COOLDOWNS.pop(p, None)
+            else:
+                active_cooldowns[p] = (until, is_challenge)
 
     if passed:
         with _PROXY_STATE_LOCK:
@@ -690,25 +736,42 @@ def _select_working_proxies(
             merged.append(proxy)
             if len(merged) >= PROXY_MAX_CANDIDATES:
                 break
-    if not merged:
-        return []
 
-    active = [p for p in merged if cooldowns.get(p, 0.0) <= now]
-    pool = active if active else merged
+    challenge_blocked = {p for p, (_, is_challenge) in active_cooldowns.items() if is_challenge}
+    selected: list[str] = []
+    selected_set: set[str] = set()
+    if merged:
+        active = [p for p in merged if p not in active_cooldowns]
+        transient_cooled = [
+            p for p in merged if p in active_cooldowns and not active_cooldowns[p][1]
+        ]
+        for proxy in _probe_pool(active, url, sticky=sticky, tier=0):
+            if proxy not in selected_set:
+                selected_set.add(proxy)
+                selected.append(proxy)
+                if len(selected) >= limit:
+                    return selected
+        if len(selected) < limit and transient_cooled:
+            for proxy in _probe_pool(transient_cooled, url, sticky=sticky, tier=1):
+                if proxy not in selected_set:
+                    selected_set.add(proxy)
+                    selected.append(proxy)
+                    if len(selected) >= limit:
+                        return selected
 
-    results: list[tuple[int, float, str]] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(pool))) as executor:
-        futures = {executor.submit(_probe_proxy, proxy, url): proxy for proxy in pool}
-        for future in concurrent.futures.as_completed(futures):
-            proxy = futures[future]
-            try:
-                ok, elapsed = future.result()
-            except Exception:
-                ok, elapsed = False, float("inf")
-            if ok:
-                results.append((0 if proxy == sticky else 1, elapsed, proxy))
-    results.sort()
-    return [proxy for _, _, proxy in results[:limit]]
+    if not selected:
+        fallback_list = _fetch_remote_proxy_list(
+            BAOTI_FALLBACK_PROXY_LIST_URL, max_candidates=PROXY_FALLBACK_MAX_CANDIDATES
+        )
+        fallback_pool = [p for p in fallback_list if p not in seen and p not in challenge_blocked]
+        for proxy in _probe_pool(fallback_pool, url, sticky=sticky, tier=2):
+            if proxy not in selected_set:
+                selected_set.add(proxy)
+                selected.append(proxy)
+                if len(selected) >= limit:
+                    break
+
+    return selected[:limit]
 
 
 def _wait_devtools(timeout: float = 40) -> None:
@@ -741,7 +804,7 @@ def _stop_driver_service(service: Any) -> None:
     service.process = None
 
 
-def _attach(timeout: float = 30) -> webdriver.Remote:
+def _attach(timeout: float = 30, *, proxied: bool = False) -> webdriver.Remote:
     from selenium.webdriver.remote.client_config import ClientConfig
     from selenium.webdriver.remote.remote_connection import RemoteConnection
 
@@ -757,20 +820,20 @@ def _attach(timeout: float = 30) -> webdriver.Remote:
     watchdog.start()
     try:
         service.start()
-        # The wire timeout must exceed the 20-second page-load limit, allowing
-        # ChromeDriver to return its own bounded error instead of losing the
-        # local command response. The startup watchdog still bounds NEW_SESSION.
+        # The wire timeout must exceed the 20-second (or 30-second proxied) page-load
+        # limit, allowing ChromeDriver to return its own bounded error instead of
+        # losing the local command response. The startup watchdog still bounds NEW_SESSION.
         config = ClientConfig(
             remote_server_addr=service.service_url,
             keep_alive=False,
-            timeout=DRIVER_HTTP_TIMEOUT,
+            timeout=max(DRIVER_HTTP_TIMEOUT, 38 if proxied else DRIVER_HTTP_TIMEOUT),
         )
         connection = RemoteConnection(client_config=config)
         driver = webdriver.Remote(command_executor=connection, options=opts)
         driver._ydmap_service = service
         driver._ydmap_client_config = config
-        driver.set_page_load_timeout(20)
-        driver.set_script_timeout(8)
+        driver.set_page_load_timeout(30 if proxied else 20)
+        driver.set_script_timeout(12 if proxied else 8)
         return driver
     except Exception:
         _stop_driver_service(service)
@@ -1549,7 +1612,7 @@ def _scrape_available_slots(
             _wait_devtools(timeout=_remaining(deadline, 40))
             time.sleep(_remaining(deadline, 4))
             phase = "browser_attach"
-            driver = _attach(timeout=_remaining(deadline, 30))
+            driver = _attach(timeout=_remaining(deadline, 30), proxied=(proxy is not None))
             if runtime is not None:
                 runtime.update(_browser_environment(driver))
             parsed = urlparse(url)
@@ -1562,6 +1625,7 @@ def _scrape_available_slots(
             phase = "initial_schedule" if index == 0 else "product_navigation"
             payload = _wait_for_schedule(
                 driver,
+                timeout=35 if proxy is not None else 45,
                 deadline=deadline,
                 phase=phase,
                 **identity,
@@ -1740,17 +1804,20 @@ def scrape_available_slots(
     if not groups:
         return _stop_with_error(error=f"unknown_venue:{venue}", venue=venue)
     started = time.monotonic()
-    selected = _select_working_proxies(groups[0][2], proxies, limit=2)
+    selected = _select_working_proxies(groups[0][2], proxies, limit=3)
     if not selected:
         return _stop_with_error(error="proxy_unavailable", venue=venue)
 
     last_result: dict[str, Any] | None = None
     for index, proxy in enumerate(selected):
         elapsed = time.monotonic() - started
-        if index > 0 and elapsed >= 65.0:
+        if index > 0 and elapsed >= 85.0:
             break
-        remaining = max(55.0, min(115.0, 125.0 - elapsed))
-        attempt_budget = 80.0 if index == 0 and len(selected) > 1 else remaining
+        remaining = max(45.0, min(110.0, 135.0 - elapsed))
+        if index < len(selected) - 1:
+            attempt_budget = min(remaining, 65.0 if index == 0 else 60.0)
+        else:
+            attempt_budget = remaining
         runtime = {}
         result = _scrape_available_slots(
             venue,

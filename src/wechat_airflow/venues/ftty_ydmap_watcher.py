@@ -74,6 +74,7 @@ class YdmapVenue:
     booking_open: datetime.time = BOOKING_OPEN_TIME
     products: tuple[YdmapProduct, ...] = ()
     proxy_provider: Callable[[], list[str]] | None = None
+    max_start_delay: datetime.timedelta = MAX_START_DELAY
 
     @property
     def _entry(self) -> Venue:
@@ -191,7 +192,7 @@ def run_check(venue: YdmapVenue) -> None:
             publish_venue_observation(venue.venue_id, venue.name, [], healthy=True)
         return
     delay = _late_start()
-    if delay is not None and delay > MAX_START_DELAY:
+    if delay is not None and delay > venue.max_start_delay:
         # Keep the previous observation; the next natural tick is two minutes away.
         print(
             f"{venue.name}本轮晚于计划 {int(delay.total_seconds())} 秒启动（补跑或重试），跳过以免同站连抓"

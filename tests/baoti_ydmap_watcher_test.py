@@ -168,14 +168,22 @@ def test_rotates_three_products_across_consecutive_two_minute_ticks(
     assert all(item["proxies"] == ["36.147.78.166:443"] for item in harness["fetches"])
 
 
-def test_late_start_skips_baoti_run(
+def test_late_start_skips_baoti_only_after_two_minute_grace(
     harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _at(monkeypatch, 9, 1)
+    harness["payload"] = {"ok": True, "days": []}
+    # Waiting up to 120s for ydmap_browser pool (dsh + ftty) should still run.
     monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=90))
     baoti.run_check_tennis_courts()
-    assert harness["fetches"] == []
-    assert harness["published"] == []
+    assert len(harness["fetches"]) == 1
+    assert len(harness["published"]) == 1
+
+    # Beyond 120s skips stale catch-up runs.
+    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=130))
+    baoti.run_check_tennis_courts()
+    assert len(harness["fetches"]) == 1
+    assert len(harness["published"]) == 1
 
 
 def test_fetch_baoti_proxies_filters_invalid_and_falls_back_on_error(

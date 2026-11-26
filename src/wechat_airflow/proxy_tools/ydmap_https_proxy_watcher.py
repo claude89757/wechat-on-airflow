@@ -9,7 +9,9 @@
 # 标准库导入
 import base64
 import concurrent.futures
+import ipaddress
 import random
+import re
 import threading
 import warnings
 from datetime import datetime
@@ -28,8 +30,15 @@ LOCAL_FILENAME = "/tmp/isz_https_proxies.txt"
 REMOTE_FILENAME = (
     "https://api.github.com/repos/claude89757/free_https_proxies/contents/isz_https_proxies.txt"
 )
+BAOTI_TARGET_URL = "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317"
 SOURCE_TIMEOUT_SECONDS = 15
+PROXY_CHECK_TIMEOUT_SECONDS = 5
 GITHUB_TIMEOUT_SECONDS = 15
+RATE_LIMIT_OR_CHALLENGE_RE = re.compile(
+    r"(?:999998|频次过快|请求过于频繁|too\s+many\s+requests|rate\s+limit|"
+    r"Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证)",
+    re.IGNORECASE,
+)
 
 
 def generate_proxies():
@@ -37,11 +46,13 @@ def generate_proxies():
     获取待检查的代理列表
     """
     urls = [
+        "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt",
         "https://github.com/roosterkid/openproxylist/raw/main/HTTPS_RAW.txt",
         "https://raw.githubusercontent.com/Zaeem20/FREE_PROXIES_LIST/master/https.txt",
         "https://raw.githubusercontent.com/ErcinDedeoglu/proxies/main/proxies/https.txt",
     ]
     proxies = []
+    seen = set()
     proxy_url_infos = {}
 
     print("开始获取代理列表...")
@@ -51,10 +62,12 @@ def generate_proxies():
             response.raise_for_status()
             text = response.text.strip()
             lines = text.split("\n")
-            lines = [line.strip() for line in lines if is_valid_proxy(line)]
-            proxies.extend(lines)
+            lines = [line.strip() for line in lines if is_valid_proxy(line.strip())]
             for line in lines:
                 proxy_url_infos[line] = url
+                if line not in seen:
+                    seen.add(line)
+                    proxies.append(line)
         except Exception as e:
             print(f"从 {url} 获取代理失败: {str(e)}")
 
@@ -64,56 +77,55 @@ def generate_proxies():
 
 
 def is_valid_proxy(proxy):
-    # 简单的 IP 格式验证
-    parts = proxy.split(":")
+    # 校验全局 IPv4:port 格式
+    if not isinstance(proxy, str):
+        return False
+    text = proxy.strip()
+    if not text or any(ch.isspace() for ch in text) or "://" in text or "@" in text:
+        return False
+    parts = text.split(":")
     if len(parts) != 2:
         return False
-    ip, port = parts
-    return ip.count(".") == 3 and port.isdigit()
+    ip, port_text = parts
+    if not port_text.isdigit():
+        return False
+    port = int(port_text)
+    if not 1 <= port <= 65535:
+        return False
+    try:
+        addr = ipaddress.IPv4Address(ip)
+    except ipaddress.AddressValueError:
+        return False
+    return bool(addr.is_global and not addr.is_multicast)
 
 
 def check_proxy(proxy_url, proxy_url_infos):
     """
-    使用 requests 检查代理是否可用
+    使用 requests + 严格 TLS 检查代理是否可直接加载 bawtt.ydmap.cn 预约页面 HTML
     """
     try:
-        target_url = "https://ftty.ydmap.cn/srv100241/api/pub/sport/venue/getVenueOrderList?salesItemId=100341&curDate=1748188800000&venueGroupId=&t=1748187760876&type__1295=n4%2BxnDR70%3DK7wqWqY5DsD7fmKD54sO2g8S4rTD"
-
         headers = {
-            "Host": "ftty.ydmap.cn",
-            "server-reflexive-ip": "1.1.1.1",
-            "entry-tag": "",
-            "access-token": "",
-            "visitor-id": "xxxxxx",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/6.8.0(0x16080000) MacWechat/3.8.10(0x13080a10) XWEB/1227 Flue",
-            "accept": "application/json, text/plain, */*",
-            "timestamp": "1748187760918",
-            "signature": "xxxxxx",
-            "tab-id": "ydmap_fb21e370a0f048acfef6a518e9952c02",
-            "x-requested-with": "XMLHttpRequest",
-            "cross-token": "",
-            "sec-fetch-site": "same-origin",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-dest": "empty",
-            "referer": "https://ftty.ydmap.cn/booking/schedule/101332?salesItemId=100341",
-            "accept-language": "zh-CN,zh;q=0.9",
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "text/html",
         }
-
         proxies = {"http": f"http://{proxy_url}", "https": f"http://{proxy_url}"}
-
         response = requests.get(
-            target_url, headers=headers, proxies=proxies, timeout=3, verify=False
+            BAOTI_TARGET_URL,
+            headers=headers,
+            proxies=proxies,
+            timeout=PROXY_CHECK_TIMEOUT_SECONDS,
+            verify=True,
         )
-
+        if response.status_code != 200:
+            return False
         response_text = response.text
-
-        # 判断返回内容是否包含"签名"，表示代理IP可用
-        if "签名" in response_text or "验证" in response_text:
-            print(f"[{proxy_url}] 发现可用代理, 返回内容: {response_text}")
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{now}] 发现可用代理: {proxy_url}")
-            return True
-
+        if len(response_text) < 1000 or "<!doctype html>" not in response_text[:512].lower():
+            return False
+        if RATE_LIMIT_OR_CHALLENGE_RE.search(response_text[:4096]):
+            return False
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{now}] 发现可用代理: {proxy_url}")
+        return True
     except Exception:
         pass
     return False
@@ -121,30 +133,35 @@ def check_proxy(proxy_url, proxy_url_infos):
 
 def update_proxy_file(filename, available_proxies):
     """
-    更新代理文件，保留最近的100个可用代理
+    更新代理文件：有新测活代理时仅保留本轮验活节点以剔除失效代理；
+    若本轮 0 发现则保留最多 20 个旧节点作为安全兜底，避免瞬断清空列表。
     """
-    # 先读取现有的代理
     try:
         with open(filename) as file:
-            existing_proxies = [line.strip() for line in file.readlines() if line.strip()]
+            existing_proxies = [
+                line.strip() for line in file.readlines() if is_valid_proxy(line.strip())
+            ]
     except FileNotFoundError:
         existing_proxies = []
 
-    # 合并现有代理和新发现的代理，去除重复项
     all_proxies = []
+    seen = set()
     for proxy in available_proxies:
-        if proxy not in all_proxies:
-            all_proxies.append(proxy)
+        cleaned = proxy.strip() if isinstance(proxy, str) else ""
+        if is_valid_proxy(cleaned) and cleaned not in seen:
+            seen.add(cleaned)
+            all_proxies.append(cleaned)
+            if len(all_proxies) >= 100:
+                break
 
-    for proxy in existing_proxies:
-        if proxy not in all_proxies:
-            all_proxies.append(proxy)
+    if not all_proxies:
+        for proxy in existing_proxies:
+            if proxy not in seen:
+                seen.add(proxy)
+                all_proxies.append(proxy)
+                if len(all_proxies) >= 20:
+                    break
 
-    # 如果超过200个，只保留最近的200个
-    if len(all_proxies) > 200:
-        all_proxies = all_proxies[:200]
-
-    # 写入文件
     with open(filename, "w") as file:
         for proxy in all_proxies:
             file.write(proxy + "\n")
@@ -159,15 +176,31 @@ def task_check_proxies():
     print("开始代理检查任务...")
     download_file()
 
-    proxies, proxy_url_infos = generate_proxies()
-    print(f"开始检查 {len(proxies)} 个代理...")
+    try:
+        with open(LOCAL_FILENAME) as file:
+            existing_proxies = [
+                line.strip() for line in file.readlines() if is_valid_proxy(line.strip())
+            ]
+    except FileNotFoundError:
+        existing_proxies = []
+
+    fetched_proxies, proxy_url_infos = generate_proxies()
+    proxies = []
+    seen = set()
+    for proxy in existing_proxies + fetched_proxies:
+        if proxy not in seen:
+            seen.add(proxy)
+            proxies.append(proxy)
+            proxy_url_infos.setdefault(proxy, LOCAL_FILENAME)
+    print(f"开始检查 {len(proxies)} 个代理（含现有 {len(existing_proxies)} 个复检）...")
 
     available_proxies = []
-    max_workers = 50  # 增加并发线程数，提高效率
+    max_workers = 50
+    lock = threading.Lock()
 
     def check_and_process(proxy):
         if check_proxy(proxy, proxy_url_infos):
-            with threading.Lock():  # 使用锁防止并发写入问题
+            with lock:
                 available_proxies.append(proxy)
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 print(f"[{now}] 当前可用代理数量: {len(available_proxies)}")
