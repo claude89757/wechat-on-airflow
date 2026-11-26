@@ -45,7 +45,8 @@ BAOTI_PRODUCTS = {
     "baoti_indoor": ("室内", "103224"),
     "baoti_covered": ("风雨", "111319"),
 }
-PROXY_REQUIRED_VENUES = frozenset(BAOTI_PRODUCTS)
+BAOTI_VENUES = frozenset(BAOTI_PRODUCTS)
+PROXY_REQUIRED_VENUES = BAOTI_VENUES
 BAOTI_PROXY_LIST_URL = os.environ.get(
     "YDMAP_BAOTI_PROXY_LIST_URL",
     "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/isz_https_proxies.txt",
@@ -55,11 +56,13 @@ PROXY_FETCH_TIMEOUT = 8.0
 PROXY_LIST_TTL_SECONDS = 60.0
 PROXY_FAILURE_COOLDOWN_SECONDS = 120.0
 PROXY_CHALLENGE_COOLDOWN_SECONDS = 900.0
+BAOTI_DIRECT_COOLDOWN_SECONDS = 1800.0
 PROXY_MAX_CANDIDATES = 48
 _PROXY_STATE_LOCK = threading.Lock()
 _STICKY_PROXY: str | None = None
 _PROXY_LIST_CACHE: tuple[float, list[str]] = (0.0, [])
 _PROXY_COOLDOWNS: dict[str, tuple[float, bool] | float] = {}
+_BAOTI_DIRECT_COOLDOWN_UNTIL: float = 0.0
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
 PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
@@ -180,6 +183,50 @@ matches.sort((left, right) => {
 });
 return matches[0].el;
 """
+
+FIND_DATE_POINT_JS = """
+const target = arguments[0];
+const nodes = [...document.querySelectorAll('.dt.datetime, .date-item, div, span, button, li, a')];
+const matches = [];
+for (const el of nodes) {
+  if (el.children.length > 0) continue;
+  const text = (el.textContent || '').trim().split(String.fromCharCode(10))[0];
+  if (text !== target) continue;
+  const box = el.getBoundingClientRect();
+  if (box.width <= 0 || box.height <= 0) continue;
+  matches.push({ el, x: box.left + box.width / 2, y: box.top + box.height / 2, area: box.width * box.height });
+}
+if (!matches.length) return null;
+matches.sort((left, right) => right.area - left.area);
+const hit = matches[0];
+const top = document.elementFromPoint(hit.x, hit.y);
+const clickable = !!top && (top === hit.el || hit.el.contains(top) || top.contains(hit.el));
+return { x: hit.x, y: hit.y, clickable };
+"""
+
+
+def _select_date_tab(driver: webdriver.Remote, venue: str, booking_iso: str) -> str | None:
+    if venue not in BAOTI_VENUES:
+        element = driver.execute_script(FIND_DATE_JS, booking_iso[5:])
+        if element is None:
+            return f"date_tab_not_found:{booking_iso}"
+        # Native WebDriver click respects overlays/hit testing. Never
+        # remove a WAF mask or force a JavaScript click through it.
+        element.click()
+        return None
+    target = driver.execute_script(FIND_DATE_POINT_JS, booking_iso[5:])
+    if not isinstance(target, dict):
+        return f"date_tab_not_found:{booking_iso}"
+    if not target.get("clickable"):
+        return f"date_tab_occluded:{booking_iso}"
+    from selenium.webdriver.common.actions.action_builder import ActionBuilder
+
+    actions = ActionBuilder(driver)
+    actions.pointer_action.move_to_location(int(round(target["x"])), int(round(target["y"])))
+    actions.pointer_action.click()
+    actions.perform()
+    return None
+
 
 # Public field shape was recorded by PR223's source diagnostic, workflow run
 # 35073589879 (booking-schedule-venue.b6226c5c.js). The current deployment must
@@ -659,6 +706,19 @@ def _mark_proxy_failure(proxy: str, *, challenge: bool = False) -> None:
         if _STICKY_PROXY == proxy:
             _STICKY_PROXY = None
         _PROXY_COOLDOWNS[proxy] = (now + cooldown, challenge)
+
+
+def _baoti_direct_in_cooldown() -> bool:
+    now = time.monotonic()
+    with _PROXY_STATE_LOCK:
+        return now < _BAOTI_DIRECT_COOLDOWN_UNTIL
+
+
+def _mark_baoti_direct_challenge() -> None:
+    global _BAOTI_DIRECT_COOLDOWN_UNTIL
+    now = time.monotonic()
+    with _PROXY_STATE_LOCK:
+        _BAOTI_DIRECT_COOLDOWN_UNTIL = now + BAOTI_DIRECT_COOLDOWN_SECONDS
 
 
 def _cooldown_entry(value: tuple[float, bool] | float) -> tuple[float, bool]:
@@ -1591,7 +1651,8 @@ def _scrape_available_slots(
             # Each source opens its supported URL natively, like Dashah;
             # no cross-product browser/app state or product-tab click is reused.
             profile = PROFILE / f"{venue}-{key or 'main'}"
-            debug_port = BAOTI_DEBUG_PORT if proxy is not None else DEBUG_PORT
+            debug_port = BAOTI_DEBUG_PORT if venue in BAOTI_VENUES else DEBUG_PORT
+            proxied = proxy is not None
             if debug_port != DEBUG_PORT:
                 _cleanup_stale_browser(profile, debug_port=debug_port)
                 proc = _start_chromium(url, profile=profile, proxy=proxy, debug_port=debug_port)
@@ -1600,7 +1661,7 @@ def _scrape_available_slots(
                 phase = "browser_attach"
                 driver = _attach(
                     timeout=_remaining(deadline, 30),
-                    proxied=True,
+                    proxied=proxied,
                     debug_port=debug_port,
                 )
             else:
@@ -1667,17 +1728,14 @@ def _scrape_available_slots(
                     return _stop_with_error(
                         error="requested_date_unavailable", venue=venue, payload=payload
                     )
-                element = driver.execute_script(FIND_DATE_JS, booking_iso[5:])
-                if element is None:
-                    return _stop_with_error(error=f"date_tab_not_found:{booking_iso}", venue=venue)
-                # Native WebDriver click respects overlays/hit testing. Never
-                # remove a WAF mask or force a JavaScript click through it.
-                element.click()
+                select_error = _select_date_tab(driver, venue, booking_iso)
+                if select_error is not None:
+                    return _stop_with_error(error=select_error, venue=venue)
                 previous = payload
                 phase = "refreshed_schedule"
                 payload = _wait_for_schedule(
                     driver,
-                    timeout=25,
+                    timeout=30 if venue in BAOTI_VENUES else 25,
                     deadline=deadline,
                     expected_date=booking_iso,
                     previous=previous,
@@ -1796,7 +1854,7 @@ def scrape_available_slots(
     source_evidence: bool = False,
     proxies: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    if venue not in PROXY_REQUIRED_VENUES:
+    if venue not in BAOTI_VENUES:
         runtime: dict[str, Any] = {}
         result = _scrape_available_slots(
             venue, days, source_evidence=source_evidence, runtime=runtime
@@ -1809,8 +1867,42 @@ def scrape_available_slots(
     if not groups:
         return _stop_with_error(error=f"unknown_venue:{venue}", venue=venue)
     started = time.monotonic()
+    direct_result: dict[str, Any] | None = None
+    if not _baoti_direct_in_cooldown():
+        runtime = {}
+        direct_result = _scrape_available_slots(
+            venue,
+            days,
+            source_evidence=source_evidence,
+            runtime=runtime,
+            proxy=None,
+            budget_seconds=135,
+        )
+        if runtime:
+            direct_result.setdefault("diagnostics", {}).update(runtime)
+        if direct_result.get("ok") is True:
+            direct_result.setdefault("diagnostics", {})["transport"] = "direct"
+            return direct_result
+        is_direct_challenge = (
+            bool(direct_result.get("captcha")) or direct_result.get("error") == "rate_limited"
+        )
+        if not is_direct_challenge:
+            direct_result.setdefault("diagnostics", {})["transport"] = "direct"
+            return direct_result
+        _mark_baoti_direct_challenge()
+        if time.monotonic() - started >= 85.0:
+            direct_result.setdefault("diagnostics", {}).update(
+                {"transport": "direct", "proxyFallback": "budget_exhausted"}
+            )
+            return direct_result
+
     selected = _select_working_proxies(groups[0][2], proxies, limit=3)
     if not selected:
+        if direct_result is not None:
+            direct_result.setdefault("diagnostics", {}).update(
+                {"transport": "direct", "proxyFallback": "unavailable"}
+            )
+            return direct_result
         return _stop_with_error(error="proxy_unavailable", venue=venue)
 
     last_result: dict[str, Any] | None = None
@@ -1834,6 +1926,7 @@ def scrape_available_slots(
         )
         if runtime:
             result.setdefault("diagnostics", {}).update(runtime)
+        result.setdefault("diagnostics", {})["transport"] = "proxy"
         if result.get("ok") is True:
             _mark_proxy_success(proxy)
             return result
@@ -1888,10 +1981,8 @@ class Handler(BaseHTTPRequestHandler):
         raw_proxies: list[str] = []
         for entry in query.get("proxies", []):
             raw_proxies.extend(part for part in entry.split(",") if part.strip())
-        passed_proxies = (
-            _normalize_proxy_candidates(raw_proxies) if venue in PROXY_REQUIRED_VENUES else []
-        )
-        lock = BAOTI_SCRAPE_LOCK if venue in PROXY_REQUIRED_VENUES else SCRAPE_LOCK
+        passed_proxies = _normalize_proxy_candidates(raw_proxies) if venue in BAOTI_VENUES else []
+        lock = BAOTI_SCRAPE_LOCK if venue in BAOTI_VENUES else SCRAPE_LOCK
         if not lock.acquire(blocking=False):
             self._send_json(429, _stop_with_error(error="busy", venue=venue))
             return
