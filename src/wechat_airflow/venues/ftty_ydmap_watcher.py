@@ -9,7 +9,11 @@
 
 三个 DAG 用 cron 错开，同站每两分钟只加载一次页面。恢复调度或发布后，
 Airflow 会立刻补跑每个 DAG 最近一次错过的 tick，三次加载挤在一分钟内会
-触发站点滑块验证；所以明显晚于计划时间启动的运行（补跑、重试）直接跳过。
+触发站点滑块验证；所以明显晚于计划时间启动的运行（补跑）直接跳过。
+
+延迟按任务进入 ``run_check`` 的墙钟计算，其中包含等待 ``ydmap_browser``
+单槽池的时间。采集本身最长约 150 秒，阈值必须高于该上界，否则大沙河占着
+池子时福田的正点巡检会被误判成补跑而整轮跳过。
 """
 
 from __future__ import annotations
@@ -47,9 +51,10 @@ LOOKAHEAD_DAYS = 2
 BOOKING_OPEN_TIME = datetime.time(9, 0)
 MAX_CACHED_MESSAGES = 100
 LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
-# Natural runs start within seconds of their tick. Anything later is a catch-up
-# or retry that would land within a minute of a neighbouring venue's page load.
-MAX_START_DELAY = datetime.timedelta(seconds=45)
+# Wall-clock delay includes ydmap_browser pool wait (curl --max-time 150).
+# Keep the threshold above that ceiling so a natural tick queued behind Dashah
+# still inspects; only release-restore / unpause catch-ups (minutes late) skip.
+MAX_START_DELAY = datetime.timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -147,7 +152,7 @@ def run_check(venue: FttyVenue) -> None:
     if delay is not None and delay > MAX_START_DELAY:
         # Keep the previous observation; the next natural tick is two minutes away.
         print(
-            f"{venue.name}本轮晚于计划 {int(delay.total_seconds())} 秒启动（补跑或重试），跳过以免同站连抓"
+            f"{venue.name}本轮晚于计划 {int(delay.total_seconds())} 秒启动（补跑），跳过以免同站连抓"
         )
         return
 

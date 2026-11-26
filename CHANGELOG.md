@@ -7,12 +7,17 @@ and operational changes.
 
 ### Fixed
 
+- ftty late-start skips now tolerate up to five minutes of delay, not 45 seconds.
+  The check runs only after the task acquires the one-slot `ydmap_browser` pool,
+  so a natural tick queued behind a Dashah scrape (curl `--max-time` 150) was
+  routinely past 45 s and skipped without inspecting — silent gaps for 香蜜 /
+  黄木岗 / 莲花. Release-restore catch-ups that are minutes late still skip.
 - The YDMap scraper client now shell-quotes its URL. The Pi runs the command
   through a shell, so the unquoted `&` backgrounded curl and dropped `days=2`;
   every ftty.ydmap.cn inspection asked for five days and failed with a bare 503.
   Failed scrapes now report the scraper's own error code (captcha,
   `requested_date_unavailable`, ...) instead of discarding the body. ftty runs
-  that start more than 45 s after their tick (release restore, unpause, retry)
+  that start more than five minutes after their tick (release restore, unpause)
   skip instead of loading the page next to a neighbouring venue's load.
 
 ### Changed

@@ -277,13 +277,24 @@ def test_late_catch_up_runs_skip_without_loading_the_page(
     _at(monkeypatch, 12, 0)
     harness["payload"] = {"ok": True, "days": []}
     # Release restore / unpause: the latest missed tick fires minutes late.
-    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=204))
+    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=301))
     ftty.run_check(ftty.LHTY)
     assert harness["fetches"] == [] and harness["published"] == []
 
+    # Pool wait behind a Dashah scrape (curl --max-time 150) must still inspect.
+    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=150))
+    ftty.run_check(ftty.LHTY)
+    assert harness["fetches"] == [{"days": 2, "venue": "lhty"}]
+
+    harness["fetches"].clear()
     monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=3))
     ftty.run_check(ftty.LHTY)
     assert harness["fetches"] == [{"days": 2, "venue": "lhty"}]
+
+
+def test_max_start_delay_exceeds_scraper_curl_timeout() -> None:
+    # Otherwise a natural tick queued on ydmap_browser looks like a catch-up.
+    assert ftty.MAX_START_DELAY > real_datetime.timedelta(seconds=150)
 
 
 def _load(name: str, path: str) -> Any:
