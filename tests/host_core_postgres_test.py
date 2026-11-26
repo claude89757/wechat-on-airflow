@@ -716,14 +716,25 @@ def test_retired_pending_email_is_expired_without_provider_send_or_history_delet
 
     sent = []
     monkeypatch.setattr(worker, "send_template_email", lambda *args, **kwargs: sent.append(1))
-    monkeypatch.delitem(VENUES, "baoti")
-    monkeypatch.setitem(host_domain.RETIRED_VENUES, "baoti", "宝安网球中心")
-    with client() as c:
-        make_pending(c, identity())
-        enable_for_test()
-        rows = claim()
-    sql("UPDATE zacks.notification_outbox SET venue_id='baoti'")
-    worker._complete_subscriber(rows, "test-worker")
+    original_venues = dict(VENUES)
+    original_retired = dict(host_domain.RETIRED_VENUES)
+    reduced_venues = {k: v for k, v in original_venues.items() if k != "baoti"}
+    try:
+        VENUES.clear()
+        VENUES.update(reduced_venues)
+        host_domain.RETIRED_VENUES.clear()
+        host_domain.RETIRED_VENUES["baoti"] = "宝安网球中心"
+        with client() as c:
+            make_pending(c, identity())
+            enable_for_test()
+            rows = claim()
+        sql("UPDATE zacks.notification_outbox SET venue_id='baoti'")
+        worker._complete_subscriber(rows, "test-worker")
+    finally:
+        VENUES.clear()
+        VENUES.update(original_venues)
+        host_domain.RETIRED_VENUES.clear()
+        host_domain.RETIRED_VENUES.update(original_retired)
     assert sent == []
     retained = sql("SELECT id,status,last_error FROM zacks.notification_outbox")
     assert retained == [
