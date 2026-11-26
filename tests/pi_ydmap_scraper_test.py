@@ -1123,6 +1123,25 @@ class BaotiProxyScrapeTest(unittest.TestCase):
             handler.do_GET()
             scrape.assert_called_once_with("dsh", 2, source_evidence=False)
 
+    def test_select_working_proxies_tracks_live_passed_list_and_drops_evicted_sticky(self) -> None:
+        with server._PROXY_STATE_LOCK:
+            server._STICKY_PROXY = "9.9.9.9:8080"
+        probed: list[str] = []
+
+        def fake_probe(proxy: str, url: str) -> tuple[bool, float]:
+            probed.append(proxy)
+            return True, 0.2
+
+        with patch.object(server, "_probe_proxy", side_effect=fake_probe):
+            selected = server._select_working_proxies(
+                "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+                ["36.147.78.166:443", "101.251.204.174:8080"],
+                limit=2,
+            )
+        self.assertNotIn("9.9.9.9:8080", probed)
+        self.assertEqual(set(selected), {"36.147.78.166:443", "101.251.204.174:8080"})
+        self.assertEqual(server._PROXY_LIST_CACHE[1], ["36.147.78.166:443", "101.251.204.174:8080"])
+
 
 if __name__ == "__main__":
     unittest.main()

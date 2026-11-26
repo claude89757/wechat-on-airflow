@@ -198,8 +198,15 @@ def test_fetch_baoti_proxies_filters_invalid_and_falls_back_on_error(
             "101.251.204.174:8080",
         ]
     )
-    monkeypatch.setattr(baoti.requests, "get", lambda *args, **kwargs: FakeResp(raw))
+    captured: list[dict[str, object]] = []
+
+    def fake_get(*args: object, **kwargs: object) -> FakeResp:
+        captured.append(dict(kwargs))
+        return FakeResp(raw)
+
+    monkeypatch.setattr(baoti.requests, "get", fake_get)
     assert baoti.fetch_baoti_proxies() == ["36.147.78.166:443", "101.251.204.174:8080"]
+    assert captured[0]["headers"] == {"Cache-Control": "no-cache", "Pragma": "no-cache"}
 
     def fail(*args: object, **kwargs: object) -> object:
         raise RuntimeError("network down")

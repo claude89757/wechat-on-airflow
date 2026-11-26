@@ -52,7 +52,7 @@ BAOTI_PROXY_LIST_URL = os.environ.get(
 )
 PROXY_PROBE_TIMEOUT = 5.0
 PROXY_FETCH_TIMEOUT = 8.0
-PROXY_LIST_TTL_SECONDS = 300.0
+PROXY_LIST_TTL_SECONDS = 60.0
 PROXY_FAILURE_COOLDOWN_SECONDS = 300.0
 PROXY_CHALLENGE_COOLDOWN_SECONDS = 900.0
 PROXY_MAX_CANDIDATES = 24
@@ -531,7 +531,14 @@ def _normalize_proxy_candidates(candidates: Sequence[str] | None) -> list[str]:
 
 
 def _fetch_remote_proxy_list(timeout: float = PROXY_FETCH_TIMEOUT) -> list[str]:
-    request = urllib.request.Request(BAOTI_PROXY_LIST_URL, headers={"User-Agent": "pi-ydmap/2"})
+    request = urllib.request.Request(
+        BAOTI_PROXY_LIST_URL,
+        headers={
+            "User-Agent": "pi-ydmap/2",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             text = response.read(256 * 1024).decode("utf-8", errors="ignore")
@@ -660,17 +667,23 @@ def _select_working_proxies(
             _PROXY_COOLDOWNS.pop(p, None)
         cooldowns = dict(_PROXY_COOLDOWNS)
 
-    remote_list = cached_list
-    if not passed and (not cached_list or now - cached_at >= PROXY_LIST_TTL_SECONDS):
-        fetched = _fetch_remote_proxy_list()
-        if fetched:
-            remote_list = fetched
-            with _PROXY_STATE_LOCK:
-                _PROXY_LIST_CACHE = (now, fetched)
+    if passed:
+        with _PROXY_STATE_LOCK:
+            _PROXY_LIST_CACHE = (now, list(passed))
+        ordered_candidates = ([sticky] if sticky and sticky in passed else []) + passed
+    else:
+        remote_list = cached_list
+        if not cached_list or now - cached_at >= PROXY_LIST_TTL_SECONDS:
+            fetched = _fetch_remote_proxy_list()
+            if fetched:
+                remote_list = fetched
+                with _PROXY_STATE_LOCK:
+                    _PROXY_LIST_CACHE = (now, fetched)
+        ordered_candidates = ([sticky] if sticky else []) + remote_list
 
     merged: list[str] = []
     seen: set[str] = set()
-    for item in ([sticky] if sticky else []) + passed + remote_list:
+    for item in ordered_candidates:
         proxy = _validate_proxy(item)
         if proxy and proxy not in seen:
             seen.add(proxy)

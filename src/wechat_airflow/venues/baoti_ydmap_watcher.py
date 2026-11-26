@@ -29,7 +29,11 @@ BAOTI_PROXY_LIST_URL = (
 def fetch_baoti_proxies(timeout: float = 10.0) -> list[str]:
     """Fetch and validate candidate HTTPS proxies; fall back to Pi-side cache on error."""
     try:
-        response = requests.get(BAOTI_PROXY_LIST_URL, timeout=timeout)
+        response = requests.get(
+            BAOTI_PROXY_LIST_URL,
+            timeout=timeout,
+            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+        )
         response.raise_for_status()
         return normalize_proxies(response.text.splitlines())
     except Exception as error:
