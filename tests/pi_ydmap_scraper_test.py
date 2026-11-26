@@ -1142,6 +1142,161 @@ class BaotiProxyScrapeTest(unittest.TestCase):
         self.assertEqual(set(selected), {"36.147.78.166:443", "101.251.204.174:8080"})
         self.assertEqual(server._PROXY_LIST_CACHE[1], ["36.147.78.166:443", "101.251.204.174:8080"])
 
+    def test_select_working_proxies_avoids_cooldown_starvation_and_keeps_challenge_blocked(
+        self,
+    ) -> None:
+        dead_proxies = [f"8.8.8.{i}:8080" for i in range(1, 11)]
+        cooled_good = "36.147.78.166:443"
+        cooled_captcha = "101.251.204.174:8080"
+        with server._PROXY_STATE_LOCK:
+            server._STICKY_PROXY = None
+            server._PROXY_COOLDOWNS.clear()
+            server._PROXY_COOLDOWNS[cooled_good] = (server.time.monotonic() + 120.0, False)
+            server._PROXY_COOLDOWNS[cooled_captcha] = (server.time.monotonic() + 900.0, True)
+
+        probed: list[str] = []
+
+        def fake_probe(proxy: str, url: str) -> tuple[bool, float]:
+            probed.append(proxy)
+            if proxy in {cooled_good, cooled_captcha}:
+                return True, 0.3
+            return False, float("inf")
+
+        with (
+            patch.object(server, "_probe_proxy", side_effect=fake_probe),
+            patch.object(server, "_fetch_remote_proxy_list", return_value=[]),
+        ):
+            selected = server._select_working_proxies(
+                "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+                [*dead_proxies, cooled_good, cooled_captcha],
+                limit=3,
+            )
+        self.assertEqual(selected, [cooled_good])
+        self.assertIn(cooled_good, probed)
+        self.assertNotIn(cooled_captcha, probed)
+
+    def test_select_working_proxies_falls_back_to_secondary_github_list(self) -> None:
+        with server._PROXY_STATE_LOCK:
+            server._STICKY_PROXY = None
+            server._PROXY_COOLDOWNS.clear()
+        fetched_urls: list[str] = []
+
+        def fake_fetch(url: str = server.BAOTI_PROXY_LIST_URL, **kwargs: object) -> list[str]:
+            fetched_urls.append(url)
+            if url == server.BAOTI_FALLBACK_PROXY_LIST_URL:
+                return ["47.90.1.2:8080"]
+            return []
+
+        def fake_probe(proxy: str, url: str) -> tuple[bool, float]:
+            return (proxy == "47.90.1.2:8080", 0.5 if proxy == "47.90.1.2:8080" else float("inf"))
+
+        with (
+            patch.object(server, "_fetch_remote_proxy_list", side_effect=fake_fetch),
+            patch.object(server, "_probe_proxy", side_effect=fake_probe),
+        ):
+            selected = server._select_working_proxies(
+                "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+                ["8.8.8.1:8080"],
+                limit=3,
+            )
+        self.assertEqual(selected, ["47.90.1.2:8080"])
+        self.assertEqual(fetched_urls, [server.BAOTI_FALLBACK_PROXY_LIST_URL])
+
+    def test_scrape_retries_up_to_three_proxies_and_leaves_direct_untouched(self) -> None:
+        with server._PROXY_STATE_LOCK:
+            server._STICKY_PROXY = None
+            server._PROXY_COOLDOWNS.clear()
+        attempts: list[str | None] = []
+
+        def fake_scrape(
+            venue, days, *, source_evidence, runtime=None, proxy=None, budget_seconds=135
+        ):
+            attempts.append(proxy)
+            if proxy == "1.1.1.1:80":
+                return server._stop_with_error(error="TimeoutException", venue=venue)
+            if proxy == "2.2.2.2:80":
+                return server._stop_with_error(error="schedule_not_ready", venue=venue)
+            return {"schema_version": 2, "ok": True, "captcha": False, "venue": venue, "days": []}
+
+        with (
+            patch.object(
+                server,
+                "_select_working_proxies",
+                return_value=["1.1.1.1:80", "2.2.2.2:80", "3.3.3.3:80"],
+            ),
+            patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
+        ):
+            result = server.scrape_available_slots("baoti_covered", 2)
+        self.assertTrue(result["ok"])
+        self.assertEqual(attempts, ["1.1.1.1:80", "2.2.2.2:80", "3.3.3.3:80"])
+        self.assertEqual(server._STICKY_PROXY, "3.3.3.3:80")
+        self.assertIn("1.1.1.1:80", server._PROXY_COOLDOWNS)
+        self.assertIn("2.2.2.2:80", server._PROXY_COOLDOWNS)
+
+    def test_probe_proxy_rejects_ydmap_rate_limit_json_200(self) -> None:
+        class FakeTlsSock:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+                self._offset = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def settimeout(self, timeout: float) -> None:
+                pass
+
+            def sendall(self, data: bytes) -> None:
+                pass
+
+            def recv(self, size: int) -> bytes:
+                chunk = self._payload[self._offset : self._offset + size]
+                self._offset += len(chunk)
+                return chunk
+
+        class FakeRawSock:
+            def __init__(self, connect_resp: bytes) -> None:
+                self._connect_resp = connect_resp
+                self._sent = False
+
+            def settimeout(self, timeout: float) -> None:
+                pass
+
+            def sendall(self, data: bytes) -> None:
+                pass
+
+            def recv(self, size: int) -> bytes:
+                if not self._sent:
+                    self._sent = True
+                    return self._connect_resp
+                return b""
+
+            def close(self) -> None:
+                pass
+
+        rate_limit_html = (
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html>"
+            + '{"code":999998,"msg":"您访问的频次过快"}'
+            + "x" * 1200
+        ).encode()
+        ctx = Mock()
+        ctx.wrap_socket.return_value = FakeTlsSock(rate_limit_html)
+        with (
+            patch.object(
+                server.socket,
+                "create_connection",
+                return_value=FakeRawSock(b"HTTP/1.1 200 Connection Established\r\n\r\n"),
+            ),
+            patch.object(server.ssl, "create_default_context", return_value=ctx),
+        ):
+            ok, _ = server._probe_proxy(
+                "36.147.78.166:443",
+                "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+            )
+        self.assertFalse(ok)
+
 
 if __name__ == "__main__":
     unittest.main()

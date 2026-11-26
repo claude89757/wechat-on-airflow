@@ -50,6 +50,7 @@ BAOTI = YdmapVenue(
         YdmapProduct("baoti_covered", "covered"),
     ),
     proxy_provider=fetch_baoti_proxies,
+    max_start_delay=datetime.timedelta(seconds=120),
 )
 
 

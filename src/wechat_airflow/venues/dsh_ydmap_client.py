@@ -17,7 +17,7 @@ DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
 VENUE_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 TIME_WIDTH = 5
-MAX_PASSED_PROXIES = 20
+MAX_PASSED_PROXIES = 40
 
 CourtAvailability = dict[str, list[list[str]]]
 
