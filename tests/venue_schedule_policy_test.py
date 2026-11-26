@@ -21,6 +21,9 @@ EXPECTED_EXCEPTIONS = {
     "大湾区网球场巡检": "every_3_minutes",
     "大沙河免费场巡检": "every_15_seconds",
     "大沙河国际网球中心巡检": "every_2_minutes",
+    "香蜜体育中心网球场巡检": "every_5_minutes",
+    "黄木岗网球中心巡检": "every_5_minutes",
+    "莲花体育中心网球场巡检": "every_5_minutes",
 }
 
 

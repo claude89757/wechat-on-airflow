@@ -44,11 +44,11 @@ def report(venues):
 
 
 def test_date_pause_upgrade_keeps_retired_venue_seed_identity():
-    # 0.10.0 adds date preferences and delivery-qualification DDL; 深湾竞界 adds
-    # one extra durable venue row. The seed is idempotent, so withdrawing a producer
-    # still never deletes its durable business identity.
+    # 0.10.0 adds date preferences and delivery-qualification DDL; 深湾竞界 and the
+    # three Futian YDMap venues add durable venue rows. The seed is idempotent, so
+    # withdrawing a producer still never deletes its durable business identity.
     assert database.SCHEMA_REVISION == (
-        "0.7.0-host-core-v1:adf05226885324def98b56c165295d23b0432c06bcd776a73f3c6ebb886d84a1"
+        "0.7.0-host-core-v1:8099acfe44f8d02baca75244a1bf0c096761e77d3bf06a369b0316a0bc93ee7d"
     )
     assert RETIRED_VENUES == {"baoti": "宝安网球中心"}
     assert len(DURABLE_VENUES) == len(VENUES) + 1
@@ -65,8 +65,8 @@ def test_retired_venue_is_preserved_but_excluded_from_active_catalog_and_health(
     before = deepcopy(stored)
     result = report(stored)
     assert result["ok"] is True
-    assert result["storedVenueCount"] == 28
-    assert result["checkedVenueCount"] == 27
+    assert result["storedVenueCount"] == 31
+    assert result["checkedVenueCount"] == 30
     assert result["retiredVenueCount"] == 1
     assert result["retiredVenues"][0]["last_inspection_at"] == retired["last_inspection_at"]
     assert result["retiredVenues"][0]["retirement"]["approved_on"] == "2026-11-01"

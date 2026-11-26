@@ -5,6 +5,9 @@ const INSPECTION_CADENCE_SECONDS: Readonly<Record<string, number>> = {
   gba: 180,
   dsh_free: 15,
   dsh: 120,
+  xmty: 300,
+  hmg: 300,
+  lhty: 300,
 };
 
 export function inspectionCadenceSeconds(venueId: string): number {

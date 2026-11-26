@@ -338,7 +338,7 @@ def remote(
             if report.get("failure") in FAILURES
             else "operation_failed",
             "rollbackVerified": report.get("rollbackVerified") is True,
-            "venue": report.get("venue") if report.get("venue") == "dsh" else None,
+            "venue": report.get("venue") if report.get("venue") in CONTRACT.PRODUCTS else None,
             "inspections": CONTRACT.safe_inspections(
                 report.get("inspections", []), source_evidence=source_evidence
             ),

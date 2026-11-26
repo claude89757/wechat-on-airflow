@@ -611,7 +611,7 @@ class PiYdmapScraperTest(unittest.TestCase):
         self.assertEqual(body["protocolVersion"], 2)
         self.assertEqual(body["deploymentCommit"], "a" * 40)
         self.assertEqual(body["sourceSha256"], hashlib.sha256(SERVER_PATH.read_bytes()).hexdigest())
-        self.assertEqual(body["venues"], ["dsh"])
+        self.assertEqual(body["venues"], ["dsh", "hmg", "lhty", "xmty"])
         self.assertTrue(body["busy"])
 
     def test_optional_evidence_is_collected_only_after_validated_date_refresh(self) -> None:

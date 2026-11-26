@@ -25,6 +25,27 @@ exceptions:
     schedule: every_2_minutes
     interval_seconds: 120
     reason: Business-approved two-minute cadence for Raspberry Pi Chromium scraping.
+  香蜜体育中心网球场巡检:
+    schedule: every_5_minutes
+    interval_seconds: 300
+    reason: >-
+      Owner-approved on 2026-11-26: ftty.ydmap.cn venues share the single
+      Raspberry Pi Chromium pool with Dashah; five minutes keeps upstream
+      page loads low enough to avoid access verification.
+  黄木岗网球中心巡检:
+    schedule: every_5_minutes
+    interval_seconds: 300
+    reason: >-
+      Owner-approved on 2026-11-26: ftty.ydmap.cn venues share the single
+      Raspberry Pi Chromium pool with Dashah; five minutes keeps upstream
+      page loads low enough to avoid access verification.
+  莲花体育中心网球场巡检:
+    schedule: every_5_minutes
+    interval_seconds: 300
+    reason: >-
+      Owner-approved on 2026-11-26: ftty.ydmap.cn venues share the single
+      Raspberry Pi Chromium pool with Dashah; five minutes keeps upstream
+      page loads low enough to avoid access verification.
 change_control:
   new_venues_use_default: true
   exceptions_require:

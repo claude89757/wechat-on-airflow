@@ -118,7 +118,12 @@ SOURCE_LITERAL_ALLOWLIST = SOURCE_CLASSES | {
 SOURCE_STRING = re.compile(r'"(?:[^"\\\r\n]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"')
 PUBLIC_TEXT = re.compile(r"[\w\u3400-\u9fff ·.()（）-]{1,120}")
 MARKER = "# Managed Pi YDMap release\n"
-DAG_IDS = ("大沙河国际网球中心巡检",)
+DAG_IDS = (
+    "大沙河国际网球中心巡检",
+    "香蜜体育中心网球场巡检",
+    "黄木岗网球中心巡检",
+    "莲花体育中心网球场巡检",
+)
 LEASE_SECONDS = 1620
 PROOF_MARGIN_SECONDS = 90
 ACTIVATION_SECONDS = 540
@@ -217,7 +222,23 @@ SOURCE_FIELDS = {
 }
 PRODUCTS = {
     "dsh": {"": ("100000", "")},
+    "xmty": {"": ("100341", "")},
+    "hmg": {"": ("100344", "")},
+    "lhty": {"": ("100347", "")},
 }
+# Booking host and salesId each venue's page must report as its source.
+SOURCES = {
+    "dsh": ("wxsports.ydmap.cn", "100220"),
+    "xmty": ("ftty.ydmap.cn", "101332"),
+    "hmg": ("ftty.ydmap.cn", "101333"),
+    "lhty": ("ftty.ydmap.cn", "101335"),
+}
+SUPPORTED_VENUES = sorted(PRODUCTS)
+# The live service may still be the release from before the Futian venues.
+LIVE_VENUE_SETS = (["dsh"], SUPPORTED_VENUES)
+# Futian venues release the next day at 09:00 and show only two dates.
+FTTY_VENUES = ("xmty", "hmg", "lhty")
+FTTY_OPEN_HOUR = 9
 ERROR_CLASSES = {
     "OperationFailure",
     "OSError",
@@ -456,7 +477,7 @@ def safe_source_diagnostic(value: object, *, nested: bool = False) -> dict:
     failed_venues = value.get("failedVenues")
     if (
         isinstance(failed_venues, list)
-        and 1 <= len(failed_venues) <= 2
+        and 1 <= len(failed_venues) <= len(PRODUCTS)
         and all(isinstance(venue, str) and venue in PRODUCTS for venue in failed_venues)
     ):
         result["failedVenues"] = list(dict.fromkeys(failed_venues))
@@ -982,10 +1003,14 @@ def live_ready(payload: dict) -> dict:
         payload.get("ok") is not True
         or payload.get("service") != "dsh_ydmap"
         or payload.get("protocolVersion") != 2
-        or sorted(payload.get("venues") or []) != ["dsh"]
+        or sorted(payload.get("venues") or []) not in LIVE_VENUE_SETS
     ):
         raise OperationFailure("scraper_not_ready")
-    report = {"liveServiceReady": True, "protocolVersion": 2, "venues": ["dsh"]}
+    report = {
+        "liveServiceReady": True,
+        "protocolVersion": 2,
+        "venues": sorted(payload["venues"]),
+    }
     commit = payload.get("deploymentCommit")
     if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
         report["deploymentCommit"] = commit
@@ -999,14 +1024,14 @@ def verify_health(payload: dict, commit: str, source_hash: str) -> dict:
         or payload.get("protocolVersion") != 2
         or payload.get("deploymentCommit") != commit
         or payload.get("sourceSha256") != source_hash
-        or sorted(payload.get("venues", [])) != ["dsh"]
+        or sorted(payload.get("venues", [])) != SUPPORTED_VENUES
     ):
         raise OperationFailure("scraper_identity_mismatch")
     return {
         "protocolVersion": 2,
         "deploymentCommit": commit,
         "sourceSha256": source_hash,
-        "venues": ["dsh"],
+        "venues": SUPPORTED_VENUES,
     }
 
 
@@ -1050,7 +1075,8 @@ def validate_drain_proof(value: object, commit: str, *, remaining: int = 30) -> 
     ):
         raise OperationFailure("dag_drain_proof_required")
     dags = value.get("dags")
-    if not isinstance(dags, list) or len(dags) != 1:
+    # A YDMap DAG that Airflow does not have yet (first Pi release) is absent.
+    if not isinstance(dags, list) or not 1 <= len(dags) <= len(DAG_IDS):
         raise OperationFailure("dag_drain_proof_required")
     if any(
         not isinstance(dag, dict)
@@ -1140,7 +1166,7 @@ def inspect_evidence(
                 label and label not in product_name
             ):
                 raise OperationFailure("product_identity_mismatch")
-            expected_host, expected_sales = "wxsports.ydmap.cn", "100220"
+            expected_host, expected_sales = SOURCES[venue]
             if (
                 group.get("source_host") != expected_host
                 or str(group.get("source_sales_id")) != expected_sales
@@ -1215,7 +1241,7 @@ def inspect_evidence(
 
 
 def safe_inspections(value: object, *, source_evidence: bool = False) -> list[dict]:
-    if not isinstance(value, list) or len(value) > 2:
+    if not isinstance(value, list) or len(value) > len(PRODUCTS):
         return []
     result = []
     try:
@@ -1280,7 +1306,11 @@ def inspect_venues(
     reports = []
     failures = []
     local = at or datetime.now(ZoneInfo("Asia/Shanghai"))
-    for venue, days, timeout in (("dsh", 5 if local.hour >= 12 else 4, 150),):
+    targets = [("dsh", 5 if local.hour >= 12 else 4, 150)]
+    if local.hour >= FTTY_OPEN_HOUR:
+        # Before 09:00 the second date is unreleased; the DAGs do not inspect then.
+        targets.extend((venue, 2, 150) for venue in FTTY_VENUES)
+    for venue, days, timeout in targets:
         today = local.date()
         expected = [(today + timedelta(days=offset)).isoformat() for offset in range(days)]
         try:
