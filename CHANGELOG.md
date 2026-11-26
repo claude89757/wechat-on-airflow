@@ -5,10 +5,17 @@ and operational changes.
 
 ## [Unreleased]
 
+### Changed
+
+- The three ftty.ydmap.cn venues now run every six minutes at minute offsets 0/2/4
+  instead of together every five, so their shared host sees one page load every
+  two minutes; it challenged three back-to-back loads in the Pi preflight. A Pi
+  installer inspection reads Dashah plus one of them, rotating by hour.
+
 ### Added
 
 - 香蜜体育中心, 黄木岗网球中心 and 莲花体育中心 (ftty.ydmap.cn) are inspected through
-  the existing Raspberry Pi YDMap scraper every five minutes from 09:00, when the
+  the existing Raspberry Pi YDMap scraper from 09:00, when the
   next day is released, and appear on the web app for email subscription. Alerts
   go to the shared Zacks groups with the Dashah time windows; 黄木岗's training
   walls are ignored. The Pi installer now verifies each venue's own booking host,

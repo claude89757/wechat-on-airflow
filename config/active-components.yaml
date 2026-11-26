@@ -240,7 +240,7 @@ active_dags:
 
   - dag_id: 香蜜体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/xmty_ydmap_watcher.py
-    schedule: every_5_minutes
+    schedule: "0-59/6 * * * *"
     task_pool: ydmap_browser
     tasks:
       - check_tennis_courts
@@ -266,7 +266,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect Xiangmi Sports Center availability on ftty.ydmap.cn via the Raspberry Pi browser scraper from 09:00 Asia/Shanghai, publish observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
+    purpose: Detect Xiangmi Sports Center availability on ftty.ydmap.cn via the Raspberry Pi browser scraper every six minutes from 09:00 Asia/Shanghai, publish observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
     verification:
       - dag_imports
       - recent_runs_succeed
@@ -275,7 +275,7 @@ active_dags:
 
   - dag_id: 黄木岗网球中心巡检
     file: dags/tennis_dags/sz_tennis/hmg_ydmap_watcher.py
-    schedule: every_5_minutes
+    schedule: "2-59/6 * * * *"
     task_pool: ydmap_browser
     tasks:
       - check_tennis_courts
@@ -301,7 +301,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect Huangmugang Tennis Center (training walls excluded) availability on ftty.ydmap.cn via the Raspberry Pi browser scraper from 09:00 Asia/Shanghai, publish observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
+    purpose: Detect Huangmugang Tennis Center (training walls excluded) availability on ftty.ydmap.cn via the Raspberry Pi browser scraper every six minutes from 09:00 Asia/Shanghai, publish observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
     verification:
       - dag_imports
       - recent_runs_succeed
@@ -310,7 +310,7 @@ active_dags:
 
   - dag_id: 莲花体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/lhty_ydmap_watcher.py
-    schedule: every_5_minutes
+    schedule: "4-59/6 * * * *"
     task_pool: ydmap_browser
     tasks:
       - check_tennis_courts
@@ -336,7 +336,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect Lianhua Sports Center availability on ftty.ydmap.cn via the Raspberry Pi browser scraper from 09:00 Asia/Shanghai, publish observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
+    purpose: Detect Lianhua Sports Center availability on ftty.ydmap.cn via the Raspberry Pi browser scraper every six minutes from 09:00 Asia/Shanghai, publish observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
     verification:
       - dag_imports
       - recent_runs_succeed
