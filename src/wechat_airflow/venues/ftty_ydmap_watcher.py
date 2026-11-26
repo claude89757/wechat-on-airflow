@@ -6,6 +6,10 @@
 
 页面规则是「09:00开放预定」，可订今明两天。09:00 前第二天尚未放场，
 放场前日期条的形态没有经过验证，所以 09:00 前不巡检，之后固定读两天。
+
+三个 DAG 用 cron 错开，同站每两分钟只加载一次页面。恢复调度或发布后，
+Airflow 会立刻补跑每个 DAG 最近一次错过的 tick，三次加载挤在一分钟内会
+触发站点滑块验证；所以明显晚于计划时间启动的运行（补跑、重试）直接跳过。
 """
 
 from __future__ import annotations
@@ -43,6 +47,9 @@ LOOKAHEAD_DAYS = 2
 BOOKING_OPEN_TIME = datetime.time(9, 0)
 MAX_CACHED_MESSAGES = 100
 LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
+# Natural runs start within seconds of their tick. Anything later is a catch-up
+# or retry that would land within a minute of a neighbouring venue's page load.
+MAX_START_DELAY = datetime.timedelta(seconds=45)
 
 
 @dataclass(frozen=True)
@@ -109,11 +116,39 @@ def enqueue_wechat_message(venue: FttyVenue, all_in_one_msg: str) -> object:
     )
 
 
+def start_delay(dag_run: object, now: datetime.datetime) -> datetime.timedelta | None:
+    """How late a scheduled run started; None for manual or unknown runs."""
+    run_type = getattr(dag_run, "run_type", None)
+    run_after = getattr(dag_run, "run_after", None)
+    if str(getattr(run_type, "value", run_type)) != "scheduled":
+        return None
+    if not isinstance(run_after, datetime.datetime) or run_after.tzinfo is None:
+        return None
+    return now - run_after
+
+
+def _late_start() -> datetime.timedelta | None:
+    try:
+        from airflow.sdk import get_current_context
+
+        context = get_current_context()
+    except Exception:
+        return None
+    return start_delay(context.get("dag_run"), datetime.datetime.now(datetime.UTC))
+
+
 def run_check(venue: FttyVenue) -> None:
     now = _local_now()
     if now.time() < BOOKING_OPEN_TIME:
         print(f"{venue.name}每天09:00开放预定，09:00前不巡检")
         publish_venue_observation(venue.venue_id, venue.name, [], healthy=True)
+        return
+    delay = _late_start()
+    if delay is not None and delay > MAX_START_DELAY:
+        # Keep the previous observation; the next natural tick is two minutes away.
+        print(
+            f"{venue.name}本轮晚于计划 {int(delay.total_seconds())} 秒启动（补跑或重试），跳过以免同站连抓"
+        )
         return
 
     run_start_time = time.time()

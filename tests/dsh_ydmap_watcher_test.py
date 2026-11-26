@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import shlex
 import sys
 import types
 import unittest
@@ -320,8 +321,10 @@ class DshYdmapWatcherTest(unittest.TestCase):
             dsh_client.exec_pi_command = original_exec
         self.assertEqual(payload, {"ok": True, "days": []})
         command = str(captured["args"][5])
-        self.assertIn("curl -sS --fail --max-time 150", command)
-        self.assertIn("http://127.0.0.1:8788/inspect?days=5", command)
+        self.assertEqual(
+            shlex.split(command),
+            ["curl", "-sS", "--max-time", "150", "http://127.0.0.1:8788/inspect?days=5"],
+        )
 
 
 if __name__ == "__main__":

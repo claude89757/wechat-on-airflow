@@ -5,6 +5,16 @@ and operational changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- The YDMap scraper client now shell-quotes its URL. The Pi runs the command
+  through a shell, so the unquoted `&` backgrounded curl and dropped `days=2`;
+  every ftty.ydmap.cn inspection asked for five days and failed with a bare 503.
+  Failed scrapes now report the scraper's own error code (captcha,
+  `requested_date_unavailable`, ...) instead of discarding the body. ftty runs
+  that start more than 45 s after their tick (release restore, unpause, retry)
+  skip instead of loading the page next to a neighbouring venue's load.
+
 ### Changed
 
 - The three ftty.ydmap.cn venues now run every six minutes at minute offsets 0/2/4

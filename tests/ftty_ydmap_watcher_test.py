@@ -4,6 +4,7 @@ import ast
 import datetime as real_datetime
 import importlib
 import importlib.util
+import shlex
 import sys
 import types
 from pathlib import Path
@@ -214,6 +215,13 @@ def test_scrape_failure_publishes_unhealthy_and_does_not_notify(
     assert harness["sent"] == []
 
 
+def _shell_words(command: str) -> list[str]:
+    """Split like a POSIX shell, keeping control operators such as ``&`` apart."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
 def test_client_selects_the_venue_and_keeps_the_dashah_request(monkeypatch) -> None:
     commands: list[str] = []
 
@@ -225,10 +233,57 @@ def test_client_selects_the_venue_and_keeps_the_dashah_request(monkeypatch) -> N
     config = client.PiDeviceConfig.from_value(SSH)
     client.fetch_inspect_payload(config, days=2, venue="xmty")
     client.fetch_inspect_payload(config, days=5)
-    assert "http://127.0.0.1:8788/inspect?venue=xmty&days=2" in commands[0]
-    assert "http://127.0.0.1:8788/inspect?days=5" in commands[1]
+    # The Pi parses the command with a shell; the whole URL must stay one argument
+    # (an unquoted "&" backgrounds curl and drops days=2).
+    assert _shell_words(commands[0]) == [
+        "curl",
+        "-sS",
+        "--max-time",
+        "150",
+        "http://127.0.0.1:8788/inspect?venue=xmty&days=2",
+    ]
+    assert _shell_words(commands[1])[-1] == "http://127.0.0.1:8788/inspect?days=5"
     with pytest.raises(ValueError):
         client.fetch_inspect_payload(config, days=2, venue="xmty;id")
+
+
+def test_failed_scrape_reports_the_scraper_error_code(monkeypatch) -> None:
+    body = '{"ok": false, "captcha": false, "error": "requested_date_unavailable", "days": []}'
+    monkeypatch.setattr(client, "exec_pi_command", lambda *args, **kwargs: (body, "", 0))
+    payload = client.fetch_inspect_payload(
+        client.PiDeviceConfig.from_value(SSH), days=2, venue="hmg"
+    )
+    with pytest.raises(ValueError, match="requested_date_unavailable"):
+        client.parse_inspect_payload(payload)
+
+
+def _dag_run(run_type: str, run_after: real_datetime.datetime) -> object:
+    return types.SimpleNamespace(run_type=run_type, run_after=run_after)
+
+
+def test_start_delay_only_measures_scheduled_runs() -> None:
+    tick = real_datetime.datetime(2026, 11, 27, 4, 0, tzinfo=real_datetime.UTC)
+    later = tick + real_datetime.timedelta(seconds=102)
+    assert ftty.start_delay(_dag_run("scheduled", tick), later) == real_datetime.timedelta(
+        seconds=102
+    )
+    assert ftty.start_delay(_dag_run("manual", tick), later) is None
+    assert ftty.start_delay(None, later) is None
+
+
+def test_late_catch_up_runs_skip_without_loading_the_page(
+    harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _at(monkeypatch, 12, 0)
+    harness["payload"] = {"ok": True, "days": []}
+    # Release restore / unpause: the latest missed tick fires minutes late.
+    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=204))
+    ftty.run_check(ftty.LHTY)
+    assert harness["fetches"] == [] and harness["published"] == []
+
+    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=3))
+    ftty.run_check(ftty.LHTY)
+    assert harness["fetches"] == [{"days": 2, "venue": "lhty"}]
 
 
 def _load(name: str, path: str) -> Any:
