@@ -55,7 +55,8 @@ exceptions:
     reason: >-
       Owner-approved on 2026-11-26: run every five minutes in an isolated
       Airflow pool (ydmap_baoti_browser) and isolated Raspberry Pi Chromium
-      debug port/lock using isz_https_proxies.txt only, rotating outdoor,
+      debug port/lock (direct-first with 30-minute circuit-breaker fallback to
+      isz_https_proxies.txt on captcha or rate limit), rotating outdoor,
       indoor and wind/rain (fifteen minutes per product) without interfering
       with Dashah or Futian inspections.
 change_control:

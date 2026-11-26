@@ -15,14 +15,17 @@ reads only one of them, rotating by hour. 黄木岗's training walls are scraped
 but dropped by its Airflow watcher.
 
 Bao'an Tennis Center (`baoti`) was withdrawn on 2026-11-01 and restored on
-2026-11-26 using the `isz_https_proxies.txt` HTTPS proxy pool. The Pi service
-validates candidate proxies via explicit HTTP/1.1 `CONNECT` + strict TLS before
-launching Chromium with `--proxy-server=http://<ip>:<port>` and never falls back
-to a direct connection or weakens TLS checks. Bao'an releases the next day at
-08:00 and shows today and tomorrow; its DAG runs on odd minutes (`1-59/2 * * * *`)
-and rotates one product per run (outdoor, indoor, covered — skipping kids'
-short court `111318`) so each product refreshes every six minutes and never
-collides with Dashah/Futian on even minutes.
+2026-11-26. It runs in a physically and scheduling-isolated path: Airflow uses
+the dedicated `ydmap_baoti_browser` pool (`slots=1`) on `1-59/5 * * * *` (one
+product every five minutes, rotating outdoor, indoor, covered every fifteen
+minutes — skipping kids' short court `111318`), and the Pi scraper uses its
+dedicated `BAOTI_SCRAPE_LOCK` and `BAOTI_DEBUG_PORT` (`9225`). The scraper runs
+direct-first on the Raspberry Pi and maintains a 30-minute circuit breaker: only
+if direct access encounters `captcha` or `rate_limited` does it fall back to
+validating candidate proxies from `isz_https_proxies.txt` via explicit HTTP/1.1
+`CONNECT` + strict TLS before launching Chromium with
+`--proxy-server=http://<ip>:<port>`. Bao'an releases the next day at 08:00 and
+reads two dates afterwards.
 
 The protected Pi deployment path serves all seven scraper keys (`dsh`, `xmty`,
 `hmg`, `lhty`, `baoti_outdoor`, `baoti_indoor`, `baoti_covered`). Changing

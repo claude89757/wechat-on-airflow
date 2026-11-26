@@ -30,11 +30,17 @@ def install_selenium_stubs() -> None:
             "selenium.webdriver.chrome",
             "selenium.webdriver.chrome.options",
             "selenium.webdriver.chrome.service",
+            "selenium.webdriver.common",
+            "selenium.webdriver.common.actions",
+            "selenium.webdriver.common.actions.action_builder",
         )
     }
     modules["selenium.webdriver.chrome.options"].Options = type("Options", (), {})
     modules["selenium.webdriver.chrome.service"].Service = type("Service", (), {})
     modules["selenium.webdriver"].Chrome = type("Chrome", (), {})
+    modules["selenium.webdriver.common.actions.action_builder"].ActionBuilder = type(
+        "ActionBuilder", (), {}
+    )
     for name, module in modules.items():
         sys.modules.setdefault(name, module)
 
@@ -1058,13 +1064,19 @@ class BaotiProxyScrapeTest(unittest.TestCase):
         self.assertNotIn("--ignore-certificate-errors", proxy_cmd)
 
     def test_proxy_unavailable_fails_without_starting_browser_or_leaking_ips(self) -> None:
-        with (
-            patch.object(server, "_select_working_proxies", return_value=[]),
-            patch.object(server, "_start_chromium") as start_browser,
-        ):
-            result = server.scrape_available_slots(
-                "baoti_outdoor", 2, proxies=["36.147.78.166:443"]
-            )
+        with server._PROXY_STATE_LOCK:
+            server._BAOTI_DIRECT_COOLDOWN_UNTIL = server.time.monotonic() + 600.0
+        try:
+            with (
+                patch.object(server, "_select_working_proxies", return_value=[]),
+                patch.object(server, "_start_chromium") as start_browser,
+            ):
+                result = server.scrape_available_slots(
+                    "baoti_outdoor", 2, proxies=["36.147.78.166:443"]
+                )
+        finally:
+            with server._PROXY_STATE_LOCK:
+                server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "proxy_unavailable")
         self.assertNotIn("36.147.78.166", json.dumps(result))
@@ -1087,18 +1099,25 @@ class BaotiProxyScrapeTest(unittest.TestCase):
                 "days": [],
             }
 
-        with (
-            patch.object(
-                server,
-                "_select_working_proxies",
-                return_value=["36.147.78.166:443", "101.251.204.174:8080"],
-            ),
-            patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
-        ):
-            result = server.scrape_available_slots(
-                "baoti_indoor", 2, proxies=["36.147.78.166:443", "101.251.204.174:8080"]
-            )
+        with server._PROXY_STATE_LOCK:
+            server._BAOTI_DIRECT_COOLDOWN_UNTIL = server.time.monotonic() + 600.0
+        try:
+            with (
+                patch.object(
+                    server,
+                    "_select_working_proxies",
+                    return_value=["36.147.78.166:443", "101.251.204.174:8080"],
+                ),
+                patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
+            ):
+                result = server.scrape_available_slots(
+                    "baoti_indoor", 2, proxies=["36.147.78.166:443", "101.251.204.174:8080"]
+                )
+        finally:
+            with server._PROXY_STATE_LOCK:
+                server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
         self.assertTrue(result["ok"])
+        self.assertEqual(result["diagnostics"]["transport"], "proxy")
         self.assertEqual(attempts, ["36.147.78.166:443", "101.251.204.174:8080"])
         self.assertEqual(server._STICKY_PROXY, "101.251.204.174:8080")
         self.assertIn("36.147.78.166:443", server._PROXY_COOLDOWNS)
@@ -1234,7 +1253,7 @@ class BaotiProxyScrapeTest(unittest.TestCase):
         self.assertEqual([s for s, _ in responses], [429, 200])
         self.assertEqual(responses[0][1]["error"], "busy")
 
-        # Proxied baoti uses BAOTI_DEBUG_PORT, direct dsh uses DEBUG_PORT.
+        # Both direct and proxied baoti use BAOTI_DEBUG_PORT, direct dsh uses DEBUG_PORT.
         seen_ports: list[int] = []
 
         def fake_start(url, *, profile=None, proxy=None, debug_port=server.DEBUG_PORT):
@@ -1250,30 +1269,39 @@ class BaotiProxyScrapeTest(unittest.TestCase):
             patch.object(server.time, "sleep"),
         ):
             server._scrape_available_slots("dsh", 2, source_evidence=False)
+            server._scrape_available_slots("baoti_outdoor", 2, source_evidence=False, proxy=None)
             server._scrape_available_slots(
                 "baoti_outdoor", 2, source_evidence=False, proxy="36.147.78.166:443"
             )
-        self.assertEqual(seen_ports, [server.DEBUG_PORT, server.BAOTI_DEBUG_PORT])
+        self.assertEqual(
+            seen_ports, [server.DEBUG_PORT, server.BAOTI_DEBUG_PORT, server.BAOTI_DEBUG_PORT]
+        )
         self.assertEqual(
             cleanup.call_args_list[0].kwargs.get("debug_port", server.DEBUG_PORT),
             server.DEBUG_PORT,
         )
         self.assertEqual(cleanup.call_args_list[1].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
+        self.assertEqual(cleanup.call_args_list[2].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
         self.assertEqual(
             wait_dev.call_args_list[0].kwargs.get("debug_port", server.DEBUG_PORT),
             server.DEBUG_PORT,
         )
         self.assertEqual(wait_dev.call_args_list[1].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
+        self.assertEqual(wait_dev.call_args_list[2].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
         self.assertEqual(
             att.call_args_list[0].kwargs.get("debug_port", server.DEBUG_PORT),
             server.DEBUG_PORT,
         )
         self.assertEqual(att.call_args_list[1].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
+        self.assertFalse(att.call_args_list[1].kwargs["proxied"])
+        self.assertEqual(att.call_args_list[2].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
+        self.assertTrue(att.call_args_list[2].kwargs["proxied"])
 
     def test_scrape_retries_up_to_three_proxies_and_leaves_direct_untouched(self) -> None:
         with server._PROXY_STATE_LOCK:
             server._STICKY_PROXY = None
             server._PROXY_COOLDOWNS.clear()
+            server._BAOTI_DIRECT_COOLDOWN_UNTIL = server.time.monotonic() + 600.0
         attempts: list[str | None] = []
 
         def fake_scrape(
@@ -1286,20 +1314,164 @@ class BaotiProxyScrapeTest(unittest.TestCase):
                 return server._stop_with_error(error="schedule_not_ready", venue=venue)
             return {"schema_version": 2, "ok": True, "captcha": False, "venue": venue, "days": []}
 
-        with (
-            patch.object(
-                server,
-                "_select_working_proxies",
-                return_value=["1.1.1.1:80", "2.2.2.2:80", "3.3.3.3:80"],
-            ),
-            patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
-        ):
-            result = server.scrape_available_slots("baoti_covered", 2)
+        try:
+            with (
+                patch.object(
+                    server,
+                    "_select_working_proxies",
+                    return_value=["1.1.1.1:80", "2.2.2.2:80", "3.3.3.3:80"],
+                ),
+                patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
+            ):
+                result = server.scrape_available_slots("baoti_covered", 2)
+        finally:
+            with server._PROXY_STATE_LOCK:
+                server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
         self.assertTrue(result["ok"])
+        self.assertEqual(result["diagnostics"]["transport"], "proxy")
         self.assertEqual(attempts, ["1.1.1.1:80", "2.2.2.2:80", "3.3.3.3:80"])
         self.assertEqual(server._STICKY_PROXY, "3.3.3.3:80")
         self.assertIn("1.1.1.1:80", server._PROXY_COOLDOWNS)
         self.assertIn("2.2.2.2:80", server._PROXY_COOLDOWNS)
+
+    def test_baoti_direct_first_succeeds_without_selecting_proxies(self) -> None:
+        with server._PROXY_STATE_LOCK:
+            server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
+        seen_proxies: list[str | None] = []
+
+        def fake_scrape(
+            venue, days, *, source_evidence, runtime=None, proxy=None, budget_seconds=135
+        ):
+            seen_proxies.append(proxy)
+            return {"schema_version": 2, "ok": True, "captcha": False, "venue": venue, "days": []}
+
+        with (
+            patch.object(server, "_select_working_proxies") as select_proxies,
+            patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
+        ):
+            result = server.scrape_available_slots(
+                "baoti_outdoor", 2, proxies=["36.147.78.166:443"]
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(seen_proxies, [None])
+        self.assertEqual(result["diagnostics"]["transport"], "direct")
+        select_proxies.assert_not_called()
+
+    def test_baoti_direct_challenge_trips_cooldown_and_falls_back_to_isz_proxies(self) -> None:
+        with server._PROXY_STATE_LOCK:
+            server._STICKY_PROXY = None
+            server._PROXY_COOLDOWNS.clear()
+            server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
+        attempts: list[str | None] = []
+
+        def fake_scrape(
+            venue, days, *, source_evidence, runtime=None, proxy=None, budget_seconds=135
+        ):
+            attempts.append(proxy)
+            if proxy is None:
+                return server._stop_with_error(error="captcha", venue=venue, captcha=True)
+            return {"schema_version": 2, "ok": True, "captcha": False, "venue": venue, "days": []}
+
+        try:
+            with (
+                patch.object(
+                    server, "_select_working_proxies", return_value=["36.147.78.166:443"]
+                ) as select_proxies,
+                patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
+            ):
+                result = server.scrape_available_slots(
+                    "baoti_outdoor", 2, proxies=["36.147.78.166:443"]
+                )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["diagnostics"]["transport"], "proxy")
+            self.assertEqual(attempts, [None, "36.147.78.166:443"])
+            self.assertTrue(server._baoti_direct_in_cooldown())
+            select_proxies.assert_called_once()
+
+            # When no fallback proxy is available after rate_limited, return original error cleanly.
+            with server._PROXY_STATE_LOCK:
+                server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
+            with (
+                patch.object(server, "_select_working_proxies", return_value=[]),
+                patch.object(
+                    server,
+                    "_scrape_available_slots",
+                    return_value=server._stop_with_error(
+                        error="rate_limited", venue="baoti_indoor"
+                    ),
+                ),
+            ):
+                no_proxy = server.scrape_available_slots("baoti_indoor", 2, proxies=[])
+            self.assertFalse(no_proxy["ok"])
+            self.assertEqual(no_proxy["error"], "rate_limited")
+            self.assertEqual(no_proxy["diagnostics"]["proxyFallback"], "unavailable")
+            self.assertTrue(server._baoti_direct_in_cooldown())
+        finally:
+            with server._PROXY_STATE_LOCK:
+                server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
+
+    def test_baoti_direct_transient_error_does_not_trip_cooldown_or_use_proxy(self) -> None:
+        with server._PROXY_STATE_LOCK:
+            server._BAOTI_DIRECT_COOLDOWN_UNTIL = 0.0
+        with (
+            patch.object(server, "_select_working_proxies") as select_proxies,
+            patch.object(
+                server,
+                "_scrape_available_slots",
+                return_value=server._stop_with_error(
+                    error="ReadTimeoutError", venue="baoti_outdoor"
+                ),
+            ),
+        ):
+            result = server.scrape_available_slots(
+                "baoti_outdoor", 2, proxies=["36.147.78.166:443"]
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "ReadTimeoutError")
+        self.assertEqual(result["diagnostics"]["transport"], "direct")
+        self.assertFalse(server._baoti_direct_in_cooldown())
+        select_proxies.assert_not_called()
+
+    def test_baoti_select_date_tab_uses_pointer_actions_and_checks_occlusion(self) -> None:
+        driver = Mock()
+        recorded: list[tuple[str, object]] = []
+
+        class FakeActionBuilder:
+            def __init__(self, target_driver: object) -> None:
+                recorded.append(("init", target_driver))
+                self.pointer_action = self
+
+            def move_to_location(self, x: int, y: int) -> None:
+                recorded.append(("move", (x, y)))
+
+            def click(self) -> None:
+                recorded.append(("click", None))
+
+            def perform(self) -> None:
+                recorded.append(("perform", None))
+
+        action_mod = sys.modules["selenium.webdriver.common.actions.action_builder"]
+        with patch.object(action_mod, "ActionBuilder", FakeActionBuilder, create=True):
+            driver.execute_script.return_value = {"x": 693.4, "y": 89.2, "clickable": True}
+            self.assertIsNone(server._select_date_tab(driver, "baoti_outdoor", "2026-11-28"))
+            self.assertEqual(
+                recorded,
+                [("init", driver), ("move", (693, 89)), ("click", None), ("perform", None)],
+            )
+
+            recorded.clear()
+            driver.execute_script.return_value = {"x": 693.4, "y": 89.2, "clickable": False}
+            self.assertEqual(
+                server._select_date_tab(driver, "baoti_outdoor", "2026-11-28"),
+                "date_tab_occluded:2026-11-28",
+            )
+            self.assertEqual(recorded, [])
+
+            driver.execute_script.return_value = None
+            self.assertEqual(
+                server._select_date_tab(driver, "baoti_outdoor", "2026-11-28"),
+                "date_tab_not_found:2026-11-28",
+            )
 
     def test_probe_proxy_rejects_ydmap_rate_limit_json_200(self) -> None:
         class FakeTlsSock:

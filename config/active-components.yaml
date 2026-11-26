@@ -373,7 +373,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect Bao'an Tennis Center outdoor, indoor and wind/rain availability on bawtt.ydmap.cn via an isolated Raspberry Pi Chromium debug port/lock and isz_https_proxies.txt HTTPS proxy pool, one product every five minutes (each product every fifteen) from 08:00 Asia/Shanghai on dedicated pool ydmap_baoti_browser, publish per-product observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
+    purpose: Detect Bao'an Tennis Center outdoor, indoor and wind/rain availability on bawtt.ydmap.cn via an isolated Raspberry Pi Chromium debug port/lock (direct-first with 30-minute circuit-breaker fallback to isz_https_proxies.txt on captcha or rate limit), one product every five minutes (each product every fifteen) from 08:00 Asia/Shanghai on dedicated pool ydmap_baoti_browser, publish per-product observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
     verification:
       - dag_imports
       - recent_runs_succeed
