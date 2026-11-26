@@ -141,6 +141,33 @@ is active on the Pi, port `8788` remains loopback-only, and Airflow Variable
 `pi_device_ssh_sync` before the next deployment health check. Do not expose the
 scrape port or copy the workstation `.env` onto the Airflow host.
 
+### Pi SSH `Error reading SSH protocol banner`
+
+The DAG run stays `success` because the watcher publishes `healthy=False`, so
+count this error in the task logs instead. Airflow and the Pi workflows reach
+sshd through an FRP forward, and internet brute force uses the same forward. sshd
+therefore sees every client as `127.0.0.1`. When too many unauthenticated
+connections are open, sshd randomly drops new ones with `Exceeded MaxStartups`.
+paramiko reports that drop as this banner error.
+
+Use the Pi operations MCP for these read-only checks:
+
+- The listener process title (`ps -eo args= | grep listener`) shows
+  `N of <start>-<full> startups`. Drops begin above the start value.
+- A few local banner probes to `127.0.0.1:22` answer `Exceeded MaxStartups`
+  while drops are happening.
+- The ssh journal is volatile. A flood rotates it in a few hours, and individual
+  drops are logged only at VERBOSE, so a missing log line proves nothing.
+
+Per-source limits (`PerSourceMaxStartups`, `PerSourcePenalties`) and a Pi-side
+fail2ban would punish the shared loopback source, which locks out Airflow too.
+Since 2026-11-26 the Pi carries an owner-approved drop-in,
+`/etc/ssh/sshd_config.d/40-zacks-startups.conf`, containing
+`MaxStartups 100:30:256`. To roll back, delete the file, run `sshd -t`, then
+`systemctl reload ssh`. Any further sshd or exposure change requires owner
+approval: key-only login, restricting the FRP port, or retiring it. Issue #39
+records the options.
+
 ## WeChat Failure
 
 Check sender `/healthz`, `device_busy` responses, Appium availability, device
