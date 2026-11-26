@@ -179,12 +179,16 @@ def run_check(venue: YdmapVenue) -> None:
     product = product_for(venue, _run_slot() or now)
     # Each product replaces only its own scope; None keeps a single-product venue's default.
     scope = product.observation_scope if product else None
-    scope_kwargs = {"observation_scope": scope} if scope is not None else {}
     scraper_venue = product.scraper_venue if product else venue.venue_id
     if now.time() < venue.booking_open:
         opens = venue.booking_open.strftime("%H:%M")
         print(f"{venue.name}每天{opens}开放预定，{opens}前不巡检")
-        publish_venue_observation(venue.venue_id, venue.name, [], healthy=True, **scope_kwargs)
+        if scope is not None:
+            publish_venue_observation(
+                venue.venue_id, venue.name, [], healthy=True, observation_scope=scope
+            )
+        else:
+            publish_venue_observation(venue.venue_id, venue.name, [], healthy=True)
         return
     delay = _late_start()
     if delay is not None and delay > MAX_START_DELAY:
@@ -222,19 +226,35 @@ def run_check(venue: YdmapVenue) -> None:
             up_for_send_data_list.extend(
                 filter_court_data_for_notification(input_date, court_data, venue.name)
             )
-        publish_venue_observation(
-            venue.venue_id, venue.name, webapp_slots, healthy=True, **scope_kwargs
-        )
+        if scope is not None:
+            publish_venue_observation(
+                venue.venue_id,
+                venue.name,
+                webapp_slots,
+                healthy=True,
+                observation_scope=scope,
+            )
+        else:
+            publish_venue_observation(venue.venue_id, venue.name, webapp_slots, healthy=True)
     except Exception as error:
         print(f"Error checking {venue.name}: {error}")
-        publish_venue_observation(
-            venue.venue_id,
-            venue.name,
-            webapp_slots,
-            healthy=False,
-            error=type(error).__name__,
-            **scope_kwargs,
-        )
+        if scope is not None:
+            publish_venue_observation(
+                venue.venue_id,
+                venue.name,
+                webapp_slots,
+                healthy=False,
+                error=type(error).__name__,
+                observation_scope=scope,
+            )
+        else:
+            publish_venue_observation(
+                venue.venue_id,
+                venue.name,
+                webapp_slots,
+                healthy=False,
+                error=type(error).__name__,
+            )
         print_with_timestamp(f"Total cost time: {time.time() - run_start_time:.2f}s")
         return
 
