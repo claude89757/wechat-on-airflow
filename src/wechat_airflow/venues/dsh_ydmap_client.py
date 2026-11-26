@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
@@ -124,8 +125,12 @@ def fetch_inspect_payload(
         raise ValueError("venue must be a scraper venue key")
     # The Pi service defaults to Dashah; keep its request unchanged.
     query = f"days={int(days)}" if venue == DEFAULT_VENUE else f"venue={venue}&days={int(days)}"
-    url = f"{config.scrape_url}?{query}"
-    command = f"curl -sS --fail --max-time 150 {quote(url, safe=':/?=&')}"
+    url = quote(f"{config.scrape_url}?{query}", safe=":/?=&")
+    # The Pi runs this through a remote shell: an unquoted ``&`` would background
+    # curl and silently drop every parameter after the first. No ``--fail``: a
+    # failed scrape still answers with its JSON error code, which
+    # parse_inspect_payload reports instead of a bare HTTP status.
+    command = f"curl -sS --max-time 150 {shlex.quote(url)}"
     output, error, status = exec_pi_command(
         config.host,
         config.port,

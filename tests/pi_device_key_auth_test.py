@@ -186,7 +186,7 @@ def test_fetch_passes_the_key_to_the_ssh_helper(monkeypatch: pytest.MonkeyPatch)
     dsh_client.fetch_inspect_payload(config, days=5)
 
     assert captured["kwargs"] == {"private_key": "KEY"}
-    assert "curl -sS --fail" in str(captured["args"][5])  # type: ignore[index]
+    assert str(captured["args"][5]).startswith("curl -sS --max-time 150 ")  # type: ignore[index]
 
 
 def test_variable_sync_keeps_a_key_added_on_the_host() -> None:
