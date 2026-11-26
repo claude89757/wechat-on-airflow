@@ -4,9 +4,9 @@
 采集服务读取；区别在于宝安网球中心通过 ``isz_https_proxies.txt`` 代理池访问，
 由采集服务先用 HTTP/1.1 CONNECT 筛选可用代理并在异常时切换。
 
-每个产品有自己的采集键，每次运行只加载一个页面：DAG 在奇数分钟运行
-（福田三馆与大沙河占偶数分钟），按计划时间轮换产品，同站每两分钟只加载
-一次，每个产品 6 分钟刷新一次。三个产品发布独立的观测 scope，互不覆盖。
+每个产品有自己的采集键，每次运行只加载一个页面：DAG 在独立池 ``ydmap_baoti_browser`` 中每 5 分钟运行一次
+（与福田三馆和大沙河的 ``ydmap_browser`` 物理和调度完全隔离），按计划时间轮换产品，
+每个产品 15 分钟刷新一次。三个产品发布独立的观测 scope，互不覆盖。
 儿童短网不是标准网球场，不采集。
 
 页面规则是「08:00开放预定」，可订今明两天；08:00 前不巡检。
@@ -50,7 +50,8 @@ BAOTI = YdmapVenue(
         YdmapProduct("baoti_covered", "covered"),
     ),
     proxy_provider=fetch_baoti_proxies,
-    max_start_delay=datetime.timedelta(seconds=120),
+    max_start_delay=datetime.timedelta(seconds=180),
+    rotation_minutes=5,
 )
 
 

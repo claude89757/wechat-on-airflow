@@ -32,7 +32,7 @@ REMOTE_FILENAME = (
 )
 BAOTI_TARGET_URL = "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317"
 SOURCE_TIMEOUT_SECONDS = 15
-PROXY_CHECK_TIMEOUT_SECONDS = 5
+PROXY_CHECK_TIMEOUT_SECONDS = 8
 GITHUB_TIMEOUT_SECONDS = 15
 RATE_LIMIT_OR_CHALLENGE_RE = re.compile(
     r"(?:999998|频次过快|请求过于频繁|too\s+many\s+requests|rate\s+limit|"
@@ -133,8 +133,8 @@ def check_proxy(proxy_url, proxy_url_infos):
 
 def update_proxy_file(filename, available_proxies):
     """
-    更新代理文件：有新测活代理时仅保留本轮验活节点以剔除失效代理；
-    若本轮 0 发现则保留最多 20 个旧节点作为安全兜底，避免瞬断清空列表。
+    更新代理文件：本轮验活节点排在最前，并滚动保留历史代理（最多 30 个），
+    避免仅少量境外可达节点通过时把树莓派可用的国内节点一次性抹除。
     """
     try:
         with open(filename) as file:
@@ -151,15 +151,15 @@ def update_proxy_file(filename, available_proxies):
         if is_valid_proxy(cleaned) and cleaned not in seen:
             seen.add(cleaned)
             all_proxies.append(cleaned)
-            if len(all_proxies) >= 100:
+            if len(all_proxies) >= 30:
                 break
 
-    if not all_proxies:
+    if len(all_proxies) < 30:
         for proxy in existing_proxies:
             if proxy not in seen:
                 seen.add(proxy)
                 all_proxies.append(proxy)
-                if len(all_proxies) >= 20:
+                if len(all_proxies) >= 30:
                     break
 
     with open(filename, "w") as file:

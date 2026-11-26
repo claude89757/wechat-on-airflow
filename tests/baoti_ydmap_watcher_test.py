@@ -118,9 +118,9 @@ def test_baoti_dag_wiring_and_odd_minute_separation() -> None:
     assert ast.literal_eval(dag.args[0]) == "宝安网球中心巡检"
     dag_options = {keyword.arg: keyword.value for keyword in dag.keywords}
     cron = ast.literal_eval(dag_options["schedule"])
-    assert cron == "1-59/2 * * * *"
+    assert cron == "1-59/5 * * * *"
     operator = {keyword.arg: keyword.value for keyword in calls["PythonOperator"].keywords}
-    assert ast.literal_eval(operator["pool"]) == "ydmap_browser"
+    assert ast.literal_eval(operator["pool"]) == "ydmap_baoti_browser"
     assert operator["python_callable"].id == "run_check_tennis_courts"  # type: ignore[attr-defined]
 
     # Odd minutes never overlap with Dashah / Futian even-minute runs.
@@ -148,7 +148,7 @@ def test_before_0800_publishes_empty_for_slot_scope_without_scraping(
     assert harness["sent"] == []
 
 
-def test_rotates_three_products_across_consecutive_two_minute_ticks(
+def test_rotates_three_products_across_consecutive_five_minute_ticks(
     harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _at(monkeypatch, 9, 1)
@@ -157,7 +157,7 @@ def test_rotates_three_products_across_consecutive_two_minute_ticks(
     seen_scopes: list[str | None] = []
     base = real_datetime.datetime(2026, 11, 27, 1, 1, tzinfo=real_datetime.UTC)
     for step in range(3):
-        slot = base + real_datetime.timedelta(minutes=2 * step)
+        slot = base + real_datetime.timedelta(minutes=5 * step)
         monkeypatch.setattr(ftty, "_run_slot", lambda s=slot: s)
         baoti.run_check_tennis_courts()
         seen_venues.append(harness["fetches"][-1]["venue"])
@@ -168,19 +168,18 @@ def test_rotates_three_products_across_consecutive_two_minute_ticks(
     assert all(item["proxies"] == ["36.147.78.166:443"] for item in harness["fetches"])
 
 
-def test_late_start_skips_baoti_only_after_two_minute_grace(
+def test_late_start_skips_baoti_only_after_three_minute_grace(
     harness: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _at(monkeypatch, 9, 1)
     harness["payload"] = {"ok": True, "days": []}
-    # Waiting up to 120s for ydmap_browser pool (dsh + ftty) should still run.
-    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=90))
+    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=150))
     baoti.run_check_tennis_courts()
     assert len(harness["fetches"]) == 1
     assert len(harness["published"]) == 1
 
-    # Beyond 120s skips stale catch-up runs.
-    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=130))
+    # Beyond 180s skips stale catch-up runs.
+    monkeypatch.setattr(ftty, "_late_start", lambda: real_datetime.timedelta(seconds=190))
     baoti.run_check_tennis_courts()
     assert len(harness["fetches"]) == 1
     assert len(harness["published"]) == 1

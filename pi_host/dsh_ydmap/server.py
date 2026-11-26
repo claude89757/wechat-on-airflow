@@ -50,17 +50,12 @@ BAOTI_PROXY_LIST_URL = os.environ.get(
     "YDMAP_BAOTI_PROXY_LIST_URL",
     "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/isz_https_proxies.txt",
 )
-BAOTI_FALLBACK_PROXY_LIST_URL = os.environ.get(
-    "YDMAP_BAOTI_FALLBACK_PROXY_LIST_URL",
-    "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/https_proxies.txt",
-)
-PROXY_PROBE_TIMEOUT = 7.0
+PROXY_PROBE_TIMEOUT = 8.0
 PROXY_FETCH_TIMEOUT = 8.0
 PROXY_LIST_TTL_SECONDS = 60.0
 PROXY_FAILURE_COOLDOWN_SECONDS = 120.0
 PROXY_CHALLENGE_COOLDOWN_SECONDS = 900.0
 PROXY_MAX_CANDIDATES = 48
-PROXY_FALLBACK_MAX_CANDIDATES = 24
 _PROXY_STATE_LOCK = threading.Lock()
 _STICKY_PROXY: str | None = None
 _PROXY_LIST_CACHE: tuple[float, list[str]] = (0.0, [])
@@ -70,6 +65,7 @@ LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
 PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
 PROFILE_MARKER = b"pi-ydmap-service-profile-v2\n"
 DEBUG_PORT = int(os.environ.get("YDMAP_DEBUG_PORT", "9224"))
+BAOTI_DEBUG_PORT = int(os.environ.get("YDMAP_BAOTI_DEBUG_PORT", str(DEBUG_PORT + 1)))
 SCHEMA_VERSION = 2
 SCRAPE_TIMEOUT = 210
 DRIVER_HTTP_TIMEOUT = 30
@@ -81,6 +77,7 @@ CHROMEDRIVER = "/usr/local/bin/chromedriver"
 DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
 SCRAPE_LOCK = threading.Lock()
+BAOTI_SCRAPE_LOCK = threading.Lock()
 SOURCE_METHODS = (
     "isAvailableStatic",
     "textFun",
@@ -420,7 +417,7 @@ return result;
 """
 
 
-def _cleanup_stale_browser(profile: Path | None = None) -> None:
+def _cleanup_stale_browser(profile: Path | None = None, *, debug_port: int = DEBUG_PORT) -> None:
     # Never reuse or chmod a shared/home profile via a typo or final symlink.
     temporary_root = Path("/tmp").resolve()
     profile = profile or PROFILE
@@ -435,7 +432,7 @@ def _cleanup_stale_browser(profile: Path | None = None) -> None:
     ):
         raise ValueError("YDMAP_PROFILE must be a dedicated directory below /tmp")
     subprocess.run(
-        ["pkill", "-f", "--", f"--remote-debugging-port={DEBUG_PORT}([[:space:]]|$)"],
+        ["pkill", "-f", "--", f"--remote-debugging-port={debug_port}([[:space:]]|$)"],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -465,6 +462,7 @@ def _start_chromium(
     *,
     profile: Path | None = None,
     proxy: str | None = None,
+    debug_port: int = DEBUG_PORT,
 ) -> subprocess.Popen[Any]:
     env = os.environ.copy()
     env["DISPLAY"] = env.get("DISPLAY") or ":0"
@@ -474,7 +472,7 @@ def _start_chromium(
     env["LC_ALL"] = "zh_CN.UTF-8"
     cmd = [
         CHROMIUM_BIN,
-        f"--remote-debugging-port={DEBUG_PORT}",
+        f"--remote-debugging-port={debug_port}",
         "--remote-allow-origins=*",
         f"--user-data-dir={profile or PROFILE}",
         "--no-first-run",
@@ -737,45 +735,32 @@ def _select_working_proxies(
             if len(merged) >= PROXY_MAX_CANDIDATES:
                 break
 
-    challenge_blocked = {p for p, (_, is_challenge) in active_cooldowns.items() if is_challenge}
+    if not merged:
+        return []
+
     selected: list[str] = []
     selected_set: set[str] = set()
-    if merged:
-        active = [p for p in merged if p not in active_cooldowns]
-        transient_cooled = [
-            p for p in merged if p in active_cooldowns and not active_cooldowns[p][1]
-        ]
-        for proxy in _probe_pool(active, url, sticky=sticky, tier=0):
+    active = [p for p in merged if p not in active_cooldowns]
+    transient_cooled = [p for p in merged if p in active_cooldowns and not active_cooldowns[p][1]]
+    for proxy in _probe_pool(active, url, sticky=sticky, tier=0):
+        if proxy not in selected_set:
+            selected_set.add(proxy)
+            selected.append(proxy)
+            if len(selected) >= limit:
+                return selected
+    if len(selected) < limit and transient_cooled:
+        for proxy in _probe_pool(transient_cooled, url, sticky=sticky, tier=1):
             if proxy not in selected_set:
                 selected_set.add(proxy)
                 selected.append(proxy)
                 if len(selected) >= limit:
                     return selected
-        if len(selected) < limit and transient_cooled:
-            for proxy in _probe_pool(transient_cooled, url, sticky=sticky, tier=1):
-                if proxy not in selected_set:
-                    selected_set.add(proxy)
-                    selected.append(proxy)
-                    if len(selected) >= limit:
-                        return selected
-
-    if not selected:
-        fallback_list = _fetch_remote_proxy_list(
-            BAOTI_FALLBACK_PROXY_LIST_URL, max_candidates=PROXY_FALLBACK_MAX_CANDIDATES
-        )
-        fallback_pool = [p for p in fallback_list if p not in seen and p not in challenge_blocked]
-        for proxy in _probe_pool(fallback_pool, url, sticky=sticky, tier=2):
-            if proxy not in selected_set:
-                selected_set.add(proxy)
-                selected.append(proxy)
-                if len(selected) >= limit:
-                    break
 
     return selected[:limit]
 
 
-def _wait_devtools(timeout: float = 40) -> None:
-    url = f"http://127.0.0.1:{DEBUG_PORT}/json/version"
+def _wait_devtools(timeout: float = 40, *, debug_port: int = DEBUG_PORT) -> None:
+    url = f"http://127.0.0.1:{debug_port}/json/version"
     deadline = time.monotonic() + timeout
     last = ""
     while time.monotonic() < deadline:
@@ -804,7 +789,9 @@ def _stop_driver_service(service: Any) -> None:
     service.process = None
 
 
-def _attach(timeout: float = 30, *, proxied: bool = False) -> webdriver.Remote:
+def _attach(
+    timeout: float = 30, *, proxied: bool = False, debug_port: int = DEBUG_PORT
+) -> webdriver.Remote:
     from selenium.webdriver.remote.client_config import ClientConfig
     from selenium.webdriver.remote.remote_connection import RemoteConnection
 
@@ -812,7 +799,7 @@ def _attach(timeout: float = 30, *, proxied: bool = False) -> webdriver.Remote:
     # class-level set_timeout before a connection exists fails on recent
     # Selenium; setting it after Chrome() leaves session startup unbounded.
     opts = Options()
-    opts.debugger_address = f"127.0.0.1:{DEBUG_PORT}"
+    opts.debugger_address = f"127.0.0.1:{debug_port}"
     opts.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
     service = Service(CHROMEDRIVER)
     watchdog = threading.Timer(timeout, _stop_driver_service, args=(service,))
@@ -1604,15 +1591,33 @@ def _scrape_available_slots(
             # Each source opens its supported URL natively, like Dashah;
             # no cross-product browser/app state or product-tab click is reused.
             profile = PROFILE / f"{venue}-{key or 'main'}"
-            _cleanup_stale_browser(profile)
-            if proxy is not None:
-                proc = _start_chromium(url, profile=profile, proxy=proxy)
+            debug_port = BAOTI_DEBUG_PORT if proxy is not None else DEBUG_PORT
+            if debug_port != DEBUG_PORT:
+                _cleanup_stale_browser(profile, debug_port=debug_port)
+                proc = _start_chromium(url, profile=profile, proxy=proxy, debug_port=debug_port)
+                _wait_devtools(timeout=_remaining(deadline, 40), debug_port=debug_port)
+                time.sleep(_remaining(deadline, 4))
+                phase = "browser_attach"
+                driver = _attach(
+                    timeout=_remaining(deadline, 30),
+                    proxied=True,
+                    debug_port=debug_port,
+                )
             else:
-                proc = _start_chromium(url, profile=profile)
-            _wait_devtools(timeout=_remaining(deadline, 40))
-            time.sleep(_remaining(deadline, 4))
-            phase = "browser_attach"
-            driver = _attach(timeout=_remaining(deadline, 30), proxied=(proxy is not None))
+                _cleanup_stale_browser(profile)
+                proc = (
+                    _start_chromium(url, profile=profile, proxy=proxy)
+                    if proxy is not None
+                    else _start_chromium(url, profile=profile)
+                )
+                _wait_devtools(timeout=_remaining(deadline, 40))
+                time.sleep(_remaining(deadline, 4))
+                phase = "browser_attach"
+                driver = (
+                    _attach(timeout=_remaining(deadline, 30), proxied=True)
+                    if proxy is not None
+                    else _attach(timeout=_remaining(deadline, 30))
+                )
             if runtime is not None:
                 runtime.update(_browser_environment(driver))
             parsed = urlparse(url)
@@ -1864,6 +1869,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sourceSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                     "venues": sorted(VENUE_GROUPS),
                     "busy": SCRAPE_LOCK.locked(),
+                    "baoti_busy": BAOTI_SCRAPE_LOCK.locked(),
                 },
             )
             return
@@ -1885,7 +1891,8 @@ class Handler(BaseHTTPRequestHandler):
         passed_proxies = (
             _normalize_proxy_candidates(raw_proxies) if venue in PROXY_REQUIRED_VENUES else []
         )
-        if not SCRAPE_LOCK.acquire(blocking=False):
+        lock = BAOTI_SCRAPE_LOCK if venue in PROXY_REQUIRED_VENUES else SCRAPE_LOCK
+        if not lock.acquire(blocking=False):
             self._send_json(429, _stop_with_error(error="busy", venue=venue))
             return
         try:
@@ -1907,7 +1914,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, _stop_with_error(error=type(exc).__name__, venue=venue))
         finally:
-            SCRAPE_LOCK.release()
+            lock.release()
 
 
 def main() -> None:
