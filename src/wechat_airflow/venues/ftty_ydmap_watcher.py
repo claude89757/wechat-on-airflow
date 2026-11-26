@@ -10,12 +10,16 @@
 三个 DAG 用 cron 错开，同站每两分钟只加载一次页面。恢复调度或发布后，
 Airflow 会立刻补跑每个 DAG 最近一次错过的 tick，三次加载挤在一分钟内会
 触发站点滑块验证；所以明显晚于计划时间启动的运行（补跑、重试）直接跳过。
+
+宝安网球中心（``baoti_ydmap_watcher``）复用这里的巡检流程：一个场馆有多
+个独立产品，每次运行只读当前两分钟窗口对应的那一个产品，并通过代理池访问。
 """
 
 from __future__ import annotations
 
 import datetime
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
@@ -47,17 +51,29 @@ LOOKAHEAD_DAYS = 2
 BOOKING_OPEN_TIME = datetime.time(9, 0)
 MAX_CACHED_MESSAGES = 100
 LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
+ROTATION_MINUTES = 2
 # Natural runs start within seconds of their tick. Anything later is a catch-up
 # or retry that would land within a minute of a neighbouring venue's page load.
 MAX_START_DELAY = datetime.timedelta(seconds=45)
 
 
 @dataclass(frozen=True)
-class FttyVenue:
-    """One ftty.ydmap.cn venue; names come from the venue catalog."""
+class YdmapProduct:
+    """One product tab on a multi-product YDMap venue."""
+
+    scraper_venue: str
+    observation_scope: str
+
+
+@dataclass(frozen=True)
+class YdmapVenue:
+    """One YDMap venue; names come from the venue catalog."""
 
     venue_id: str
     excluded_court_tokens: tuple[str, ...] = ()
+    booking_open: datetime.time = BOOKING_OPEN_TIME
+    products: tuple[YdmapProduct, ...] = ()
+    proxy_provider: Callable[[], list[str]] | None = None
 
     @property
     def _entry(self) -> Venue:
@@ -77,10 +93,12 @@ class FttyVenue:
         return self._entry["wechatName"]
 
 
-XMTY = FttyVenue("xmty")
+FttyVenue = YdmapVenue
+
+XMTY = YdmapVenue("xmty")
 # Training walls are practice walls, not bookable match courts.
-HMG = FttyVenue("hmg", excluded_court_tokens=("训练墙",))
-LHTY = FttyVenue("lhty")
+HMG = YdmapVenue("hmg", excluded_court_tokens=("训练墙",))
+LHTY = YdmapVenue("lhty")
 FTTY_VENUES = (XMTY, HMG, LHTY)
 
 
@@ -98,7 +116,7 @@ def _as_str_list(value: object) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
-def exclude_courts(venue: FttyVenue, court_data: CourtAvailability) -> CourtAvailability:
+def exclude_courts(venue: YdmapVenue, court_data: CourtAvailability) -> CourtAvailability:
     return {
         name: slots
         for name, slots in court_data.items()
@@ -106,7 +124,7 @@ def exclude_courts(venue: FttyVenue, court_data: CourtAvailability) -> CourtAvai
     }
 
 
-def enqueue_wechat_message(venue: FttyVenue, all_in_one_msg: str) -> object:
+def enqueue_wechat_message(venue: YdmapVenue, all_in_one_msg: str) -> object:
     chat_names = Variable.get("SZ_TENNIS_CHATROOMS", default="")
     return send_wechat_text_to_chatrooms_best_effort(
         str(chat_names).splitlines(),
@@ -127,21 +145,46 @@ def start_delay(dag_run: object, now: datetime.datetime) -> datetime.timedelta |
     return now - run_after
 
 
-def _late_start() -> datetime.timedelta | None:
+def product_for(venue: YdmapVenue, slot: datetime.datetime) -> YdmapProduct | None:
+    """The product a run reads: one per two-minute slot, cycling through all of them."""
+    if not venue.products:
+        return None
+    index = int(slot.timestamp()) // (ROTATION_MINUTES * 60) % len(venue.products)
+    return venue.products[index]
+
+
+def _current_dag_run() -> object:
     try:
         from airflow.sdk import get_current_context
 
-        context = get_current_context()
+        return get_current_context().get("dag_run")
     except Exception:
         return None
-    return start_delay(context.get("dag_run"), datetime.datetime.now(datetime.UTC))
 
 
-def run_check(venue: FttyVenue) -> None:
+def _late_start() -> datetime.timedelta | None:
+    return start_delay(_current_dag_run(), datetime.datetime.now(datetime.UTC))
+
+
+def _run_slot() -> datetime.datetime | None:
+    """The run's own tick, so a delayed start still reads the product of its slot."""
+    run_after = getattr(_current_dag_run(), "run_after", None)
+    if isinstance(run_after, datetime.datetime) and run_after.tzinfo is not None:
+        return run_after
+    return None
+
+
+def run_check(venue: YdmapVenue) -> None:
     now = _local_now()
-    if now.time() < BOOKING_OPEN_TIME:
-        print(f"{venue.name}每天09:00开放预定，09:00前不巡检")
-        publish_venue_observation(venue.venue_id, venue.name, [], healthy=True)
+    product = product_for(venue, _run_slot() or now)
+    # Each product replaces only its own scope; None keeps a single-product venue's default.
+    scope = product.observation_scope if product else None
+    scope_kwargs = {"observation_scope": scope} if scope is not None else {}
+    scraper_venue = product.scraper_venue if product else venue.venue_id
+    if now.time() < venue.booking_open:
+        opens = venue.booking_open.strftime("%H:%M")
+        print(f"{venue.name}每天{opens}开放预定，{opens}前不巡检")
+        publish_venue_observation(venue.venue_id, venue.name, [], healthy=True, **scope_kwargs)
         return
     delay = _late_start()
     if delay is not None and delay > MAX_START_DELAY:
@@ -152,13 +195,22 @@ def run_check(venue: FttyVenue) -> None:
         return
 
     run_start_time = time.time()
-    print_with_timestamp(f"start to check {venue.name}...")
+    print_with_timestamp(f"start to check {venue.name} ({scraper_venue})...")
     webapp_slots: list[dict[str, str]] = []
     up_for_send_data_list: list[NotificationCourt] = []
     try:
-        payload = fetch_inspect_payload(
-            _load_device_config(), days=LOOKAHEAD_DAYS, venue=venue.venue_id
-        )
+        if venue.proxy_provider is not None:
+            proxies = venue.proxy_provider()
+            payload = fetch_inspect_payload(
+                _load_device_config(),
+                days=LOOKAHEAD_DAYS,
+                venue=scraper_venue,
+                proxies=proxies or None,
+            )
+        else:
+            payload = fetch_inspect_payload(
+                _load_device_config(), days=LOOKAHEAD_DAYS, venue=scraper_venue
+            )
         availability = parse_inspect_payload(payload)
         for offset in range(LOOKAHEAD_DAYS):
             input_date = (now.date() + datetime.timedelta(days=offset)).isoformat()
@@ -170,7 +222,9 @@ def run_check(venue: FttyVenue) -> None:
             up_for_send_data_list.extend(
                 filter_court_data_for_notification(input_date, court_data, venue.name)
             )
-        publish_venue_observation(venue.venue_id, venue.name, webapp_slots, healthy=True)
+        publish_venue_observation(
+            venue.venue_id, venue.name, webapp_slots, healthy=True, **scope_kwargs
+        )
     except Exception as error:
         print(f"Error checking {venue.name}: {error}")
         publish_venue_observation(
@@ -179,6 +233,7 @@ def run_check(venue: FttyVenue) -> None:
             webapp_slots,
             healthy=False,
             error=type(error).__name__,
+            **scope_kwargs,
         )
         print_with_timestamp(f"Total cost time: {time.time() - run_start_time:.2f}s")
         return

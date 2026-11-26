@@ -157,10 +157,10 @@ def test_capture_survives_dashah_source_failure(monkeypatch):
     request = Mock(side_effect=failure)
     monkeypatch.setattr(INSTALL, "request_json", request)
     with pytest.raises(INSTALL.OperationFailure) as caught:
-        # Before 09:00 only Dashah is inspected; Futian venues are unreleased.
+        # Before 08:00 only Dashah is inspected; Bao'an and Futian are unreleased.
         INSTALL.inspect_venues(
             18788,
-            at=datetime(2026, 11, 1, 8, tzinfo=ZoneInfo("Asia/Shanghai")),
+            at=datetime(2026, 11, 1, 7, tzinfo=ZoneInfo("Asia/Shanghai")),
             source_evidence=True,
         )
     assert caught.value.venue == "dsh"
@@ -300,7 +300,7 @@ def test_health_requires_all_runtime_identity_fields(field, value):
         INSTALL.verify_health(payload, COMMIT, HASH)
 
 
-def test_retired_source_cannot_be_verified_or_included_in_drain_proof():
+def test_supported_sources_and_guard_dags_include_baoti_products():
     assert (
         INSTALL.DAG_IDS
         == GUARD.DAG_IDS
@@ -309,6 +309,7 @@ def test_retired_source_cannot_be_verified_or_included_in_drain_proof():
             "香蜜体育中心网球场巡检",
             "黄木岗网球中心巡检",
             "莲花体育中心网球场巡检",
+            "宝安网球中心巡检",
         )
     )
     assert INSTALL.PRODUCTS == {
@@ -316,13 +317,17 @@ def test_retired_source_cannot_be_verified_or_included_in_drain_proof():
         "xmty": {"": ("100341", "")},
         "hmg": {"": ("100344", "")},
         "lhty": {"": ("100347", "")},
+        "baoti_outdoor": {"": ("111317", "室外")},
+        "baoti_indoor": {"": ("103224", "室内")},
+        "baoti_covered": {"": ("111319", "风雨")},
     }
+    assert INSTALL.safe_source_failure("proxy_unavailable") == "proxy_unavailable"
+    # Bare "baoti" is never a scraper key; each product has its own key.
     with pytest.raises(INSTALL.OperationFailure, match="scrape_not_verified"):
         INSTALL.inspect_evidence({**observation(), "venue": "baoti"}, "baoti", ["2026-11-01"])
     proof = drain_proof()
     proof["dags"].append({"dag_id": "宝安网球中心巡检", "paused": True, "was_paused": True})
-    with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
-        INSTALL.validate_drain_proof(proof, COMMIT)
+    assert INSTALL.validate_drain_proof(proof, COMMIT) == proof
 
 
 def test_inspection_requires_independent_date_product_and_court_evidence():
@@ -858,7 +863,7 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
     assert INSTALL.safe_source_diagnostic(error.source_diagnostic) == error.source_diagnostic
 
 
-@pytest.mark.parametrize("hour,minute,days", [(8, 59, 4), (11, 59, 4), (12, 0, 5)])
+@pytest.mark.parametrize("hour,minute,days", [(7, 59, 4), (8, 59, 4), (11, 59, 4), (12, 0, 5)])
 def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, days):
     requests = []
     monkeypatch.setattr(
@@ -872,29 +877,33 @@ def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, d
     result = INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, hour, minute, tzinfo=ZoneInfo("Asia/Shanghai"))
     )
-    # One Futian venue per inspection from 09:00, rotating by hour (11 % 3 -> lhty).
-    futian = {8: [], 11: ["lhty"], 12: ["xmty"]}[hour]
+    # One Futian venue per inspection from 09:00 and one Bao'an product from 08:00, rotating by hour.
+    futian = {7: [], 8: [], 11: ["lhty"], 12: ["xmty"]}[hour]
+    baoti = {7: [], 8: ["baoti_covered"], 11: ["baoti_covered"], 12: ["baoti_outdoor"]}[hour]
+    extra = futian + baoti
     assert requests == [f"/inspect?venue=dsh&days={days}"] + [
-        f"/inspect?venue={venue}&days=2" for venue in futian
+        f"/inspect?venue={venue}&days=2" for venue in extra
     ]
     assert len(result[0]["dates"]) == days
-    # Futian venues release the next day at 09:00 and show today and tomorrow.
-    assert [len(item["dates"]) for item in result[1:]] == [2] * len(futian)
+    assert [len(item["dates"]) for item in result[1:]] == [2] * len(extra)
 
 
-def test_inspection_rotates_one_futian_venue_per_hour(monkeypatch):
+def test_inspection_rotates_one_futian_and_baoti_venue_per_hour(monkeypatch):
     monkeypatch.setattr(INSTALL, "request_json", lambda port, path, **kwargs: {"path": path})
     monkeypatch.setattr(
         INSTALL, "inspect_evidence", lambda payload, venue, dates, **kwargs: {"venue": venue}
     )
-    seen = []
+    seen_ftty = []
+    seen_baoti = []
     for hour in (9, 10, 11):
         result = INSTALL.inspect_venues(
             18788, at=datetime(2026, 11, 1, hour, tzinfo=ZoneInfo("Asia/Shanghai"))
         )
-        assert [item["venue"] for item in result][0] == "dsh" and len(result) == 2
-        seen.append(result[1]["venue"])
-    assert sorted(seen) == sorted(INSTALL.FTTY_VENUES)
+        assert [item["venue"] for item in result][0] == "dsh" and len(result) == 3
+        seen_ftty.append(result[1]["venue"])
+        seen_baoti.append(result[2]["venue"])
+    assert sorted(seen_ftty) == sorted(INSTALL.FTTY_VENUES)
+    assert sorted(seen_baoti) == sorted(INSTALL.BAOTI_VENUES)
 
 
 def test_remote_failure_does_not_forward_raw_errors_or_upstream_data():
@@ -1182,6 +1191,7 @@ def test_preflight_query_inspects_dashah_and_one_futian_venue(monkeypatch):
     assert paths == [
         "/inspect?venue=dsh&days=5&evidence=source-v1",
         "/inspect?venue=xmty&days=2&evidence=source-v1",
+        "/inspect?venue=baoti_outdoor&days=2&evidence=source-v1",
     ]
 
 
@@ -1241,7 +1251,7 @@ def test_preflight_fails_closed_after_dashah_failure_without_requesting_retired_
     with pytest.raises(INSTALL.OperationFailure) as caught:
         INSTALL.inspect_venues(
             18788,
-            at=datetime(2026, 11, 1, 8, tzinfo=ZoneInfo("Asia/Shanghai")),
+            at=datetime(2026, 11, 1, 7, tzinfo=ZoneInfo("Asia/Shanghai")),
             source_evidence=True,
         )
     assert len(paths) == 1 and paths[0].startswith("/inspect?venue=dsh&")
@@ -1256,39 +1266,47 @@ def test_preflight_reports_the_failed_futian_venue_with_dashah_evidence(monkeypa
 
     def request(port, path, **kwargs):
         paths.append(path)
-        if "venue=dsh&" in path:
+        if "venue=dsh&" in path or "venue=baoti_" in path:
             return {}
         failure = INSTALL.OperationFailure("scrape_not_verified")
         failure.source_failure = "schedule_not_ready"
         raise failure
 
     monkeypatch.setattr(INSTALL, "request_json", request)
-    monkeypatch.setattr(INSTALL, "inspect_evidence", lambda *args, **kwargs: {"venue": "dsh"})
+    monkeypatch.setattr(
+        INSTALL, "inspect_evidence", lambda payload, venue, dates, **kwargs: {"venue": venue}
+    )
     with pytest.raises(INSTALL.OperationFailure) as caught:
         INSTALL.inspect_venues(
             18788,
             at=datetime(2026, 11, 1, 9, tzinfo=ZoneInfo("Asia/Shanghai")),
             source_evidence=True,
         )
-    assert len(paths) == 2
+    assert len(paths) == 3
     failure = caught.value
-    assert failure.inspections == [{"venue": "dsh"}]
+    assert failure.inspections == [{"venue": "dsh"}, {"venue": "baoti_outdoor"}]
     assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == ["xmty"]
 
 
 def test_reports_keep_every_supported_venue_inspection():
     sources = {
-        "dsh": ("100000", "100220", "wxsports.ydmap.cn"),
-        "xmty": ("100341", "101332", "ftty.ydmap.cn"),
-        "hmg": ("100344", "101333", "ftty.ydmap.cn"),
-        "lhty": ("100347", "101335", "ftty.ydmap.cn"),
+        "dsh": ("100000", "100220", "wxsports.ydmap.cn", "网球"),
+        "xmty": ("100341", "101332", "ftty.ydmap.cn", "网球"),
+        "hmg": ("100344", "101333", "ftty.ydmap.cn", "网球"),
+        "lhty": ("100347", "101335", "ftty.ydmap.cn", "网球"),
+        "baoti_outdoor": ("111317", "104036", "bawtt.ydmap.cn", "室外网球场"),
+        "baoti_indoor": ("103224", "104036", "bawtt.ydmap.cn", "室内网球场"),
+        "baoti_covered": ("111319", "104036", "bawtt.ydmap.cn", "风雨球场"),
     }
     reports = []
-    for venue, (item, sales_id, host) in sources.items():
+    for venue, (item, sales_id, host, product_name) in sources.items():
         payload = observation()
         payload["venue"] = venue
         payload["days"][0]["groups"][0].update(
-            sales_item_id=item, source_sales_id=sales_id, source_host=host, product_name="网球"
+            sales_item_id=item,
+            source_sales_id=sales_id,
+            source_host=host,
+            product_name=product_name,
         )
         reports.append(INSTALL.inspect_evidence(payload, venue, ["2026-11-01"]))
     safe = INSTALL.safe_inspections(reports)
@@ -1296,8 +1314,14 @@ def test_reports_keep_every_supported_venue_inspection():
     assert DEPLOY.CONTRACT.safe_inspections(reports) == safe
 
 
-def test_live_readiness_accepts_the_pre_futian_release_during_upgrade():
+def test_live_readiness_accepts_previous_releases_during_upgrade():
     assert INSTALL.live_ready({**health(), "venues": ["dsh"]})["venues"] == ["dsh"]
+    assert INSTALL.live_ready({**health(), "venues": ["dsh", "hmg", "lhty", "xmty"]})["venues"] == [
+        "dsh",
+        "hmg",
+        "lhty",
+        "xmty",
+    ]
     assert INSTALL.live_ready(health())["venues"] == INSTALL.SUPPORTED_VENUES
     with pytest.raises(INSTALL.OperationFailure, match="scraper_not_ready"):
         INSTALL.live_ready({**health(), "venues": ["dsh", "xmty"]})

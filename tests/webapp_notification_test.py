@@ -37,6 +37,7 @@ class WebappNotificationTest(TestCase):
             "dashahe_free_watcher.py": "run_check_dashahe_free_courts",
             "dsh_ydmap_watcher.py": "run_check_tennis_courts",
             "ftty_ydmap_watcher.py": "run_check",
+            "baoti_ydmap_watcher.py": "run_check_tennis_courts",
         }
         pospal_wrappers = {
             "fsb_shenyun_watcher.py",
@@ -56,6 +57,7 @@ class WebappNotificationTest(TestCase):
             "fsb_maozhouhe_watcher.py",
             "fft_qianhai_watcher.py",
             "swjj_watcher.py",
+            "baoti_ydmap_watcher.py",
         }
         watcher_root = Path(__file__).parents[1] / "src" / "wechat_airflow" / "venues"
         self.assertEqual(

@@ -21,8 +21,7 @@ export type VenueStatus = {
 
 export type Subscription = {
   id: string;
-  // Retired selections remain visible/cancellable in historical subscriptions.
-  venueIds: (VenueId | "baoti")[];
+  venueIds: VenueId[];
   weekdays: Weekday[];
   startTime: string;
   endTime: string;
@@ -362,18 +361,7 @@ export function loadDashboardSnapshot(identityKey: string): Dashboard | null {
       storage.removeItem(key);
       return null;
     }
-    // A retained browser snapshot may predate the approved Baoan withdrawal.
-    // Keep its subscriptions, but never offer the retired venue as a new target.
-    const venues = snapshot.value.venues.filter((venue) => String(venue.id) !== "baoti");
-    return {
-      ...snapshot.value,
-      venues,
-      metrics: {
-        ...snapshot.value.metrics,
-        totalVenues: venues.length,
-        healthyVenues: venues.filter((venue) => venue.healthy).length,
-      },
-    };
+    return snapshot.value;
   } catch {
     storage.removeItem(key);
     return null;

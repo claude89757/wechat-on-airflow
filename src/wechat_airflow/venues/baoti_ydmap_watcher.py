@@ -1,0 +1,53 @@
+"""宝安网球中心（bawtt.ydmap.cn）巡检：室外、室内、风雨场三个产品。
+
+与大沙河、福田三馆同属 YDMap 平台，由树莓派上同一个 ``dsh_ydmap`` Chromium
+采集服务读取；区别在于宝安网球中心通过 ``isz_https_proxies.txt`` 代理池访问，
+由采集服务先用 HTTP/1.1 CONNECT 筛选可用代理并在异常时切换。
+
+每个产品有自己的采集键，每次运行只加载一个页面：DAG 在奇数分钟运行
+（福田三馆与大沙河占偶数分钟），按计划时间轮换产品，同站每两分钟只加载
+一次，每个产品 6 分钟刷新一次。三个产品发布独立的观测 scope，互不覆盖。
+儿童短网不是标准网球场，不采集。
+
+页面规则是「08:00开放预定」，可订今明两天；08:00 前不巡检。
+"""
+
+from __future__ import annotations
+
+import datetime
+
+import requests
+
+from wechat_airflow.venues.dsh_ydmap_client import normalize_proxies
+from wechat_airflow.venues.ftty_ydmap_watcher import YdmapProduct, YdmapVenue, run_check
+
+BAOTI_PROXY_LIST_URL = (
+    "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/isz_https_proxies.txt"
+)
+
+
+def fetch_baoti_proxies(timeout: float = 10.0) -> list[str]:
+    """Fetch and validate candidate HTTPS proxies; fall back to Pi-side cache on error."""
+    try:
+        response = requests.get(BAOTI_PROXY_LIST_URL, timeout=timeout)
+        response.raise_for_status()
+        return normalize_proxies(response.text.splitlines())
+    except Exception as error:
+        print(f"获取宝安网球中心代理池失败，交由 Pi 端缓存兜底: {type(error).__name__}")
+        return []
+
+
+BAOTI = YdmapVenue(
+    "baoti",
+    booking_open=datetime.time(8, 0),
+    products=(
+        YdmapProduct("baoti_outdoor", "outdoor"),
+        YdmapProduct("baoti_indoor", "indoor"),
+        YdmapProduct("baoti_covered", "covered"),
+    ),
+    proxy_provider=fetch_baoti_proxies,
+)
+
+
+def run_check_tennis_courts() -> None:
+    run_check(BAOTI)

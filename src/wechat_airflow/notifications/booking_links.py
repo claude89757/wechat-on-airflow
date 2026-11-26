@@ -70,6 +70,10 @@ LHTY_PROGRAM = BookingMiniProgram(
     program_id="lhty",
     link="https://ftty.ydmap.cn/booking/schedule/101335?salesItemId=100347",
 )
+BAOTI_PROGRAM = BookingMiniProgram(
+    program_id="baoti",
+    link="https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+)
 
 VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "szw": WEILAIHUI,
@@ -101,6 +105,7 @@ VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "xmty": XMTY_PROGRAM,
     "hmg": HMG_PROGRAM,
     "lhty": LHTY_PROGRAM,
+    "baoti": BAOTI_PROGRAM,
 }
 
 BookingLinkCache = dict[str, dict[str, str]]

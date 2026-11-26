@@ -123,6 +123,7 @@ DAG_IDS = (
     "香蜜体育中心网球场巡检",
     "黄木岗网球中心巡检",
     "莲花体育中心网球场巡检",
+    "宝安网球中心巡检",
 )
 LEASE_SECONDS = 1620
 PROOF_MARGIN_SECONDS = 90
@@ -130,6 +131,7 @@ ACTIVATION_SECONDS = 540
 ROLLBACK_SECONDS = 150
 ACTIVATION_LEASE_REQUIRED = ACTIVATION_SECONDS + ROLLBACK_SECONDS + 60
 SOURCE_FAILURES = {
+    "proxy_unavailable",
     "product_tab_not_found",
     "ReadTimeoutError",
     "MaxRetryError",
@@ -225,6 +227,10 @@ PRODUCTS = {
     "xmty": {"": ("100341", "")},
     "hmg": {"": ("100344", "")},
     "lhty": {"": ("100347", "")},
+    # The label must appear in the page's own product name (风雨球场).
+    "baoti_outdoor": {"": ("111317", "室外")},
+    "baoti_indoor": {"": ("103224", "室内")},
+    "baoti_covered": {"": ("111319", "风雨")},
 }
 # Booking host and salesId each venue's page must report as its source.
 SOURCES = {
@@ -232,15 +238,22 @@ SOURCES = {
     "xmty": ("ftty.ydmap.cn", "101332"),
     "hmg": ("ftty.ydmap.cn", "101333"),
     "lhty": ("ftty.ydmap.cn", "101335"),
+    "baoti_outdoor": ("bawtt.ydmap.cn", "104036"),
+    "baoti_indoor": ("bawtt.ydmap.cn", "104036"),
+    "baoti_covered": ("bawtt.ydmap.cn", "104036"),
 }
 SUPPORTED_VENUES = sorted(PRODUCTS)
-# The live service may still be the release from before the Futian venues.
-LIVE_VENUE_SETS = (["dsh"], SUPPORTED_VENUES)
+# The live service may still be a release from before the Futian or Bao'an venues.
+LIVE_VENUE_SETS = (["dsh"], ["dsh", "hmg", "lhty", "xmty"], SUPPORTED_VENUES)
 # Futian venues release the next day at 09:00 and show only two dates. They share
 # ftty.ydmap.cn, which challenged three back-to-back loads, so one inspection reads
 # only one of them, rotating by hour; the DAGs cover the others.
 FTTY_VENUES = ("xmty", "hmg", "lhty")
 FTTY_OPEN_HOUR = 9
+# Bao'an releases the next day at 08:00 and also shows two dates; one product
+# per inspection, rotating by hour, via the proxy pool.
+BAOTI_VENUES = ("baoti_outdoor", "baoti_indoor", "baoti_covered")
+BAOTI_OPEN_HOUR = 8
 ERROR_CLASSES = {
     "OperationFailure",
     "OSError",
@@ -1312,6 +1325,8 @@ def inspect_venues(
     if local.hour >= FTTY_OPEN_HOUR:
         # Before 09:00 the second date is unreleased; the DAGs do not inspect then.
         targets.append((FTTY_VENUES[local.hour % len(FTTY_VENUES)], 2, 150))
+    if local.hour >= BAOTI_OPEN_HOUR:
+        targets.append((BAOTI_VENUES[local.hour % len(BAOTI_VENUES)], 2, 150))
     for venue, days, timeout in targets:
         today = local.date()
         expected = [(today + timedelta(days=offset)).isoformat() for offset in range(days)]

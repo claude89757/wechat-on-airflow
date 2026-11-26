@@ -547,8 +547,9 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
         )
 
     def test_quiesce_requires_paused_dags_and_no_active_work(self):
+        self.assertIn("宝安网球中心巡检", quiesce_wechat_delivery.WECHAT_DAG_IDS)
         quiet = {
-            "paused_wechat_dags": 29,
+            "paused_wechat_dags": len(quiesce_wechat_delivery.WECHAT_DAG_IDS),
             "active_wechat_task_instances": 0,
             "active_wechat_dag_runs": 0,
         }

@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Local Chromium scrape service for the Dashah and Futian (ftty) YDMap tennis venues."""
+"""Local Chromium scrape service for the Dashah, Futian (ftty) and Bao'an YDMap tennis venues."""
 
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import signal
+import socket
+import ssl
 import subprocess
 import threading
 import time
 import urllib.request
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,6 +36,30 @@ FTTY_BOOKING_URLS = {
     "hmg": "https://ftty.ydmap.cn/booking/schedule/101333?salesItemId=100344",
     "lhty": "https://ftty.ydmap.cn/booking/schedule/101335?salesItemId=100347",
 }
+# Bao'an Tennis Center: one key per product, so an inspection loads one page.
+# Kids' short court (111318) is not a standard tennis court and is not read.
+# Labels must appear in the page's own product name (风雨球场).
+BAOTI_BOOKING_URL = "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId="
+BAOTI_PRODUCTS = {
+    "baoti_outdoor": ("室外", "111317"),
+    "baoti_indoor": ("室内", "103224"),
+    "baoti_covered": ("风雨", "111319"),
+}
+PROXY_REQUIRED_VENUES = frozenset(BAOTI_PRODUCTS)
+BAOTI_PROXY_LIST_URL = os.environ.get(
+    "YDMAP_BAOTI_PROXY_LIST_URL",
+    "https://raw.githubusercontent.com/claude89757/free_https_proxies/main/isz_https_proxies.txt",
+)
+PROXY_PROBE_TIMEOUT = 5.0
+PROXY_FETCH_TIMEOUT = 8.0
+PROXY_LIST_TTL_SECONDS = 300.0
+PROXY_FAILURE_COOLDOWN_SECONDS = 300.0
+PROXY_CHALLENGE_COOLDOWN_SECONDS = 900.0
+PROXY_MAX_CANDIDATES = 24
+_PROXY_STATE_LOCK = threading.Lock()
+_STICKY_PROXY: str | None = None
+_PROXY_LIST_CACHE: tuple[float, list[str]] = (0.0, [])
+_PROXY_COOLDOWNS: dict[str, float] = {}
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
 PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
@@ -118,6 +147,10 @@ SOURCE_ONLINE_ENUMS = frozenset(
 VENUE_GROUPS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "dsh": (("", "", DSH_BOOKING_URL),),
     **{venue: (("", "", url),) for venue, url in FTTY_BOOKING_URLS.items()},
+    **{
+        venue: (("", label, BAOTI_BOOKING_URL + item),)
+        for venue, (label, item) in BAOTI_PRODUCTS.items()
+    },
 }
 
 VENUE_NAMES: dict[str, str] = {
@@ -125,6 +158,7 @@ VENUE_NAMES: dict[str, str] = {
     "xmty": "香蜜体育中心",
     "hmg": "黄木岗网球中心",
     "lhty": "莲花体育中心",
+    **{venue: "宝安网球中心" for venue in BAOTI_PRODUCTS},
 }
 
 FIND_DATE_JS = """
@@ -421,7 +455,12 @@ def _cleanup_stale_browser(profile: Path | None = None) -> None:
     profile.chmod(0o700)
 
 
-def _start_chromium(url: str, *, profile: Path | None = None) -> subprocess.Popen[Any]:
+def _start_chromium(
+    url: str,
+    *,
+    profile: Path | None = None,
+    proxy: str | None = None,
+) -> subprocess.Popen[Any]:
     env = os.environ.copy()
     env["DISPLAY"] = env.get("DISPLAY") or ":0"
     env.setdefault("XAUTHORITY", "/home/claude/.Xauthority")
@@ -442,8 +481,10 @@ def _start_chromium(url: str, *, profile: Path | None = None) -> subprocess.Pope
         "--accept-lang=zh-CN,zh,en-US,en",
         "--window-size=1280,800",
         "--window-position=80,40",
-        url,
     ]
+    if proxy is not None:
+        cmd.append(f"--proxy-server=http://{proxy}")
+    cmd.append(url)
     return subprocess.Popen(
         cmd,
         env=env,
@@ -451,6 +492,210 @@ def _start_chromium(url: str, *, profile: Path | None = None) -> subprocess.Pope
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+
+
+def _validate_proxy(raw: object) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text or any(ch.isspace() for ch in text) or "://" in text or "@" in text:
+        return None
+    if text.count(":") != 1:
+        return None
+    host, port_text = text.split(":", 1)
+    if not port_text.isdigit():
+        return None
+    port = int(port_text)
+    if not 1 <= port <= 65535:
+        return None
+    try:
+        addr = ipaddress.IPv4Address(host)
+    except ipaddress.AddressValueError:
+        return None
+    if not addr.is_global or addr.is_multicast:
+        return None
+    return f"{addr}:{port}"
+
+
+def _normalize_proxy_candidates(candidates: Sequence[str] | None) -> list[str]:
+    valid: list[str] = []
+    seen: set[str] = set()
+    for item in candidates or ():
+        proxy = _validate_proxy(item)
+        if proxy and proxy not in seen:
+            seen.add(proxy)
+            valid.append(proxy)
+            if len(valid) >= PROXY_MAX_CANDIDATES:
+                break
+    return valid
+
+
+def _fetch_remote_proxy_list(timeout: float = PROXY_FETCH_TIMEOUT) -> list[str]:
+    request = urllib.request.Request(BAOTI_PROXY_LIST_URL, headers={"User-Agent": "pi-ydmap/2"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            text = response.read(256 * 1024).decode("utf-8", errors="ignore")
+    except Exception:
+        return []
+    return _normalize_proxy_candidates(text.splitlines())
+
+
+def _probe_proxy(
+    proxy: str,
+    url: str,
+    *,
+    timeout: float = PROXY_PROBE_TIMEOUT,
+) -> tuple[bool, float]:
+    validated = _validate_proxy(proxy)
+    if validated is None:
+        return False, float("inf")
+    proxy_host, proxy_port_text = validated.split(":", 1)
+    proxy_port = int(proxy_port_text)
+    parsed = urlparse(url)
+    target_host = parsed.hostname or ""
+    target_port = parsed.port or 443
+    if not target_host:
+        return False, float("inf")
+    target_path = parsed.path or "/"
+    if parsed.query:
+        target_path = f"{target_path}?{parsed.query}"
+
+    started = time.monotonic()
+    sock: socket.socket | None = None
+    try:
+        sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout)
+        sock.settimeout(timeout)
+        connect_req = (
+            f"CONNECT {target_host}:{target_port} HTTP/1.1\r\n"
+            f"Host: {target_host}:{target_port}\r\n"
+            f"Proxy-Connection: Keep-Alive\r\n\r\n"
+        ).encode("ascii")
+        sock.sendall(connect_req)
+        header_buf = b""
+        while b"\r\n\r\n" not in header_buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                return False, float("inf")
+            header_buf += chunk
+            if len(header_buf) > 16384:
+                return False, float("inf")
+        connect_status = header_buf.split(b"\r\n", 1)[0]
+        if not re.match(rb"^HTTP/1\.[01]\s+200\b", connect_status):
+            return False, float("inf")
+
+        context = ssl.create_default_context()
+        with context.wrap_socket(sock, server_hostname=target_host) as tls_sock:
+            tls_sock.settimeout(timeout)
+            http_req = (
+                f"GET {target_path} HTTP/1.1\r\n"
+                f"Host: {target_host}\r\n"
+                f"User-Agent: Mozilla/5.0\r\n"
+                f"Accept: text/html\r\n"
+                f"Connection: close\r\n\r\n"
+            ).encode("ascii")
+            tls_sock.sendall(http_req)
+            resp = b""
+            while len(resp) < 65536:
+                chunk = tls_sock.recv(4096)
+                if not chunk:
+                    break
+                resp += chunk
+        head, sep, body = resp.partition(b"\r\n\r\n")
+        if not sep:
+            return False, float("inf")
+        http_status = head.split(b"\r\n", 1)[0]
+        if not re.match(rb"^HTTP/1\.[01]\s+200\b", http_status):
+            return False, float("inf")
+        if len(body) < 1000 or b"<!doctype html>" not in body[:512].lower():
+            return False, float("inf")
+        head_text = body[:4096].decode("utf-8", errors="ignore")
+        if re.search(
+            r"(?:Access\s+Verification|slide\s+to\s+verify|访问\s*验证|安全\s*验证)",
+            head_text,
+            re.IGNORECASE,
+        ):
+            return False, float("inf")
+        return True, time.monotonic() - started
+    except Exception:
+        return False, float("inf")
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+
+def _mark_proxy_success(proxy: str) -> None:
+    global _STICKY_PROXY
+    with _PROXY_STATE_LOCK:
+        _STICKY_PROXY = proxy
+        _PROXY_COOLDOWNS.pop(proxy, None)
+
+
+def _mark_proxy_failure(proxy: str, *, challenge: bool = False) -> None:
+    global _STICKY_PROXY
+    cooldown = PROXY_CHALLENGE_COOLDOWN_SECONDS if challenge else PROXY_FAILURE_COOLDOWN_SECONDS
+    now = time.monotonic()
+    with _PROXY_STATE_LOCK:
+        if _STICKY_PROXY == proxy:
+            _STICKY_PROXY = None
+        _PROXY_COOLDOWNS[proxy] = now + cooldown
+
+
+def _select_working_proxies(
+    url: str,
+    candidates: Sequence[str] | None = None,
+    *,
+    limit: int = 2,
+) -> list[str]:
+    global _PROXY_LIST_CACHE
+    passed = _normalize_proxy_candidates(candidates)
+    now = time.monotonic()
+    with _PROXY_STATE_LOCK:
+        sticky = _STICKY_PROXY
+        cached_at, cached_list = _PROXY_LIST_CACHE
+        expired = [p for p, until in _PROXY_COOLDOWNS.items() if until <= now]
+        for p in expired:
+            _PROXY_COOLDOWNS.pop(p, None)
+        cooldowns = dict(_PROXY_COOLDOWNS)
+
+    remote_list = cached_list
+    if not passed and (not cached_list or now - cached_at >= PROXY_LIST_TTL_SECONDS):
+        fetched = _fetch_remote_proxy_list()
+        if fetched:
+            remote_list = fetched
+            with _PROXY_STATE_LOCK:
+                _PROXY_LIST_CACHE = (now, fetched)
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for item in ([sticky] if sticky else []) + passed + remote_list:
+        proxy = _validate_proxy(item)
+        if proxy and proxy not in seen:
+            seen.add(proxy)
+            merged.append(proxy)
+            if len(merged) >= PROXY_MAX_CANDIDATES:
+                break
+    if not merged:
+        return []
+
+    active = [p for p in merged if cooldowns.get(p, 0.0) <= now]
+    pool = active if active else merged
+
+    results: list[tuple[int, float, str]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(pool))) as executor:
+        futures = {executor.submit(_probe_proxy, proxy, url): proxy for proxy in pool}
+        for future in concurrent.futures.as_completed(futures):
+            proxy = futures[future]
+            try:
+                ok, elapsed = future.result()
+            except Exception:
+                ok, elapsed = False, float("inf")
+            if ok:
+                results.append((0 if proxy == sticky else 1, elapsed, proxy))
+    results.sort()
+    return [proxy for _, _, proxy in results[:limit]]
 
 
 def _wait_devtools(timeout: float = 40) -> None:
@@ -1241,13 +1486,15 @@ def _scrape_available_slots(
     *,
     source_evidence: bool,
     runtime: dict[str, Any] | None = None,
+    proxy: str | None = None,
+    budget_seconds: float = 135,
 ) -> dict[str, Any]:
     groups = VENUE_GROUPS.get(venue)
     if not groups:
         return _stop_with_error(error=f"unknown_venue:{venue}", venue=venue)
     days = min(max(days, 1), 7)
     # Reserve driver/browser cleanup time inside the caller's 240-second limit.
-    budget = min(SCRAPE_TIMEOUT, 135)
+    budget = min(SCRAPE_TIMEOUT, budget_seconds)
     deadline = time.monotonic() + budget - 30
     today = datetime.now(SHANGHAI).date()
     requested = [(today + timedelta(days=offset)).isoformat() for offset in range(days)]
@@ -1282,7 +1529,10 @@ def _scrape_available_slots(
             # no cross-product browser/app state or product-tab click is reused.
             profile = PROFILE / f"{venue}-{key or 'main'}"
             _cleanup_stale_browser(profile)
-            proc = _start_chromium(url, profile=profile)
+            if proxy is not None:
+                proc = _start_chromium(url, profile=profile, proxy=proxy)
+            else:
+                proc = _start_chromium(url, profile=profile)
             _wait_devtools(timeout=_remaining(deadline, 40))
             time.sleep(_remaining(deadline, 4))
             phase = "browser_attach"
@@ -1462,12 +1712,51 @@ def scrape_available_slots(
     days: int = DEFAULT_DAYS,
     *,
     source_evidence: bool = False,
+    proxies: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    runtime: dict[str, Any] = {}
-    result = _scrape_available_slots(venue, days, source_evidence=source_evidence, runtime=runtime)
-    if runtime:
-        result.setdefault("diagnostics", {}).update(runtime)
-    return result
+    if venue not in PROXY_REQUIRED_VENUES:
+        runtime: dict[str, Any] = {}
+        result = _scrape_available_slots(
+            venue, days, source_evidence=source_evidence, runtime=runtime
+        )
+        if runtime:
+            result.setdefault("diagnostics", {}).update(runtime)
+        return result
+
+    groups = VENUE_GROUPS.get(venue)
+    if not groups:
+        return _stop_with_error(error=f"unknown_venue:{venue}", venue=venue)
+    started = time.monotonic()
+    selected = _select_working_proxies(groups[0][2], proxies, limit=2)
+    if not selected:
+        return _stop_with_error(error="proxy_unavailable", venue=venue)
+
+    last_result: dict[str, Any] | None = None
+    for index, proxy in enumerate(selected):
+        elapsed = time.monotonic() - started
+        if index > 0 and elapsed >= 65.0:
+            break
+        remaining = max(55.0, min(115.0, 125.0 - elapsed))
+        attempt_budget = 80.0 if index == 0 and len(selected) > 1 else remaining
+        runtime = {}
+        result = _scrape_available_slots(
+            venue,
+            days,
+            source_evidence=source_evidence,
+            runtime=runtime,
+            proxy=proxy,
+            budget_seconds=attempt_budget,
+        )
+        if runtime:
+            result.setdefault("diagnostics", {}).update(runtime)
+        if result.get("ok") is True:
+            _mark_proxy_success(proxy)
+            return result
+        is_challenge = bool(result.get("captcha")) or result.get("error") == "rate_limited"
+        _mark_proxy_failure(proxy, challenge=is_challenge)
+        last_result = result
+    assert last_result is not None
+    return last_result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1510,16 +1799,30 @@ class Handler(BaseHTTPRequestHandler):
             days = int((query.get("days") or [str(DEFAULT_DAYS)])[0])
         except ValueError:
             days = DEFAULT_DAYS
+        raw_proxies: list[str] = []
+        for entry in query.get("proxies", []):
+            raw_proxies.extend(part for part in entry.split(",") if part.strip())
+        passed_proxies = (
+            _normalize_proxy_candidates(raw_proxies) if venue in PROXY_REQUIRED_VENUES else []
+        )
         if not SCRAPE_LOCK.acquire(blocking=False):
             self._send_json(429, _stop_with_error(error="busy", venue=venue))
             return
         try:
             requested_evidence = query.get("evidence") == ["source-v1"]
-            payload = scrape_available_slots(
-                venue,
-                days,
-                source_evidence=requested_evidence,
-            )
+            if passed_proxies:
+                payload = scrape_available_slots(
+                    venue,
+                    days,
+                    source_evidence=requested_evidence,
+                    proxies=passed_proxies,
+                )
+            else:
+                payload = scrape_available_slots(
+                    venue,
+                    days,
+                    source_evidence=requested_evidence,
+                )
             self._send_json(200 if payload.get("ok") else 503, payload)
         except Exception as exc:
             self._send_json(500, _stop_with_error(error=type(exc).__name__, venue=venue))

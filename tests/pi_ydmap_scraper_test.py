@@ -611,7 +611,10 @@ class PiYdmapScraperTest(unittest.TestCase):
         self.assertEqual(body["protocolVersion"], 2)
         self.assertEqual(body["deploymentCommit"], "a" * 40)
         self.assertEqual(body["sourceSha256"], hashlib.sha256(SERVER_PATH.read_bytes()).hexdigest())
-        self.assertEqual(body["venues"], ["dsh", "hmg", "lhty", "xmty"])
+        self.assertEqual(
+            body["venues"],
+            ["baoti_covered", "baoti_indoor", "baoti_outdoor", "dsh", "hmg", "lhty", "xmty"],
+        )
         self.assertTrue(body["busy"])
 
     def test_optional_evidence_is_collected_only_after_validated_date_refresh(self) -> None:
@@ -926,6 +929,199 @@ class PiDriverLifecycleTest(unittest.TestCase):
                     server._cleanup_stale_browser()
                 run.assert_not_called()
             self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+
+
+class BaotiProxyScrapeTest(unittest.TestCase):
+    def setUp(self) -> None:
+        with server._PROXY_STATE_LOCK:
+            server._STICKY_PROXY = None
+            server._PROXY_LIST_CACHE = (0.0, [])
+            server._PROXY_COOLDOWNS.clear()
+
+    def test_validate_proxy_accepts_only_global_ipv4_endpoints(self) -> None:
+        self.assertEqual(server._validate_proxy("36.147.78.166:443"), "36.147.78.166:443")
+        for bad in (
+            "",
+            "127.0.0.1:8080",
+            "10.0.0.1:8080",
+            "192.168.1.1:8080",
+            "169.254.169.254:80",
+            "example.com:8080",
+            "http://36.147.78.166:443",
+            "user:pass@36.147.78.166:443",
+            "36.147.78.166:0",
+            "36.147.78.166:70000",
+            "36.147.78.166",
+            "36.147.78.166:443 extra",
+        ):
+            with self.subTest(bad=bad):
+                self.assertIsNone(server._validate_proxy(bad))
+
+    def test_probe_proxy_uses_http11_connect_and_strict_tls_html_check(self) -> None:
+        sent_chunks: list[bytes] = []
+
+        class FakeTlsSock:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+                self._offset = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def settimeout(self, timeout: float) -> None:
+                pass
+
+            def sendall(self, data: bytes) -> None:
+                sent_chunks.append(data)
+
+            def recv(self, size: int) -> bytes:
+                chunk = self._payload[self._offset : self._offset + size]
+                self._offset += len(chunk)
+                return chunk
+
+        class FakeRawSock:
+            def __init__(self, connect_resp: bytes) -> None:
+                self._connect_resp = connect_resp
+                self._sent = False
+
+            def settimeout(self, timeout: float) -> None:
+                pass
+
+            def sendall(self, data: bytes) -> None:
+                sent_chunks.append(data)
+
+            def recv(self, size: int) -> bytes:
+                if not self._sent:
+                    self._sent = True
+                    return self._connect_resp
+                return b""
+
+            def close(self) -> None:
+                pass
+
+        html_body = b"<!DOCTYPE html><html>" + b"x" * 1200 + b"</html>"
+        good_tls = FakeTlsSock(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + html_body)
+        ctx = Mock()
+        ctx.wrap_socket.return_value = good_tls
+        with (
+            patch.object(
+                server.socket,
+                "create_connection",
+                return_value=FakeRawSock(b"HTTP/1.1 200 Connection Established\r\n\r\n"),
+            ),
+            patch.object(server.ssl, "create_default_context", return_value=ctx),
+        ):
+            ok, elapsed = server._probe_proxy(
+                "36.147.78.166:443",
+                "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+            )
+        self.assertTrue(ok)
+        self.assertGreaterEqual(elapsed, 0.0)
+        self.assertIn(b"CONNECT bawtt.ydmap.cn:443 HTTP/1.1\r\n", sent_chunks[0])
+        self.assertIn(b"Host: bawtt.ydmap.cn:443\r\n", sent_chunks[0])
+        ctx.wrap_socket.assert_called_once()
+        self.assertEqual(ctx.wrap_socket.call_args.kwargs["server_hostname"], "bawtt.ydmap.cn")
+
+        # Reject tiny/non-HTML or challenge responses.
+        bad_tls = FakeTlsSock(b"HTTP/1.1 200 OK\r\n\r\n<html>tiny</html>")
+        ctx.wrap_socket.return_value = bad_tls
+        with (
+            patch.object(
+                server.socket,
+                "create_connection",
+                return_value=FakeRawSock(b"HTTP/1.1 200 Connection Established\r\n\r\n"),
+            ),
+            patch.object(server.ssl, "create_default_context", return_value=ctx),
+        ):
+            ok, _ = server._probe_proxy(
+                "36.147.78.166:443",
+                "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
+            )
+        self.assertFalse(ok)
+
+    def test_start_chromium_only_sets_proxy_flag_when_provided(self) -> None:
+        profile = Path("/tmp/service-profile/baoti-main")
+        with patch.object(server.subprocess, "Popen") as popen:
+            server._start_chromium(server.DSH_BOOKING_URL, profile=profile)
+            direct_cmd = popen.call_args.args[0]
+            server._start_chromium(
+                server.BAOTI_BOOKING_URL + "111317",
+                profile=profile,
+                proxy="36.147.78.166:443",
+            )
+            proxy_cmd = popen.call_args.args[0]
+        self.assertFalse(any(arg.startswith("--proxy-server=") for arg in direct_cmd))
+        self.assertIn("--proxy-server=http://36.147.78.166:443", proxy_cmd)
+        self.assertNotIn("--ignore-certificate-errors", proxy_cmd)
+
+    def test_proxy_unavailable_fails_without_starting_browser_or_leaking_ips(self) -> None:
+        with (
+            patch.object(server, "_select_working_proxies", return_value=[]),
+            patch.object(server, "_start_chromium") as start_browser,
+        ):
+            result = server.scrape_available_slots(
+                "baoti_outdoor", 2, proxies=["36.147.78.166:443"]
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "proxy_unavailable")
+        self.assertNotIn("36.147.78.166", json.dumps(result))
+        start_browser.assert_not_called()
+
+    def test_proxy_failover_cools_down_captcha_proxy_and_keeps_sticky_winner(self) -> None:
+        attempts: list[str | None] = []
+
+        def fake_scrape(
+            venue, days, *, source_evidence, runtime=None, proxy=None, budget_seconds=135
+        ):
+            attempts.append(proxy)
+            if proxy == "36.147.78.166:443":
+                return server._stop_with_error(error="captcha", venue=venue, captcha=True)
+            return {
+                "schema_version": 2,
+                "ok": True,
+                "captcha": False,
+                "venue": venue,
+                "days": [],
+            }
+
+        with (
+            patch.object(
+                server,
+                "_select_working_proxies",
+                return_value=["36.147.78.166:443", "101.251.204.174:8080"],
+            ),
+            patch.object(server, "_scrape_available_slots", side_effect=fake_scrape),
+        ):
+            result = server.scrape_available_slots(
+                "baoti_indoor", 2, proxies=["36.147.78.166:443", "101.251.204.174:8080"]
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(attempts, ["36.147.78.166:443", "101.251.204.174:8080"])
+        self.assertEqual(server._STICKY_PROXY, "101.251.204.174:8080")
+        self.assertIn("36.147.78.166:443", server._PROXY_COOLDOWNS)
+
+    def test_http_inspect_passes_validated_proxies_only_for_proxy_venues(self) -> None:
+        handler = server.Handler.__new__(server.Handler)
+        handler.path = (
+            "/inspect?venue=baoti_outdoor&days=2&proxies=127.0.0.1:8080,36.147.78.166:443"
+        )
+        handler._send_json = lambda *args: None
+        with patch.object(server, "scrape_available_slots", return_value={"ok": True}) as scrape:
+            handler.do_GET()
+            scrape.assert_called_once_with(
+                "baoti_outdoor",
+                2,
+                source_evidence=False,
+                proxies=["36.147.78.166:443"],
+            )
+
+        handler.path = "/inspect?venue=dsh&days=2&proxies=36.147.78.166:443"
+        with patch.object(server, "scrape_available_slots", return_value={"ok": True}) as scrape:
+            handler.do_GET()
+            scrape.assert_called_once_with("dsh", 2, source_evidence=False)
 
 
 if __name__ == "__main__":

@@ -176,9 +176,10 @@ The scrape service listens only on the Pi loopback interface. Airflow reaches
 it by SSH and a localhost `curl`. Do not publish port `8788`. The Dashah watcher
 collects today plus four later calendar days, publishes raw slots to Host Core
 before any WeChat enqueue, and uses the service's single-scrape lock. Baoan
-(`baoti`) was explicitly withdrawn on 2026-11-01. Its historical database rows,
-subscriptions, Airflow state and deduplication cache must be preserved; it is
-not an active required configuration or producer.
+(`baoti`) was withdrawn on 2026-11-01 and restored on 2026-11-26 via the
+`isz_https_proxies.txt` HTTPS proxy pool, rotating one product (`baoti_outdoor`,
+`baoti_indoor`, `baoti_covered`) per two-minute odd tick and publishing
+per-product scopes while preserving its historical records and cache keys.
 
 ## Web Subscription Publisher
 

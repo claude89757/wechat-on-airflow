@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
@@ -15,6 +17,7 @@ DEFAULT_DAYS = 5
 DEFAULT_VENUE = "dsh"
 VENUE_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 TIME_WIDTH = 5
+MAX_PASSED_PROXIES = 20
 
 CourtAvailability = dict[str, list[list[str]]]
 
@@ -115,17 +118,57 @@ def parse_inspect_payload(payload: object) -> dict[str, CourtAvailability]:
     return parsed
 
 
+def _validate_proxy(raw: object) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text or any(ch.isspace() for ch in text) or "://" in text or "@" in text:
+        return None
+    if text.count(":") != 1:
+        return None
+    host, port_text = text.split(":", 1)
+    if not port_text.isdigit():
+        return None
+    port = int(port_text)
+    if not 1 <= port <= 65535:
+        return None
+    try:
+        addr = ipaddress.IPv4Address(host)
+    except ipaddress.AddressValueError:
+        return None
+    if not addr.is_global or addr.is_multicast:
+        return None
+    return f"{addr}:{port}"
+
+
+def normalize_proxies(proxies: Sequence[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in proxies or ():
+        proxy = _validate_proxy(item)
+        if proxy and proxy not in seen:
+            seen.add(proxy)
+            normalized.append(proxy)
+            if len(normalized) >= MAX_PASSED_PROXIES:
+                break
+    return normalized
+
+
 def fetch_inspect_payload(
     config: PiDeviceConfig,
     *,
     days: int = DEFAULT_DAYS,
     venue: str = DEFAULT_VENUE,
+    proxies: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     if not VENUE_KEY.fullmatch(venue):
         raise ValueError("venue must be a scraper venue key")
     # The Pi service defaults to Dashah; keep its request unchanged.
     query = f"days={int(days)}" if venue == DEFAULT_VENUE else f"venue={venue}&days={int(days)}"
-    url = quote(f"{config.scrape_url}?{query}", safe=":/?=&")
+    valid_proxies = normalize_proxies(proxies)
+    if valid_proxies:
+        query += f"&proxies={','.join(valid_proxies)}"
+    url = quote(f"{config.scrape_url}?{query}", safe=":/?=&,")
     # The Pi runs this through a remote shell: an unquoted ``&`` would background
     # curl and silently drop every parameter after the first. No ``--fail``: a
     # failed scrape still answers with its JSON error code, which

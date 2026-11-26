@@ -83,9 +83,8 @@ describe("dashboard client cache", () => {
     });
   });
 
-  it("withdraws Baoan from old cached choices while retaining the historical subscription", () => {
+  it("retains Baoan and existing subscriptions in cached browser snapshots", () => {
     const historical = structuredClone(FALLBACK_DASHBOARD) as Dashboard;
-    historical.venues.push({ ...historical.venues[0], id: "baoti", name: "宝安网球中心" } as unknown as Dashboard["venues"][number]);
     historical.subscriptions.push({
       id: "retained-subscription", venueIds: ["baoti"], weekdays: [1],
       startTime: "18:00", endTime: "20:00", durationDays: 7, termCode: "7d",
@@ -95,7 +94,7 @@ describe("dashboard client cache", () => {
     saveDashboardSnapshot("historical-user", historical);
     const restored = loadDashboardSnapshot("historical-user")!;
     expect(restored.venues).toHaveLength(FALLBACK_DASHBOARD.venues.length);
-    expect(restored.venues.some(venue => String(venue.id) === "baoti")).toBe(false);
+    expect(restored.venues.some(venue => String(venue.id) === "baoti")).toBe(true);
     expect(restored.metrics.totalVenues).toBe(FALLBACK_DASHBOARD.venues.length);
     expect(restored.subscriptions).toEqual(historical.subscriptions);
   });

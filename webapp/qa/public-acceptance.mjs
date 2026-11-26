@@ -84,7 +84,7 @@ try {
     await page.getByText('没有找到这个场地', { exact: true }).waitFor();
     await page.getByRole('button', { name: '查看全部场地', exact: true }).click();
     assert.equal(await page.locator('.venue-card').count(), expectedVenueIds.length);
-    assert.equal(await page.getByTestId('venue-card-baoti').count(), 0);
+    assert.equal(await page.getByTestId('venue-card-baoti').count(), 1);
     await page.getByTestId('venue-card-tops').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}/${name}-directory.png` });
     await page.getByTestId('venue-card-tops').click();
