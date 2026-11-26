@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local Chromium scrape service for the Dashah YDMap tennis venue."""
+"""Local Chromium scrape service for the Dashah and Futian (ftty) YDMap tennis venues."""
 
 from __future__ import annotations
 
@@ -25,6 +25,12 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
 DSH_BOOKING_URL = "https://wxsports.ydmap.cn/booking/schedule/100220?salesItemId=100000"
+# Futian sports venues: each URL opens its own tennis product natively.
+FTTY_BOOKING_URLS = {
+    "xmty": "https://ftty.ydmap.cn/booking/schedule/101332?salesItemId=100341",
+    "hmg": "https://ftty.ydmap.cn/booking/schedule/101333?salesItemId=100344",
+    "lhty": "https://ftty.ydmap.cn/booking/schedule/101335?salesItemId=100347",
+}
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("YDMAP_LISTEN_PORT", "8788"))
 PROFILE = Path(os.environ.get("YDMAP_PROFILE", "/tmp/pi-ydmap-service-profile-v2"))
@@ -111,10 +117,14 @@ SOURCE_ONLINE_ENUMS = frozenset(
 
 VENUE_GROUPS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "dsh": (("", "", DSH_BOOKING_URL),),
+    **{venue: (("", "", url),) for venue, url in FTTY_BOOKING_URLS.items()},
 }
 
 VENUE_NAMES: dict[str, str] = {
     "dsh": "大沙河国际网球交流中心",
+    "xmty": "香蜜体育中心",
+    "hmg": "黄木岗网球中心",
+    "lhty": "莲花体育中心",
 }
 
 FIND_DATE_JS = """

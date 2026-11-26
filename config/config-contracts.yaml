@@ -31,7 +31,11 @@ variables:
       - cookie
   PI_DEVICE_SSH:
     type: json_object
-    required_by: [大沙河国际网球中心巡检]
+    required_by:
+      - 大沙河国际网球中心巡检
+      - 香蜜体育中心网球场巡检
+      - 黄木岗网球中心巡检
+      - 莲花体育中心网球场巡检
     sensitive: true
     required_fields:
       - host
@@ -152,6 +156,9 @@ variables:
       - 深湾竞界网球场巡检
       - PICKLEPOP宝安网球场巡检
       - 大沙河国际网球中心巡检
+      - 香蜜体育中心网球场巡检
+      - 黄木岗网球中心巡检
+      - 莲花体育中心网球场巡检
     sensitive: true
   SZ_TYZX_TENNIS_CHATROOMS:
     type: newline_separated_string
@@ -385,6 +392,27 @@ variables:
   大沙河国际网球中心:
     type: json_list
     required_by: [大沙河国际网球中心巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  香蜜体育中心网球场:
+    type: json_list
+    required_by: [香蜜体育中心网球场巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  黄木岗网球中心:
+    type: json_list
+    required_by: [黄木岗网球中心巡检]
+    sensitive: false
+    managed_by_application: true
+    fresh_start_policy: preserve
+    default: []
+  莲花体育中心网球场:
+    type: json_list
+    required_by: [莲花体育中心网球场巡检]
     sensitive: false
     managed_by_application: true
     fresh_start_policy: preserve

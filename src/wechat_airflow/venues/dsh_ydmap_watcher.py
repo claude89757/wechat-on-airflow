@@ -97,7 +97,7 @@ def parse_end_time_for_overlap(end_time: str) -> datetime.datetime:
 
 
 def filter_court_data_for_notification(
-    input_date: str, court_data: CourtAvailability
+    input_date: str, court_data: CourtAvailability, venue_name: str = VENUE_NAME
 ) -> list[NotificationCourt]:
     up_for_send_data_list: list[NotificationCourt] = []
     inform_date = datetime.datetime.strptime(input_date, "%Y-%m-%d").strftime("%m-%d")
@@ -126,7 +126,7 @@ def filter_court_data_for_notification(
             up_for_send_data_list.append(
                 {
                     "date": inform_date,
-                    "court_name": f"{VENUE_NAME}{court_name}",
+                    "court_name": f"{venue_name}{court_name}",
                     "free_slot_list": filtered_slots,
                 }
             )

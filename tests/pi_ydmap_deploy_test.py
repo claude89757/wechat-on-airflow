@@ -157,7 +157,12 @@ def test_capture_survives_dashah_source_failure(monkeypatch):
     request = Mock(side_effect=failure)
     monkeypatch.setattr(INSTALL, "request_json", request)
     with pytest.raises(INSTALL.OperationFailure) as caught:
-        INSTALL.inspect_venues(18788, source_evidence=True)
+        # Before 09:00 only Dashah is inspected; Futian venues are unreleased.
+        INSTALL.inspect_venues(
+            18788,
+            at=datetime(2026, 11, 1, 8, tzinfo=ZoneInfo("Asia/Shanghai")),
+            source_evidence=True,
+        )
     assert caught.value.venue == "dsh"
     assert caught.value.diagnostic_ui["venue"] == "dsh"
     assert request.call_count == 1
@@ -170,7 +175,7 @@ def health():
         "protocolVersion": 2,
         "deploymentCommit": COMMIT,
         "sourceSha256": HASH,
-        "venues": ["dsh"],
+        "venues": INSTALL.SUPPORTED_VENUES,
         "busy": False,
     }
 
@@ -285,6 +290,8 @@ def observation_with_source():
         ("deploymentCommit", "c" * 40),
         ("sourceSha256", "d" * 64),
         ("venues", ["baoti", "dsh"]),
+        # The pre-Futian release must not pass as the new candidate identity.
+        ("venues", ["dsh"]),
     ],
 )
 def test_health_requires_all_runtime_identity_fields(field, value):
@@ -294,8 +301,22 @@ def test_health_requires_all_runtime_identity_fields(field, value):
 
 
 def test_retired_source_cannot_be_verified_or_included_in_drain_proof():
-    assert INSTALL.DAG_IDS == GUARD.DAG_IDS == ("大沙河国际网球中心巡检",)
-    assert INSTALL.PRODUCTS == {"dsh": {"": ("100000", "")}}
+    assert (
+        INSTALL.DAG_IDS
+        == GUARD.DAG_IDS
+        == (
+            "大沙河国际网球中心巡检",
+            "香蜜体育中心网球场巡检",
+            "黄木岗网球中心巡检",
+            "莲花体育中心网球场巡检",
+        )
+    )
+    assert INSTALL.PRODUCTS == {
+        "dsh": {"": ("100000", "")},
+        "xmty": {"": ("100341", "")},
+        "hmg": {"": ("100344", "")},
+        "lhty": {"": ("100347", "")},
+    }
     with pytest.raises(INSTALL.OperationFailure, match="scrape_not_verified"):
         INSTALL.inspect_evidence({**observation(), "venue": "baoti"}, "baoti", ["2026-11-01"])
     proof = drain_proof()
@@ -837,7 +858,7 @@ def test_http_source_failure_is_bounded_and_preserved(monkeypatch):
     assert INSTALL.safe_source_diagnostic(error.source_diagnostic) == error.source_diagnostic
 
 
-@pytest.mark.parametrize("hour,minute,days", [(11, 59, 4), (12, 0, 5)])
+@pytest.mark.parametrize("hour,minute,days", [(8, 59, 4), (11, 59, 4), (12, 0, 5)])
 def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, days):
     requests = []
     monkeypatch.setattr(
@@ -851,8 +872,13 @@ def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, d
     result = INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, hour, minute, tzinfo=ZoneInfo("Asia/Shanghai"))
     )
-    assert requests == [f"/inspect?venue=dsh&days={days}"]
+    futian = [] if hour < 9 else ["xmty", "hmg", "lhty"]
+    assert requests == [f"/inspect?venue=dsh&days={days}"] + [
+        f"/inspect?venue={venue}&days=2" for venue in futian
+    ]
     assert len(result[0]["dates"]) == days
+    # Futian venues release the next day at 09:00 and show today and tomorrow.
+    assert [len(item["dates"]) for item in result[1:]] == [2] * len(futian)
 
 
 def test_remote_failure_does_not_forward_raw_errors_or_upstream_data():
@@ -1127,7 +1153,7 @@ def test_only_preflight_requests_source_evidence(monkeypatch, tmp_path, operatio
     )
 
 
-def test_preflight_query_inspects_only_dashah(monkeypatch):
+def test_preflight_query_inspects_every_supported_venue(monkeypatch):
     paths = []
     monkeypatch.setattr(
         INSTALL, "request_json", lambda port, path, **kwargs: paths.append(path) or {}
@@ -1136,7 +1162,12 @@ def test_preflight_query_inspects_only_dashah(monkeypatch):
     INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, 12, tzinfo=ZoneInfo("Asia/Shanghai")), source_evidence=True
     )
-    assert paths == ["/inspect?venue=dsh&days=5&evidence=source-v1"]
+    assert paths == [
+        "/inspect?venue=dsh&days=5&evidence=source-v1",
+        "/inspect?venue=xmty&days=2&evidence=source-v1",
+        "/inspect?venue=hmg&days=2&evidence=source-v1",
+        "/inspect?venue=lhty&days=2&evidence=source-v1",
+    ]
 
 
 @pytest.mark.parametrize("operation", ["preflight", "apply", "health", "inspect"])
@@ -1193,12 +1224,83 @@ def test_preflight_fails_closed_after_dashah_failure_without_requesting_retired_
 
     monkeypatch.setattr(INSTALL, "request_json", request)
     with pytest.raises(INSTALL.OperationFailure) as caught:
-        INSTALL.inspect_venues(18788, source_evidence=True)
+        INSTALL.inspect_venues(
+            18788,
+            at=datetime(2026, 11, 1, 8, tzinfo=ZoneInfo("Asia/Shanghai")),
+            source_evidence=True,
+        )
     assert len(paths) == 1 and paths[0].startswith("/inspect?venue=dsh&")
     failure = caught.value
     assert failure.venue == "dsh" and failure.inspections == []
     assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == ["dsh"]
     assert "failedVenues" not in INSTALL.safe_source_diagnostic({"failedVenues": ["baoti"]})
+
+
+def test_preflight_reports_every_failed_venue_after_futian_release(monkeypatch):
+    paths = []
+
+    def request(port, path, **kwargs):
+        paths.append(path)
+        if "venue=dsh&" in path:
+            return {}
+        failure = INSTALL.OperationFailure("scrape_not_verified")
+        failure.source_failure = "schedule_not_ready"
+        raise failure
+
+    monkeypatch.setattr(INSTALL, "request_json", request)
+    monkeypatch.setattr(INSTALL, "inspect_evidence", lambda *args, **kwargs: {"venue": "dsh"})
+    with pytest.raises(INSTALL.OperationFailure) as caught:
+        INSTALL.inspect_venues(
+            18788,
+            at=datetime(2026, 11, 1, 9, tzinfo=ZoneInfo("Asia/Shanghai")),
+            source_evidence=True,
+        )
+    assert len(paths) == 4
+    failure = caught.value
+    assert failure.inspections == [{"venue": "dsh"}]
+    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == [
+        "xmty",
+        "hmg",
+        "lhty",
+    ]
+
+
+def test_reports_keep_every_supported_venue_inspection():
+    sources = {
+        "dsh": ("100000", "100220", "wxsports.ydmap.cn"),
+        "xmty": ("100341", "101332", "ftty.ydmap.cn"),
+        "hmg": ("100344", "101333", "ftty.ydmap.cn"),
+        "lhty": ("100347", "101335", "ftty.ydmap.cn"),
+    }
+    reports = []
+    for venue, (item, sales_id, host) in sources.items():
+        payload = observation()
+        payload["venue"] = venue
+        payload["days"][0]["groups"][0].update(
+            sales_item_id=item, source_sales_id=sales_id, source_host=host, product_name="网球"
+        )
+        reports.append(INSTALL.inspect_evidence(payload, venue, ["2026-11-01"]))
+    safe = INSTALL.safe_inspections(reports)
+    assert [report["venue"] for report in safe] == list(sources)
+    assert DEPLOY.CONTRACT.safe_inspections(reports) == safe
+
+
+def test_live_readiness_accepts_the_pre_futian_release_during_upgrade():
+    assert INSTALL.live_ready({**health(), "venues": ["dsh"]})["venues"] == ["dsh"]
+    assert INSTALL.live_ready(health())["venues"] == INSTALL.SUPPORTED_VENUES
+    with pytest.raises(INSTALL.OperationFailure, match="scraper_not_ready"):
+        INSTALL.live_ready({**health(), "venues": ["dsh", "xmty"]})
+
+
+def test_drain_proof_accepts_futian_dags_but_requires_dashah():
+    proof = drain_proof()
+    proof["dags"] = [
+        {"dag_id": dag_id, "was_paused": False, "paused": True} for dag_id in INSTALL.DAG_IDS
+    ]
+    assert INSTALL.validate_drain_proof(proof, COMMIT) == proof
+    proof["dags"] = proof["dags"][1:]
+    with pytest.raises(INSTALL.OperationFailure, match="dag_drain_proof_required"):
+        INSTALL.validate_drain_proof(proof, COMMIT)
 
 
 def test_apply_inspection_still_stops_after_first_failure(monkeypatch):

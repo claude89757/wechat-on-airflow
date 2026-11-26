@@ -15,6 +15,9 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
         "大湾区网球场巡检": "gba",
         "大沙河免费场巡检": "dsh_free",
         "大沙河国际网球中心巡检": "dsh",
+        "香蜜体育中心网球场巡检": "xmty",
+        "黄木岗网球中心巡检": "hmg",
+        "莲花体育中心网球场巡检": "lhty",
     }
     assert set(policy["exceptions"]) == set(exception_ids)
     for dag_id, venue_id in exception_ids.items():

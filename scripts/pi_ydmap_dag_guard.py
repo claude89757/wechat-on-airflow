@@ -1,4 +1,4 @@
-"""Run inside the existing Airflow API container; preserve exactly two DAGs' pause state."""
+"""Run inside the existing Airflow API container; preserve the YDMap DAGs' pause state."""
 
 from __future__ import annotations
 
@@ -12,7 +12,12 @@ import sys
 import time
 from contextlib import contextmanager
 
-DAG_IDS = ("大沙河国际网球中心巡检",)
+DAG_IDS = (
+    "大沙河国际网球中心巡检",
+    "香蜜体育中心网球场巡检",
+    "黄木岗网球中心巡检",
+    "莲花体育中心网球场巡检",
+)
 ACTIVE_TASK_STATES = (
     "running",
     "queued",

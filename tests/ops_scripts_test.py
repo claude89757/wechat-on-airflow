@@ -548,7 +548,7 @@ class WeChatDeliveryQuiesceTest(unittest.TestCase):
 
     def test_quiesce_requires_paused_dags_and_no_active_work(self):
         quiet = {
-            "paused_wechat_dags": 26,
+            "paused_wechat_dags": 29,
             "active_wechat_task_instances": 0,
             "active_wechat_dag_runs": 0,
         }

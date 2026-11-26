@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
@@ -10,6 +11,8 @@ from wechat_airflow.clients.pi_device import exec_pi_command
 CONFIG_VARIABLE = "PI_DEVICE_SSH"
 DEFAULT_SCRAPE_URL = "http://127.0.0.1:8788/inspect"
 DEFAULT_DAYS = 5
+DEFAULT_VENUE = "dsh"
+VENUE_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 TIME_WIDTH = 5
 
 CourtAvailability = dict[str, list[list[str]]]
@@ -111,8 +114,17 @@ def parse_inspect_payload(payload: object) -> dict[str, CourtAvailability]:
     return parsed
 
 
-def fetch_inspect_payload(config: PiDeviceConfig, *, days: int = DEFAULT_DAYS) -> dict[str, Any]:
-    url = f"{config.scrape_url}?days={int(days)}"
+def fetch_inspect_payload(
+    config: PiDeviceConfig,
+    *,
+    days: int = DEFAULT_DAYS,
+    venue: str = DEFAULT_VENUE,
+) -> dict[str, Any]:
+    if not VENUE_KEY.fullmatch(venue):
+        raise ValueError("venue must be a scraper venue key")
+    # The Pi service defaults to Dashah; keep its request unchanged.
+    query = f"days={int(days)}" if venue == DEFAULT_VENUE else f"venue={venue}&days={int(days)}"
+    url = f"{config.scrape_url}?{query}"
     command = f"curl -sS --fail --max-time 150 {quote(url, safe=':/?=&')}"
     output, error, status = exec_pi_command(
         config.host,
