@@ -56,6 +56,20 @@ SWJJ_PROGRAM = BookingMiniProgram(
     program_id="swjj",
     link="#小程序://深湾竞界智享订场/sPHQZElfQM9p8ie",
 )
+# ftty.ydmap.cn venues use their own booking page URL (opens in WeChat's browser),
+# one per venue so each opens its own schedule and cools down independently.
+XMTY_PROGRAM = BookingMiniProgram(
+    program_id="xmty",
+    link="https://ftty.ydmap.cn/booking/schedule/101332?salesItemId=100341",
+)
+HMG_PROGRAM = BookingMiniProgram(
+    program_id="hmg",
+    link="https://ftty.ydmap.cn/booking/schedule/101333?salesItemId=100344",
+)
+LHTY_PROGRAM = BookingMiniProgram(
+    program_id="lhty",
+    link="https://ftty.ydmap.cn/booking/schedule/101335?salesItemId=100347",
+)
 
 VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "szw": WEILAIHUI,
@@ -84,6 +98,9 @@ VENUE_BOOKING_PROGRAMS: Mapping[str, BookingMiniProgram] = {
     "ppba": PPBA_PROGRAM,
     "tyzx": TYZX_PROGRAM,
     "swjj": SWJJ_PROGRAM,
+    "xmty": XMTY_PROGRAM,
+    "hmg": HMG_PROGRAM,
+    "lhty": LHTY_PROGRAM,
 }
 
 BookingLinkCache = dict[str, dict[str, str]]

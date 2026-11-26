@@ -42,6 +42,7 @@ def _install_import_stubs() -> None:
 
 
 _install_import_stubs()
+booking_links = importlib.import_module("wechat_airflow.notifications.booking_links")
 client = importlib.import_module("wechat_airflow.venues.dsh_ydmap_client")
 ftty = importlib.import_module("wechat_airflow.venues.ftty_ydmap_watcher")
 
@@ -322,3 +323,7 @@ def test_pi_scraper_sources_match_the_installer_and_catalog(monkeypatch) -> None
         assert install.SOURCES[venue.venue_id] == (parsed.hostname, parsed.path.rsplit("/", 1)[-1])
         assert server.VENUE_NAMES[venue.venue_id] == venue.name
         assert venue.dag_id in install.DAG_IDS
+        # The WeChat footer opens the same schedule page the Pi scrapes.
+        program = booking_links.program_for_venue(venue.venue_id)
+        assert program is not None and program.program_id == venue.venue_id
+        assert program.link == url
