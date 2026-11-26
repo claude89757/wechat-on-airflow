@@ -75,6 +75,7 @@ class YdmapVenue:
     products: tuple[YdmapProduct, ...] = ()
     proxy_provider: Callable[[], list[str]] | None = None
     max_start_delay: datetime.timedelta = MAX_START_DELAY
+    rotation_minutes: int = ROTATION_MINUTES
 
     @property
     def _entry(self) -> Venue:
@@ -147,10 +148,10 @@ def start_delay(dag_run: object, now: datetime.datetime) -> datetime.timedelta |
 
 
 def product_for(venue: YdmapVenue, slot: datetime.datetime) -> YdmapProduct | None:
-    """The product a run reads: one per two-minute slot, cycling through all of them."""
+    """The product a run reads: one per configured rotation window, cycling through all of them."""
     if not venue.products:
         return None
-    index = int(slot.timestamp()) // (ROTATION_MINUTES * 60) % len(venue.products)
+    index = int(slot.timestamp()) // (venue.rotation_minutes * 60) % len(venue.products)
     return venue.products[index]
 
 

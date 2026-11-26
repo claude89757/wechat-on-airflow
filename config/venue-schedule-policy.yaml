@@ -50,15 +50,14 @@ exceptions:
       minutes at offsets 0/2/4, so the host sees one page load every two
       minutes, the cadence Dashah has sustained.
   宝安网球中心巡检:
-    schedule: "1-59/2 * * * *"
-    interval_seconds: 120
+    schedule: "1-59/5 * * * *"
+    interval_seconds: 300
     reason: >-
-      Restored on 2026-11-26 via the isz_https_proxies.txt HTTPS proxy pool:
-      reading all three products in one scrape challenged the second or third
-      product, so each run reads one product on odd minutes, rotating outdoor,
-      indoor and wind/rain; bawtt.ydmap.cn sees one page load every two minutes
-      and each product refreshes every six, while Futian and Dashah run on even
-      minutes.
+      Owner-approved on 2026-11-26: run every five minutes in an isolated
+      Airflow pool (ydmap_baoti_browser) and isolated Raspberry Pi Chromium
+      debug port/lock using isz_https_proxies.txt only, rotating outdoor,
+      indoor and wind/rain (fifteen minutes per product) without interfering
+      with Dashah or Futian inspections.
 change_control:
   new_venues_use_default: true
   exceptions_require:

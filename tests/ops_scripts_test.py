@@ -381,7 +381,10 @@ class AirflowDeploymentTest(unittest.TestCase):
         self.assertLess(pool_setup, script.index('git checkout --quiet --detach "$target_commit"'))
         self.assertIn("slots=1", script)
         self.assertIn('Pool.get_pool("ydmap_browser", session=session)', script)
+        self.assertIn('name="ydmap_baoti_browser"', script)
+        self.assertIn('Pool.get_pool("ydmap_baoti_browser", session=session)', script)
         self.assertIn('"ydmap_browser_pool_slots": 1', script)
+        self.assertIn('"ydmap_baoti_browser_pool_slots": 1', script)
 
     def test_recovery_deploy_bounds_current_work_and_preserves_outbox(self):
         script = deploy_airflow.remote_script()

@@ -345,8 +345,8 @@ active_dags:
 
   - dag_id: 宝安网球中心巡检
     file: dags/tennis_dags/sz_tennis/baoti_ydmap_watcher.py
-    schedule: "1-59/2 * * * *"
-    task_pool: ydmap_browser
+    schedule: "1-59/5 * * * *"
+    task_pool: ydmap_baoti_browser
     tasks:
       - check_tennis_courts
     variables:
@@ -373,7 +373,7 @@ active_dags:
     notifications:
       - webapp_observation
       - wechat
-    purpose: Detect Bao'an Tennis Center outdoor, indoor and wind/rain availability on bawtt.ydmap.cn via the Raspberry Pi browser scraper and HTTPS proxy pool, one product every two minutes on odd minutes (each product every six) from 08:00 Asia/Shanghai, publish per-product observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
+    purpose: Detect Bao'an Tennis Center outdoor, indoor and wind/rain availability on bawtt.ydmap.cn via an isolated Raspberry Pi Chromium debug port/lock and isz_https_proxies.txt HTTPS proxy pool, one product every five minutes (each product every fifteen) from 08:00 Asia/Shanghai on dedicated pool ydmap_baoti_browser, publish per-product observations for subscriber email, and notify the shared Zacks WeChat chatrooms.
     verification:
       - dag_imports
       - recent_runs_succeed

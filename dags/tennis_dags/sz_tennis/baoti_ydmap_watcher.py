@@ -21,8 +21,8 @@ dag = DAG(
     "宝安网球中心巡检",
     default_args=DEFAULT_ARGS,
     description="宝安网球中心巡检 - YDMap 树莓派浏览器代理采集（bawtt.ydmap.cn）",
-    # Odd minutes only: Futian and Dashah run on even minutes; rotates across 3 products.
-    schedule="1-59/2 * * * *",
+    # Runs every 5 minutes on an isolated browser pool/port; rotates across 3 products (15 min full cycle).
+    schedule="1-59/5 * * * *",
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
@@ -32,6 +32,6 @@ dag = DAG(
 PythonOperator(
     task_id="check_tennis_courts",
     python_callable=run_check_tennis_courts,
-    pool="ydmap_browser",
+    pool="ydmap_baoti_browser",
     dag=dag,
 )

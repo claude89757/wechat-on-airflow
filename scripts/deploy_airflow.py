@@ -430,10 +430,20 @@ with create_session() as session:
         include_deferred=False,
         session=session,
     )
+    Pool.create_or_update_pool(
+        name="ydmap_baoti_browser",
+        slots=1,
+        description="Isolated Raspberry Pi YDMap Chromium scraper for Baoti proxy runs",
+        include_deferred=False,
+        session=session,
+    )
 with create_session() as session:
     pool = Pool.get_pool("ydmap_browser", session=session)
     if pool is None or pool.slots != 1 or pool.include_deferred:
         raise RuntimeError("YDMap browser pool verification failed")
+    baoti_pool = Pool.get_pool("ydmap_baoti_browser", session=session)
+    if baoti_pool is None or baoti_pool.slots != 1 or baoti_pool.include_deferred:
+        raise RuntimeError("YDMap Baoti browser pool verification failed")
 PY
 
 git checkout --quiet --detach "$target_commit"
@@ -499,6 +509,7 @@ print(json.dumps({{
     "outbox_preserved": True,
     "dag_pause_state_restored": True,
     "ydmap_browser_pool_slots": 1,
+    "ydmap_baoti_browser_pool_slots": 1,
 }}, sort_keys=True))
 PY
 """

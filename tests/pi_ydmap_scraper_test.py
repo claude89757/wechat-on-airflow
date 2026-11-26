@@ -1175,32 +1175,100 @@ class BaotiProxyScrapeTest(unittest.TestCase):
         self.assertIn(cooled_good, probed)
         self.assertNotIn(cooled_captcha, probed)
 
-    def test_select_working_proxies_falls_back_to_secondary_github_list(self) -> None:
+    def test_select_working_proxies_uses_only_isz_list_without_secondary_fallback(self) -> None:
         with server._PROXY_STATE_LOCK:
             server._STICKY_PROXY = None
             server._PROXY_COOLDOWNS.clear()
-        fetched_urls: list[str] = []
-
-        def fake_fetch(url: str = server.BAOTI_PROXY_LIST_URL, **kwargs: object) -> list[str]:
-            fetched_urls.append(url)
-            if url == server.BAOTI_FALLBACK_PROXY_LIST_URL:
-                return ["47.90.1.2:8080"]
-            return []
-
-        def fake_probe(proxy: str, url: str) -> tuple[bool, float]:
-            return (proxy == "47.90.1.2:8080", 0.5 if proxy == "47.90.1.2:8080" else float("inf"))
+            server._PROXY_LIST_CACHE = (0.0, [])
 
         with (
-            patch.object(server, "_fetch_remote_proxy_list", side_effect=fake_fetch),
-            patch.object(server, "_probe_proxy", side_effect=fake_probe),
+            patch.object(server, "_fetch_remote_proxy_list", return_value=[]) as remote_fetch,
+            patch.object(server, "_probe_proxy", return_value=(False, float("inf"))),
         ):
             selected = server._select_working_proxies(
                 "https://bawtt.ydmap.cn/booking/schedule/104036?salesItemId=111317",
                 ["8.8.8.1:8080"],
                 limit=3,
             )
-        self.assertEqual(selected, ["47.90.1.2:8080"])
-        self.assertEqual(fetched_urls, [server.BAOTI_FALLBACK_PROXY_LIST_URL])
+        self.assertEqual(selected, [])
+        remote_fetch.assert_not_called()
+        self.assertFalse(hasattr(server, "BAOTI_FALLBACK_PROXY_LIST_URL"))
+
+    def test_baoti_lock_and_debug_port_are_isolated_from_direct_venues(self) -> None:
+        responses: list[tuple[int, dict[str, object]]] = []
+
+        def fake_send(status: int, payload: dict[str, object]) -> None:
+            responses.append((status, payload))
+
+        handler = server.Handler.__new__(server.Handler)
+        handler._send_json = fake_send
+
+        # Holding SCRAPE_LOCK blocks direct venues, not baoti.
+        server.SCRAPE_LOCK.acquire()
+        try:
+            handler.path = "/inspect?venue=dsh&days=2"
+            with patch.object(server, "scrape_available_slots") as scrape:
+                handler.do_GET()
+                scrape.assert_not_called()
+            handler.path = "/inspect?venue=baoti_outdoor&days=2"
+            with patch.object(server, "scrape_available_slots", return_value={"ok": True}):
+                handler.do_GET()
+        finally:
+            server.SCRAPE_LOCK.release()
+        self.assertEqual([s for s, _ in responses], [429, 200])
+        self.assertEqual(responses[0][1]["error"], "busy")
+
+        responses.clear()
+        # Holding BAOTI_SCRAPE_LOCK blocks baoti, not direct venues.
+        server.BAOTI_SCRAPE_LOCK.acquire()
+        try:
+            handler.path = "/inspect?venue=baoti_indoor&days=2"
+            with patch.object(server, "scrape_available_slots") as scrape:
+                handler.do_GET()
+                scrape.assert_not_called()
+            handler.path = "/inspect?venue=hmg&days=2"
+            with patch.object(server, "scrape_available_slots", return_value={"ok": True}):
+                handler.do_GET()
+        finally:
+            server.BAOTI_SCRAPE_LOCK.release()
+        self.assertEqual([s for s, _ in responses], [429, 200])
+        self.assertEqual(responses[0][1]["error"], "busy")
+
+        # Proxied baoti uses BAOTI_DEBUG_PORT, direct dsh uses DEBUG_PORT.
+        seen_ports: list[int] = []
+
+        def fake_start(url, *, profile=None, proxy=None, debug_port=server.DEBUG_PORT):
+            seen_ports.append(debug_port)
+            return Mock(pid=1)
+
+        with (
+            patch.object(server, "_cleanup_stale_browser") as cleanup,
+            patch.object(server, "_start_chromium", side_effect=fake_start),
+            patch.object(server, "_wait_devtools") as wait_dev,
+            patch.object(server, "_attach", side_effect=RuntimeError("stop_after_attach")) as att,
+            patch.object(server, "_stop"),
+            patch.object(server.time, "sleep"),
+        ):
+            server._scrape_available_slots("dsh", 2, source_evidence=False)
+            server._scrape_available_slots(
+                "baoti_outdoor", 2, source_evidence=False, proxy="36.147.78.166:443"
+            )
+        self.assertEqual(seen_ports, [server.DEBUG_PORT, server.BAOTI_DEBUG_PORT])
+        self.assertEqual(
+            cleanup.call_args_list[0].kwargs.get("debug_port", server.DEBUG_PORT),
+            server.DEBUG_PORT,
+        )
+        self.assertEqual(cleanup.call_args_list[1].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
+        self.assertEqual(
+            wait_dev.call_args_list[0].kwargs.get("debug_port", server.DEBUG_PORT),
+            server.DEBUG_PORT,
+        )
+        self.assertEqual(wait_dev.call_args_list[1].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
+        self.assertEqual(
+            att.call_args_list[0].kwargs.get("debug_port", server.DEBUG_PORT),
+            server.DEBUG_PORT,
+        )
+        self.assertEqual(att.call_args_list[1].kwargs["debug_port"], server.BAOTI_DEBUG_PORT)
 
     def test_scrape_retries_up_to_three_proxies_and_leaves_direct_untouched(self) -> None:
         with server._PROXY_STATE_LOCK:

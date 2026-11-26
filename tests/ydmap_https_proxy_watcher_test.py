@@ -78,21 +78,22 @@ def test_check_proxy_uses_strict_tls_baoti_html_and_rejects_rate_limit(
     assert watcher.check_proxy("36.147.78.166:443", {}) is False
 
 
-def test_update_proxy_file_prunes_dead_when_live_found_and_preserves_fallback_when_empty(
+def test_update_proxy_file_prepends_new_verified_and_retains_rolling_window(
     tmp_path: Path,
 ) -> None:
     proxy_file = tmp_path / "isz_https_proxies.txt"
-    dead_existing = ["1.1.1.1:8080", "2.2.2.2:8080"]
-    proxy_file.write_text("\n".join(dead_existing) + "\n", encoding="utf-8")
+    existing = [f"8.8.{i // 250}.{i % 250 + 1}:8080" for i in range(35)]
+    proxy_file.write_text("\n".join(existing) + "\n", encoding="utf-8")
 
-    # When live proxies are found, dead existing proxies are pruned immediately.
+    # Newly verified proxies come first; existing entries stay behind in a rolling 30-proxy window.
     watcher.update_proxy_file(str(proxy_file), ["36.147.78.166:443", "36.147.78.166:443"])
-    assert proxy_file.read_text(encoding="utf-8").splitlines() == ["36.147.78.166:443"]
+    updated = proxy_file.read_text(encoding="utf-8").splitlines()
+    assert len(updated) == 30
+    assert updated[0] == "36.147.78.166:443"
+    assert updated[1:] == existing[:29]
 
-    # When a run finds 0 live proxies (e.g. transient VPS glitch), keep up to 20 fallback entries.
-    many_existing = [f"8.8.{i // 250}.{i % 250 + 1}:8080" for i in range(25)]
-    proxy_file.write_text("\n".join(many_existing) + "\n", encoding="utf-8")
+    # Empty run preserves up to 30 existing proxies without wiping the file.
     watcher.update_proxy_file(str(proxy_file), [])
     kept = proxy_file.read_text(encoding="utf-8").splitlines()
-    assert len(kept) == 20
-    assert kept == many_existing[:20]
+    assert len(kept) == 30
+    assert kept == updated
