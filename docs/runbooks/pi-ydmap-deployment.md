@@ -7,7 +7,11 @@ supported booking URL in its own private profile; the single scrape lock and
 the one-slot Airflow `ydmap_browser` pool serialize them. The Futian venues
 release the next day at 09:00 and show today and tomorrow, so their DAGs and the
 installer's inspections skip them before 09:00 Asia/Shanghai and read two dates
-afterwards. 黄木岗's training walls are scraped but dropped by its Airflow
+afterwards. They share one host, which showed its slider challenge on the third
+back-to-back load during the 2026-11-26 preflight. Their DAGs therefore run every
+six minutes at minute offsets 0/2/4 (one ftty page load every two minutes, the
+cadence Dashah sustains), and one installer inspection reads only one of them,
+rotating by hour. 黄木岗's training walls are scraped but dropped by its Airflow
 watcher. The owner withdrew the
 Baoan feature from PR #263 on 2026-11-01 after its upstream access verification
 blocked the partial release. Baoan is no longer a registered scraper source,
@@ -75,8 +79,8 @@ source hash, and exactly the supported venues dsh, hmg, lhty and xmty. During th
 first upgrade the live service may still report only dsh; readiness accepts that
 set, while candidate and installed health require all four. Each inspection
 independently verifies the released Dashah horizon (four dates before noon in
-Asia/Shanghai, five from noon onward) and, from 09:00, two dates for each Futian
-venue against its own booking host and salesId. Selected date, query date, source arrays, product identity,
+Asia/Shanghai, five from noon onward) and, from 09:00, two dates for one Futian
+venue (rotating by hour) against its own booking host and salesId. Selected date, query date, source arrays, product identity,
 court inventory and provider bookability must agree. Empty availability is valid
 only when the complete dated court inventory is verified.
 
@@ -138,8 +142,10 @@ of a provider challenge.
 2. Require the protected candidate preflight and retain its bounded report.
 3. Apply the exact reviewed scraper before the affected Airflow client deployment
    (`make release` lists Pi as `notDeployedHere`; run production-pi-ydmap.yml
-   first, after 09:00 so the Futian inspections run). Otherwise new Futian DAGs
-   receive `unsupported_inspection` and publish unhealthy observations.
+   first, after 09:00 so the Futian inspection runs). Otherwise new Futian DAGs
+   receive `unsupported_inspection` and publish unhealthy observations. If a
+   natural Futian cycle reports `captcha` or `rate_limited`, pause only those
+   three DAGs and leave the scraper and Dashah running.
 4. Require health and inspect for the same SHA, then three natural successful
    cycles of each YDMap DAG and fresh correctly attributed observations.
 5. Preserve group routing, deduplication and natural delivery policies. The owner

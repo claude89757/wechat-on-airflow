@@ -872,13 +872,29 @@ def test_inspection_matches_dashah_released_horizon(monkeypatch, hour, minute, d
     result = INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, hour, minute, tzinfo=ZoneInfo("Asia/Shanghai"))
     )
-    futian = [] if hour < 9 else ["xmty", "hmg", "lhty"]
+    # One Futian venue per inspection from 09:00, rotating by hour (11 % 3 -> lhty).
+    futian = {8: [], 11: ["lhty"], 12: ["xmty"]}[hour]
     assert requests == [f"/inspect?venue=dsh&days={days}"] + [
         f"/inspect?venue={venue}&days=2" for venue in futian
     ]
     assert len(result[0]["dates"]) == days
     # Futian venues release the next day at 09:00 and show today and tomorrow.
     assert [len(item["dates"]) for item in result[1:]] == [2] * len(futian)
+
+
+def test_inspection_rotates_one_futian_venue_per_hour(monkeypatch):
+    monkeypatch.setattr(INSTALL, "request_json", lambda port, path, **kwargs: {"path": path})
+    monkeypatch.setattr(
+        INSTALL, "inspect_evidence", lambda payload, venue, dates, **kwargs: {"venue": venue}
+    )
+    seen = []
+    for hour in (9, 10, 11):
+        result = INSTALL.inspect_venues(
+            18788, at=datetime(2026, 11, 1, hour, tzinfo=ZoneInfo("Asia/Shanghai"))
+        )
+        assert [item["venue"] for item in result][0] == "dsh" and len(result) == 2
+        seen.append(result[1]["venue"])
+    assert sorted(seen) == sorted(INSTALL.FTTY_VENUES)
 
 
 def test_remote_failure_does_not_forward_raw_errors_or_upstream_data():
@@ -1153,7 +1169,7 @@ def test_only_preflight_requests_source_evidence(monkeypatch, tmp_path, operatio
     )
 
 
-def test_preflight_query_inspects_every_supported_venue(monkeypatch):
+def test_preflight_query_inspects_dashah_and_one_futian_venue(monkeypatch):
     paths = []
     monkeypatch.setattr(
         INSTALL, "request_json", lambda port, path, **kwargs: paths.append(path) or {}
@@ -1162,11 +1178,10 @@ def test_preflight_query_inspects_every_supported_venue(monkeypatch):
     INSTALL.inspect_venues(
         18788, at=datetime(2026, 11, 1, 12, tzinfo=ZoneInfo("Asia/Shanghai")), source_evidence=True
     )
+    # Never several back-to-back loads of the shared ftty.ydmap.cn host.
     assert paths == [
         "/inspect?venue=dsh&days=5&evidence=source-v1",
         "/inspect?venue=xmty&days=2&evidence=source-v1",
-        "/inspect?venue=hmg&days=2&evidence=source-v1",
-        "/inspect?venue=lhty&days=2&evidence=source-v1",
     ]
 
 
@@ -1236,7 +1251,7 @@ def test_preflight_fails_closed_after_dashah_failure_without_requesting_retired_
     assert "failedVenues" not in INSTALL.safe_source_diagnostic({"failedVenues": ["baoti"]})
 
 
-def test_preflight_reports_every_failed_venue_after_futian_release(monkeypatch):
+def test_preflight_reports_the_failed_futian_venue_with_dashah_evidence(monkeypatch):
     paths = []
 
     def request(port, path, **kwargs):
@@ -1255,14 +1270,10 @@ def test_preflight_reports_every_failed_venue_after_futian_release(monkeypatch):
             at=datetime(2026, 11, 1, 9, tzinfo=ZoneInfo("Asia/Shanghai")),
             source_evidence=True,
         )
-    assert len(paths) == 4
+    assert len(paths) == 2
     failure = caught.value
     assert failure.inspections == [{"venue": "dsh"}]
-    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == [
-        "xmty",
-        "hmg",
-        "lhty",
-    ]
+    assert INSTALL.safe_source_diagnostic(failure.source_diagnostic)["failedVenues"] == ["xmty"]
 
 
 def test_reports_keep_every_supported_venue_inspection():

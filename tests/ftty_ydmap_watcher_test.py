@@ -96,15 +96,15 @@ def test_catalog_supplies_names_dags_and_dedupe_keys() -> None:
 
 
 @pytest.mark.parametrize(
-    "file,callable_name,venue",
+    "file,callable_name,venue,cron",
     [
-        ("xmty_ydmap_watcher.py", "run_check_xmty", "xmty"),
-        ("hmg_ydmap_watcher.py", "run_check_hmg", "hmg"),
-        ("lhty_ydmap_watcher.py", "run_check_lhty", "lhty"),
+        ("xmty_ydmap_watcher.py", "run_check_xmty", "xmty", "0-59/6 * * * *"),
+        ("hmg_ydmap_watcher.py", "run_check_hmg", "hmg", "2-59/6 * * * *"),
+        ("lhty_ydmap_watcher.py", "run_check_lhty", "lhty", "4-59/6 * * * *"),
     ],
 )
 def test_dag_files_wire_their_venue_into_the_shared_browser_pool(
-    file: str, callable_name: str, venue: str
+    file: str, callable_name: str, venue: str, cron: str
 ) -> None:
     tree = ast.parse((ROOT / "dags/tennis_dags/sz_tennis" / file).read_text(encoding="utf-8"))
     calls = {
@@ -115,10 +115,32 @@ def test_dag_files_wire_their_venue_into_the_shared_browser_pool(
     dag = calls["DAG"]
     entry = next(item for item in ftty.FTTY_VENUES if item.venue_id == venue)
     assert ast.literal_eval(dag.args[0]) == entry.dag_id
+    dag_options = {keyword.arg: keyword.value for keyword in dag.keywords}
+    assert ast.literal_eval(dag_options["schedule"]) == cron
     operator = {keyword.arg: keyword.value for keyword in calls["PythonOperator"].keywords}
     assert ast.literal_eval(operator["pool"]) == "ydmap_browser"
     python_callable = operator["python_callable"]
     assert isinstance(python_callable, ast.Name) and python_callable.id == callable_name
+
+
+def test_ftty_dags_space_host_loads_two_minutes_apart() -> None:
+    minutes = []
+    for file in ("xmty_ydmap_watcher.py", "hmg_ydmap_watcher.py", "lhty_ydmap_watcher.py"):
+        tree = ast.parse((ROOT / "dags/tennis_dags/sz_tennis" / file).read_text(encoding="utf-8"))
+        dag = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "DAG"
+        )
+        cron = ast.literal_eval({k.arg: k.value for k in dag.keywords}["schedule"])
+        first, step = cron.split()[0].split("/")
+        minutes.extend(range(int(first.split("-")[0]), 60, int(step)))
+    minutes.sort()
+    gaps = [b - a for a, b in zip(minutes, [*minutes[1:], minutes[0] + 60], strict=True)]
+    # The shared ftty.ydmap.cn host sees one page load every two minutes, never closer.
+    assert set(gaps) == {2}
 
 
 def test_before_booking_opens_publishes_empty_without_scraping(

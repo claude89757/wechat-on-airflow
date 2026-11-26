@@ -236,7 +236,9 @@ SOURCES = {
 SUPPORTED_VENUES = sorted(PRODUCTS)
 # The live service may still be the release from before the Futian venues.
 LIVE_VENUE_SETS = (["dsh"], SUPPORTED_VENUES)
-# Futian venues release the next day at 09:00 and show only two dates.
+# Futian venues release the next day at 09:00 and show only two dates. They share
+# ftty.ydmap.cn, which challenged three back-to-back loads, so one inspection reads
+# only one of them, rotating by hour; the DAGs cover the others.
 FTTY_VENUES = ("xmty", "hmg", "lhty")
 FTTY_OPEN_HOUR = 9
 ERROR_CLASSES = {
@@ -1309,7 +1311,7 @@ def inspect_venues(
     targets = [("dsh", 5 if local.hour >= 12 else 4, 150)]
     if local.hour >= FTTY_OPEN_HOUR:
         # Before 09:00 the second date is unreleased; the DAGs do not inspect then.
-        targets.extend((venue, 2, 150) for venue in FTTY_VENUES)
+        targets.append((FTTY_VENUES[local.hour % len(FTTY_VENUES)], 2, 150))
     for venue, days, timeout in targets:
         today = local.date()
         expected = [(today + timedelta(days=offset)).isoformat() for offset in range(days)]

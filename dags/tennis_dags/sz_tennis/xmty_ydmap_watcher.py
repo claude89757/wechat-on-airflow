@@ -21,7 +21,8 @@ dag = DAG(
     "香蜜体育中心网球场巡检",
     default_args=DEFAULT_ARGS,
     description="香蜜体育中心网球场巡检 - YDMap 树莓派浏览器采集（ftty.ydmap.cn）",
-    schedule=timedelta(minutes=5),
+    # ftty.ydmap.cn venues share one host: minutes 0/2/4 of each six.
+    schedule="0-59/6 * * * *",
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,

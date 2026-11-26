@@ -26,26 +26,29 @@ exceptions:
     interval_seconds: 120
     reason: Business-approved two-minute cadence for Raspberry Pi Chromium scraping.
   香蜜体育中心网球场巡检:
-    schedule: every_5_minutes
-    interval_seconds: 300
+    schedule: "0-59/6 * * * *"
+    interval_seconds: 360
     reason: >-
-      Owner-approved on 2026-11-26: ftty.ydmap.cn venues share the single
-      Raspberry Pi Chromium pool with Dashah; five minutes keeps upstream
-      page loads low enough to avoid access verification.
+      Owner-approved on 2026-11-26: the three ftty.ydmap.cn venues share one
+      host, which challenged three back-to-back loads. Each runs every six
+      minutes at offsets 0/2/4, so the host sees one page load every two
+      minutes, the cadence Dashah has sustained.
   黄木岗网球中心巡检:
-    schedule: every_5_minutes
-    interval_seconds: 300
+    schedule: "2-59/6 * * * *"
+    interval_seconds: 360
     reason: >-
-      Owner-approved on 2026-11-26: ftty.ydmap.cn venues share the single
-      Raspberry Pi Chromium pool with Dashah; five minutes keeps upstream
-      page loads low enough to avoid access verification.
+      Owner-approved on 2026-11-26: the three ftty.ydmap.cn venues share one
+      host, which challenged three back-to-back loads. Each runs every six
+      minutes at offsets 0/2/4, so the host sees one page load every two
+      minutes, the cadence Dashah has sustained.
   莲花体育中心网球场巡检:
-    schedule: every_5_minutes
-    interval_seconds: 300
+    schedule: "4-59/6 * * * *"
+    interval_seconds: 360
     reason: >-
-      Owner-approved on 2026-11-26: ftty.ydmap.cn venues share the single
-      Raspberry Pi Chromium pool with Dashah; five minutes keeps upstream
-      page loads low enough to avoid access verification.
+      Owner-approved on 2026-11-26: the three ftty.ydmap.cn venues share one
+      host, which challenged three back-to-back loads. Each runs every six
+      minutes at offsets 0/2/4, so the host sees one page load every two
+      minutes, the cadence Dashah has sustained.
 change_control:
   new_venues_use_default: true
   exceptions_require:
