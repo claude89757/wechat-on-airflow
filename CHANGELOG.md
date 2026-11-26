@@ -22,6 +22,14 @@ and operational changes.
   two minutes; it challenged three back-to-back loads in the Pi preflight. A Pi
   installer inspection reads Dashah plus one of them, rotating by hour.
 
+### Fixed
+
+- The Dashah inspection no longer loses about 40% of its Pi SSH logins to internet
+  brute force. The Pi's sshd was raised from the default `MaxStartups 10:30:100` to
+  `100:30:256` with an owner-approved drop-in. The troubleshooting runbook now covers
+  `Error reading SSH protocol banner`. Password login and the FRP exposure are
+  unchanged and still need separate approval.
+
 ### Added
 
 - 香蜜体育中心, 黄木岗网球中心 and 莲花体育中心 (ftty.ydmap.cn) are inspected through

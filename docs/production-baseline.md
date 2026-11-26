@@ -1,5 +1,37 @@
 # Production Baseline
 
+## Pi SSH MaxStartups raised against brute force, 2026-11-26
+
+**Symptom.** From 11-25 20:00 and again from 11-26 08:00 (Asia/Shanghai), 8–17 of
+about 30 hourly Dashah inspection runs logged `Error reading SSH protocol banner`.
+Those runs still ended as Airflow `success`, because the watcher publishes
+`healthy=False` instead of failing the run.
+
+**Cause.** Internet brute force reaches the Pi's sshd through the same FRP forward
+that Airflow and the Pi workflows use, so sshd sees every client as `127.0.0.1`.
+The attack ran at roughly 2,800 invalid-user attempts per 15 minutes. That kept 23–24
+unauthenticated connections open, above the default `MaxStartups 10:30:100` start.
+At that level sshd randomly dropped about 41% of new connections, and 10 of 20 local
+banner probes received `Exceeded MaxStartups`.
+
+**Change.** The owner approved `/etc/ssh/sshd_config.d/40-zacks-startups.conf`,
+containing only `MaxStartups 100:30:256`. It was applied through the Pi operations
+MCP with `sshd -t` and `systemctl reload ssh` at 14:59:15. No other sshd setting,
+key, FRP rule or firewall changed.
+
+**Result.**
+- Listener startups settled at 36–45 and local probes returned 20 of 20 banners
+  while the brute force continued.
+- The first 14 natural Dashah runs after the change had 0 banner errors, compared
+  with 8 of 14 in the half hour before it.
+- Pi memory and load were unchanged.
+
+**Rollback.** Delete the drop-in, run `sshd -t`, then `systemctl reload ssh`.
+
+Password login and the public FRP SSH forward remain, and so does the brute force.
+Key-only login (after PR #342) and narrowing the FRP exposure are pending owner
+approval in [Issue #39](https://github.com/claude89757/wechat-on-airflow/issues/39#issuecomment-7184805233).
+
 ## 深湾竞界 closeout and routine release entry, 2026-11-07
 
 The pre-change public API and browser check observed Host Core
