@@ -46,10 +46,31 @@ class BookingLinksTest(unittest.TestCase):
             "tyzx": booking_links.TYZX_PROGRAM,
             "jdwx": booking_links.JDWX_PROGRAM,
             "swjj": booking_links.SWJJ_PROGRAM,
+            "xmty": booking_links.XMTY_PROGRAM,
+            "hmg": booking_links.HMG_PROGRAM,
+            "lhty": booking_links.LHTY_PROGRAM,
         }
         self.assertEqual(set(catalog), set(booking_links.VENUE_BOOKING_PROGRAMS))
         for venue_id, program in catalog.items():
             self.assertEqual(booking_links.program_for_venue(venue_id), program)
+
+    def test_ftty_venues_link_their_own_booking_page(self):
+        links = {
+            venue_id: booking_links.program_for_venue(venue_id)
+            for venue_id in ("xmty", "hmg", "lhty")
+        }
+        # One program per venue: separate cooldowns, never another venue's page.
+        self.assertEqual({p.program_id for p in links.values() if p}, set(links))
+        self.assertEqual(len({p.link for p in links.values() if p}), 3)
+        attached = booking_links.attach_footer(
+            "【黄木岗网球中心1号室外场】星期五(11-27)空场: 18:00-19:00",
+            booking_links.HMG_PROGRAM.link,
+        )
+        self.assertTrue(
+            attached.endswith(
+                "\n\nhttps://ftty.ydmap.cn/booking/schedule/101333?salesItemId=100344"
+            )
+        )
 
     def test_attach_footer_adds_the_scheme_once_as_the_last_line(self):
         message = "【深圳湾1号场】星期二(08-18)空场: 18:00-19:00"
