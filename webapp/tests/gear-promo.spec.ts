@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { FALLBACK_DASHBOARD } from "../src/api";
 
+// One card per catalog venue; the count follows venue_catalog.json.
+const VENUE_COUNT = FALLBACK_DASHBOARD.venues.length;
+
 const PROMO_KEY = "zacks:gear-promo:2026-11:seen-v2";
 type PromoEvent = { mode: string | null; at: number };
 
@@ -22,7 +25,7 @@ async function fixture(page: Page) {
     return route.fulfill({ status: 404, json: { error: "Unmocked request blocked by acceptance test" } });
   });
   await page.goto("/");
-  await expect(page.locator(".venue-card")).toHaveCount(26);
+  await expect(page.locator(".venue-card")).toHaveCount(VENUE_COUNT);
   return () => writes;
 }
 
