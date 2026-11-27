@@ -23,7 +23,7 @@ def test_web_venue_cadence_labels_match_the_airflow_policy() -> None:
     assert set(policy["exceptions"]) == set(exception_ids)
     for dag_id, venue_id in exception_ids.items():
         interval = policy["exceptions"][dag_id]["interval_seconds"]
-        # Bao'an ticks every 5 minutes and rotates across 3 products, so each product refreshes every 15 minutes.
+        # Bao'an ticks every 3 minutes and rotates across 3 products, so each product refreshes every 9 minutes.
         expected_cadence = interval * 3 if venue_id == "baoti" else interval
         assert f"{venue_id}: {expected_cadence}" in source
 

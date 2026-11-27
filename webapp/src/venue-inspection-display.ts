@@ -8,7 +8,7 @@ const INSPECTION_CADENCE_SECONDS: Readonly<Record<string, number>> = {
   xmty: 360,
   hmg: 360,
   lhty: 360,
-  baoti: 900,
+  baoti: 540,
 };
 
 export function inspectionCadenceSeconds(venueId: string): number {
