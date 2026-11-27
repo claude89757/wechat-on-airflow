@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from wechat_airflow.host_core.health import (
+    OBSERVATION_SCOPE_FRESHNESS,
     RETIRED_BAOTI_SCOPE,
     RETIRED_OBSERVATION_SCOPE,
     observation_scope_health,
@@ -71,7 +72,11 @@ def test_exact_retired_scope_is_visible_but_not_required_to_keep_polling(retired
     ],
 )
 @pytest.mark.parametrize(
-    "healthy,last_seen_at", [(False, NOW), (True, NOW - timedelta(minutes=11))]
+    "healthy,last_seen_at",
+    [
+        (False, NOW),
+        (True, NOW - OBSERVATION_SCOPE_FRESHNESS - timedelta(minutes=1)),
+    ],
 )
 def test_active_and_unlisted_bad_scopes_still_fail(observation_key, healthy, last_seen_at):
     scopes = [
@@ -82,6 +87,32 @@ def test_active_and_unlisted_bad_scopes_still_fail(observation_key, healthy, las
     assert result["ok"] is False
     assert result["checkedScopeCount"] == 31
     assert result["retiredScopeCount"] == 0
+
+
+def test_baoti_product_scopes_remain_fresh_across_fifteen_minute_rotation():
+    """Bao'an publishes one of outdoor/indoor/covered every five minutes."""
+    scopes = [
+        *active_scopes(),
+        {
+            "observation_key": "baoti:outdoor",
+            "healthy": True,
+            "last_seen_at": NOW - timedelta(minutes=14),
+        },
+        {
+            "observation_key": "baoti:indoor",
+            "healthy": True,
+            "last_seen_at": NOW - timedelta(minutes=9),
+        },
+        {
+            "observation_key": "baoti:covered",
+            "healthy": True,
+            "last_seen_at": NOW - timedelta(minutes=4),
+        },
+    ]
+    result = report(scopes)
+    assert result["ok"] is True
+    assert result["checkedScopeCount"] == 33
+    assert OBSERVATION_SCOPE_FRESHNESS >= timedelta(minutes=15)
 
 
 def test_retired_history_does_not_substitute_for_active_observation_evidence():

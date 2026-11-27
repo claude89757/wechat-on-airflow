@@ -29,6 +29,14 @@ ROOT = Path(
     )
 )
 COMPONENT_MAX_AGE = {"zacks-notification-worker": 120, "zacks-wechat-worker": 300}
+# Venue rows refresh on every product tick (Bao'an every five minutes). Per-scope
+# rows for multi-product producers only refresh when that product's turn comes
+# (Bao'an outdoor/indoor/covered: one product every five minutes → fifteen per
+# scope). Acceptance must tolerate the slowest active scope cadence plus scrape
+# jitter; ten minutes permanently fails allObservationScopesHealthy after Bao'an
+# restore.
+OBSERVATION_SCOPE_FRESHNESS = timedelta(minutes=20)
+VENUE_OBSERVATION_FRESHNESS = timedelta(minutes=10)
 RETIRED_OBSERVATION_SCOPE = "szw:check_and_notify_day_3"
 # Baoan's combined scope from the withdrawn integration. The restored producer
 # reads one product per run and publishes baoti:outdoor/indoor/covered instead.
@@ -79,7 +87,7 @@ def venue_observation_health(
             row["healthy"]
             and row["last_inspection_at"]
             and row["last_inspection_at"] >= since
-            and row["last_inspection_at"] > now - timedelta(minutes=10)
+            and row["last_inspection_at"] > now - VENUE_OBSERVATION_FRESHNESS
             for row in active
         ),
         "catalogMatches": catalog_matches,
@@ -128,7 +136,8 @@ def observation_scope_health(
     return {
         "ok": bool(active)
         and all(
-            row["healthy"] and row["last_seen_at"] > now - timedelta(minutes=10) for row in active
+            row["healthy"] and row["last_seen_at"] > now - OBSERVATION_SCOPE_FRESHNESS
+            for row in active
         ),
         "storedScopeCount": len(scopes),
         "checkedScopeCount": len(active),

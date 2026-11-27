@@ -27,14 +27,14 @@ try:
             connection.execute(text("SET LOCAL statement_timeout = '5s'"))
             connection.execute(text("SET LOCAL lock_timeout = '1s'"))
             retired = connection.execute(text(
-                "SELECT healthy, last_seen_at, last_seen_at > now() - interval '10 minutes' AS fresh "
+                "SELECT healthy, last_seen_at, last_seen_at > now() - interval '20 minutes' AS fresh "
                 "FROM zacks.observation_state WHERE observation_key = 'szw:check_and_notify_day_3'"
             )).mappings().first()
             scopes = dict(connection.execute(text(
                 "SELECT count(*) AS total_count, "
                 "count(*) FILTER (WHERE healthy) AS healthy_count, "
-                "count(*) FILTER (WHERE last_seen_at > now() - interval '10 minutes') AS fresh_count, "
-                "count(*) FILTER (WHERE healthy AND last_seen_at > now() - interval '10 minutes') AS healthy_and_fresh_count "
+                "count(*) FILTER (WHERE last_seen_at > now() - interval '20 minutes') AS fresh_count, "
+                "count(*) FILTER (WHERE healthy AND last_seen_at > now() - interval '20 minutes') AS healthy_and_fresh_count "
                 "FROM zacks.observation_state WHERE observation_key <> 'szw:check_and_notify_day_3'"
             )).mappings().one())
             delivery = dict(connection.execute(text(
@@ -52,7 +52,7 @@ try:
     report.update({
         "ok": True,
         "observed_at": control["observed_at"].isoformat(),
-        "freshness_minutes": 10,
+        "freshness_minutes": 20,
         "window_hours": 24,
         "email_window_basis": "submitted_at",
         "wechat_window_basis": "sent_at",
@@ -325,7 +325,7 @@ def business_baseline(raw: str) -> dict:
             "window_hours": 24,
             "email_window_basis": "submitted_at",
             "wechat_window_basis": "sent_at",
-            "freshness_minutes": 10,
+            "freshness_minutes": 20,
             "scope_filter": "excludes_only_known_retired_szw_day_3",
             "retired_scope": {
                 "observation_key": "szw:check_and_notify_day_3",
