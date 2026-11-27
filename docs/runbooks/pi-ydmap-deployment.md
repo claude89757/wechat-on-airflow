@@ -16,8 +16,8 @@ but dropped by its Airflow watcher.
 
 Bao'an Tennis Center (`baoti`) was withdrawn on 2026-11-01 and restored on
 2026-11-26. It runs in a physically and scheduling-isolated path: Airflow uses
-the dedicated `ydmap_baoti_browser` pool (`slots=1`) on `1-59/5 * * * *` (one
-product every five minutes, rotating outdoor, indoor, covered every fifteen
+the dedicated `ydmap_baoti_browser` pool (`slots=1`) on `1-59/3 * * * *` (one
+product every three minutes, rotating outdoor, indoor, covered every nine
 minutes — skipping kids' short court `111318`), and the Pi scraper uses its
 dedicated `BAOTI_SCRAPE_LOCK` and `BAOTI_DEBUG_PORT` (`9225`). The scraper runs
 direct-first on the Raspberry Pi and maintains a 30-minute circuit breaker: only

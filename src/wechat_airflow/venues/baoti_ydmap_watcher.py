@@ -5,9 +5,9 @@
 仅当直连触发验证码或限流时自动熔断 30 分钟并切换至 ``isz_https_proxies.txt``
 HTTPS 代理池兜底，不干扰其他场馆。
 
-每个产品有自己的采集键，每次运行只加载一个页面：DAG 在独立池 ``ydmap_baoti_browser`` 中每 5 分钟运行一次
+每个产品有自己的采集键，每次运行只加载一个页面：DAG 在独立池 ``ydmap_baoti_browser`` 中每 3 分钟运行一次
 （与福田三馆和大沙河的 ``ydmap_browser`` 物理和调度完全隔离），按计划时间轮换产品，
-每个产品 15 分钟刷新一次。三个产品发布独立的观测 scope，互不覆盖。
+每个产品 9 分钟刷新一次。三个产品发布独立的观测 scope，互不覆盖。
 儿童短网不是标准网球场，不采集。
 
 页面规则是「08:00开放预定」，可订今明两天；08:00 前不巡检。
@@ -51,8 +51,8 @@ BAOTI = YdmapVenue(
         YdmapProduct("baoti_covered", "covered"),
     ),
     proxy_provider=fetch_baoti_proxies,
-    max_start_delay=datetime.timedelta(seconds=180),
-    rotation_minutes=5,
+    max_start_delay=datetime.timedelta(seconds=120),
+    rotation_minutes=3,
 )
 
 

@@ -21,8 +21,8 @@ dag = DAG(
     "宝安网球中心巡检",
     default_args=DEFAULT_ARGS,
     description="宝安网球中心巡检 - YDMap 树莓派浏览器代理采集（bawtt.ydmap.cn）",
-    # Runs every 5 minutes on an isolated browser pool/port; rotates across 3 products (15 min full cycle).
-    schedule="1-59/5 * * * *",
+    # Runs every 3 minutes on an isolated browser pool/port; rotates across 3 products (9 min full cycle).
+    schedule="1-59/3 * * * *",
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
