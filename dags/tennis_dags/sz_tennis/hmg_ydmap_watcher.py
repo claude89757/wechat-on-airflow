@@ -21,8 +21,8 @@ dag = DAG(
     "黄木岗网球中心巡检",
     default_args=DEFAULT_ARGS,
     description="黄木岗网球中心网球场巡检 - YDMap 树莓派浏览器采集（ftty.ydmap.cn）",
-    # ftty.ydmap.cn venues share one host: minutes 0/2/4 of each six.
-    schedule="2-59/6 * * * *",
+    # ftty.ydmap.cn venues share one host: odd minutes 1/3/5 of each six, staggered from Dashah.
+    schedule="3-59/6 * * * *",
     max_active_runs=1,
     dagrun_timeout=timedelta(minutes=10),
     catchup=False,
@@ -33,5 +33,6 @@ PythonOperator(
     task_id="check_tennis_courts",
     python_callable=run_check_hmg,
     pool="ydmap_browser",
+    priority_weight=10,
     dag=dag,
 )

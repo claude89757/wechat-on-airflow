@@ -20,7 +20,7 @@ dag = DAG(
     dag_id="HTTPS可用代理巡检_ydmap",
     default_args=DEFAULT_ARGS,
     description="A DAG to check and update HTTPS proxies",
-    schedule="*/5 * * * *",
+    schedule="*/15 * * * *",
     start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("Asia/Shanghai")),
     max_active_runs=1,
     catchup=False,

@@ -33,5 +33,6 @@ PythonOperator(
     task_id="check_tennis_courts",
     python_callable=run_check_tennis_courts,
     pool="ydmap_baoti_browser",
+    priority_weight=10,
     dag=dag,
 )
