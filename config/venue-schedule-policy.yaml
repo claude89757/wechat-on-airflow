@@ -50,15 +50,15 @@ exceptions:
       minutes at offsets 0/2/4, so the host sees one page load every two
       minutes, the cadence Dashah has sustained.
   宝安网球中心巡检:
-    schedule: "1-59/3 * * * *"
-    interval_seconds: 180
+    schedule: "1-59/2 * * * *"
+    interval_seconds: 120
     reason: >-
-      Owner-approved on 2026-11-28 after a full 16-hour direct-first production
-      observation (98.94% Pi HTTP success, zero sustained challenges): run every
-      three minutes in an isolated Airflow pool (ydmap_baoti_browser) and isolated
+      Owner-approved on 2026-11-28 after a 4-hour 3-minute observation (77/77
+      Airflow successes, 100% Dashah/Futian health): run every two minutes on
+      odd minutes in an isolated Airflow pool (ydmap_baoti_browser) and isolated
       Raspberry Pi Chromium debug port/lock (direct-first with 30-minute
       circuit-breaker fallback to isz_https_proxies.txt on captcha or rate limit),
-      rotating outdoor, indoor and wind/rain (nine minutes per product) without
+      rotating outdoor, indoor and wind/rain (six minutes per product) without
       interfering with Dashah or Futian inspections.
 change_control:
   new_venues_use_default: true
