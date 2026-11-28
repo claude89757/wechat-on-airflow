@@ -282,10 +282,11 @@ production_operations:
     host: PI_DEVICE_SSH_HOST
     port: PI_DEVICE_SSH_PORT
     username: PI_DEVICE_SSH_USER
+    private_key: PI_DEVICE_SSH_PRIVATE_KEY
     password: PI_DEVICE_SSH_PASSWORD
     known_hosts: PI_DEVICE_SSH_KNOWN_HOSTS
     host_key_sha256: PI_DEVICE_SSH_HOST_KEY_SHA256
-    authentication: ssh_password
+    authentication: ssh_public_key_with_password_fallback
   github_environment_secrets:
   - AIRFLOW_SSH_HOST
   - AIRFLOW_SSH_PORT
@@ -303,6 +304,7 @@ production_operations:
   - PI_DEVICE_SSH_HOST
   - PI_DEVICE_SSH_PORT
   - PI_DEVICE_SSH_USER
+  - PI_DEVICE_SSH_PRIVATE_KEY
   - PI_DEVICE_SSH_PASSWORD
   - PI_DEVICE_SSH_KNOWN_HOSTS
   - PI_DEVICE_SSH_HOST_KEY_SHA256

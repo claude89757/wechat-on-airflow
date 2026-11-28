@@ -160,9 +160,14 @@ leaves it, and is not a GitHub secret):
 3. `pi_device_ssh_sync` keeps an existing `private_key` when it rewrites the other
    fields from GitHub, so a password rotation cannot drop the key.
 
-Turning off the Pi's SSH password login additionally needs every other password
-user moved first: the Pi deploy and diagnostic workflows still log in with
-`PI_DEVICE_SSH_PASSWORD`.
+The Pi deploy and diagnostic workflows use a separate key. Store its unencrypted
+private half as the `production` Environment secret `PI_DEVICE_SSH_PRIVATE_KEY` and
+authorize the public half for the same Pi account. `scripts/pi_ssh_auth.py` tries the
+key first and uses `PI_DEVICE_SSH_PASSWORD` only when the key is missing, unusable or
+rejected; network and host-key failures are never retried with the password. After a
+protected run logs a key login and no password fallback, the Pi's SSH password login
+can be turned off, and the `PI_DEVICE_SSH_PASSWORD` secret deleted. Then
+`pi_device_ssh_sync` drops the password from `PI_DEVICE_SSH` and keeps the `private_key`.
 
 The GitHub `production` Environment stores the scrape-host login as
 `PI_DEVICE_SSH_*` names. Rotate them there, then run the protected

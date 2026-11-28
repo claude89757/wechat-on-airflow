@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 
 import paramiko
+from pi_ssh_auth import connect_from_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "pi_host/dsh_ydmap"
@@ -420,13 +421,11 @@ def main() -> int:
         if verification_once or first_product != "default":
             raise ValueError("verification_not_authorized")
         source_hash = verify_checkout(commit)
-        client.connect(
+        connect_from_env(
+            client,
             os.environ["PI_DEVICE_SSH_HOST"],
-            port=int(os.environ["PI_DEVICE_SSH_PORT"]),
-            username=os.environ["PI_DEVICE_SSH_USER"],
-            password=os.environ["PI_DEVICE_SSH_PASSWORD"],
-            look_for_keys=False,
-            allow_agent=False,
+            int(os.environ["PI_DEVICE_SSH_PORT"]),
+            os.environ["PI_DEVICE_SSH_USER"],
             timeout=15,
             auth_timeout=15,
             banner_timeout=15,
