@@ -100,9 +100,9 @@ def test_catalog_supplies_names_dags_and_dedupe_keys() -> None:
 @pytest.mark.parametrize(
     "file,callable_name,venue,cron",
     [
-        ("xmty_ydmap_watcher.py", "run_check_xmty", "xmty", "0-59/6 * * * *"),
-        ("hmg_ydmap_watcher.py", "run_check_hmg", "hmg", "2-59/6 * * * *"),
-        ("lhty_ydmap_watcher.py", "run_check_lhty", "lhty", "4-59/6 * * * *"),
+        ("xmty_ydmap_watcher.py", "run_check_xmty", "xmty", "1-59/6 * * * *"),
+        ("hmg_ydmap_watcher.py", "run_check_hmg", "hmg", "3-59/6 * * * *"),
+        ("lhty_ydmap_watcher.py", "run_check_lhty", "lhty", "5-59/6 * * * *"),
     ],
 )
 def test_dag_files_wire_their_venue_into_the_shared_browser_pool(
@@ -121,6 +121,7 @@ def test_dag_files_wire_their_venue_into_the_shared_browser_pool(
     assert ast.literal_eval(dag_options["schedule"]) == cron
     operator = {keyword.arg: keyword.value for keyword in calls["PythonOperator"].keywords}
     assert ast.literal_eval(operator["pool"]) == "ydmap_browser"
+    assert ast.literal_eval(operator["priority_weight"]) == 10
     python_callable = operator["python_callable"]
     assert isinstance(python_callable, ast.Name) and python_callable.id == callable_name
 
@@ -141,8 +142,10 @@ def test_ftty_dags_space_host_loads_two_minutes_apart() -> None:
         minutes.extend(range(int(first.split("-")[0]), 60, int(step)))
     minutes.sort()
     gaps = [b - a for a, b in zip(minutes, [*minutes[1:], minutes[0] + 60], strict=True)]
-    # The shared ftty.ydmap.cn host sees one page load every two minutes, never closer.
+    # The shared ftty.ydmap.cn host sees one page load every two minutes on odd minutes,
+    # never colliding with Dashah's even-minute ticks in ydmap_browser.
     assert set(gaps) == {2}
+    assert all(minute % 2 == 1 for minute in minutes)
 
 
 def test_before_booking_opens_publishes_empty_without_scraping(

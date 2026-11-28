@@ -53,8 +53,8 @@ MAX_CACHED_MESSAGES = 100
 LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
 ROTATION_MINUTES = 2
 # Natural runs start within seconds of their tick. Anything later is a catch-up
-# or retry that would land within a minute of a neighbouring venue's page load.
-MAX_START_DELAY = datetime.timedelta(seconds=45)
+# or retry that would land within ~1 minute of a neighbouring venue's page load.
+MAX_START_DELAY = datetime.timedelta(seconds=55)
 
 
 @dataclass(frozen=True)

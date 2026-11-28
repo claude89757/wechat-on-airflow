@@ -9,8 +9,8 @@ Futian venues release the next day at 09:00 and show today and tomorrow, so thei
 DAGs and the installer's inspections skip them before 09:00 Asia/Shanghai and
 read two dates afterwards. They share one host, which showed its slider
 challenge on the third back-to-back load during the 2026-11-26 preflight. Their
-DAGs therefore run every six minutes at minute offsets 0/2/4 (one ftty page load
-every two minutes, the cadence Dashah sustains), and one installer inspection
+DAGs therefore run every six minutes at odd-minute offsets 1/3/5 (one ftty page load
+every two minutes, staggered from Dashah's even-minute ticks), and one installer inspection
 reads only one of them, rotating by hour. 黄木岗's training walls are scraped
 but dropped by its Airflow watcher.
 

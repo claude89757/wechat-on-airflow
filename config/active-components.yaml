@@ -75,7 +75,7 @@ active_dags:
 
   - dag_id: HTTPS可用代理巡检_ydmap
     file: dags/tennis_dags/proxy_tools/ydmap_https_proxy_watcher.py
-    schedule: "*/5 * * * *"
+    schedule: "*/15 * * * *"
     tasks:
       - check_proxies
     variables:
@@ -240,7 +240,7 @@ active_dags:
 
   - dag_id: 香蜜体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/xmty_ydmap_watcher.py
-    schedule: "0-59/6 * * * *"
+    schedule: "1-59/6 * * * *"
     task_pool: ydmap_browser
     tasks:
       - check_tennis_courts
@@ -275,7 +275,7 @@ active_dags:
 
   - dag_id: 黄木岗网球中心巡检
     file: dags/tennis_dags/sz_tennis/hmg_ydmap_watcher.py
-    schedule: "2-59/6 * * * *"
+    schedule: "3-59/6 * * * *"
     task_pool: ydmap_browser
     tasks:
       - check_tennis_courts
@@ -310,7 +310,7 @@ active_dags:
 
   - dag_id: 莲花体育中心网球场巡检
     file: dags/tennis_dags/sz_tennis/lhty_ydmap_watcher.py
-    schedule: "4-59/6 * * * *"
+    schedule: "5-59/6 * * * *"
     task_pool: ydmap_browser
     tasks:
       - check_tennis_courts

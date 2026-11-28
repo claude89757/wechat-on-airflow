@@ -121,6 +121,7 @@ def test_baoti_dag_wiring_and_odd_minute_separation() -> None:
     assert cron == "1-59/2 * * * *"
     operator = {keyword.arg: keyword.value for keyword in calls["PythonOperator"].keywords}
     assert ast.literal_eval(operator["pool"]) == "ydmap_baoti_browser"
+    assert ast.literal_eval(operator["priority_weight"]) == 10
     assert operator["python_callable"].id == "run_check_tennis_courts"  # type: ignore[attr-defined]
 
     # Odd minutes never overlap with Dashah / Futian even-minute runs.
